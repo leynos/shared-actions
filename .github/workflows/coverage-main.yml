@@ -9,8 +9,11 @@ on:
   workflow_dispatch:
 
 # One group, keyed on the ref alone, so publications never overlap and the
-# survivor of any replacement is the newest trigger: uploads land in commit
-# order. A running publisher is never cancelled, because a cancelled run
+# survivor of any replacement is the newest trigger: uploads from triggered
+# runs (push and dispatch) land in commit order. A manual "Re-run jobs" on an
+# older run keeps that run's commit; it is an operator action that republishes
+# that commit's coverage and baseline until the next push supersedes them.
+# A running publisher is never cancelled, because a cancelled run
 # abandons both its upload and its ratchet baseline write; GitHub keeps one
 # pending run per group and a newer trigger replaces it. Keying the group on
 # the event as well would let an earlier dispatch finish after a newer push

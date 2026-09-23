@@ -1106,7 +1106,8 @@ the shape the actions are written for.
   the workflow's `concurrency` group on the ref alone, such as
   `coverage-main-${{ github.ref }}`, with `cancel-in-progress: false`: a
   cancelled run loses its upload and its baseline write, and one group keeps
-  uploads in commit order.
+  uploads from pushes and dispatches in commit order. A manual re-run of an
+  older run republishes that commit's coverage until the next push.
 - Both sides pass the same `language`, the same `python-source` scope, and the
   same baseline file name, or the pull-request comparison reads a baseline
   measuring a different population, or one nothing writes.

@@ -43,9 +43,11 @@ that the credential is present, because a dispatch run selects its own ref and
 the push filter says nothing about it. The credential is in no `env`; the
 upload receives it through `access-token` directly. The workflow's
 `concurrency` group is keyed on the ref alone, so publications never overlap
-and uploads land in commit order. It never cancels a running publisher, because
-a cancelled publisher abandons its upload and its baseline write together; a
-newer trigger replaces a pending run instead.
+and uploads from triggered runs (push and dispatch) land in commit order; a
+manual re-run of an older run is an operator action that republishes that
+commit's coverage until the next push supersedes it. It never cancels a running
+publisher, because a cancelled publisher abandons its upload and its baseline
+write together; a newer trigger replaces a pending run instead.
 
 The uploader's own contract splits along the same line rather than leaving the
 pull-request lane. `test-upload-codescene-coverage.yml` keeps everything that

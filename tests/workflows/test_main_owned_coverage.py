@@ -390,10 +390,12 @@ class TestMainOwnsPublication:
     def test_the_publisher_group_is_keyed_on_the_ref_alone(
         self, documents: dict[str, WorkflowDocument]
     ) -> None:
-        """One group per ref, so publications land in commit order.
+        """One group per ref, so triggered publications land in commit order.
 
         With one group runs never overlap, and the survivor of any replacement
-        is the newest trigger, whose commit is the newest on main. A group
+        is the newest trigger, whose commit is the newest on main. A manual
+        re-run of an older run keeps its commit; that is an operator action,
+        outside the ordering this asserts. A group
         keyed on the event as well lets an earlier dispatch finish after a
         newer push and upload older coverage last; a run-unique group
         serialises nothing. The expression is asserted exactly.

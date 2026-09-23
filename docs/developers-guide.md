@@ -932,17 +932,23 @@ The workflow's `concurrency` group is keyed on the ref alone,
 `coverage-main-${{ github.ref }}`, and the contract asserts that expression
 exactly. With one group, publications never overlap, and the survivor of any
 replacement is the newest trigger, whose commit is the newest on `main`, so
-uploads land in commit order; a group keyed on the event as well would let an
-earlier dispatch finish after a newer push and upload older coverage last. It
-never cancels a running publisher, because a cancelled publisher abandons both
-its upload and its baseline write, and the contract accepts
-`cancel-in-progress` only when it is absent or literally false. GitHub keeps
-one pending run per group and a newer trigger replaces it. Two known exceptions
-follow. A dispatch that replaces a pending push uploads the same or a newer
-commit, but `generate-coverage` saves the ratchet baseline only on a push, so
-the baseline stays one commit behind until the next push. And a Dependabot
-automerge made with `GITHUB_TOKEN` fires no push, so its merge reaches the
-publisher only with the next push; there is deliberately no `schedule` trigger.
+uploads from triggered runs (push and dispatch) land in commit order; a group
+keyed on the event as well would let an earlier dispatch finish after a newer
+push and upload older coverage last. A manual "Re-run jobs" on an older run is
+outside that claim: it keeps the run's commit, so it is an operator action that
+republishes that commit's coverage and baseline until the next push supersedes
+them. The contract adds no check that the run's commit is still `main`'s head;
+re-running an old publication is a deliberate operator choice, and the next
+push restores the order. It never cancels a running publisher, because a
+cancelled publisher abandons both its upload and its baseline write, and the
+contract accepts `cancel-in-progress` only when it is absent or literally
+false. GitHub keeps one pending run per group and a newer trigger replaces it.
+Two known exceptions follow. A dispatch that replaces a pending push uploads
+the same or a newer commit, but `generate-coverage` saves the ratchet baseline
+only on a push, so the baseline stays one commit behind until the next push.
+And a Dependabot automerge made with `GITHUB_TOKEN` fires no push, so its merge
+reaches the publisher only with the next push; there is deliberately no
+`schedule` trigger.
 
 The credential is in no `env` on the publisher job, at any scope: the upload
 action is composite and would pass a step-level `env` on to its nested artefact

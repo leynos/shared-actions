@@ -124,6 +124,27 @@ class TestSuiteSource:
         assert run.result.returncode == 0, run.result.stderr
         assert "whitaker-installer.suite-source=prebuilt" in run.summary_lines()
 
+    def test_supporting_installer_stub_refuses_fallback_before_source_build(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """CI sends the policy to a simulated installer that implements it."""
+        run = run_scenario(
+            InstallScenario(
+                # Synthetic candidate version; the stub models the policy.
+                installer_version="0.2.9",
+                installer_supports_no_source_fallback=True,
+                ci_mode="true",
+                installer_source_fallback=True,
+            )
+        )
+
+        assert run.result.returncode != 0
+        assert run.installer_policy == "1"
+        assert "source fallback is forbidden" in run.result.stderr
+        assert not run.source_build_log.exists(), "Cargo must never start"
+        assert not run.installer_log.exists(), "the suite must not appear installed"
+        assert "whitaker-installer.result=success" not in run.summary_lines()
+
     def test_a_source_build_fails_the_step_in_ci_mode(
         self, run_scenario: ScenarioRunner
     ) -> None:
@@ -138,6 +159,8 @@ class TestSuiteSource:
         )
 
         assert run.result.returncode != 0
+        assert run.installer_policy == "1"
+        assert run.source_build_log.exists(), "0.2.8 ignores the new policy"
         assert "whitaker-installer.suite-source=source" in run.summary_lines()
         assert "built from source" in run.result.stderr
         assert "whitaker-installer.result=success" not in run.summary_lines(), (
@@ -149,10 +172,17 @@ class TestSuiteSource:
     ) -> None:
         """Local reproduction may legitimately build from source."""
         run = run_scenario(
-            InstallScenario(ci_mode="false", installer_source_fallback=True)
+            InstallScenario(
+                installer_version="0.2.9",
+                installer_supports_no_source_fallback=True,
+                ci_mode="false",
+                installer_source_fallback=True,
+            )
         )
 
         assert run.result.returncode == 0, run.result.stderr
+        assert run.installer_policy == "unset"
+        assert run.source_build_log.exists()
         assert "whitaker-installer.suite-source=source" in run.summary_lines()
         assert "whitaker-installer.result=success" in run.summary_lines()
 
@@ -167,6 +197,8 @@ class TestSuiteSource:
         """
         run = run_scenario(
             InstallScenario(
+                installer_version="0.2.9",
+                installer_supports_no_source_fallback=True,
                 ci_mode="true",
                 allow_suite_pin="true",
                 suite_version="v0.2.8",
@@ -175,6 +207,8 @@ class TestSuiteSource:
         )
 
         assert run.result.returncode == 0, run.result.stderr
+        assert run.installer_policy == "unset"
+        assert run.source_build_log.exists()
         assert "whitaker-installer.suite-source=source" in run.summary_lines()
         assert "whitaker-installer.result=success" in run.summary_lines()
 

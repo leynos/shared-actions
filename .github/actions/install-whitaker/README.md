@@ -132,10 +132,18 @@ action checks that the rolling release carries this target's manifest, the lint
 archive that manifest names, and both Dylint tool archives, retrying five times
 over about thirty seconds because a republish takes six or seven. If an asset
 is still absent the step fails with the URL rather than letting the installer
-build from source. Afterwards the action reads the installer's own output and
-records `whitaker-installer.suite-source=<prebuilt|source>`, failing the step on
-`source`. A source build succeeds, which is the difficulty: without this the
-run is slower, tests something else, and looks fine.
+build from source. In strict CI runs, it also sets
+`WHITAKER_NO_SOURCE_FALLBACK=1` for installers that support the policy. Those
+installers fail before starting Cargo when a published lint library or Dylint
+tool is unavailable. The current default installer, 0.2.8, does not support
+this control; a verified release and digest-pinned default-version update are
+required before this action can promise prevention. Until then the action reads
+the installer's output and fails after detecting a source build. The output
+check remains as a second failure signal for newer installers.
+
+The action clears the control for `ci-mode: false` and for a CI run that
+explicitly combines `suite-version` with `allow-suite-pin: true`; those modes
+intentionally permit source builds.
 
 The resolved nightly is recorded as
 `whitaker-installer.suite-toolchain=<toolchain>`, so a lint result can be tied

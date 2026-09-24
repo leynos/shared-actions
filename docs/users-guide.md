@@ -693,6 +693,20 @@ The watchdog belongs to `generate-coverage` and defaults to 1,800 seconds.
 Nothing in a caller's nextest configuration mentions it, which is how it comes
 to sit underneath a larger nextest budget without anyone noticing.
 
+`RUN_RUST_CARGO_WAIT_TIMEOUT` takes precedence over the `cargo-wait-timeout`
+input, and the 1,800-second default applies only when neither is set. A blank
+value counts as unset. The step prints the budget it chose before `cargo`
+starts. It refuses a value that is not a number, is not finite, or is zero or
+negative, before `cargo` starts. The error names the setting and quotes the
+rejected value:
+
+```text
+::error::RUN_RUST_CARGO_WAIT_TIMEOUT must be a finite number of seconds greater than zero; got '0'
+```
+
+A value that is not a number at all now has its rejected value quoted too.
+Nothing else about the check changed, so callers need to change nothing.
+
 If a repository has set no value it is on 1,800 seconds and nothing in the
 repository says so. That is not a budget anybody chose, and it is the state
 that killed a dependency bump in `rstest-bdd` with 1,894 of its 1,897 tests

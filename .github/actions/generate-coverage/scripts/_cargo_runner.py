@@ -327,7 +327,13 @@ def _read_wait_timeout(name: str, raw: str) -> float:
     try:
         wait_timeout = float(raw)
     except ValueError as exc:
-        typer.echo(f"::error::{name} must be a number", err=True)
+        # The value is quoted for the same reason the non-finite branch
+        # below quotes it: a job setting a budget in more than one place
+        # gets a message that says which one was wrong.
+        typer.echo(
+            f"::error::{name} must be a number; got {raw!r}",
+            err=True,
+        )
         raise typer.Exit(1) from exc
     # A public input can now carry anything float() accepts. A NaN deadline
     # never compares greater than the clock, so the watchdog never fires and

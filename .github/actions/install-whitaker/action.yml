@@ -626,15 +626,42 @@ runs:
           fi
         }
         trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=execution"; exit "${status}"' ERR
-        # Only stdout is captured. Merging stderr into it would cost the
-        # stream distinction the failure notices rely on, and the installer
-        # reports its source fallback on stdout. `pipefail` is already set, so
-        # the installer's exit status survives the pipe.
+        # The two streams are kept apart, so the notices on each stay where
+        # the reader expects them, and both are read afterwards: the installer
+        # reports a Dylint tool's source fallback on stderr and the suite's on
+        # stdout, and a backstop reading one stream is blind to the other.
         installer_log="${RUNNER_TEMP:-/tmp}/whitaker-installer-output.log"
+        installer_err="${RUNNER_TEMP:-/tmp}/whitaker-installer-errors.log"
         : > "$installer_log"
+        : > "$installer_err"
         if [[ ! -x "$WHITAKER_INSTALLER_PATH" ]]; then
           echo "::error title=Whitaker installer failed::installer was not created at ${WHITAKER_INSTALLER_PATH}" >&2
           exit 1
+        fi
+        # The installer extracts cargo-dylint and dylint-link into its bin
+        # directory and then proves each by running it: `cargo dylint` finds
+        # its subcommand only on PATH. That directory is on PATH on the Linux
+        # and macOS images but not on Windows, where every run therefore
+        # failed the proof and fell back to compiling cargo-dylint. It is put
+        # on PATH here, and for later steps, which run the tools too.
+        # The installer resolves the directory from the user profile on
+        # Windows, which Git Bash's HOME need not match, and honours
+        # XDG_BIN_HOME elsewhere.
+        on_windows_bash=false
+        if [[ "${RUNNER_OS:-}" == Windows && -n "${USERPROFILE:-}" ]] &&
+          command -v cygpath >/dev/null 2>&1; then
+          on_windows_bash=true
+        fi
+        if [[ "$on_windows_bash" == true ]]; then
+          tool_bin="$(cygpath -u "$USERPROFILE")/.local/bin"
+        else
+          tool_bin="${XDG_BIN_HOME:-${HOME}/.local/bin}"
+        fi
+        export PATH="${tool_bin}:${PATH}"
+        if [[ -n "${GITHUB_PATH:-}" && "$on_windows_bash" == true ]]; then
+          cygpath -w "$tool_bin" >> "$GITHUB_PATH"
+        elif [[ -n "${GITHUB_PATH:-}" ]]; then
+          printf '%s\n' "$tool_bin" >> "$GITHUB_PATH"
         fi
         # The lint suite always comes from the rolling release, and the
         # installer is told to fail rather than build anything from source
@@ -645,17 +672,26 @@ runs:
         # bash 3.2, where expanding an empty array under `set -u` is an
         # unbound-variable error.
         emit_metric "whitaker-installer.suite=default-branch-tip"
+        # `||` holds back errexit and the ERR trap until stderr has been
+        # replayed; `pipefail` makes the status the installer's, not tee's.
+        installer_status=0
         if [[ "$WHITAKER_CRANELIFT" == "true" ]]; then
-          "$WHITAKER_INSTALLER_PATH" --no-source-fallback --cranelift | tee "$installer_log"
+          "$WHITAKER_INSTALLER_PATH" --no-source-fallback --cranelift 2> "$installer_err" | tee "$installer_log" || installer_status=$?
         else
-          "$WHITAKER_INSTALLER_PATH" --no-source-fallback | tee "$installer_log"
+          "$WHITAKER_INSTALLER_PATH" --no-source-fallback 2> "$installer_err" | tee "$installer_log" || installer_status=$?
+        fi
+        cat "$installer_err" >&2
+        # A failing subshell is what raises the ERR trap, which reports the
+        # exit code and the metric exactly as a failing command would.
+        if (( installer_status != 0 )); then
+          ( exit "$installer_status" )
         fi
         # Read from the installer's own output rather than inferred from a
         # green exit. With the flag in force a source build cannot happen, so
         # this is the backstop that catches an installer that ignored it: its
         # fallback notice is the evidence, and a run that reports one fails.
         suite_source=prebuilt
-        if grep -Eqi "falling back|from source with cargo install|installing .* from source" "$installer_log"; then
+        if grep -Eqi "falling back|from source with cargo install|installing .* from source" "$installer_log" "$installer_err"; then
           suite_source=source
         fi
         emit_metric "whitaker-installer.suite-source=${suite_source}"

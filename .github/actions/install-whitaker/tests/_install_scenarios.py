@@ -88,10 +88,11 @@ fi
 printf '%s\\n' "$*" >> "${INSTALLER_LOG}.args"
 # A rolling asset is absent. Like a real installer from 0.2.9 on, the stub
 # refuses before Cargo starts when it was given --no-source-fallback;
-# otherwise it reproduces the notice a real installer prints when it builds
-# the Dylint tools with `cargo install` instead, on stdout where the action
-# reads it. `IGNORE_NO_SOURCE_FALLBACK` models an installer that accepts the
-# flag and falls back anyway, which only the output backstop can catch.
+# otherwise it reproduces the notices a real installer prints on stderr when
+# it builds the Dylint tools with `cargo install` instead. The action once
+# read stdout alone and missed exactly these. `IGNORE_NO_SOURCE_FALLBACK`
+# models an installer that accepts the flag and falls back anyway, which only
+# the output backstop can catch.
 if [ "$INSTALLER_SOURCE_FALLBACK" = "true" ]; then
   if [ "$IGNORE_NO_SOURCE_FALLBACK" != "true" ]; then
     for argument in "$@"; do
@@ -102,10 +103,13 @@ if [ "$INSTALLER_SOURCE_FALLBACK" = "true" ]; then
     done
   fi
   printf '%s\\n' 'cargo install cargo-dylint' >> "$SOURCE_BUILD_LOG"
-  asset=cargo-dylint-x86_64-unknown-linux-gnu-v6.0.1.tgz
-  echo "repository asset not found: ${asset}. Falling back"
-  echo "Installed cargo-dylint from source with cargo install"
+  # A real installer reports a Dylint tool's fallback on stderr.
+  notice="Repository install for cargo-dylint failed verification"
+  echo "${notice}; falling back to Cargo." >&2
+  echo "Installed cargo-dylint from source with cargo install." >&2
 fi
+# The first PATH entry, so a test can see the tool directory was prepended.
+printf '%s\\n' "${PATH%%:*}" >> "${INSTALLER_LOG}.path"
 printf '%s\\n' "suite installed" >> "$INSTALLER_LOG"
 """
 
@@ -341,6 +345,16 @@ class InstallRun:
         return self.root / "installer.log.args"
 
     @property
+    def installer_path_head(self) -> str:
+        """Return the first PATH entry the stub installer saw."""
+        return (self.root / "installer.log.path").read_text(encoding="utf-8").strip()
+
+    @property
+    def github_path(self) -> Path:
+        """Return the ``$GITHUB_PATH`` file the run step appends to."""
+        return self.root / "github-path"
+
+    @property
     def rolling_check_log(self) -> Path:
         """Return the pre-check stub log, absent when the check was skipped."""
         return self.root / "rolling-check.log"
@@ -562,6 +576,7 @@ def _base_env(root: Path, scenario: InstallScenario, path: str) -> dict[str, str
         "FAIL_DOWNLOAD": str(scenario.fail_download).lower(),
         "FAIL_INSTALLER": str(scenario.fail_installer).lower(),
         "GITHUB_STEP_SUMMARY": bash_file_path(root / "summary.md"),
+        "GITHUB_PATH": bash_file_path(root / "github-path"),
         "HOME": bash_path(home),
         "INSTALLER_LOG": bash_file_path(root / "installer.log"),
         "INSTALLER_SOURCE_FALLBACK": str(scenario.installer_source_fallback).lower(),

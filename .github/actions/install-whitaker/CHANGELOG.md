@@ -16,6 +16,15 @@ file.
   build stays as a backstop, and now runs in every mode. This supersedes the
   earlier `WHITAKER_NO_SOURCE_FALLBACK` environment control.
 
+- Put the installer's tool directory (`~/.local/bin`, or `XDG_BIN_HOME`) on
+  `PATH` for the installer and, through `GITHUB_PATH`, for later steps. The
+  installer proves cargo-dylint by running `cargo dylint`, which finds its
+  subcommand only on `PATH`; on Windows the directory was not there, so every
+  run failed that proof and compiled cargo-dylint from source. The fallback
+  went unseen because the installer reports it on stderr and the action read
+  stdout alone. It now reads both streams, and `--no-source-fallback` turns the
+  same gap into a failure.
+
 - Add a `cranelift` input, off by default, that passes `--cranelift` so the
   installer adds `rustc-codegen-cranelift` to the lint suite's toolchain. A
   repository whose builds select Cranelift ran `whitaker-installer --cranelift`

@@ -527,13 +527,10 @@ class TestLifecycleSteps:
             if line.strip().startswith('"$WHITAKER_INSTALLER_PATH"')
         ]
 
-        with_cranelift = (
-            '"$WHITAKER_INSTALLER_PATH" --no-source-fallback --cranelift '
-            '| tee "$installer_log"'
-        )
+        tail = '2> "$installer_err" | tee "$installer_log" || installer_status=$?'
         assert invocations == [
-            with_cranelift,
-            '"$WHITAKER_INSTALLER_PATH" --no-source-fallback | tee "$installer_log"',
+            f'"$WHITAKER_INSTALLER_PATH" --no-source-fallback --cranelift {tail}',
+            f'"$WHITAKER_INSTALLER_PATH" --no-source-fallback {tail}',
         ]
 
     def test_no_step_can_pin_the_suite(self) -> None:

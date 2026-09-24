@@ -80,15 +80,16 @@ home would otherwise keep serving an installer built for an older version.
 
 ## Inputs
 
-| Name                | Type   | Description                                     | Required | Default        |
-| ------------------- | ------ | ----------------------------------------------- | -------- | -------------- |
-| `cargo-home`        | string | Cargo home holding the cached installer binary  | no       | `~/.cargo`     |
-| `installer-version` | string | Version of `whitaker-installer`, 0.2.9 or later | no       | `0.2.9`        |
-| `installer-sha256`  | string | Digest for an asset the manifest does not pin   | no       | `""`           |
-| `suite-version`     | string | Refused: any non-empty value fails the step     | no       | `""`           |
-| `cache-provider`    | string | Built-in `github` or caller-owned `external`    | no       | `github`       |
-| `ci-mode`           | string | Check the published assets before the installer | no       | `true`         |
-| `github-token`      | string | Read the rolling release without the anon limit | no       | `github.token` |
+| Name                | Type   | Description                                              | Required | Default        |
+| ------------------- | ------ | -------------------------------------------------------- | -------- | -------------- |
+| `cargo-home`        | string | Cargo home holding the cached installer binary           | no       | `~/.cargo`     |
+| `installer-version` | string | Version of `whitaker-installer`, 0.2.9 or later          | no       | `0.2.9`        |
+| `installer-sha256`  | string | Digest for an asset the manifest does not pin            | no       | `""`           |
+| `suite-version`     | string | Refused: any non-empty value fails the step              | no       | `""`           |
+| `cache-provider`    | string | Built-in `github` or caller-owned `external`             | no       | `github`       |
+| `ci-mode`           | string | Check the published assets before the installer          | no       | `true`         |
+| `cranelift`         | string | Also add rustc-codegen-cranelift for the suite toolchain | no       | `false`        |
+| `github-token`      | string | Read the rolling release without the anon limit          | no       | `github.token` |
 
 ## What is pinned, and what is not
 
@@ -124,6 +125,11 @@ thirty seconds, because a republish takes six or seven, and fails with the URL
 if an asset is still absent. Turn it off only where the rolling release cannot
 be reached, such as a local reproduction; the installer still refuses a source
 build.
+
+`cranelift: true` passes `--cranelift`, so the installer adds the
+`rustc-codegen-cranelift` component to the lint suite's toolchain through
+rustup. A repository whose builds select the Cranelift backend needs it for
+`whitaker` to compile the checkout; nothing is built from source either way.
 
 The resolved nightly is recorded as
 `whitaker-installer.suite-toolchain=<toolchain>`, so a lint result can be tied

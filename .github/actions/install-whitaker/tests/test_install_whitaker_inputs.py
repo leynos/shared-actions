@@ -40,6 +40,7 @@ class ValidationInputs:
     runner_os: str = "Linux"
     installer_sha256: str = ""
     ci_mode: str = "true"
+    cranelift: str = "false"
     suite_version: str = ""
 
 
@@ -71,6 +72,7 @@ def run_validation(tmp_path: Path, inputs: ValidationInputs) -> ValidationRun:
             "cache-provider": inputs.cache_provider,
             "cargo-home": inputs.cargo_home,
             "ci-mode": inputs.ci_mode,
+            "cranelift": inputs.cranelift,
             "installer-sha256": inputs.installer_sha256,
             "installer-version": inputs.installer_version,
             "suite-version": inputs.suite_version,
@@ -337,13 +339,14 @@ class TestSuitePinRefused:
 
         assert run.returncode == 0, run.stderr
 
-    def test_a_non_boolean_ci_mode_is_rejected(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("field", ["ci_mode", "cranelift"])
+    def test_a_non_boolean_flag_is_rejected(self, tmp_path: Path, field: str) -> None:
         """A near-miss must fail rather than read as false.
 
         `yes` is the shape a caller reaches for, and treating it as false
-        would silently skip the published-asset check they meant to enable.
+        would silently drop the behaviour they meant to enable.
         """
-        run = run_validation(tmp_path, self._inputs(ci_mode="yes"))
+        run = run_validation(tmp_path, self._inputs(**{field: "yes"}))
 
         assert run.returncode != 0
         assert "must be true or false" in run.stderr

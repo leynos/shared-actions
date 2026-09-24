@@ -58,6 +58,26 @@ class TestInstallerArguments:
         assert "whitaker-installer.suite=default-branch-tip" in run.summary_lines()
 
 
+class TestCranelift:
+    """Cover the one optional installer argument the action forwards."""
+
+    @pytest.mark.parametrize(
+        ("cranelift", "arguments"),
+        [
+            pytest.param("true", "--no-source-fallback --cranelift", id="on"),
+            pytest.param("false", "--no-source-fallback", id="off"),
+        ],
+    )
+    def test_forwards_cranelift_only_when_asked(
+        self, run_scenario: ScenarioRunner, cranelift: str, arguments: str
+    ) -> None:
+        """The component is added on request, and the flag is never dropped."""
+        run = run_scenario(InstallScenario(cranelift=cranelift))
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert run.installer_args.read_text(encoding="utf-8").strip() == arguments
+
+
 class TestSuitePinRefused:
     """Cover the rolling-release clause: the suite is never pinned."""
 

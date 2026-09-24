@@ -16,6 +16,11 @@ file.
   build stays as a backstop, and now runs in every mode. This supersedes the
   earlier `WHITAKER_NO_SOURCE_FALLBACK` environment control.
 
+- Add a `cranelift` input, off by default, that passes `--cranelift` so the
+  installer adds `rustc-codegen-cranelift` to the lint suite's toolchain. A
+  repository whose builds select Cranelift ran `whitaker-installer --cranelift`
+  directly; the action is now the only permitted route, so it carries the flag.
+
 - Refuse a silent source build. Whitaker republishes its rolling release on
   every merge, and the publish briefly left the tag without a complete asset
   set. A consumer landed in it: chutoro's install began in the same second a

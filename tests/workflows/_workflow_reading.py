@@ -103,10 +103,10 @@ FORK_FALLBACK_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
         "proving nothing, so it skips a fork's pull request instead."
     ),
     ("test-upload-codescene-coverage.yml", "cold-runner-contract"): (
-        "The job reads CS_ACCESS_TOKEN to prove the pinned CLI parses the "
-        "Slipcover fixtures. A fork's pull request cannot read a secret, so "
-        "a fallback would put the lane on a GitHub-hosted runner only to "
-        "fail on the missing token; it skips a fork's pull request instead."
+        "The job installs the pinned CLI through the repository's own "
+        "action tree, which a fork's pull request cannot reach in the shape "
+        "the proof needs, so the job's own guard skips a fork's pull "
+        "request rather than falling back."
     ),
 }
 

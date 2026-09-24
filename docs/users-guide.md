@@ -462,8 +462,13 @@ toolchain the published libraries were built with as
 to the compiler that produced it.
 
 The optional `installer-version` input selects the `whitaker-installer` version
-and defaults to `0.2.8`. The optional `cargo-home` input defaults to
-`~/.cargo`; it controls the cached `whitaker-installer` location
+and defaults to `0.2.9`; the action refuses any older version, because older
+installers reject `--no-source-fallback`. Set the optional `cranelift` input to
+`true` when the repository's builds select the Cranelift codegen backend: the
+action then passes `--cranelift`, and the installer adds
+`rustc-codegen-cranelift` to the lint suite's toolchain through rustup. The
+optional `cargo-home` input defaults to `~/.cargo`; it controls the cached
+`whitaker-installer` location
 (`${{ steps.validate-inputs.outputs.installer-path }}`). The optional
 `cache-provider` input defaults to `github`; use `external` when the caller
 mounts this path and the installed suite through a Namespace cache volume.

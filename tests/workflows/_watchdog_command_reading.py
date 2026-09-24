@@ -11,6 +11,7 @@ lane module.
 
 from __future__ import annotations
 
+import itertools
 import re
 import shlex
 import typing as typ
@@ -156,13 +157,16 @@ def _fragments(script: str) -> list[str]:
     return fragments
 
 
+def _is_prefix(word: str) -> bool:
+    """Return whether *word* may precede a command without being it."""
+    return word in _SHELL_PREFIXES or _ASSIGNMENT.match(word) is not None
+
+
 def _unconditional(words: list[str]) -> list[str] | None:
     """Return a command's words without its prefixes, or None if conditional."""
     if _CONDITIONAL_OPERATORS & set(words):
         return None
-    while words and (words[0] in _SHELL_PREFIXES or _ASSIGNMENT.match(words[0])):
-        words = words[1:]
-    return words or None
+    return list(itertools.dropwhile(_is_prefix, words)) or None
 
 
 def command_lines(script: str) -> cabc.Iterator[list[str]]:

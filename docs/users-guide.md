@@ -62,25 +62,29 @@ on every run.
   `ubicloud`. You no longer need `export-ubicloud-cache-credentials` before
   `setup-rust`; a job that still calls it first is harmless, and its exported
   credentials are recognized rather than exported again.
-- **GitHub-hosted.** Any other runner selects `github`, sccache's own GitHub
-  Actions backend.
+- **GitHub-hosted.** Any other runner selects `local` disk, and the action
+  caches the directory itself: it restores the default branch's saved directory
+  on every run and saves a new one only on a push to the default branch. Set
+  `SCCACHE_GHA_ENABLED: 'true'` yourself if you want GitHub's cache service
+  instead, which then reports `github`.
 - **Local.** Under nektos/act, or on a runner with no cache service at all, the
   action selects `local` disk rather than failing the build.
 
 Your own choice still wins. An explicit `SCCACHE_GHA_ENABLED` (or
 `SCCACHE_GHA_VERSION`) is left alone, `false` and an empty value included, so a
 workflow that sets it at job level keeps its own value and needs no change.
-Failing that, a caller-set `SCCACHE_DIR` leaves sccache on that directory.
-`SCCACHE_DIR` therefore selects local disk only when `SCCACHE_GHA_ENABLED` is
-unset. Caches do not cross between Ubicloud's proxy and GitHub's service, so a
-fork's pull request that falls back to a GitHub-hosted runner starts with a
-cold cache.
+Failing that, a caller-set `SCCACHE_DIR` leaves sccache on that directory, and
+the action caches none of it. `SCCACHE_DIR` therefore selects local disk only
+when `SCCACHE_GHA_ENABLED` is unset. Caches do not cross between Ubicloud's
+proxy and the hosted arm's cache. A job with a fork fallback runs on Ubicloud
+on the default branch, so it saves nothing for the hosted arm, and a fork's
+pull request starts cold.
 
 The selection is the `cache-backend` output (`ubicloud`, `github` or `local`,
 and empty when sccache is not in use) and the line
 `metric setup-rust.sccache.backend=<ubicloud|github|local>`. To confirm it took
-effect, `sccache --show-stats` reports a `ghac` cache location, on either
-service, rather than `Local disk`.
+effect, `sccache --show-stats` reports a `ghac` cache location on Ubicloud, and
+`Local disk` naming `${{ runner.temp }}/sccache` on a GitHub-hosted runner.
 
 A job that must have a particular backend says so with `expect-cache`:
 
@@ -125,11 +129,10 @@ other two are tracked because they are the sccache-action's to change. **If you
 never set a variable, the action's value stays**, including the `on` that suits
 a GitHub-hosted runner.
 
-So on Ubicloud, leave `use-sccache: 'true'` and let `setup-rust` publish the
-proxy credentials. On a GitHub-hosted runner the action selects GitHub's
-service; if you prefer the local-disk arm described under
-[Rust cache ownership](#rust-cache-ownership), which measured better for Rust
-there, opt out as that section says.
+So leave `use-sccache: 'true'` on either kind of runner. On Ubicloud
+`setup-rust` publishes the proxy credentials; on a GitHub-hosted runner it owns
+a local sccache directory and its cache, as described under
+[Rust cache ownership](#rust-cache-ownership).
 
 ### Reserved `ACTIONS_*` variables, once
 
@@ -185,12 +188,29 @@ disabled.
 On Ubicloud, use the proxy, which `setup-rust` selects by default. The proxy is
 on the runner's own private network, so a hit costs almost nothing.
 
-On a GitHub-hosted runner `setup-rust` selects GitHub's service, but prefer the
-local-disk arm for Rust. The GitHub Actions backend measured 0.28 s per cache
-hit against 0.42 s per compile on Chutoro, which spends most of what it saves,
-and Whitaker's Windows lane had every one of 643 writes rejected. The same lane
-against a local directory under `actions/cache` recorded no read errors, no
-write errors and a 78 % warm hit rate. So on those runners:
+On a GitHub-hosted runner `setup-rust` uses local disk and caches it for you.
+The GitHub Actions backend measured 0.28 s per cache hit against 0.42 s per
+compile on Chutoro, which spends most of what it saves, and Whitaker's Windows
+lane had every one of 643 writes rejected. The same lane against a local
+directory under `actions/cache` recorded no read errors, no write errors and a
+78 % warm hit rate, so that is what the action now does by default:
+
+- sccache writes to `${{ runner.temp }}/sccache`;
+- every run restores the newest directory the default branch saved for the
+  same OS, architecture, compiler and job, preferring one saved for the same
+  `Cargo.lock`;
+- only a push to the default branch saves, so pull requests read and never
+  write, and there is exactly one writer per lane;
+- matrix entries that share a runner and compiler but build differently can
+  keep separate lanes with `sccache-cache-discriminator`, which defaults to the
+  job id.
+
+A job whose default branch never pushes (for example, a workflow that runs only
+on pull requests) stays cold; add a `push` trigger for the default branch to
+the job that builds, so the trunk can save.
+
+You no longer need to hand-roll this. Workflows that did the following can drop
+it and leave `use-sccache: 'true'`:
 
 - set `use-sccache: 'false'`, which turns off both the installation and the
   server, and install a pinned, checksum-verified sccache yourself;
@@ -201,14 +221,14 @@ write errors and a 78 % warm hit rate. So on those runners:
 - let one designated job save it on a push to `main`, so the readers and the
   writer do not contend for the key.
 
-The install is the lane's own, and pinned by version and digest, because
-nothing here is built from source or fetched unverified. This one is for
-**Linux x86_64 runners**, and only those: it names the
-`x86_64-unknown-linux-musl` archive, and `sha256sum` is a GNU coreutils tool
-that macOS does not ship. A macOS lane takes the `aarch64-apple-darwin` or
-`x86_64-apple-darwin` archive and `shasum -a 256 -c`, and a Windows lane the
-`x86_64-pc-windows-msvc` zip. Each has its own digest, published beside the
-archive as a `.sha256` file.
+Keep that shape only where you need an sccache the action does not install. Its
+install is the lane's own, and pinned by version and digest, because nothing
+here is built from source or fetched unverified. This one is for **Linux x86_64
+runners**, and only those: it names the `x86_64-unknown-linux-musl` archive, and
+`sha256sum` is a GNU coreutils tool that macOS does not ship. A macOS lane
+takes the `aarch64-apple-darwin` or `x86_64-apple-darwin` archive and
+`shasum -a 256 -c`, and a Windows lane the `x86_64-pc-windows-msvc` zip. Each
+has its own digest, published beside the archive as a `.sha256` file.
 
 ```yaml
 - name: Install sccache

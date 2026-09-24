@@ -347,8 +347,11 @@ with the event. The runner decides which service:
   exports them, clears `ACTIONS_CACHE_SERVICE_V2`, and selects `ubicloud`. An
   already-cleared `ACTIONS_CACHE_SERVICE_V2` means
   `export-ubicloud-cache-credentials` ran first, and nothing is exported twice;
-- any other runner with a runtime token has GitHub's service, and selects
-  `github` without touching the credentials;
+- any other runner with a runtime token is GitHub-hosted. Left to the action,
+  it selects `local`: the step exports `SCCACHE_DIR` as
+  `${{ runner.temp }}/sccache` and the action caches that directory itself, as
+  described below. GitHub's service is selected (`github`) only when the caller
+  enables it with their own switch;
 - nektos/act (`ACT` set), or no runtime token, has no usable service, and
   selects `local` rather than failing the build.
 
@@ -358,8 +361,34 @@ the order. An explicit `SCCACHE_GHA_ENABLED` or `SCCACHE_GHA_VERSION` wins,
 `1`, in any case): someone who turned the cache off did so deliberately, and a
 `SCCACHE_DIR` set alongside it does not override that. Failing an explicit
 value, a caller-set `SCCACHE_DIR` means they mounted storage of their own, and
-selects `local`. Only when the caller chose nothing does the step write
-`SCCACHE_GHA_ENABLED=true` itself.
+selects `local`, and the action caches nothing of it. Only when the caller
+chose nothing does the step write anything itself: `SCCACHE_GHA_ENABLED=true`
+on Ubicloud, `SCCACHE_DIR` on a GitHub-hosted runner.
+
+The hosted arm owns its directory's cache in three steps between the selection
+and the server start, all gated on the selection's `owns-local-cache` output.
+That output is true only on a GitHub-hosted runner left to the action and under
+`cache-provider: github`, because `external` hands every cache path to the
+caller.
+
+- "Key the sccache directory cache" builds one lane's key,
+  `sccache-<OS>-<arch>-<compiler>-<discriminator>-<lockfile>-<run id>`, with
+  restore keys that drop the run id and then the lockfile. The compiler is a
+  `cksum` of `rustc -vV`. The discriminator is `sccache-cache-discriminator`,
+  or the job id by default, with anything outside `[A-Za-z0-9._-]` replaced,
+  since a cache key may not hold a comma.
+- On a push to the default branch, the full `actions/cache` action restores
+  the directory and its post-job step saves it under the run's key. A composite
+  action has no post step, so this is the only way to save after the caller's
+  build.
+- Everywhere else, `actions/cache/restore` restores and never writes.
+
+The two cache steps' predicates are exact complements, and a contract asserts
+both whole. The trunk is the single writer: a pull request can read only its
+own scope and the default branch's, so a save from one would warm nothing but
+itself, and two writers would contend for the key. Both steps name one path,
+key and restore-key set, and use the repository's single `actions/cache`
+revision.
 
 `expect-cache` (`ubicloud`, `github` or `any`, default `any`) fails the step
 when the selection differs, before anything is exported. A job pinned to
@@ -412,8 +441,9 @@ and uv archives only; which service sccache writes to is selected by runner, as
 records and "`setup-rust` and the rustc wrapper" above describes. Neither input
 changes the other, so an Ubicloud job with `cache-provider: external` still
 gets Ubicloud's proxy for sccache. Caches do not cross between that proxy and
-GitHub's service: a fork's run on a GitHub-hosted runner starts cold, and
-nothing here tries to bridge the two.
+the hosted arm's `actions/cache` entries, and nothing here tries to bridge the
+two. A fork-fallback job runs on Ubicloud on the default branch, so it saves
+nothing to the hosted arm's cache, and its fork arm starts cold.
 
 Those baseline steps use the `actions/cache/restore` and `actions/cache/save`
 sub-actions rather than the full `actions/cache` action. The full action

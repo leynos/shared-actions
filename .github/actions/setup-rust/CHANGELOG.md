@@ -6,13 +6,16 @@
   `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`, which `run:` steps cannot
   see. A private address literal is Ubicloud's proxy, whose credentials the
   action now masks and exports itself; any other runner with a runtime token
-  gets GitHub's service; nektos/act, or no token, gets local disk. A caller's
-  `SCCACHE_GHA_ENABLED`, `SCCACHE_GHA_VERSION` or `SCCACHE_DIR` still wins. New
-  input `expect-cache` (`ubicloud`, `github` or `any`, default `any`) fails a
-  job whose runner offers a different backend, and new output `cache-backend`
-  reports the selection. The metric `metric setup-rust.sccache.backend` now
-  reports `ubicloud`, `github` or `local` in place of `gha`, `local` or
-  `caller`. Fork-fallback jobs no longer need a handwritten guard around
+  gets local disk at `${{ runner.temp }}/sccache`, which the action restores on
+  every run and saves only on a push to the default branch, keyed per lane (new
+  input `sccache-cache-discriminator`, default the job id); nektos/act, or no
+  token, gets local disk. A caller's `SCCACHE_GHA_ENABLED`,
+  `SCCACHE_GHA_VERSION` or `SCCACHE_DIR` still wins. New input `expect-cache`
+  (`ubicloud`, `github` or `any`, default `any`) fails a job whose runner
+  offers a different backend, and new output `cache-backend` reports the
+  selection. The metric `metric setup-rust.sccache.backend` now reports
+  `ubicloud`, `github` or `local` in place of `gha`, `local` or `caller`.
+  Fork-fallback jobs no longer need a handwritten guard around
   `export-ubicloud-cache-credentials` (#521, ADR 0005).
 
 - Pin `mozilla-actions/sccache-action` to sccache v0.17.0. Left unset, the

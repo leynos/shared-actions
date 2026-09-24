@@ -31,6 +31,7 @@ from sccache_backend_harness import (
     GITHUB_V2_RUNNER,
     PROXY_URL,
     RUNTIME_TOKEN,
+    SCCACHE_DIR,
     UBICLOUD_RUNNER,
     run_selection,
 )
@@ -47,6 +48,9 @@ CREDENTIALS = {
     "ACTIONS_CACHE_SERVICE_V2": "",
 }
 SWITCH = {"SCCACHE_GHA_ENABLED": "true"}
+#: What a GitHub-hosted selection left to the action publishes: its own
+#: directory, which the action then caches.
+OWNED_DIRECTORY = {"SCCACHE_DIR": SCCACHE_DIR}
 
 
 def _manifest() -> dict[str, typ.Any]:
@@ -111,12 +115,14 @@ class TestManifest:
         )
 
     def test_the_expectation_reaches_the_script_as_input(self) -> None:
-        """`expect-cache` travels through `env`, never spliced into code."""
+        """Inputs travel through `env`, never spliced into code."""
         step = get_step(BACKEND_STEP)
 
-        assert step["env"] == {"SR_EXPECT_CACHE": "${{ inputs.expect-cache }}"}, (
-            "expect-cache must reach the script through the step's env"
-        )
+        assert step["env"] == {
+            "SR_EXPECT_CACHE": "${{ inputs.expect-cache }}",
+            "SR_CACHE_PROVIDER": "${{ inputs.cache-provider }}",
+            "SR_SCCACHE_DIR": "${{ runner.temp }}/sccache",
+        }, "every input must reach the script through the step's env"
         assert "inputs." not in step["with"]["script"], (
             "an expression spliced into the script is code injection"
         )
@@ -136,8 +142,8 @@ class TestManifest:
 #: (runner, caller variables, backend, exported) for every runner case.
 _CASES: typ.Final[list[typ.Any]] = [
     pytest.param(UBICLOUD_RUNNER, {}, "ubicloud", CREDENTIALS | SWITCH, id="ubicloud"),
-    pytest.param(GITHUB_RUNNER, {}, "github", SWITCH, id="github-public-url"),
-    pytest.param(GITHUB_V2_RUNNER, {}, "github", SWITCH, id="github-no-v1-url"),
+    pytest.param(GITHUB_RUNNER, {}, "local", OWNED_DIRECTORY, id="github-public-url"),
+    pytest.param(GITHUB_V2_RUNNER, {}, "local", OWNED_DIRECTORY, id="github-no-v1-url"),
     pytest.param(ACT_RUNNER, {}, "local", {}, id="act"),
     pytest.param({"ACTIONS_CACHE_URL": PROXY_URL}, {}, "local", {}, id="no-token"),
     pytest.param({}, {}, "local", {}, id="nothing-at-all"),
@@ -156,6 +162,13 @@ _CASES: typ.Final[list[typ.Any]] = [
         id="caller-directory",
     ),
     pytest.param(
+        GITHUB_RUNNER,
+        {"SCCACHE_DIR": "/mnt/sccache"},
+        "local",
+        {},
+        id="caller-directory-on-github",
+    ),
+    pytest.param(
         UBICLOUD_RUNNER,
         {"SCCACHE_GHA_ENABLED": "false"},
         "local",
@@ -171,6 +184,13 @@ _CASES: typ.Final[list[typ.Any]] = [
         "ubicloud",
         CREDENTIALS,
         id="caller-switch-on",
+    ),
+    pytest.param(
+        GITHUB_RUNNER,
+        {"SCCACHE_GHA_ENABLED": "true"},
+        "github",
+        {},
+        id="caller-asks-for-github",
     ),
     pytest.param(
         UBICLOUD_RUNNER,
@@ -192,8 +212,8 @@ _CASES: typ.Final[list[typ.Any]] = [
             "ACTIONS_RUNTIME_TOKEN": RUNTIME_TOKEN,
         },
         {},
-        "github",
-        SWITCH,
+        "local",
+        OWNED_DIRECTORY,
         id="private-looking-dns-name",
     ),
 ]
@@ -214,14 +234,35 @@ class TestSelection:
 
         Exactly the listed variables are exported, so a case that publishes
         the runtime token where it should not, or writes a switch the caller
-        already set, fails on the extra key.
+        already set, fails on the extra key. The action owns a directory, and
+        so its cache, exactly when it exports `SCCACHE_DIR`.
         """
         calls = run_selection(runner, caller=caller)
+        owns = "SCCACHE_DIR" in exported
 
         assert calls.failure is None, calls.failure
-        assert calls.outputs == {"cache-backend": backend}, calls.outputs
+        assert calls.outputs == {
+            "cache-backend": backend,
+            "owns-local-cache": "true" if owns else "false",
+            "sccache-dir": SCCACHE_DIR if owns else "",
+        }, calls.outputs
         assert calls.backend_metric() == backend, calls.info
         assert calls.exported == exported, calls.exported
+
+    def test_an_external_cache_provider_keeps_the_directory_the_callers(
+        self,
+    ) -> None:
+        """`cache-provider: external` hands every cache path to the caller.
+
+        The action still selects local disk on a GitHub-hosted runner, but
+        exports no directory and caches none, because the caller's own
+        provider owns what persists.
+        """
+        calls = run_selection(GITHUB_RUNNER, cache_provider="external")
+
+        assert calls.outputs["cache-backend"] == "local", calls.outputs
+        assert calls.outputs["owns-local-cache"] == "false", calls.outputs
+        assert calls.exported == {}, calls.exported
 
     def test_a_name_that_looks_private_is_never_handed_the_token(self) -> None:
         """`10.attacker.example` is a DNS name, not a private literal.
@@ -282,6 +323,7 @@ class TestExpectCache:
             pytest.param(GITHUB_V2_RUNNER, "ubicloud", id="ubicloud-no-proxy"),
             pytest.param({}, "ubicloud", id="ubicloud-no-service"),
             pytest.param(UBICLOUD_RUNNER, "github", id="github-on-ubicloud"),
+            pytest.param(GITHUB_RUNNER, "github", id="github-left-to-the-action"),
             pytest.param(ACT_RUNNER, "github", id="github-under-act"),
         ],
     )
@@ -297,20 +339,24 @@ class TestExpectCache:
         assert RUNTIME_TOKEN not in calls.failure, calls.failure
 
     @pytest.mark.parametrize(
-        ("runner", "expect"),
+        ("runner", "caller", "expect"),
         [
-            pytest.param(UBICLOUD_RUNNER, "ubicloud", id="ubicloud"),
-            pytest.param(GITHUB_RUNNER, "github", id="github"),
+            pytest.param(UBICLOUD_RUNNER, {}, "ubicloud", id="ubicloud"),
+            pytest.param(GITHUB_RUNNER, SWITCH, "github", id="github-when-asked-for"),
         ],
     )
     def test_the_expected_backend_passes(
-        self, runner: dict[str, str], expect: str
+        self, runner: dict[str, str], caller: dict[str, str], expect: str
     ) -> None:
-        """Meeting the expectation changes nothing about the selection."""
-        calls = run_selection(runner, expect=expect)
+        """Meeting the expectation changes nothing about the selection.
+
+        `github` is met only when the caller asks for GitHub's service, since
+        the action left to itself gives a GitHub-hosted runner local disk.
+        """
+        calls = run_selection(runner, caller=caller, expect=expect)
 
         assert calls.failure is None, calls.failure
-        assert calls.outputs == {"cache-backend": expect}, calls.outputs
+        assert calls.outputs["cache-backend"] == expect, calls.outputs
 
     @pytest.mark.parametrize(
         "runner", [UBICLOUD_RUNNER, GITHUB_RUNNER, GITHUB_V2_RUNNER, ACT_RUNNER, {}]

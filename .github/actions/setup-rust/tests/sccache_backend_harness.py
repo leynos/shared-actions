@@ -44,12 +44,16 @@ SELECTION_VARIABLES = (
     "SCCACHE_DIR",
     "SCCACHE_GHA_ENABLED",
     "SCCACHE_GHA_VERSION",
+    "SR_CACHE_PROVIDER",
     "SR_EXPECT_CACHE",
+    "SR_SCCACHE_DIR",
 )
 
 PROXY_URL = "http://10.1.2.3:51123/e3b0c44298fc1c14/"
 GITHUB_CACHE_URL = "https://acghubeus1.actions.githubusercontent.com/abc/"
 RUNTIME_TOKEN = "runtime-token-value"  # noqa: S105 - test fixture, not a secret
+#: Where the step is told the runner's temporary directory puts sccache.
+SCCACHE_DIR = "/home/runner/work/_temp/sccache"
 
 #: The runner's own variables on each kind of runner.
 UBICLOUD_RUNNER: typ.Final[dict[str, str]] = {
@@ -142,6 +146,7 @@ def run_selection(
     *,
     expect: str = "any",
     caller: typ.Mapping[str, str] | None = None,
+    cache_provider: str = "github",
 ) -> CoreCalls:
     """Execute the shipped selection with *runner* and *caller* variables.
 
@@ -161,7 +166,13 @@ def run_selection(
         for name, value in os.environ.items()
         if name not in SELECTION_VARIABLES
     }
-    environment |= {**runner, **(caller or {}), "SR_EXPECT_CACHE": expect}
+    environment |= {
+        **runner,
+        **(caller or {}),
+        "SR_EXPECT_CACHE": expect,
+        "SR_CACHE_PROVIDER": cache_provider,
+        "SR_SCCACHE_DIR": SCCACHE_DIR,
+    }
     completed = subprocess.run(  # noqa: S603,TID251 - exercise the shipped script.
         [
             node,

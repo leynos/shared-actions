@@ -24,6 +24,7 @@ from sccache_backend_harness import (
     GITHUB_CACHE_URL,
     PROXY_URL,
     RUNTIME_TOKEN,
+    SCCACHE_DIR,
     run_selection,
     selection_script,
 )
@@ -117,20 +118,28 @@ def test_the_selection_agrees_with_the_credentials_action(
     assert (calls.outputs["cache-backend"] == "ubicloud") is is_proxy, calls.outputs
 
 
-@given(environment=_ENVIRONMENTS, expect=st.sampled_from(["any", "ubicloud"]))
-@settings(max_examples=60, derandomize=True, deadline=None)
+@given(
+    environment=_ENVIRONMENTS,
+    expect=st.sampled_from(["any", "ubicloud"]),
+    cache_provider=st.sampled_from(["github", "external"]),
+)
+@settings(max_examples=80, derandomize=True, deadline=None)
 def test_every_selection_stays_inside_its_contract(
-    environment: dict[str, str], expect: str
+    environment: dict[str, str], expect: str, cache_provider: str
 ) -> None:
     """Whatever the runner and caller supply, the step keeps its promises.
 
     The backend is one of three, the output and the metric agree, the token
     is published only with Ubicloud selected, and a switch the caller set is
-    never overwritten. The deadline is off because every example starts a
-    Node process, whose cost is the host's, not the script's.
+    never overwritten. The action takes a directory, and so a cache, only on
+    local disk, only under `cache-provider: github`, and never over a
+    caller's own directory or switch. The deadline is off because every
+    example starts a Node process, whose cost is the host's, not the
+    script's.
     """
-    calls = run_selection(environment, expect=expect)
+    calls = run_selection(environment, expect=expect, cache_provider=cache_provider)
     backend = calls.outputs["cache-backend"]
+    owns = calls.outputs["owns-local-cache"] == "true"
 
     assert backend in BACKENDS, backend
     assert calls.backend_metric() == backend, calls.info
@@ -140,3 +149,10 @@ def test_every_selection_stays_inside_its_contract(
         assert "SCCACHE_GHA_ENABLED" not in calls.exported, calls.exported
     if calls.failure is not None:
         assert calls.exported == {}, calls.exported
+    assert owns == ("SCCACHE_DIR" in calls.exported), calls
+    if owns:
+        assert backend == "local", calls.outputs
+        assert cache_provider == "github", calls.outputs
+        assert calls.exported["SCCACHE_DIR"] == SCCACHE_DIR, calls.exported
+        assert calls.outputs["sccache-dir"] == SCCACHE_DIR, calls.outputs
+        assert not {"SCCACHE_DIR", "SCCACHE_GHA_ENABLED"} & set(environment), calls

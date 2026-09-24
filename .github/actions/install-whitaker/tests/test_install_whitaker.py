@@ -31,7 +31,7 @@ _PINNED_TARGETS = (
     "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-gnu",
 )
-_PINNED_VERSIONS = ("0.2.6", "0.2.7", "0.2.8")
+_PINNED_VERSIONS = ("0.2.9",)
 
 
 def _step_env(name: str) -> dict[str, str]:

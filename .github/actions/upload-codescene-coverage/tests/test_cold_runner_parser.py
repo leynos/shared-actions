@@ -12,16 +12,22 @@ import pytest
 import yaml
 
 REPOSITORY = Path(__file__).resolve().parents[4]
-WORKFLOW = REPOSITORY / ".github/workflows/test-upload-codescene-coverage.yml"
+#: The parser proof moved out of the cold-runner workflow when the uploader's
+#: contract was split along the service boundary: `cs-coverage check` reads
+#: the CodeScene project configuration and needs the credential, so it cannot
+#: sit on a pull-request path. The offline half stayed behind in
+#: test-upload-codescene-coverage.yml; this module drives the half that moved.
+WORKFLOW = REPOSITORY / ".github/workflows/test-codescene-parser-proof.yml"
+PARSER_STEP = "Parse the Slipcover reports against the project configuration"
 
 
 def _parser_step() -> str:
-    """Return the cold-runner parser proof shell program."""
+    """Return the parser proof's shell program, read from the workflow itself."""
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     step = next(
         item
-        for item in workflow["jobs"]["cold-runner-contract"]["steps"]
-        if item["name"] == "Verify resolved version and parse Slipcover reports"
+        for item in workflow["jobs"]["parser-proof"]["steps"]
+        if item["name"] == PARSER_STEP
     )
     return str(step["run"])
 

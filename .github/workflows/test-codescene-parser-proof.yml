@@ -1,0 +1,54 @@
+name: Test CodeScene Parser Proof
+
+# The service-touching half of the uploader's contract. `cs-coverage check`
+# reads the CodeScene project configuration over the network and needs
+# CS_ACCESS_TOKEN, so under main-owned coverage it cannot sit on a
+# pull-request path. Run it by hand from main when
+# `upload-codescene-coverage`, its CLI manifest, or the pinned CLI version
+# changes; the offline half runs on every pull request in
+# test-upload-codescene-coverage.yml.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parser-proof:
+    # A dispatch selects its own ref, and the selected ref's workflow content
+    # runs with the repository secret, so any write-access account could
+    # otherwise read CS_ACCESS_TOKEN out of a branch it controls.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # Each step below runs one command and carries no if:, so the contract
+      # can require the command exactly: a shell block holding
+      # `false && git fetch ...` would still contain the command's text.
+      # cs-coverage check needs the default branch's merge base; the checkout
+      # is shallow, so the default branch is fetched with full history.
+      - name: Fetch the default branch with full history
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: git fetch --no-tags --unshallow "https://github.com/$REPOSITORY.git" "refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+      - name: Check the merge base exists
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: git merge-base "origin/$DEFAULT_BRANCH" HEAD
+      - name: Install pinned CodeScene CLI
+        uses: ./.github/actions/upload-codescene-coverage
+        with:
+          mode: install
+          cli-version: "1.0.101"
+      - name: Parse the Slipcover reports against the project configuration
+        env:
+          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
+          CS_PROJECT_URL: https://api.codescene.io/v2/projects/72004
+        shell: bash
+        run: python3 .github/actions/upload-codescene-coverage/scripts/prove_parser.py

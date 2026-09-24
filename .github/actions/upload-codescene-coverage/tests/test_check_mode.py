@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -12,9 +13,29 @@ import pytest
 import yaml
 
 ACTION_YML = Path(__file__).resolve().parents[1] / "action.yml"
-WORKFLOW_YML = (
+#: The offline half of the uploader's contract, on every pull request.
+COLD_RUNNER_YML = (
     ACTION_YML.parents[3] / ".github/workflows/test-upload-codescene-coverage.yml"
 )
+#: The service-touching half, dispatch and trunk only.
+PARSER_PROOF_YML = (
+    ACTION_YML.parents[3] / ".github/workflows/test-codescene-parser-proof.yml"
+)
+#: The workflow contracts' one parsing boundary. It refuses a key declared
+#: twice and names the file on any failure; loaded by path because this test
+#: tree is not a package that can import it.
+_WORKFLOW_YAML_SPEC = importlib.util.spec_from_file_location(
+    "workflow_yaml", ACTION_YML.parents[3] / "tests/workflows/workflow_yaml.py"
+)
+assert _WORKFLOW_YAML_SPEC is not None
+assert _WORKFLOW_YAML_SPEC.loader is not None
+workflow_yaml = importlib.util.module_from_spec(_WORKFLOW_YAML_SPEC)
+_WORKFLOW_YAML_SPEC.loader.exec_module(workflow_yaml)
+
+
+def _workflow(path: Path) -> dict[object, object]:
+    """Return the workflow at *path*, parsed through the shared boundary."""
+    return workflow_yaml.load_workflow(path)
 
 
 def _steps() -> list[dict[str, object]]:
@@ -350,23 +371,146 @@ def test_install_mode_skips_coverage_file_and_artefact_work() -> None:
         assert "inputs.mode != 'install'" in str(step["if"])
 
 
-def test_cold_runner_workflow_explicitly_handles_parser_failures() -> None:
-    """The secret-backed parser proof skips forks and rejects the known failure."""
-    workflow = WORKFLOW_YML.read_text(encoding="utf-8")
+def _triggers(path: Path) -> dict[str, object]:
+    """Return a workflow's triggers, read under both spellings of ``on:``."""
+    workflow = _workflow(path)
+    return workflow.get("on", workflow.get(True))
 
-    assert "github.event_name == 'workflow_dispatch'" in workflow
-    assert (
-        "github.event.pull_request.head.repo.full_name == github.repository" in workflow
+
+class TestTheColdRunnerProofRunsOnPullRequests:
+    """The offline half. It contacts nothing, so it stays on the lane.
+
+    A pull request that changes the uploader, its CLI manifest or the pinned
+    version is the one that needs this proof, so it must be able to start it.
+    """
+
+    def test_a_pull_request_can_start_it(self) -> None:
+        """The proof that costs nothing must not drift behind a dispatch."""
+        triggers = _triggers(COLD_RUNNER_YML)
+        assert "pull_request" in triggers, (
+            f"{COLD_RUNNER_YML.name} must be startable by a pull request; "
+            f"read {triggers!r}"
+        )
+
+    def test_it_installs_the_pinned_cli_on_a_cold_runner(self) -> None:
+        """The install path is what a pull request is here to exercise."""
+        workflow = _workflow(COLD_RUNNER_YML)
+        steps = workflow["jobs"]["cold-runner-contract"]["steps"]
+        installs = [
+            step
+            for step in steps
+            if "upload-codescene-coverage" in str(step.get("uses", ""))
+            and str((step.get("with") or {}).get("mode", "")) == "install"
+        ]
+        assert len(installs) == 1, (
+            f"{COLD_RUNNER_YML.name} must install the pinned CLI exactly once; "
+            f"found {len(installs)}"
+        )
+        assert any(
+            "cs-coverage was unexpectedly preinstalled" in str(step.get("run", ""))
+            for step in steps
+        ), f"{COLD_RUNNER_YML.name} no longer proves the runner starts cold"
+
+    def test_it_holds_no_credential_and_calls_no_service_command(self) -> None:
+        """Its whole reason for staying on the lane is that it contacts nothing.
+
+        The scan is raw text, so it sees comments too. That is stricter than
+        the workflow contract, which reads the parse because a comment
+        contacts nothing. Here the strictness is free and worth having: a
+        file on the pull-request lane has no reason to name the gate
+        subcommand even in prose, and the raw reading cannot be fooled by a
+        construction the parse walk has not met.
+        """
+        text = COLD_RUNNER_YML.read_text(encoding="utf-8")
+        offences = [
+            marker
+            for marker in (
+                "secrets.CS_ACCESS_TOKEN",
+                "cs-coverage check",
+                "cs-coverage upload",
+            )
+            if marker in text
+        ]
+        assert not offences, (
+            f"{COLD_RUNNER_YML.name} is on the pull-request lane and must not "
+            f"carry {offences}"
+        )
+
+    def test_it_keeps_the_parser_proof_fixtures_honest(self) -> None:
+        """A deleted fixture would make the parser proof loop over nothing."""
+        text = COLD_RUNNER_YML.read_text(encoding="utf-8")
+        assert "no Slipcover cobertura fixtures remain for the parser proof" in text, (
+            f"{COLD_RUNNER_YML.name} no longer fails when the fixtures vanish"
+        )
+
+
+class TestTheParserProofIsDispatchAndTrunkOnly:
+    """The service-touching half: its trigger and its guard, then what it rejects."""
+
+    def test_it_cannot_be_started_by_a_pull_request(self) -> None:
+        """It runs ``cs-coverage check``, which reads the project config.
+
+        Under main-owned coverage no workflow a pull request can start may
+        hold ``CS_ACCESS_TOKEN`` or contact the service, so this half is
+        dispatch-only while the offline half stays on the lane.
+        """
+        triggers = _triggers(PARSER_PROOF_YML)
+        assert triggers == {"workflow_dispatch": None}, (
+            f"the parser proof must be dispatch-only; read {triggers!r}"
+        )
+
+    def test_it_runs_only_from_the_trunk_ref(self) -> None:
+        """The trigger alone does not bound which ref's content runs.
+
+        A dispatch selects its own ref and that ref's workflow content runs
+        with the repository secret, so any write-access account could
+        otherwise read the credential out of a branch it controls.
+
+        The guard is compared whole, not searched: the ref term is a
+        substring of ``github.ref == 'refs/heads/main' || true``, which
+        binds nothing.
+        """
+        workflow = _workflow(PARSER_PROOF_YML)
+        guard = " ".join(str(workflow["jobs"]["parser-proof"].get("if", "")).split())
+
+        assert guard == "github.ref == 'refs/heads/main'", (
+            f"the credentialed job is not bound to the trunk ref alone: {guard!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            pytest.param(
+                'git fetch --no-tags --unshallow "https://github.com/$REPOSITORY.git"'
+                ' "refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"',
+                id="fetch-default-branch",
+            ),
+            pytest.param(
+                'git merge-base "origin/$DEFAULT_BRANCH" HEAD', id="merge-base"
+            ),
+            pytest.param(
+                "python3 .github/actions/upload-codescene-coverage/scripts/"
+                "prove_parser.py",
+                id="parse-the-fixtures",
+            ),
+        ],
     )
-    assert "github.actor != 'dependabot[bot]'" in workflow
-    assert "! grep -F 'No matching field found" not in workflow
-    assert "git fetch --no-tags --depth=1" in workflow
-    assert "git fetch --no-tags --unshallow" in workflow
-    assert 'git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null' in workflow
-    assert (
-        "if grep -F 'No matching field found: close for class "
-        "java.io.InputStreamReader'" in workflow
-    )
-    assert "cs-coverage 1.0.101 reported the known parser failure" in workflow
-    assert "status=${PIPESTATUS[0]}" in workflow
-    assert "cs-coverage did not report a PASS result" in workflow
+    def test_each_proof_command_is_a_steps_sole_command(self, command: str) -> None:
+        """A command is required as a whole step, not as text inside one.
+
+        ``false && git fetch ...`` contains the fetch command's text and runs
+        nothing, and so does a step whose ``if:`` is never true. Each command
+        must therefore be some step's entire ``run:``, on a step with no
+        ``if:``. The parse loop's verdicts live in ``prove_parser.py``, where
+        ``test_prove_parser.py`` drives them.
+        """
+        steps = _workflow(PARSER_PROOF_YML)["jobs"]["parser-proof"]["steps"]
+        sole = [
+            step
+            for step in steps
+            if str(step.get("run", "")).strip() == command and "if" not in step
+        ]
+        assert len(sole) == 1, (
+            f"{PARSER_PROOF_YML.name} must run {command!r} as one step's sole "
+            f"command with no if:; read {[s.get('run') for s in steps]!r}"
+        )

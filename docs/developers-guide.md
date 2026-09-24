@@ -893,6 +893,198 @@ every workflow with a `.yml` or `.yaml` extension in any case:
 synthetic workflows. Raising the floor is a decision, because every lane and
 every consumer has to move with it.
 
+## This repository's coverage publication
+
+The decision and what it costs are recorded in
+[ADR 0004](adr/0004-main-owns-codescene-coverage.md).
+
+This repository follows CV-005, main-owned CodeScene coverage. No workflow a
+pull request can start contacts CodeScene, and one push-to-`main` publisher
+owns both the upload and the ratchet baseline.
+
+The `coverage` job in `ci.yml` generates serial, source-scoped coverage on pull
+requests and compares it with the baseline the latest `main` push wrote. It
+passes `with-ratchet: 'true'` and `publish-artefact: 'false'`: the publisher
+owns publication, so the pull-request report stays local to its job. The job
+does not invoke CodeScene, receive `CS_ACCESS_TOKEN`, or check out full Git
+history.
+
+`coverage-main.yml` regenerates the same coverage after every push to `main`,
+saves the next baseline, and uploads it to CodeScene. It alone receives
+CodeScene credentials. Its upload step is guarded on
+`github.ref == 'refs/heads/main'` as well as the credential, because a
+`workflow_dispatch` run selects its own ref and the push filter says nothing
+about it; without the ref half, a dispatch from a feature branch would publish
+that branch's coverage as the trunk's. The contract reads the guard as a
+conjunction, through `conjuncts` in `tests/workflows/workflow_expressions.py`:
+it splits the condition on its top-level `&&` and refuses any `||` outside a
+string literal. A substring search is not enough, because appending
+`|| github.event_name == 'workflow_dispatch'` keeps both terms in the text and
+makes neither required. The refusal is what carries the rule, because the
+contract permits extra conjuncts that narrow the guard: in
+`<required> && github.actor != 'x' || github.event_name == 'workflow_dispatch'`
+every required term is still a whole conjunct once the `||` is ignored. That
+case is the one `test_workflow_expressions.py` uses to prove the refusal; an
+appended `|| dispatch` alone also breaks the credential term, so it fails with
+or without the refusal and proves nothing about it.
+
+The workflow's `concurrency` group is keyed on the ref alone,
+`coverage-main-${{ github.ref }}`, and the contract asserts that expression
+exactly. With one group, publications never overlap, and the survivor of any
+replacement is the newest trigger, whose commit is the newest on `main`, so
+uploads from triggered runs (push and dispatch) land in commit order; a group
+keyed on the event as well would let an earlier dispatch finish after a newer
+push and upload older coverage last. A manual "Re-run jobs" on an older run is
+outside that claim: it keeps the run's commit, so it is an operator action that
+republishes that commit's coverage and baseline until the next push supersedes
+them. The contract adds no check that the run's commit is still `main`'s head;
+re-running an old publication is a deliberate operator choice, and the next
+push restores the order. It never cancels a running publisher, because a
+cancelled publisher abandons both its upload and its baseline write, and the
+contract accepts `cancel-in-progress` only when it is absent or literally
+false. GitHub keeps one pending run per group and a newer trigger replaces it.
+Two known exceptions follow. A dispatch that replaces a pending push uploads
+the same or a newer commit, but `generate-coverage` saves the ratchet baseline
+only on a push, so the baseline stays one commit behind until the next push.
+And a Dependabot automerge made with `GITHUB_TOKEN` fires no push, so its merge
+reaches the publisher only with the next push; there is deliberately no
+`schedule` trigger.
+
+The credential is in no `env` on the publisher job, at any scope: the upload
+action is composite and would pass a step-level `env` on to its nested artefact
+and cache steps, and it binds the token itself from its `access-token` input.
+Its presence is stated positively instead. A check step with an `id` and no
+`if:` runs the sole command
+`echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"`,
+whose expression evaluates to `true` or `false` before the shell runs. The
+upload's `if:` requires that output and the trunk ref, and it passes
+`access-token: ${{ secrets.CS_ACCESS_TOKEN }}` directly. A guard on an `env`
+binding would be a prohibition: with the binding deleted it is simply false,
+the upload skips on every push, and nothing turns red. `publisher_binding.py`
+holds the readings: `upload_problems` for the check, guard and input, and
+`credential_environments` for the refusal.
+
+Every coverage step, on both sides, sets `language: python` and
+`python-source: workflow_scripts`. The scope is half of the baseline contract:
+it fixes the population the percentages describe, so a lane that dropped it
+would compare a whole-repository figure with a scoped baseline while still
+naming the same file.
+
+One workflow advances the baseline, and it serves no pull request.
+`publish-baseline` defaults to `auto`, which saves on a push to `main` whatever
+started the run, so a lane that serves pull requests and also runs on such a
+push becomes a second writer and races the publisher. lading met exactly that
+shape.
+
+No workflow a pull request can reach may name `codescene.io`, hold
+`CS_ACCESS_TOKEN`, run `cs-coverage check` or `cs-coverage upload`, or use the
+CodeScene action in any mode but `install`, and no job in one may forward
+`secrets: inherit`. The credential is read wherever a reference can sit: a
+`run:` body, an action input, an environment key or value at any scope, and a
+named `secrets:` forward. `inherit` forwards it without naming it, to a callee
+that may live in another repository where no clause here can read it, so it is
+refused where it is written and a pull-request job forwards what it needs by
+name. The host clause is the one that matters most: a step can reach the
+project API with a plain `curl` naming none of the others, and every remaining
+assertion would still pass. The host comparison is case-insensitive because a
+DNS name is, while the credential is compared exactly because an environment
+variable name is case-sensitive; the fold lives in the reader, so removing it
+fails a test rather than passing at every call site.
+
+The scan reads the parse rather than the file text. A comment contacts nothing,
+and explaining in prose why a lane must not name the credential made the lane
+name it. Walking the parse keeps the `run:` bodies, which is the hiding place
+that mattered, and drops what GitHub itself drops. The walk covers the whole
+document rather than a list of sections known to run something: a workflow-level
+`defaults.run.shell` wraps every `run:` step in the file, and a reading of
+`jobs` and `env` alone passed a shell that reaches the host. The readers are
+pure over the documents they are given; the contract's fixture reads this
+repository's workflows when the tests run, not at import.
+
+A `runs-on` of `${{ matrix.os }}` is resolved through that one matrix dimension,
+`include` entries among its values, so a `python-version` beside it is not
+read as a platform the publisher must ratchet.
+
+Both lanes name the same ratchet baseline path,
+`.coverage-baseline.workflow-scripts.python`. A lane reading a path the
+publisher never writes ratchets against zero. The path is also how a scope
+change starts a fresh generation: narrowing `python-source` changes the
+measured population, so percentages either side of the change are not
+comparable and the previous baseline has to be left behind rather than compared
+with.
+
+The ratchet baseline is keyed by `runner.os`. Any platform lane that arms the
+ratchet on pull requests must also run on the trunk push, or its baseline is
+never written and the pull-request comparison reads an empty file. This
+repository generates coverage on Linux only, on both sides.
+
+The uploader's own contract is split along the same line. What contacts nothing
+stays on the pull-request lane, because a pull request that changes
+`upload-codescene-coverage`, its CLI manifest or the pinned version is the one
+that needs it. `test-upload-codescene-coverage.yml` runs on every such pull
+request: it proves the runner starts cold, installs the pinned CLI through the
+action's `install` mode, asserts the resolved version offline, checks the
+Slipcover fixtures are present and well formed, and drives the installer's
+refusals. It holds no credential and names neither the service nor its gate
+subcommand.
+
+`test-codescene-parser-proof.yml` holds the half that contacts the service.
+`cs-coverage check` reads the CodeScene project configuration over the network
+and needs `CS_ACCESS_TOKEN`, so it is dispatch-only, and its job runs only when
+`github.ref` is `refs/heads/main`, because a dispatch selects its own ref and
+the selected ref's workflow content runs with the repository secret. Run it by
+hand from `main` when the action, its manifest, or the pinned version changes.
+The action keeps its `check` mode for external callers; this repository does
+not use it in pull-request CI. Each of its commands is a step's sole command
+with no `if:`, and the contract requires them exactly, because a shell block
+holding `false && git fetch ...` still contains the command's text: the default
+branch is fetched with full history, the merge base is checked, and
+`scripts/prove_parser.py` runs `cs-coverage check` on each fixture. The
+script's verdicts (the known 1.0.101 parser break, a failing exit status, and a
+missing `PASS`) are driven directly in `test_prove_parser.py`, and
+`test_cold_runner_parser.py` runs the step's own `run:` against a stand-in CLI.
+
+The boundary therefore has two halves, and the contract asserts both: no
+pull-request-reachable workflow reaches the service, and the offline proof is
+still reachable from a pull request. Without the second half, deleting the
+proof outright would satisfy every other rule.
+
+`tests/workflows/test_main_owned_coverage.py` holds the contract, over readings
+that live in `workflow_boundary.py` beside it and are driven on chosen inputs in
+`test_workflow_boundary_reading.py`. The pull-request clauses are functions
+over parsed workflows in `pull_request_boundary.py`, so
+`test_pull_request_boundary.py` can feed them the probe that found the closure
+hole (a `workflow_call`-only file, called with `secrets: inherit`, curling the
+project API with the credential) and prove the contract's own code refuses it.
+It enumerates `.github/workflows/*.yml` rather than naming files, so a workflow
+added later is covered the day it appears, and it follows job-level `uses:`
+into local reusable workflows, so a CodeScene call one file away from a
+pull-request trigger is still inside the boundary. A local call is matched by
+its shape, not by a list of prefixes: a leading `./` or `$/` and any `@ref` are
+dropped, the remainder is normalized, and the call is local when it resolves
+under `.github/workflows/`. A reader that stopped recognizing a call when its
+spelling changed would take the callee out of every clause in silence, while
+recognizing one spelling too many only adds prohibitions, so the reading errs
+that way. It reads the `on:` key under both the string key and the boolean
+`True` that PyYAML resolves an unquoted `on:` to; a reader that consults only
+the string key sees no triggers anywhere and every boundary drawn from it
+passes over an empty set. The trigger readers live in `workflow_triggers.py`,
+and they accept all three shapes GitHub does: a bare event name, a list, and a
+mapping. A list read as a mapping stringifies into one event named after the
+whole list, and the workflow escapes every pull-request clause. A workflow that
+spells the key both ways, quoted `"on":` beside unquoted `on:`, is refused
+outright: GitHub merges the two, and a reader consulting one is blind to the
+other's events. A `$/` reference carrying an `@ref` is refused too. The closure
+still reads it as local, so its callee stays inside every clause, but the
+spelling is fixed rather than relied on.
+
+Whether a push reaches `main` is read from the push filter as GitHub applies it.
+`branches` may be a list or a single string, its patterns are globs read in
+order with a later `!` pattern excluding what an earlier one matched,
+`branches-ignore` excludes, and a push filtered on tags alone runs for no
+branch. The publisher and the second-writer rule both rest on this reading, and
+a lane pushing on `'**'` is a second writer as surely as one naming `main`.
+
 ## `upload-codescene-coverage` check-mode contract
 
 The `gate-applicability` step runs only when `inputs.mode` is `check`. It
@@ -1306,6 +1498,31 @@ when a healthy Podman socket is discovered automatically.
 | `skip_unless_act`            | Skip when `_get_act_runtime_status().available` is `False`.  |
 | `skip_unless_workflow_tests` | Skip when `ACT_WORKFLOW_TESTS` is not set to a truthy value. |
 <!-- markdownlint-enable MD013 -->
+
+### Parsing workflows
+
+The workflow contracts parse through `load_workflow` in
+`tests/workflows/workflow_yaml.py`, and `workflow_documents` calls it for every
+file it enumerates. Its loader is a `SafeLoader` that refuses a mapping
+declaring one key twice. PyYAML keeps the last of two identical keys and says
+nothing, so a job declaring `runs-on` twice parses into a document that dropped
+the first value, and a placement contract then judges a runner GitHub never
+schedules. GitHub rejects the duplicate, so the contracts refuse it too. Both a
+duplicate and invalid YAML raise `ValueError` naming the file, which the
+parser's own error does not.
+
+The same module is the contracts' filesystem boundary. `workflow_paths` lists a
+directory with `iterdir`, since `glob` returns nothing for a directory it
+cannot read and every contract over the result would then pass, and it compares
+extensions without case so a `.YML` file is not skipped. `read_workflow_text`
+reads a file. Each raises `ValueError` naming the path, so a missing directory,
+an unreadable file, invalid YAML and a duplicate key reach the caller as one
+documented error. The main-owned coverage contract's fixture turns that error
+into a failure carrying the message.
+
+New workflow contracts parse through `load_workflow` or `workflow_documents`
+rather than calling `yaml.safe_load` themselves; the uploader's own workflow
+tests load the module by path to do so.
 
 ## Mutation-Testing Reusable Workflows
 

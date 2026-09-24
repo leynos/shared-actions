@@ -1,22 +1,26 @@
 name: Coverage (main)
 
-# CodeScene accepts `cs-coverage upload` only for analysed branches, so
-# main-branch coverage is uploaded here on push; pull requests generate
-# coverage (and, in a future fast-follow, run the changed-line
-# `cs-coverage check` gate) in ci.yml instead. This workflow also advances
-# the coverage ratchet baseline: caches saved on main are readable by every
-# pull-request run, so the baseline written here is the one PR ratchet
-# checks compare against. workflow_dispatch allows re-running the upload on
-# demand (a run's secret context is fixed at dispatch).
+# Pull requests use the coverage baseline saved by this main-push workflow.
+# They do not contact CodeScene or receive its credentials.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+# One group, keyed on the ref alone, so publications never overlap and the
+# survivor of any replacement is the newest trigger: uploads from triggered
+# runs (push and dispatch) land in commit order. A manual "Re-run jobs" on an
+# older run keeps that run's commit; it is an operator action that republishes
+# that commit's coverage and baseline until the next push supersedes them.
+# A running publisher is never cancelled, because a cancelled run
+# abandons both its upload and its ratchet baseline write; GitHub keeps one
+# pending run per group and a newer trigger replaces it. Keying the group on
+# the event as well would let an earlier dispatch finish after a newer push
+# and upload older coverage last.
 concurrency:
   group: coverage-main-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   coverage-upload:
@@ -24,16 +28,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    env:
-      CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN || '' }}
     steps:
       - name: Checkout repository
         # v4
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          # Match ci.yml's coverage checkout: full history keeps the ratchet
-          # and any future gate consistent with pull-request runs.
-          fetch-depth: 0
           # This job runs third-party tooling (uv, nfpm, the Rust toolchain)
           # and never pushes back to the repository, so drop the checkout
           # credential rather than persisting GITHUB_TOKEN in .git/config.
@@ -62,17 +61,39 @@ jobs:
       - name: Generate coverage
         uses: ./.github/actions/generate-coverage
         with:
+          language: python
+          python-source: workflow_scripts
           output-path: coverage.xml
           format: cobertura
           use-cargo-nextest: 'false'
           pytest-workers: ''
           with-ratchet: 'true'
+          # `python-source: workflow_scripts` narrows the measured population, so
+          # the percentages in the unscoped baseline written by earlier main runs
+          # are not comparable with these. The baseline moves to its own path,
+          # which the action seeds at zero when the restored cache does not carry
+          # it, so the first scoped run sets the generation rather than failing
+          # the ratchet against an incompatible number. Both lanes name the same
+          # path, or the pull-request comparison reads a file nothing writes.
+          baseline-python-file: .coverage-baseline.workflow-scripts.python
+      # The credential is in no step's env. The upload action is composite and
+      # would hand a step-level env to its nested artefact and cache steps; it
+      # binds the token itself from its access-token input. The expression
+      # below evaluates to true or false before the shell runs, so this step
+      # names the secret without exposing it.
+      - name: Check for the CodeScene credential
+        id: codescene-credential
+        run: echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+      # A workflow_dispatch run selects its own ref, and the push filter says
+      # nothing about it, so the ref is checked here as well as the credential:
+      # a dispatch from a feature branch must never publish that branch's
+      # coverage as the trunk's.
       - name: Upload coverage to CodeScene
-        if: env.CS_ACCESS_TOKEN != ''
+        if: steps.codescene-credential.outputs.available == 'true' && github.ref == 'refs/heads/main'
         uses: ./.github/actions/upload-codescene-coverage
         with:
           format: cobertura
           path: coverage.xml
           mode: upload
-          access-token: ${{ env.CS_ACCESS_TOKEN }}
+          access-token: ${{ secrets.CS_ACCESS_TOKEN }}
           cli-version: "1.0.101"

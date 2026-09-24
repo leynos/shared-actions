@@ -126,9 +126,6 @@ jobs:
         # v4
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          # Full history so `cs-coverage check` can reach the pull request's
-          # merge base.
-          fetch-depth: 0
           # This job runs third-party tooling (uv, nfpm, the Rust toolchain)
           # and never pushes back to the repository, so drop the checkout
           # credential rather than persisting GITHUB_TOKEN in .git/config.
@@ -169,6 +166,8 @@ jobs:
       - name: Generate coverage
         uses: ./.github/actions/generate-coverage
         with:
+          language: python
+          python-source: workflow_scripts
           output-path: coverage.xml
           # Python project: detect.py classifies this repo as Python because
           # there is no root Cargo.toml (rust-toy-app is a test fixture, not a
@@ -185,17 +184,18 @@ jobs:
           # confirmed.
           pytest-workers: ''
           with-ratchet: 'true'
-      - name: Check coverage against CodeScene gates
-        env:
-          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-        if: github.event_name == 'pull_request' && env.CS_ACCESS_TOKEN != ''
-        uses: ./.github/actions/upload-codescene-coverage
-        with:
-          format: cobertura
-          mode: check
-          project-url: https://api.codescene.io/v2/projects/72004
-          access-token: ${{ env.CS_ACCESS_TOKEN }}
-          cli-version: "1.0.101"
+          # `python-source: workflow_scripts` narrows the measured population, so
+          # the percentages in the unscoped baseline written by earlier main runs
+          # are not comparable with these. The baseline moves to its own path,
+          # which the action seeds at zero when the restored cache does not carry
+          # it, so the first scoped run sets the generation rather than failing
+          # the ratchet against an incompatible number. Both lanes name the same
+          # path, or the pull-request comparison reads a file nothing writes.
+          baseline-python-file: .coverage-baseline.workflow-scripts.python
+          # coverage-main.yml owns publication of this repository's coverage
+          # report. A pull-request run keeps the file local to the job so the
+          # only published report is the one main uploads to CodeScene.
+          publish-artefact: 'false'
 
   python-tests-windows:
     timeout-minutes: 20

@@ -114,8 +114,14 @@ installer fails before Cargo starts instead of compiling it. A source build
 succeeds, which is the problem: the run looks healthy while it has tested
 something else, more slowly.
 
-The installer's output is still read afterwards, as a backstop. A run whose
-output reports a source build fails, and records
+The installer extracts cargo-dylint and dylint-link into `~/.local/bin` (or
+`XDG_BIN_HOME`) and proves cargo-dylint by running `cargo dylint`, so the
+action puts that directory on `PATH` for the installer and, through
+`GITHUB_PATH`, for the steps after it. The Windows images do not have it on
+`PATH` by default.
+
+The installer's output, stdout and stderr, is still read afterwards, as a
+backstop. A run whose output reports a source build fails, and records
 `whitaker-installer.suite-source=<prebuilt|source>`.
 
 `ci-mode`, on by default, adds a check before the installer runs. It confirms

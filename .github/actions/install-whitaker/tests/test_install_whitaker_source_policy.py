@@ -168,6 +168,27 @@ class TestSuiteSource:
         )
 
 
+class TestToolDirectory:
+    """Cover the directory the installer puts the Dylint tools in."""
+
+    def test_puts_the_tool_directory_on_path(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """The installer, and every later step, can run what it installed.
+
+        The installer proves cargo-dylint by running `cargo dylint`, which
+        finds its subcommand only on PATH. Where the directory was missing,
+        on Windows, every run failed that proof and compiled the tool.
+        """
+        run = run_scenario(InstallScenario())
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert run.installer_path_head.endswith("/.local/bin")
+        assert run.github_path.read_text(encoding="utf-8").strip() == (
+            run.installer_path_head
+        )
+
+
 class TestPublishedAssetCheck:
     """Cover what `ci-mode` still decides: whether assets are checked first."""
 

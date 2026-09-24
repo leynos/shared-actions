@@ -83,18 +83,25 @@ if [ "$FAIL_INSTALLER" = "true" ]; then
   echo "whitaker-installer failed while installing the Dylint suite" >&2
   exit 33
 fi
-printf '%s\\n' "suite installed" >> "$INSTALLER_LOG"
 # Arguments go to a sibling file so the installer log stays exactly what
 # the existing assertions expect it to be.
 printf '%s\\n' "$*" >> "${INSTALLER_LOG}.args"
+printf '%s\\n' "${WHITAKER_NO_SOURCE_FALLBACK:-unset}" >> "${INSTALLER_LOG}.policy"
 # Reproduces the notice a real installer prints when a rolling asset is
 # absent and it builds the Dylint tools with `cargo install` instead. The
 # action reads this from stdout, so the stub writes it there too.
 if [ "$INSTALLER_SOURCE_FALLBACK" = "true" ]; then
+  if [ "$INSTALLER_SUPPORTS_NO_SOURCE_FALLBACK" = "true" ] &&
+      [ "${WHITAKER_NO_SOURCE_FALLBACK:-}" = "1" ]; then
+    echo "published cargo-dylint is unavailable; source fallback is forbidden" >&2
+    exit 34
+  fi
+  printf '%s\\n' 'cargo install cargo-dylint' >> "$SOURCE_BUILD_LOG"
   asset=cargo-dylint-x86_64-unknown-linux-gnu-v6.0.1.tgz
   echo "repository asset not found: ${asset}. Falling back"
   echo "Installed cargo-dylint from source with cargo install"
 fi
+printf '%s\\n' "suite installed" >> "$INSTALLER_LOG"
 """
 
 _CONFLICTING_INSTALLER_STUB = """#!/usr/bin/env bash
@@ -248,6 +255,8 @@ class InstallScenario:
     #: Make the stub installer report the source fallback a missing rolling
     #: asset causes, which is the outcome CI must refuse.
     installer_source_fallback: bool = False
+    #: Model the new Whitaker installer policy without claiming 0.2.8 has it.
+    installer_supports_no_source_fallback: bool = False
 
     @property
     def payload_sha256(self) -> str:
@@ -308,6 +317,16 @@ class InstallRun:
     def installer_args(self) -> Path:
         """Return the arguments the action passed to the installer."""
         return self.root / "installer.log.args"
+
+    @property
+    def source_build_log(self) -> Path:
+        """Return the source-build stub log, absent when fallback was refused."""
+        return self.root / "source-build.log"
+
+    @property
+    def installer_policy(self) -> str:
+        """Return the source-fallback control observed by the stub installer."""
+        return (self.root / "installer.log.policy").read_text(encoding="utf-8").strip()
 
     @property
     def conflict_log(self) -> Path:
@@ -521,6 +540,10 @@ def _base_env(root: Path, scenario: InstallScenario, path: str) -> dict[str, str
         "HOME": bash_path(home),
         "INSTALLER_LOG": bash_file_path(root / "installer.log"),
         "INSTALLER_SOURCE_FALLBACK": str(scenario.installer_source_fallback).lower(),
+        "INSTALLER_SUPPORTS_NO_SOURCE_FALLBACK": str(
+            scenario.installer_supports_no_source_fallback
+        ).lower(),
+        "SOURCE_BUILD_LOG": bash_file_path(root / "source-build.log"),
         "RUNNER_OS": scenario.runner_os,
         "RUNNER_TEMP": bash_path(runner_temp),
         "SIDECAR_SHA256": scenario.expected_sidecar,

@@ -5,6 +5,13 @@ file.
 
 ## v1.0.0 (Unreleased)
 
+- Prepare strict CI execution for Whitaker's no-source-fallback installer
+  policy. A compatible installer receives `WHITAKER_NO_SOURCE_FALLBACK=1` so a
+  missing published dependency fails before Cargo starts. Local runs and an
+  explicitly allowed suite pin keep their source-build behaviour. The default
+  0.2.8 installer ignores this control; publishing the action as fail-closed
+  requires a verified new installer release and digest-pinned version bump.
+
 - Refuse a silent source build. Whitaker republishes its rolling release on
   every merge, and the publish briefly left the tag without a complete asset
   set. A consumer landed in it: chutoro's install began in the same second a

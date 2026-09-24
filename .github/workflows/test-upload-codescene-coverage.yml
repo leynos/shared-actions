@@ -27,10 +27,9 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.actor != 'dependabot[bot]'
-    # The lane skips a fork's pull request rather than falling back,
-    # because it reads CS_ACCESS_TOKEN and a fork cannot. It therefore
-    # names the Ubicloud label outright: no arm of it ever runs on a
-    # fork's runner.
+    # The lane skips a fork's pull request rather than falling back (see
+    # the `if:` above). It therefore names the Ubicloud label outright: no
+    # arm of it ever runs on a fork's runner.
     runs-on: ubicloud-standard-2
     timeout-minutes: 15
     steps:

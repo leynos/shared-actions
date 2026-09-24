@@ -45,6 +45,13 @@ inputs:
       the rolling release cannot be reached, such as a local reproduction.
     required: false
     default: "true"
+  cranelift:
+    description: >-
+      Also install the rustc-codegen-cranelift component for the lint suite's
+      toolchain, for a repository whose builds select the Cranelift backend.
+      The installer adds the component through rustup; nothing is compiled.
+    required: false
+    default: "false"
   github-token:
     description: >-
       Token used only to read the public rolling release without meeting the
@@ -62,6 +69,7 @@ runs:
         CACHE_PROVIDER_INPUT: ${{ inputs.cache-provider }}
         CARGO_HOME_INPUT: ${{ inputs.cargo-home }}
         CI_MODE_INPUT: ${{ inputs.ci-mode }}
+        CRANELIFT_INPUT: ${{ inputs.cranelift }}
         INSTALLER_SHA256_INPUT: ${{ inputs.installer-sha256 }}
         INSTALLER_VERSION_INPUT: ${{ inputs.installer-version }}
         SUITE_VERSION_INPUT: ${{ inputs.suite-version }}
@@ -83,6 +91,10 @@ runs:
         case "$CACHE_PROVIDER_INPUT" in
           github|external) ;;
           *) input_error "cache-provider must be github or external" ;;
+        esac
+        case "$CRANELIFT_INPUT" in
+          true|false) ;;
+          *) input_error "cranelift must be true or false" ;;
         esac
         case "$CI_MODE_INPUT" in
           true|false) ;;
@@ -605,6 +617,7 @@ runs:
       env:
         WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+        WHITAKER_CRANELIFT: ${{ inputs.cranelift }}
       run: |
         set -Eeuo pipefail
         emit_metric() {
@@ -628,8 +641,15 @@ runs:
         # when a published lint library or Dylint tool archive is missing.
         # Passed unconditionally: validation has already refused an installer
         # older than 0.2.9, the first release that understands the flag.
+        # Two calls rather than one with an options array: macOS runners ship
+        # bash 3.2, where expanding an empty array under `set -u` is an
+        # unbound-variable error.
         emit_metric "whitaker-installer.suite=default-branch-tip"
-        "$WHITAKER_INSTALLER_PATH" --no-source-fallback | tee "$installer_log"
+        if [[ "$WHITAKER_CRANELIFT" == "true" ]]; then
+          "$WHITAKER_INSTALLER_PATH" --no-source-fallback --cranelift | tee "$installer_log"
+        else
+          "$WHITAKER_INSTALLER_PATH" --no-source-fallback | tee "$installer_log"
+        fi
         # Read from the installer's own output rather than inferred from a
         # green exit. With the flag in force a source build cannot happen, so
         # this is the backstop that catches an installer that ignored it: its

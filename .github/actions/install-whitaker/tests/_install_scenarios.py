@@ -270,6 +270,7 @@ class InstallScenario:
     #: assets, so an asset pre-check would fail for a reason unrelated to
     #: the behaviour under test. The tests that care set it explicitly.
     ci_mode: str = "false"
+    cranelift: str = "false"
     #: Make the stub installer report the source fallback a missing rolling
     #: asset causes, which is the outcome CI must refuse.
     installer_source_fallback: bool = False
@@ -455,6 +456,7 @@ def _build_context(
             "cache-provider": scenario.cache_provider,
             "cargo-home": scenario.cargo_home_value or bash_path(cargo_home),
             "ci-mode": scenario.ci_mode,
+            "cranelift": scenario.cranelift,
             "github-token": "",
             "installer-sha256": scenario.installer_sha256,
             "installer-version": scenario.installer_version,

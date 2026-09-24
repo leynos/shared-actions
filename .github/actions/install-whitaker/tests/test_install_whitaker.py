@@ -117,6 +117,16 @@ DOCUMENTED_INPUTS: dict[str, dict[str, object]] = {
         "required": False,
         "default": "true",
     },
+    "cranelift": {
+        "description": (
+            "Also install the rustc-codegen-cranelift component for the lint "
+            "suite's toolchain, for a repository whose builds select the "
+            "Cranelift backend. The installer adds the component through "
+            "rustup; nothing is compiled."
+        ),
+        "required": False,
+        "default": "false",
+    },
     "github-token": {
         "description": (
             "Token used only to read the public rolling release without "
@@ -167,6 +177,7 @@ class TestValidationStep:
             "CACHE_PROVIDER_INPUT": "${{ inputs.cache-provider }}",
             "CARGO_HOME_INPUT": "${{ inputs.cargo-home }}",
             "CI_MODE_INPUT": "${{ inputs.ci-mode }}",
+            "CRANELIFT_INPUT": "${{ inputs.cranelift }}",
             "INSTALLER_SHA256_INPUT": "${{ inputs.installer-sha256 }}",
             "INSTALLER_VERSION_INPUT": "${{ inputs.installer-version }}",
             "SUITE_VERSION_INPUT": "${{ inputs.suite-version }}",
@@ -516,8 +527,13 @@ class TestLifecycleSteps:
             if line.strip().startswith('"$WHITAKER_INSTALLER_PATH"')
         ]
 
+        with_cranelift = (
+            '"$WHITAKER_INSTALLER_PATH" --no-source-fallback --cranelift '
+            '| tee "$installer_log"'
+        )
         assert invocations == [
-            '"$WHITAKER_INSTALLER_PATH" --no-source-fallback | tee "$installer_log"'
+            with_cranelift,
+            '"$WHITAKER_INSTALLER_PATH" --no-source-fallback | tee "$installer_log"',
         ]
 
     def test_no_step_can_pin_the_suite(self) -> None:

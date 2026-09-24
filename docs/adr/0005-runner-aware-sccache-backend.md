@@ -153,8 +153,8 @@ build to record a cache hit.
 
 - Issue `#521`
 - [ADR 0003](0003-sccache-owns-rust-compiler-output.md)
-- ADR 0004, main-owned CodeScene coverage (PR `#503`), the record numbered
-  before this one
+- [ADR 0004](0004-main-owns-codescene-coverage.md), main-owned CodeScene
+  coverage, the record numbered before this one
 - `docs/developers-guide.md`, "`setup-rust` and the rustc wrapper", "Rust
   action cache ownership" and "`export-ubicloud-cache-credentials` action
   contract"

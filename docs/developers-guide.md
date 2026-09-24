@@ -25,6 +25,7 @@ repository-specific entries to the overlay instead.
 
 - [ADR 0002: Explicit ps-module-name for PowerShell sidecars](adr/0002-explicit-ps-module-name.md)
 - [ADR 0003: sccache owns Rust compiler output](adr/0003-sccache-owns-rust-compiler-output.md)
+- [ADR 0004: main owns CodeScene coverage](adr/0004-main-owns-codescene-coverage.md)
 - [ADR 0005: setup-rust selects the sccache backend by runner](adr/0005-runner-aware-sccache-backend.md)
 
 ## Python Coverage Venv Architecture

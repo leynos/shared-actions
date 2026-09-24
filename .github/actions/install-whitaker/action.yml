@@ -7,9 +7,12 @@ inputs:
     required: false
     default: ~/.cargo
   installer-version:
-    description: Version of whitaker-installer to install
+    description: >-
+      Version of whitaker-installer to install. Defaults to the version this
+      action pins, and must be 0.2.9 or later: that is the first release with
+      --no-source-fallback, which the action always passes.
     required: false
-    default: "0.2.8"
+    default: "0.2.9"
   installer-sha256:
     description: >-
       SHA-256 digest of the whitaker-installer release archive for this
@@ -20,13 +23,11 @@ inputs:
     default: ""
   suite-version:
     description: >-
-      Git reference the lint suite is built from: a tag, a branch or a
-      commit. Left empty, the installer builds the suite from the Whitaker
-      default branch tip, so a change there alters lint results with no
-      commit in this repository. Pinning makes a suite change arrive as a
-      reviewed bump, at the cost of a source build, because prebuilt lint
-      libraries are published only for the tip. Requires installer 0.2.8 or
-      later.
+      Refused. Whitaker's lint suite is a rolling release that every consumer
+      takes from the default branch tip, and a pin would force a source
+      build. The input stays declared only so that setting it fails the step:
+      GitHub drops an undeclared input with a warning, which would let a pin
+      look honoured while doing nothing.
     required: false
     default: ""
   cache-provider:
@@ -37,23 +38,13 @@ inputs:
     default: "github"
   ci-mode:
     description: >-
-      Treat a source build as a failure rather than a slow success. CI is
-      meant to consume Whitaker's published binaries, so a run that built the
-      lint suite or the Dylint tools from source has silently changed what it
-      tested and how long it took. With this on, the action checks the
-      published assets before starting, retries a short absence, and fails the
-      step if the installer still resorted to a source build. Set it off only
-      for local reproduction, where a source build is a legitimate choice.
+      Check the published lint assets before running the installer, retrying
+      a short absence while the rolling release republishes. A source build is
+      refused either way: the installer always receives --no-source-fallback,
+      and a run whose output still reports one fails. Set it off only where
+      the rolling release cannot be reached, such as a local reproduction.
     required: false
     default: "true"
-  allow-suite-pin:
-    description: >-
-      Permit suite-version while ci-mode is on. A pin forces a source build,
-      because prebuilt lint libraries are published only for the branch tip,
-      so the two settings contradict each other unless the caller says
-      otherwise deliberately.
-    required: false
-    default: "false"
   github-token:
     description: >-
       Token used only to read the public rolling release without meeting the
@@ -68,7 +59,6 @@ runs:
       id: validate-inputs
       shell: bash
       env:
-        ALLOW_SUITE_PIN_INPUT: ${{ inputs.allow-suite-pin }}
         CACHE_PROVIDER_INPUT: ${{ inputs.cache-provider }}
         CARGO_HOME_INPUT: ${{ inputs.cargo-home }}
         CI_MODE_INPUT: ${{ inputs.ci-mode }}
@@ -98,18 +88,12 @@ runs:
           true|false) ;;
           *) input_error "ci-mode must be true or false" ;;
         esac
-        case "$ALLOW_SUITE_PIN_INPUT" in
-          true|false) ;;
-          *) input_error "allow-suite-pin must be true or false" ;;
-        esac
-        # CI consumes Whitaker's published binaries; it does not build them.
-        # A suite pin forces a source build, because prebuilt lint libraries
-        # exist only for the branch tip, so the two settings contradict each
-        # other. Rejected rather than silently honoured, so a lane cannot
-        # acquire a source build by setting one input.
-        if [[ "$CI_MODE_INPUT" == "true" && -n "$SUITE_VERSION_INPUT" \
-              && "$ALLOW_SUITE_PIN_INPUT" != "true" ]]; then
-          input_error "suite-version forces a source build, which ci-mode forbids; set allow-suite-pin: true to accept that cost deliberately"
+        # The lint suite is a rolling release: every consumer takes it from the
+        # Whitaker default branch tip, and prebuilt lint libraries exist only
+        # for that tip, so a pin would also force a source build. Rejected
+        # rather than ignored, so a lane cannot believe it is pinned.
+        if [[ -n "$SUITE_VERSION_INPUT" ]]; then
+          input_error "suite-version is refused: the Whitaker lint suite is a rolling release and is never pinned"
         fi
         if (( ${#CARGO_HOME_INPUT} > 240 )); then
           input_error "cargo-home must be at most 240 characters"
@@ -119,6 +103,16 @@ runs:
         fi
         if [[ ! "$INSTALLER_VERSION_INPUT" =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,2}$ ]]; then
           input_error "installer-version must be one to three numeric components without leading zeros"
+        fi
+        # 0.2.9 is the first installer with --no-source-fallback, which the run
+        # step always passes. An older installer rejects the flag, so the floor
+        # is enforced here, where the cause is legible, rather than as an
+        # unknown-argument failure after the download.
+        IFS=. read -r version_major version_minor version_patch <<< "$INSTALLER_VERSION_INPUT"
+        version_minor="${version_minor:-0}"
+        version_patch="${version_patch:-0}"
+        if (( version_major == 0 && (version_minor < 2 || (version_minor == 2 && version_patch < 9)) )); then
+          input_error "installer-version ${INSTALLER_VERSION_INPUT} is below the 0.2.9 floor, the first release with --no-source-fallback"
         fi
         installer_sha256=
         if [[ -n "$INSTALLER_SHA256_INPUT" ]]; then
@@ -569,9 +563,7 @@ runs:
 
     - name: Verify the published lint assets
       id: rolling-assets
-      # Skipped when a suite pin is in force: a pin builds from source by
-      # design, so the published assets are not what that run will use.
-      if: ${{ inputs.ci-mode == 'true' && inputs.suite-version == '' }}
+      if: ${{ inputs.ci-mode == 'true' }}
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -613,9 +605,6 @@ runs:
       env:
         WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
-        WHITAKER_SUITE_VERSION: ${{ inputs.suite-version }}
-        WHITAKER_CI_MODE: ${{ inputs.ci-mode }}
-        WHITAKER_ALLOW_SUITE_PIN: ${{ inputs.allow-suite-pin }}
       run: |
         set -Eeuo pipefail
         emit_metric() {
@@ -634,58 +623,25 @@ runs:
           echo "::error title=Whitaker installer failed::installer was not created at ${WHITAKER_INSTALLER_PATH}" >&2
           exit 1
         fi
-        # An installer that implements this policy refuses its source fallback
-        # before Cargo starts, rather than making the action discover a
-        # completed source build by parsing the installer's output below.
-        # An explicitly allowed suite pin deliberately builds from source.
-        pin_allows_source=false
-        if [[ -n "${WHITAKER_SUITE_VERSION}" && "$WHITAKER_ALLOW_SUITE_PIN" == "true" ]]; then
-          pin_allows_source=true
-        fi
-        if [[ "$WHITAKER_CI_MODE" == "true" && "$pin_allows_source" != "true" ]]; then
-          export WHITAKER_NO_SOURCE_FALLBACK=1
-        else
-          unset WHITAKER_NO_SOURCE_FALLBACK
-        fi
-        # Two calls rather than one with an options array: macOS runners ship
-        # bash 3.2, where expanding an empty array under `set -u` is an
-        # unbound-variable error.
-        if [[ -n "${WHITAKER_SUITE_VERSION}" ]]; then
-          # A branch or tag can move without the caller changing anything, so
-          # reporting it as simply "pinned" would claim a protection the lane
-          # does not have. Only a full commit identifier is immutable.
-          commit_pattern='^[0-9a-fA-F]{40}$'
-          if [[ "$WHITAKER_SUITE_VERSION" =~ $commit_pattern ]]; then
-            emit_metric "whitaker-installer.suite=pinned-commit"
-          else
-            emit_metric "whitaker-installer.suite=pinned-mutable-ref"
-          fi
-          "$WHITAKER_INSTALLER_PATH" --suite-version "$WHITAKER_SUITE_VERSION" | tee "$installer_log"
-        else
-          # Recorded rather than left silent: an unpinned suite is the
-          # exposure this input exists to close, and a lane that never
-          # noticed it should be able to see it in the series.
-          emit_metric "whitaker-installer.suite=default-branch-tip"
-          "$WHITAKER_INSTALLER_PATH" | tee "$installer_log"
-        fi
+        # The lint suite always comes from the rolling release, and the
+        # installer is told to fail rather than build anything from source
+        # when a published lint library or Dylint tool archive is missing.
+        # Passed unconditionally: validation has already refused an installer
+        # older than 0.2.9, the first release that understands the flag.
+        emit_metric "whitaker-installer.suite=default-branch-tip"
+        "$WHITAKER_INSTALLER_PATH" --no-source-fallback | tee "$installer_log"
         # Read from the installer's own output rather than inferred from a
-        # green exit. A source build succeeds; that is the problem. Until the
-        # installer reports the path explicitly, its fallback notice is the
-        # only evidence, and matching it is better than assuming a run that
-        # passed used the binaries it was supposed to.
+        # green exit. With the flag in force a source build cannot happen, so
+        # this is the backstop that catches an installer that ignored it: its
+        # fallback notice is the evidence, and a run that reports one fails.
         suite_source=prebuilt
         if grep -Eqi "falling back|from source with cargo install|installing .* from source" "$installer_log"; then
           suite_source=source
         fi
         emit_metric "whitaker-installer.suite-source=${suite_source}"
-        # A pin builds from source by definition, so a caller who accepted that
-        # cost with allow-suite-pin must not then be failed for the outcome
-        # they asked for. Without this the escape hatch passes validation and
-        # fails the run, which is worse than not offering it.
-        if [[ "$suite_source" == "source" && "$WHITAKER_CI_MODE" == "true" \
-              && "$pin_allows_source" != "true" ]]; then
-          echo "::error title=Whitaker installer::the installer built from source instead of using the published binaries; CI must consume them. Re-run once the rolling release is complete, or set ci-mode: false if a source build is intended" >&2
+        if [[ "$suite_source" == "source" ]]; then
+          echo "::error title=Whitaker installer::the installer built from source instead of using the published binaries; CI must consume them. Re-run once the rolling release is complete" >&2
           exit 1
         fi
-        echo "::notice title=Whitaker installer::status=complete version=${WHITAKER_INSTALLER_VERSION} suite=${WHITAKER_SUITE_VERSION:-default-branch-tip} suite-source=${suite_source}"
+        echo "::notice title=Whitaker installer::status=complete version=${WHITAKER_INSTALLER_VERSION} suite=default-branch-tip suite-source=${suite_source}"
         emit_metric "whitaker-installer.result=success"

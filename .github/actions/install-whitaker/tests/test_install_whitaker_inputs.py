@@ -40,7 +40,6 @@ class ValidationInputs:
     runner_os: str = "Linux"
     installer_sha256: str = ""
     ci_mode: str = "true"
-    allow_suite_pin: str = "false"
     suite_version: str = ""
 
 
@@ -69,7 +68,6 @@ def run_validation(tmp_path: Path, inputs: ValidationInputs) -> ValidationRun:
     home.mkdir(exist_ok=True)
     context = ActionContext(
         inputs={
-            "allow-suite-pin": inputs.allow_suite_pin,
             "cache-provider": inputs.cache_provider,
             "cargo-home": inputs.cargo_home,
             "ci-mode": inputs.ci_mode,
@@ -307,75 +305,82 @@ class TestRejections:
         assert "installer-sha256 must be 64 hexadecimal characters" in run.stderr
 
 
-class TestSuitePinInCiMode:
-    """Cover the rule that CI pins the installer and never the suite."""
+class TestSuitePinRefused:
+    """Cover the rule that the installer is pinned and the suite never is."""
 
     @staticmethod
     def _inputs(**overrides: str) -> ValidationInputs:
         """Return validation inputs with the supplied overrides applied."""
         return ValidationInputs(
-            cargo_home="~/.cargo", installer_version="0.2.8", **overrides
+            cargo_home="~/.cargo", installer_version="0.2.9", **overrides
         )
 
-    def test_ci_mode_rejects_a_suite_pin(self, tmp_path: Path) -> None:
-        """A pin forces a source build, which is what ci-mode forbids.
+    @pytest.mark.parametrize("ci_mode", ["true", "false"])
+    def test_a_suite_pin_is_refused_in_either_mode(
+        self, tmp_path: Path, ci_mode: str
+    ) -> None:
+        """The lint suite is a rolling release, so no mode may pin it.
 
-        The two settings contradict each other, so honouring both would let a
-        lane acquire a source build by setting one input, which is the outcome
-        the mode exists to prevent.
+        Refused rather than ignored: a pin that validation accepted and the
+        run step dropped would let a lane believe it was pinned.
         """
         run = run_validation(
-            tmp_path, self._inputs(ci_mode="true", suite_version="v0.2.8")
+            tmp_path, self._inputs(ci_mode=ci_mode, suite_version="v0.2.8")
         )
 
         assert run.returncode != 0
-        assert "forces a source build" in run.stderr
-        assert "allow-suite-pin" in run.stderr, (
-            "the rejection must name the way out, or a caller with a reason "
-            "cannot act on it"
-        )
+        assert "suite-version is refused" in run.stderr
 
-    def test_an_explicit_allowance_accepts_the_pin(self, tmp_path: Path) -> None:
-        """A caller may take the cost deliberately."""
-        run = run_validation(
-            tmp_path,
-            self._inputs(
-                ci_mode="true", suite_version="v0.2.8", allow_suite_pin="true"
-            ),
-        )
-
-        assert run.returncode == 0, run.stderr
-
-    def test_outside_ci_mode_the_pin_stands(self, tmp_path: Path) -> None:
-        """Local reproduction keeps the behaviour it had."""
-        run = run_validation(
-            tmp_path, self._inputs(ci_mode="false", suite_version="v0.2.8")
-        )
-
-        assert run.returncode == 0, run.stderr
-
-    def test_ci_mode_permits_an_absent_pin(self, tmp_path: Path) -> None:
+    def test_an_absent_pin_is_accepted(self, tmp_path: Path) -> None:
         """The default path must stay open."""
         run = run_validation(tmp_path, self._inputs(ci_mode="true"))
 
         assert run.returncode == 0, run.stderr
 
-    @pytest.mark.parametrize(
-        ("field", "value"),
-        [
-            pytest.param("ci_mode", "yes", id="ci-mode"),
-            pytest.param("allow_suite_pin", "1", id="allow-suite-pin"),
-        ],
-    )
-    def test_a_non_boolean_flag_is_rejected(
-        self, tmp_path: Path, field: str, value: str
-    ) -> None:
+    def test_a_non_boolean_ci_mode_is_rejected(self, tmp_path: Path) -> None:
         """A near-miss must fail rather than read as false.
 
-        `yes` and `1` are the shapes a caller reaches for, and treating either
-        as false would silently disable the protection they meant to enable.
+        `yes` is the shape a caller reaches for, and treating it as false
+        would silently skip the published-asset check they meant to enable.
         """
-        run = run_validation(tmp_path, self._inputs(**{field: value}))
+        run = run_validation(tmp_path, self._inputs(ci_mode="yes"))
 
         assert run.returncode != 0
         assert "must be true or false" in run.stderr
+
+
+class TestInstallerFloor:
+    """Cover the 0.2.9 floor: the first installer with --no-source-fallback."""
+
+    @pytest.mark.parametrize(
+        "version",
+        [
+            pytest.param("0.2.9", id="the-floor-itself"),
+            pytest.param("0.2.10", id="patch-not-compared-as-text"),
+            pytest.param("0.3", id="two-components"),
+            pytest.param("0.10.0", id="minor-not-compared-as-text"),
+            pytest.param("1", id="one-component"),
+        ],
+    )
+    def test_accepts_the_floor_and_above(self, tmp_path: Path, version: str) -> None:
+        """Every version from 0.2.9 up passes, compared numerically."""
+        run = run_validation(tmp_path, ValidationInputs("~/.cargo", version))
+
+        assert run.returncode == 0, run.stderr
+
+    @pytest.mark.parametrize(
+        "version",
+        [
+            pytest.param("0.2.8", id="just-below"),
+            pytest.param("0.2.6", id="the-estate-majority"),
+            pytest.param("0.2", id="two-components-is-0.2.0"),
+            pytest.param("0.1.99", id="older-minor"),
+            pytest.param("0", id="one-component"),
+        ],
+    )
+    def test_refuses_anything_below(self, tmp_path: Path, version: str) -> None:
+        """An older installer rejects the flag, so it is refused up front."""
+        run = run_validation(tmp_path, ValidationInputs("~/.cargo", version))
+
+        assert run.returncode != 0
+        assert "below the 0.2.9 floor" in run.stderr

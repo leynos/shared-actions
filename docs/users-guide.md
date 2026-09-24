@@ -442,41 +442,24 @@ action from a workflow in this repository with its local path:
 
 The repository must be checked out before invoking this local action.
 
-**The action pins the installer, not the lints it installs.** By default the
-installer builds the Dylint suite from the Whitaker default branch tip, so a
-change on that branch alters lint results with no commit in the consuming
-repository. The optional `suite-version` input names a tag, branch or commit to
-build from instead, so a suite change arrives as a reviewed bump:
+**The action pins the installer and never the lints.** The installer is an
+exact version, 0.2.9 by default, and the action refuses anything older. The
+lint suite is a rolling release that every consumer takes from the Whitaker
+default branch tip. A non-empty `suite-version` fails the step, and
+`allow-suite-pin` no longer exists.
 
-```yaml
-- name: Install Whitaker
-  uses: ./.github/actions/install-whitaker
-  with:
-    suite-version: v0.2.8
-```
+**Nothing is built from source.** Every run passes `--no-source-fallback` to
+the installer, so a missing published lint library or Dylint tool archive fails
+the run before Cargo starts. The action also reads the installer's output as a
+backstop and fails a run that reports a source build. `ci-mode`, on by default,
+checks the rolling assets before the installer runs and retries a short
+absence. Set it off only where the rolling release cannot be reached; it no
+longer permits a source build.
 
-A pin costs a source build, because prebuilt lint libraries are published only
-for the branch tip, and it needs installer 0.2.8 or later. The action's
-`ci-mode` input defaults to on and rejects a pin for that reason: CI pins the
-installer and consumes the published binaries, and a lane that wants the cost
-must say so with `allow-suite-pin: true`. `ci-mode` also verifies the rolling
-assets before the installer runs, retrying a short absence, and fails the step
-if the installer resorted to a source build anyway.
-
-Every run records which path it took as
-`whitaker-installer.suite-source=<prebuilt|source>`, and the toolchain the
-published libraries were built with as
+Every run records `whitaker-installer.suite-source=<prebuilt|source>`, and the
+toolchain the published libraries were built with as
 `whitaker-installer.suite-toolchain=<toolchain>`, so a lint result can be tied
-to the compiler that produced it. Set `ci-mode: false` when a source build is
-the intention, such as reproducing a lint locally against a modified suite. The
-path is still recorded, but `source` no longer fails the step.
-
-A pin cannot be applied when the workflow runs inside a Whitaker checkout
-because checking out a reference there would move the working tree the run is
-using. Each run records which arm it took as
-`whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`.
-Only a full commit identifier reports as `pinned-commit`; a branch or tag is
-reported as mutable because it can move without the caller changing anything.
+to the compiler that produced it.
 
 The optional `installer-version` input selects the `whitaker-installer` version
 and defaults to `0.2.8`. The optional `cargo-home` input defaults to

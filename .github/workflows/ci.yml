@@ -17,11 +17,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       MERMAN_CLI_VERSION: '0.7.0'
-      # 0.2.7 is the floor: below it the installer builds dylint-link from
-      # crates.io instead of taking the published artefact, and that build
-      # now needs a newer rustc than this repository pins.
+      # 0.2.9 is the floor: it is the first installer with
+      # --no-source-fallback, which install-whitaker always passes.
       # tests/workflows/test_whitaker_installer_floor.py holds the rule.
-      WHITAKER_INSTALLER_VERSION: '0.2.8'
+      WHITAKER_INSTALLER_VERSION: '0.2.9'
     strategy:
       fail-fast: false
       matrix:

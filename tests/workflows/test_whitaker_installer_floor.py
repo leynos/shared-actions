@@ -19,6 +19,12 @@ not evidence that a lane is safe. This contract is the evidence: it
 reads the version each lane asks for, at rest, where the cause is
 legible.
 
+The floor has since risen to 0.2.9, the first installer with
+`--no-source-fallback`. The action passes that flag on every run, so
+it refuses a missing published asset instead of compiling anything, and
+an older installer rejects the flag outright. 0.2.7 still holds the
+reason above; 0.2.9 is the stricter bar the flag imposes.
+
 The floor is a version, not a pin. Asking for a newer installer is
 always allowed; asking for an older one is the defect.
 """
@@ -55,10 +61,10 @@ LOCAL_ACTION_PREFIXES: typ.Final[tuple[str, ...]] = ("./", "$/")
 #: The input naming the installer version.
 VERSION_INPUT: typ.Final[str] = "installer-version"
 
-#: The oldest installer that installs `dylint-link` from the Whitaker
-#: release rather than building it. Raising this floor is a decision:
-#: it forces every lane and every consumer to move with it.
-INSTALLER_FLOOR: typ.Final[tuple[int, ...]] = (0, 2, 7)
+#: The oldest installer that accepts `--no-source-fallback`, which the
+#: action always passes. Raising this floor is a decision: it forces
+#: every lane and every consumer to move with it.
+INSTALLER_FLOOR: typ.Final[tuple[int, ...]] = (0, 2, 9)
 
 #: Both extensions GitHub accepts for a workflow file, compared without
 #: regard to case. Scanning only `.yml` would let a `.yaml` workflow past
@@ -331,10 +337,10 @@ def _assert_at_or_above_floor(requested: str, *, subject: str) -> None:
     floor = ".".join(str(part) for part in INSTALLER_FLOOR)
     assert _version(requested) >= INSTALLER_FLOOR, (
         f"{subject} asks for Whitaker installer {requested}, below the "
-        f"{floor} floor. Below {floor} the installer builds dylint-link from "
-        "crates.io instead of taking the published artefact, and that build "
-        "needs a newer rustc than this repository pins. It fails only on a "
-        "cold installer cache, so a green run does not clear it"
+        f"{floor} floor. Below {floor} the installer rejects "
+        "--no-source-fallback, which the action always passes, so the lane "
+        "fails; and below 0.2.7 it builds dylint-link from crates.io, which "
+        "fails only on a cold installer cache, so a green run clears nothing"
     )
 
 
@@ -390,10 +396,11 @@ class TestTheFloorComparison:
     @pytest.mark.parametrize(
         ("raw", "expected"),
         [
-            pytest.param("0.2.7", True, id="the-floor-itself"),
-            pytest.param("0.2.8", True, id="above-it"),
+            pytest.param("0.2.9", True, id="the-floor-itself"),
+            pytest.param("0.2.11", True, id="above-it"),
             pytest.param("0.3", True, id="two-components-above"),
             pytest.param("1", True, id="one-component-above"),
+            pytest.param("0.2.8", False, id="just-below"),
             pytest.param("0.2.6", False, id="the-version-that-broke"),
             pytest.param("0.2", False, id="two-components-below"),
             pytest.param("0.10.0", True, id="not-compared-as-text"),
@@ -408,7 +415,7 @@ class TestTheFloorComparison:
         """Versions compare component by component, never as strings.
 
         Both directions, through the assertion the lane and default rules
-        use. A string comparison would place `0.10.0` below `0.2.7` and
+        use. A string comparison would place `0.10.0` below `0.2.9` and
         reject a lane that is comfortably ahead of the floor, and padding
         matters too: `0.2` is `0.2.0`, which is below it.
         """
@@ -416,6 +423,6 @@ class TestTheFloorComparison:
             _assert_at_or_above_floor(raw, subject="the case")
         else:
             with pytest.raises(
-                AssertionError, match=re.escape("below the 0.2.7 floor")
+                AssertionError, match=re.escape("below the 0.2.9 floor")
             ):
                 _assert_at_or_above_floor(raw, subject="the case")

@@ -18,6 +18,7 @@ from _action_manifest import (
     DIGEST_MANIFEST_PATH,
     LIFECYCLE_STEP_NAMES,
     RESOLVE_SCRIPT_PATH,
+    default_input,
     load_manifest,
     manifest_steps,
     step_by_name,
@@ -62,9 +63,14 @@ DOCUMENTED_INPUTS: dict[str, dict[str, object]] = {
         "default": "~/.cargo",
     },
     "installer-version": {
-        "description": "Version of whitaker-installer to install",
+        "description": (
+            "Version of whitaker-installer to install. Defaults to the "
+            "version this action pins, and must be 0.2.9 or later: that is "
+            "the first release with --no-source-fallback, which the action "
+            "always passes."
+        ),
         "required": False,
-        "default": "0.2.8",
+        "default": "0.2.9",
     },
     "installer-sha256": {
         "description": (
@@ -79,14 +85,12 @@ DOCUMENTED_INPUTS: dict[str, dict[str, object]] = {
     },
     "suite-version": {
         "description": (
-            "Git reference the lint suite is built from: a tag, a "
-            "branch or a commit. Left empty, the installer builds the "
-            "suite from the Whitaker default branch tip, so a change "
-            "there alters lint results with no commit in this "
-            "repository. Pinning makes a suite change arrive as a "
-            "reviewed bump, at the cost of a source build, because "
-            "prebuilt lint libraries are published only for the tip. "
-            "Requires installer 0.2.8 or later."
+            "Refused. Whitaker's lint suite is a rolling release that every "
+            "consumer takes from the default branch tip, and a pin would "
+            "force a source build. The input stays declared only so that "
+            "setting it fails the step: GitHub drops an undeclared input "
+            "with a warning, which would let a pin look honoured while "
+            "doing nothing."
         ),
         "required": False,
         "default": "",
@@ -102,29 +106,16 @@ DOCUMENTED_INPUTS: dict[str, dict[str, object]] = {
     },
     "ci-mode": {
         "description": (
-            "Treat a source build as a failure rather than a slow "
-            "success. CI is meant to consume Whitaker's published "
-            "binaries, so a run that built the lint suite or the Dylint "
-            "tools from source has silently changed what it tested and "
-            "how long it took. With this on, the action checks the "
-            "published assets before starting, retries a short absence, "
-            "and fails the step if the installer still resorted to a "
-            "source build. Set it off only for local reproduction, "
-            "where a source build is a legitimate choice."
+            "Check the published lint assets before running the installer, "
+            "retrying a short absence while the rolling release "
+            "republishes. A source build is refused either way: the "
+            "installer always receives --no-source-fallback, and a run "
+            "whose output still reports one fails. Set it off only where "
+            "the rolling release cannot be reached, such as a local "
+            "reproduction."
         ),
         "required": False,
         "default": "true",
-    },
-    "allow-suite-pin": {
-        "description": (
-            "Permit suite-version while ci-mode is on. A pin forces a "
-            "source build, because prebuilt lint libraries are "
-            "published only for the branch tip, so the two settings "
-            "contradict each other unless the caller says otherwise "
-            "deliberately."
-        ),
-        "required": False,
-        "default": "false",
     },
     "github-token": {
         "description": (
@@ -173,7 +164,6 @@ class TestValidationStep:
     def test_declares_every_validated_input(self) -> None:
         """Verify the validation step receives every input it judges."""
         assert _step_env("Validate Whitaker inputs") == {
-            "ALLOW_SUITE_PIN_INPUT": "${{ inputs.allow-suite-pin }}",
             "CACHE_PROVIDER_INPUT": "${{ inputs.cache-provider }}",
             "CARGO_HOME_INPUT": "${{ inputs.cargo-home }}",
             "CI_MODE_INPUT": "${{ inputs.ci-mode }}",
@@ -513,9 +503,54 @@ class TestLifecycleSteps:
         assert '"$WHITAKER_INSTALLER_PATH"' in script
         assert "title=Whitaker installer::status=complete" in script
 
+    def test_every_invocation_forbids_the_source_fallback(self) -> None:
+        """Every command line running the installer carries the flag.
+
+        Read from the script at rest so a second invocation added beside the
+        first, without the flag, fails here even if no scenario reaches it.
+        """
+        script = _step_script("Run Whitaker installer")
+        invocations = [
+            line.strip()
+            for line in script.splitlines()
+            if line.strip().startswith('"$WHITAKER_INSTALLER_PATH"')
+        ]
+
+        assert invocations == [
+            '"$WHITAKER_INSTALLER_PATH" --no-source-fallback | tee "$installer_log"'
+        ]
+
+    def test_no_step_can_pin_the_suite(self) -> None:
+        """No step forwards the suite input or names a suite flag.
+
+        The input is read once, by validation, which refuses it. Any other
+        reader could only be a route for a pin to reach the installer.
+        """
+        readers = [
+            step.get("name")
+            for step in manifest_steps()
+            if "inputs.suite-version" in str(step)
+        ]
+        suite_flags = [
+            flag
+            for flag in ("--suite-version", "--suite-ref", "--ref ")
+            if flag in _step_script("Run Whitaker installer")
+        ]
+
+        assert readers == ["Validate Whitaker inputs"]
+        assert suite_flags == []
+
 
 class TestPinnedDigestManifest:
     """Validate the checked-in trust anchor for installer archives."""
+
+    def test_the_default_version_is_pinned(self) -> None:
+        """The version the action installs by default has digests.
+
+        Without them the default path fails resolution on every runner, so a
+        default moved ahead of its digests would break every consumer.
+        """
+        assert default_input("installer-version") in _PINNED_VERSIONS
 
     def test_pins_every_supported_version_and_target(self) -> None:
         """Verify each supported version and target has a pinned digest."""

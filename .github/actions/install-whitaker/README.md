@@ -80,81 +80,55 @@ home would otherwise keep serving an installer built for an older version.
 
 ## Inputs
 
-| Name                | Type   | Description                                        | Required | Default        |
-| ------------------- | ------ | -------------------------------------------------- | -------- | -------------- |
-| `cargo-home`        | string | Cargo home holding the cached installer binary     | no       | `~/.cargo`     |
-| `installer-version` | string | Version of `whitaker-installer` to install         | no       | `0.2.8`        |
-| `installer-sha256`  | string | Digest for an asset the manifest does not pin      | no       | `""`           |
-| `suite-version`     | string | Git reference the lint suite is built from         | no       | `""`           |
-| `cache-provider`    | string | Built-in `github` or caller-owned `external`       | no       | `github`       |
-| `ci-mode`           | string | Check published assets, then refuse a source build | no       | `true`         |
-| `allow-suite-pin`   | string | Accept `suite-version` while `ci-mode` is on       | no       | `false`        |
-| `github-token`      | string | Read the rolling release without the anon limit    | no       | `github.token` |
+| Name                | Type   | Description                                     | Required | Default        |
+| ------------------- | ------ | ----------------------------------------------- | -------- | -------------- |
+| `cargo-home`        | string | Cargo home holding the cached installer binary  | no       | `~/.cargo`     |
+| `installer-version` | string | Version of `whitaker-installer`, 0.2.9 or later | no       | `0.2.9`        |
+| `installer-sha256`  | string | Digest for an asset the manifest does not pin   | no       | `""`           |
+| `suite-version`     | string | Refused: any non-empty value fails the step     | no       | `""`           |
+| `cache-provider`    | string | Built-in `github` or caller-owned `external`    | no       | `github`       |
+| `ci-mode`           | string | Check the published assets before the installer | no       | `true`         |
+| `github-token`      | string | Read the rolling release without the anon limit | no       | `github.token` |
 
 ## What is pinned, and what is not
 
-The installer is pinned thoroughly: a release archive verified against
-[`installer-digests.sha256`](installer-digests.sha256), never built from source.
+The installer is pinned: an exact version, taken from a release archive
+verified against [`installer-digests.sha256`](installer-digests.sha256), never
+built from source. The default is the version this action pins, and a caller
+may name a newer one, but never one older than 0.2.9, the first release with
+`--no-source-fallback`.
 
-**The lint suite is a separate decision.** By default the installer builds it
-from the Whitaker default branch tip, so a change on that branch alters lint
-results with no commit in the consuming repository. That is how
-`pg-embed-setup-unpriv`'s lint gate stayed red from 2026-08-19 to 2026-09-04:
-the same installer version and the same toolchain, a different suite commit,
-and nothing in the consumer to point at.
+The lint suite is not pinned, and cannot be. Whitaker's lints are a rolling
+release: every merge to its default branch republishes prebuilt lint libraries,
+and every consumer takes the suite from there. `suite-version` stays declared
+only so that setting it fails the step. An undeclared input is dropped by
+GitHub with a warning, so a pin would look honoured while doing nothing.
+`allow-suite-pin` has been removed.
 
-`suite-version` names a tag, branch or commit to build the suite from instead,
-so a suite change arrives as a reviewed bump:
+## Nothing is built from source
 
-```yaml
-- uses: ./.github/actions/install-whitaker
-  with:
-    suite-version: v0.2.8
-```
+Every run passes `--no-source-fallback` to the installer, whatever `ci-mode`
+says. When a published lint library or Dylint tool archive is missing, the
+installer fails before Cargo starts instead of compiling it. A source build
+succeeds, which is the problem: the run looks healthy while it has tested
+something else, more slowly.
 
-It costs a source build. Prebuilt lint libraries are published only for the
-branch tip, so a pin cannot be served from them, and the installer does not
-attempt the download when one is set. The trade is install time for
-reproducibility, and it stays that trade even where artefacts exist: a lint
-library must be built with the exact toolchain that loads it.
+The installer's output is still read afterwards, as a backstop. A run whose
+output reports a source build fails, and records
+`whitaker-installer.suite-source=<prebuilt|source>`.
 
-A pin needs installer 0.2.8 or later, and cannot be applied when the workflow
-runs inside a Whitaker checkout, because checking out a reference there would
-move the working tree.
-
-CI pins the installer and never the suite. Whitaker publishes prebuilt lint
-libraries for its branch tip on every merge, and a pin forces a source build
-because those libraries exist only for the tip, so `ci-mode` rejects a non-empty
-`suite-version` unless `allow-suite-pin: true` says the cost is deliberate.
-
-`ci-mode` also refuses a silent source build. Before the installer runs, the
-action checks that the rolling release carries this target's manifest, the lint
-archive that manifest names, and both Dylint tool archives, retrying five times
-over about thirty seconds because a republish takes six or seven. If an asset
-is still absent the step fails with the URL rather than letting the installer
-build from source. In strict CI runs, it also sets
-`WHITAKER_NO_SOURCE_FALLBACK=1` for installers that support the policy. Those
-installers fail before starting Cargo when a published lint library or Dylint
-tool is unavailable. The current default installer, 0.2.8, does not support
-this control; a verified release and digest-pinned default-version update are
-required before this action can promise prevention. Until then the action reads
-the installer's output and fails after detecting a source build. The output
-check remains as a second failure signal for newer installers.
-
-The action clears the control for `ci-mode: false` and for a CI run that
-explicitly combines `suite-version` with `allow-suite-pin: true`; those modes
-intentionally permit source builds.
+`ci-mode`, on by default, adds a check before the installer runs. It confirms
+that the rolling release carries this target's manifest, the lint archive that
+manifest names, and both Dylint tool archives. It retries five times over about
+thirty seconds, because a republish takes six or seven, and fails with the URL
+if an asset is still absent. Turn it off only where the rolling release cannot
+be reached, such as a local reproduction; the installer still refuses a source
+build.
 
 The resolved nightly is recorded as
 `whitaker-installer.suite-toolchain=<toolchain>`, so a lint result can be tied
-to the compiler that produced the libraries.
-
-Each run records which arm it took as
-`whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`,
-so a lane that never chose can see the exposure rather than discover it from a
-red gate. The pinned arm is split because only a full commit identifier is
-immutable: a branch or a tag can advance without the calling repository
-changing a line, which is the same drift an unpinned lane suffers.
+to the compiler that produced the libraries. Each run also records
+`whitaker-installer.suite=default-branch-tip`.
 
 ## Outputs
 

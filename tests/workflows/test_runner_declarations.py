@@ -185,7 +185,12 @@ class TestWhichValuesAreDeclarations:
             "strategy": {"matrix": {"os": ["ubicloud-standard-2\n"]}},
         }
 
-        assert "os[0]" in _runner_declarations(job)
+        declarations = _runner_declarations(job)
+
+        assert "os[0]" in declarations, (
+            "a fork selector naming matrix.os references the `os` dimension, "
+            f"but its entries were not read; read as {declarations!r}"
+        )
 
     @pytest.mark.parametrize(
         ("runs_on", "expected"),
@@ -220,10 +225,12 @@ class TestWhichValuesAreDeclarations:
             "strategy": {"matrix": {"os": ["ubicloud-standard-2\n"]}},
         }
 
-        assert _runner_declarations(job) == {
-            **expected,
-            "os[0]": "ubicloud-standard-2\n",
-        }
+        declarations = _runner_declarations(job)
+
+        assert declarations == {**expected, "os[0]": "ubicloud-standard-2\n"}, (
+            f"runs-on {runs_on!r} should be read as {expected!r} plus the "
+            f"matrix dimension it references; read as {declarations!r}"
+        )
 
     @pytest.mark.parametrize(
         "runs_on",
@@ -239,7 +246,12 @@ class TestWhichValuesAreDeclarations:
             "strategy": {"matrix": {"os": ["ubicloud-standard-2"]}},
         }
 
-        assert "os[0]" in _runner_declarations(job)
+        declarations = _runner_declarations(job)
+
+        assert "os[0]" in declarations, (
+            f"{runs_on!r} references the `os` dimension, but its entries were "
+            f"not read; read as {declarations!r}"
+        )
 
     def test_an_unknown_runs_on_form_is_refused(self) -> None:
         """A `runs-on` in no form GitHub accepts fails instead of reading empty."""

@@ -681,10 +681,13 @@ runs:
           "$WHITAKER_INSTALLER_PATH" --no-source-fallback 2> "$installer_err" | tee "$installer_log" || installer_status=$?
         fi
         cat "$installer_err" >&2
-        # A failing subshell is what raises the ERR trap, which reports the
-        # exit code and the metric exactly as a failing command would.
+        # Reported here rather than through the ERR trap: bash 3.2 on the
+        # macOS runners does not run the trap for a failing subshell, so the
+        # report is written out once, in the trap's own words.
         if (( installer_status != 0 )); then
-          ( exit "$installer_status" )
+          echo "::error title=Whitaker installer failed::exit-code=${installer_status} version=${WHITAKER_INSTALLER_VERSION}" >&2
+          emit_metric "whitaker-installer.failure=execution"
+          exit "$installer_status"
         fi
         # Read from the installer's own output rather than inferred from a
         # green exit. With the flag in force a source build cannot happen, so

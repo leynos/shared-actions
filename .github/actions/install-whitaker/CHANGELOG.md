@@ -5,12 +5,16 @@ file.
 
 ## v1.0.0 (Unreleased)
 
-- Prepare strict CI execution for Whitaker's no-source-fallback installer
-  policy. A compatible installer receives `WHITAKER_NO_SOURCE_FALLBACK=1` so a
-  missing published dependency fails before Cargo starts. Local runs and an
-  explicitly allowed suite pin keep their source-build behaviour. The default
-  0.2.8 installer ignores this control; publishing the action as fail-closed
-  requires a verified new installer release and digest-pinned version bump.
+- Enforce the estate's Whitaker install rule. The installer always receives
+  `--no-source-fallback`, whatever `ci-mode` says, so a missing published lint
+  library or Dylint tool archive fails before Cargo starts. The default
+  `installer-version` is 0.2.9, the first release with that flag, and any
+  version below it is refused. A non-empty `suite-version` is refused, because
+  the lint suite is a rolling release and is never pinned. `allow-suite-pin` is
+  removed. `ci-mode` now chooses only whether the published assets are checked
+  before the installer runs. The output check that fails a reported source
+  build stays as a backstop, and now runs in every mode. This supersedes the
+  earlier `WHITAKER_NO_SOURCE_FALLBACK` environment control.
 
 - Refuse a silent source build. Whitaker republishes its rolling release on
   every merge, and the publish briefly left the tag without a complete asset

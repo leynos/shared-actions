@@ -93,8 +93,11 @@ def _as_step(value: object, *, where: str) -> _Step:
         case _:
             msg = f"{where} is not a mapping: {value!r}"
             raise TypeError(msg)
-    if isinstance(run := value.get("run"), str):
-        step["run"] = run
+    match value.get("run"):
+        case str() as run:
+            step["run"] = run
+        case _:
+            pass
     for field in _GUARD_FIELDS:
         if field in value:
             step[field] = value[field]
@@ -369,6 +372,9 @@ class TestCoverageWatchdogLane:
 
         Asserted as the command. A step that kept the name and ran something
         else would leave the watchdog unproved while the lane stayed green.
+        The proof must also be the step's only command, so that its exit
+        status is the step's: `set +e`, the proof, then `true` runs the
+        proof and reports success whatever it found.
         """
         commands = [
             str(step.get("run", ""))
@@ -380,17 +386,19 @@ class TestCoverageWatchdogLane:
         invocations = [
             arguments
             for command in commands
-            for words in shell.command_lines(command)
+            if (words := shell.sole_command(command)) is not None
             if (arguments := shell.proof_arguments(words)) is not None
         ]
 
         assert invocations, (
-            f"no step in {watchdog.path.name} executes {shell.PROOF_SCRIPT} as a "
-            "command, either directly or through uv run, in a step and job carrying no "
-            "`if` and no `continue-on-error`, so the cargo watchdog is not "
-            "proved anywhere. A step that passes the path to another command, "
-            "such as true or echo, satisfies a substring check and runs nothing, "
-            "and a guarded one may not run or may fail without failing the lane"
+            f"no step in {watchdog.path.name} executes {shell.PROOF_SCRIPT} as its "
+            "only command, either directly or through uv run, in a step and job "
+            "carrying no `if` and no `continue-on-error`, so the cargo watchdog "
+            "is not proved anywhere. A step that passes the path to another "
+            "command, such as true or echo, satisfies a substring check and runs "
+            "nothing; a guarded one may not run or may fail without failing the "
+            "lane; and one running other commands too, such as `set +e` before "
+            "it and `true` after, can report success whatever the proof found"
         )
         pointed = [
             arguments

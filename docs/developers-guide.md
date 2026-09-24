@@ -1436,27 +1436,33 @@ cannot become a required check.
 each of which a plausible edit would otherwise break silently:
 
 <!-- markdownlint-disable MD013 -->
-| Rule                       | What it requires                                                                                                                                                                    |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The proof runs             | Some step executes `workflow_scripts/prove_cargo_watchdog.py` unconditionally, directly or through `uv run`, with `--runner .github/actions/generate-coverage/scripts/run_rust.py`. |
-| The lane is unfiltered     | The `pull_request` trigger declares none of `paths`, `paths-ignore`, `branches`, `branches-ignore` or `types`.                                                                      |
-| The runner is mapped       | Every job's `runs-on` sends a fork's pull request to `ubuntu-latest` and everything else to `ubicloud-standard-2`.                                                                  |
-| The expression is one line | Every job's `runs-on`, read as written, parses without a line break.                                                                                                                |
+| Rule                       | What it requires                                                                                                                                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The proof runs             | Some step's only command executes `workflow_scripts/prove_cargo_watchdog.py` unconditionally, directly or through `uv run`, with `--runner .github/actions/generate-coverage/scripts/run_rust.py`. |
+| The lane is unfiltered     | The `pull_request` trigger declares none of `paths`, `paths-ignore`, `branches`, `branches-ignore` or `types`.                                                                                     |
+| The runner is mapped       | Every job's `runs-on` sends a fork's pull request to `ubuntu-latest` and everything else to `ubicloud-standard-2`.                                                                                 |
+| The expression is one line | Every job's `runs-on`, read as written, parses without a line break.                                                                                                                               |
 <!-- markdownlint-enable MD013 -->
 
 The first is asserted as an executed command rather than as the step's name or
 as a substring of its script. A step reading `echo <proof> --runner <runner>`
 exits zero, proves nothing, and satisfies any check that looks for the path
-anywhere in the text, so the run block is split on line breaks and shell
-separators and each fragment is read as a command line. The command position is
-then matched against an allowlist: the script itself, `uv run` or
-`uv run --script`, each followed by the script's path. A list of commands that
-do not execute their argument would never be complete, since
+anywhere in the text, so the run block is split where bash separates commands
+and each fragment is read as a command line. Only an unquoted, unescaped `;` or
+line break outside a comment separates; `printf 'x; <proof>; y'` prints a
+string, and a line ending in `&&`, `||` or `|` runs on into the next. The
+command position is then matched against an allowlist: the script itself,
+`uv run` or `uv run --script`, each followed by the script's path. A list of
+commands that do not execute their argument would never be complete, since
 `true <proof> --runner <runner>` also exits zero and runs nothing. The
 invocation must also be unconditional. A command behind a control keyword such
 as `if false; then` is refused, and so is one negated with `!`, one after `&&`
 or `||`, or one feeding a pipe. Each of those either might not run or would
-hide the proof's exit status from the step.
+hide the proof's exit status from the step. Finally, the proof must be the
+step's only command. `set +e`, the proof, then `true` runs the proof and
+reports success whatever it found, and refusing every other command is the
+allowlist form of that rule: listing the commands that can mask a failure is
+the denylist this contract avoids.
 
 The second refuses branch filters as firmly as path ones. `branches: [main]` on
 a `pull_request` trigger matches the base branch, so a pull request against any

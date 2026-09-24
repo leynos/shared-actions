@@ -643,7 +643,8 @@ The `cargo-home` input defaults to `~/.cargo` and controls the cached installer
 location. The step expands a leading `~` against `HOME`, validates the path,
 adds the Windows executable suffix when required, and records the installer
 path for the cache and later execution. The `installer-version` input defaults
-to `0.2.7`.
+to `0.2.8`, above the `0.2.7` floor described under
+[The installer floor](#the-installer-floor).
 
 On a miss, a `Resolve Whitaker release` step selects the runner's supported
 release target and resolves the expected digest, then dedicated
@@ -857,6 +858,40 @@ The job summary carries these metric names, read from `action.yml`:
 - `whitaker-installer.failure=resolve`, `whitaker-installer.failure=install`,
   `whitaker-installer.failure=execution`.
 - `whitaker-installer.result=success`.
+
+### The installer floor
+
+No lane may ask for a Whitaker installer older than 0.2.7, and the action's own
+`installer-version` default may not sit below it either. Below 0.2.7 the
+installer compiles `dylint-link` from crates.io instead of installing the
+published artefact, and since 2026-09-17 that build needs rustc 1.91 while this
+repository pins 1.89. The failure only shows on a cold installer cache, so a
+green run is no evidence that a lane is safe.
+
+`tests/workflows/test_whitaker_installer_floor.py` enforces the floor, reading
+every workflow with a `.yml` or `.yaml` extension in any case:
+
+- A step runs the action when its `uses:` is `./` or `$/` followed by
+  `.github/actions/install-whitaker`. The match is on the path, so a trailing
+  slash still counts. A pinned reference to another repository runs whatever
+  that ref holds, and is not read.
+- A bare `${{ env.NAME }}` resolves against the step, then the job, then the
+  workflow, which is the order GitHub searches, and never against another job.
+  Any value that is not one to three numeric components after that is refused
+  as unreadable rather than accepted.
+- Versions compare numerically, component by component, so `0.10.0` sits
+  above the floor and `0.2` sits below it.
+- The workflow directory and the action manifest are passed into the readers
+  explicitly. A directory that cannot be listed fails and names the directory,
+  and a workflow that cannot be read, cannot be parsed, or has the wrong shape
+  fails and names the file. Neither reads as having no lanes.
+- At least one job must run the action. A step that omits `installer-version`
+  counts, because it installs Whitaker on the action's default, which the
+  default rule holds to the floor.
+
+`tests/workflows/test_whitaker_floor_readers.py` covers those readers against
+synthetic workflows. Raising the floor is a decision, because every lane and
+every consumer has to move with it.
 
 ## `upload-codescene-coverage` check-mode contract
 

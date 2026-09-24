@@ -15,8 +15,14 @@ sccache="${1:?path to sccache required}"
 manifest="${2:?Cargo manifest required}"
 directory="${SCCACHE_DIR:?SCCACHE_DIR must name the restored directory}"
 
-# Read before anything compiles, so only the restore can have filled it.
-restored="$(find "$directory" -type f 2>/dev/null | head -n 1)"
+# Read before anything compiles, so only the restore can have filled it. On a
+# cold run the directory does not exist yet, and find then exits non-zero,
+# which `set -e` would turn into a failure; -quit also avoids the SIGPIPE a
+# `| head` gets under pipefail once the directory holds many files.
+restored=""
+if [[ -d "$directory" ]]; then
+  restored="$(find "$directory" -type f -print -quit)"
+fi
 
 cargo build --manifest-path "$manifest"
 stats="$("$sccache" --show-stats)"

@@ -11,6 +11,57 @@ action and the evolution of its supporting scripts.
   `plumbum`-driven Python subprocess and exposes the composed name to the
   workflow. The script migrated to `cyclopts` for CLI parsing so additional
   inputs can be mapped declaratively from the GitHub Actions environment.
+- *2026-09-22* — `set_outputs.py` no longer binds Cyclopts' `Env("INPUT_")`
+  globally. That binding was added so inputs could be mapped declaratively from
+  the GitHub Actions environment, and it worked on GitHub-hosted runners
+  because the step's `env:` block was the only source of `INPUT_*` variables.
+  It does not survive nektos/act, which exports every declared composite input
+  into the step environment under its dashed name: the `out` step then carried
+  both `INPUT_ARTEFACT-NAME-SUFFIX` (act's copy) and
+  `INPUT_ARTEFACT_NAME_SUFFIX` (the step's `env:` key), and because Cyclopts
+  normalizes both spellings onto one parameter it aborted the step with
+  "Parameter INPUT_ARTEFACT_NAME_SUFFIX specified multiple times". The two
+  hyphenated inputs are now passed as explicit command-line arguments, which
+  have no environment counterpart to collide with.
+
+  The `detect`, `rust`, and `python` steps still set underscored `INPUT_*` keys
+  in their `env:` blocks and their scripts still read them with a plain
+  `os.environ` lookup, which stays correct because the two reads differ in
+  kind. A plain lookup names one exact key, so it matches only the underscored
+  variable and ignores act's dashed copy; nothing resolves the same input
+  twice. The removed `Env("INPUT_")` binding was a *prefix* search, which
+  Cyclopts resolves by normalizing each spelling onto the parameter, so it
+  matched both copies and treated them as a duplicate. `set_outputs.py` reads
+  `DETECTED_FMT`, `GITHUB_JOB`, `STRATEGY_JOB_INDEX`, `RUNNER_OS`, and
+  `RUNNER_ARCH` for values the step computes or that the runner synthesizes,
+  not for an input, so they have no dashed twin either way. See
+  [`docs/local-validation-of-github-actions-with-act-and-pytest.md`](local-validation-of-github-actions-with-act-and-pytest.md)
+  for the act-compatibility context.
+
+  The guard is a *pair* of changes, and only the pair is checkable. An argument
+  outranks the environment, so restoring the binding alone does not fail: the
+  command line still satisfies the parameter and the duplicate never surfaces.
+  The regression in
+  `.github/actions/generate-coverage/tests/test_set_outputs.py` therefore
+  carries a poisoned sentinel for both spellings and asserts the composed name
+  contains no trace of it, which catches a reintroduced environment read *by
+  value* rather than by watching for an error. Confirmed by mutation:
+  reinstating the binding makes the `omitted_suffix` case — the one that leaves
+  the flag off the command line — fail with the original "specified multiple
+  times" message, while `empty_suffix` and `non_empty` still pass. That is the
+  masking behaviour in miniature, and it holds for an explicit *empty* argument
+  as much as a populated one: any argument satisfies the parameter, so the
+  duplicate never surfaces. Removing the binding passes all three.
+
+  Only `omitted_suffix` discriminates, and it is a synthetic case: the action
+  always emits the flag, quoting an unset input's expansion rather than
+  dropping the argument. So `empty_suffix` pins the production path's behaviour
+  — an empty suffix composes the same name as an omitted one — but it cannot
+  detect a reintroduced binding, because production invocation masks it too.
+  The discriminating case earns its place by covering the invocation the action
+  does not perform. The act fixture in
+  `.github/workflows/test-generate-coverage.yml` holds the same property end to
+  end.
 - *2026-04-16* — Rust coverage runs now force LLVM via subprocess environment
   overrides instead of outer `cargo --config ...` flags when a repository
   configures the Cranelift backend. This keeps the action compatible with

@@ -474,11 +474,36 @@ runs:
       # kind this guard removes. Skipping `out` there lets the archive's
       # name fallback carry the upload while the real detection error surfaces.
       if: ${{ always() && steps.detect.outputs.fmt != '' }}
-      run: uv run --script "${{ github.action_path }}/scripts/set_outputs.py"
+      # The two hyphenated inputs reach the script as explicit command-line
+      # arguments, which they must: those are the values it composes the
+      # artefact name from.
+      #
+      # They travel through the ``env:`` block under ``GC_``-prefixed names
+      # rather than being interpolated straight into the command. Two reasons,
+      # and the first is why an ``INPUT_``-prefixed name would be wrong.
+      #
+      # The prefix must not be ``INPUT_``. nektos/act exports every declared
+      # composite input into the step environment under its *dashed* name, so
+      # an ``INPUT_ARTEFACT_NAME_SUFFIX`` assignment here sat beside act's
+      # ``INPUT_ARTEFACT-NAME-SUFFIX``. The ``Env("INPUT_")`` binding this
+      # replaced was a prefix search, so it normalised both spellings onto one
+      # parameter and aborted with "Parameter INPUT_ARTEFACT_NAME_SUFFIX
+      # specified multiple times". ``GC_`` is not derived from an input name,
+      # so act mints no dashed twin of it and no second source can appear;
+      # every other step in this action names its inputs the same way.
+      #
+      # Interpolating the values into the command would work, and is a script
+      # injection route: an input carrying a quote would end the argument and
+      # hand the remainder to the shell. Passing them as variables and quoting
+      # the expansions keeps the value opaque to the shell.
+      run: >-
+        uv run --script "${{ github.action_path }}/scripts/set_outputs.py"
+        --output-path "$GC_OUTPUT_PATH"
+        --artefact-name-suffix "$GC_ARTEFACT_NAME_SUFFIX"
       env:
+        GC_OUTPUT_PATH: ${{ inputs.output-path }}
+        GC_ARTEFACT_NAME_SUFFIX: ${{ inputs.artefact-name-suffix }}
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
-        INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
-        INPUT_ARTEFACT_NAME_SUFFIX: ${{ inputs.artefact-name-suffix }}
         GITHUB_JOB: ${{ github.job }}
         STRATEGY_JOB_INDEX: ${{ strategy.job-index }}
         RUNNER_OS: ${{ runner.os }}

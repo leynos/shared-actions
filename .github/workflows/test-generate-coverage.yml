@@ -1,0 +1,128 @@
+name: Test generate-coverage
+
+# Fixture for the composite-input collision that nektos/act causes.
+#
+# act exports every declared composite input into the step environment under
+# its dashed name, so `INPUT_ARTEFACT-NAME-SUFFIX` lands next to the
+# underscored `INPUT_ARTEFACT_NAME_SUFFIX` a step's own `env:` mapping would
+# set. Cyclopts resolves both spellings onto one parameter, so the step used
+# to abort with
+# "Parameter INPUT_ARTEFACT_NAME_SUFFIX specified multiple times". This job
+# deliberately omits `artefact-name-suffix`, which is the omitted-input case a
+# caller hits by default and the exact pairing that aborted.
+#
+# The lane is known to discriminate, which is the property that makes it worth
+# its runtime. Run against the state before the fix -- the `Env("INPUT_")`
+# binding restored and the two hyphenated inputs back in the step's `env:` --
+# it fails with the original "specified multiple times" error and a non-zero
+# exit; run against the fix it reports the composed name and succeeds. It is
+# not enough that the fixed action passes here, since a CLI argument outranks
+# the environment and would mask a reintroduced binding: reverting the binding
+# alone still passes. The guard is the pair of changes, so the lane holds the
+# pair.
+#
+# The collision is language-independent — it happens in the `out` step, after
+# coverage has run — but the fixture still takes the Rust leg, against the
+# dependency-free crate under the action's own `tests/fixtures`. That leg is
+# the one that can actually finish: the Python leg would run this repository's
+# whole suite under slipcover inside the act container, where slipcover's
+# loader lacks `get_resource_reader` and 256 module imports fail for reasons
+# unrelated to this action. The Rust fixture builds in seconds and its coverage
+# run is one `cargo llvm-cov`.
+#
+# Reaching cargo without a root `Cargo.toml` is the second route the contract
+# in tests/workflows/test_coverage_timeout_tiers.py watches, so this lane
+# states its budget like any other: it sets `cargo-wait-timeout` and a
+# `timeout-minutes` above the required ceiling. The contract requires that of
+# every lane that names a manifest, so this job satisfies it rather than
+# excepting itself from it.
+#
+# Publication is suppressed under act and left on everywhere else, which is
+# the idiom a caller wanting an act-clean lane should copy. act exports
+# `ACTIONS_RUNTIME_TOKEN` only when it was started with an artifact server;
+# without one the variable is present but empty, and an upload would fail.
+# Whether act has a usable token therefore depends on how act was invoked,
+# which a workflow cannot see, so the lane keys on `env.ACT` -- which act sets
+# to `true` -- rather than on the token itself. A GitHub-hosted run of this
+# same workflow keeps publication at its default, so the upload path stays
+# exercised where a real runtime token exists.
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-generate-coverage-out-no-suffix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Sized from the rule rather than picked: one watchdog window at the 600 s
+    # stated below, plus ten minutes of measured work outside the window, plus
+    # a fifteen-minute margin above that sum, is 2,100 s or 35 minutes. A
+    # measured act run of the whole job took 146 s, of which the coverage step
+    # was 48 s, so a ceiling sized for the watchdog's worst case costs nothing
+    # and keeps this lane inside the rule rather than beside it.
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          install-binstall: 'false'
+
+      - name: Generate coverage without an artefact suffix
+        id: coverage
+        uses: ./.github/actions/generate-coverage
+        with:
+          output-path: coverage.xml
+          format: cobertura
+          # `language: rust` rather than `auto`: the repository root carries a
+          # pyproject.toml, so auto detection would classify this as mixed and
+          # also run the whole Python suite under coverage. Forcing rust keeps
+          # the fixture on the leg it was written for.
+          language: rust
+          # The action's dependency-free fixture crate, which builds in
+          # seconds. `rust-toy-app` cannot be used here: its manpage assertion
+          # pins the build script's output to `<crate>/target/generated-man/…`
+          # while `cargo llvm-cov` redirects `CARGO_TARGET_DIR` to
+          # `<crate>/target/llvm-cov-target`, so the test cannot find the page
+          # it was told to expect. That predates this fixture and is unrelated
+          # to the composite-input collision being guarded.
+          cargo-manifest: .github/actions/generate-coverage/tests/fixtures/minimal-rust-project/Cargo.toml
+          # A written budget for the one window this step arms, rather than
+          # the 1,800 s the action defaults to. That default is sized for a
+          # cold sccache store, which this lane cannot have: the fixture crate
+          # has no dependencies, so its build is seconds either way. Stating
+          # the smaller number keeps the ceiling requirement at 600 s plus the
+          # 600 s allowance and 900 s margin, 35 minutes in all, where the
+          # larger budget would demand 55.
+          cargo-wait-timeout: "600"
+          use-cargo-nextest: 'false'
+          # Suppressed under act only. This is an explicit opt-out available
+          # to any caller, not a workaround for the input collision above: the
+          # collision is fixed by passing the hyphenated inputs as arguments,
+          # and this lane would reach the `out` step either way. The comment
+          # above the job explains why the gate is on `env.ACT`.
+          publish-artefact: ${{ !env.ACT }}
+
+      - name: Verify outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A `name=value` line per output, which is the shape the pytest
+          # harness scrapes from the act logs.
+          echo "file=${{ steps.coverage.outputs.file }}"
+          echo "format=${{ steps.coverage.outputs.format }}"
+          echo "artefact-name=${{ steps.coverage.outputs.artefact-name }}"
+          [[ "${{ steps.coverage.outputs.format }}" == "cobertura" ]]
+          # No suffix was supplied, so the composed name must end in the arch
+          # component rather than a trailing separator. The component is the
+          # normalized platform machine, `x86_64`, not the runner's `X64`.
+          [[ "${{ steps.coverage.outputs.artefact-name }}" == *-linux-x86_64 ]]

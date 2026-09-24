@@ -180,6 +180,34 @@ def _resolve_container_env(
             ),
             id="upload-release-assets",
         ),
+        pytest.param(
+            EnvOverrideTestCase(
+                workflow="test-generate-coverage.yml",
+                job="test-generate-coverage-out-no-suffix",
+                # Deliberately empty. The collision act causes needs nothing
+                # injected: act exports every declared composite input into the
+                # step environment under its dashed name, and the step's own
+                # `env:` mapping supplied the underscored one, so a Cyclopts
+                # `Env("INPUT_")` binding resolved one parameter from two
+                # matching variables. Verified by running this case against the
+                # state before the fix with the template empty -- it still
+                # fails with "Parameter INPUT_ARTEFACT_NAME_SUFFIX specified
+                # multiple times" -- and against the fix, where it passes. A
+                # populated template would test act's `--env` plumbing rather
+                # than the collision, and would hard-code a pair the workflow
+                # no longer sets.
+                container_env_template={},
+                expected_patterns=[
+                    (r'file["\s]*[:=]["\s]*\S+\.xml', "file= missing from logs"),
+                    (r'format["\s]*[:=]["\s]*cobertura', "format= missing from logs"),
+                    (
+                        r'artefact[-_]name["\s]*[:=]["\s]*\S+',
+                        "artefact-name= missing or empty in logs",
+                    ),
+                ],
+            ),
+            id="generate-coverage-out-no-suffix",
+        ),
     ],
 )
 def test_env_overrides_normalize_inputs(

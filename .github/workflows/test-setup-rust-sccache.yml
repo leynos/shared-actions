@@ -20,16 +20,26 @@ jobs:
           persist-credentials: false
 
       - name: Set up Rust
+        id: setup
         uses: ./.github/actions/setup-rust
         with:
           toolchain: stable
           install-binstall: 'false'
           use-sccache: 'true'
+          expect-cache: github
 
       - name: Verify a later step compiles through sccache
         shell: bash
+        env:
+          CACHE_BACKEND: ${{ steps.setup.outputs.cache-backend }}
         run: |
           set -euo pipefail
+          # The runner-aware selection, read on a real GitHub-hosted runner:
+          # its cache URL is public, so the answer must be GitHub's service.
+          if [[ "$CACHE_BACKEND" != github ]]; then
+            echo "::error::a GitHub-hosted runner selected ${CACHE_BACKEND:-nothing}" >&2
+            exit 1
+          fi
           if [[ -z "${RUSTC_WRAPPER:-}" ]]; then
             echo "::error::RUSTC_WRAPPER did not reach this step" >&2
             exit 1
@@ -142,3 +152,40 @@ jobs:
             exit 1
           fi
           echo "the caller's cleared cache service selection was restored"
+
+  refuses_a_missing_ubicloud_proxy:
+    # expect-cache: ubicloud on a runner with no proxy must fail, and fail
+    # before exporting anything. Only a real GitHub-hosted runner can put a
+    # real public cache URL in front of the check; the Node tests cover the
+    # rest.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust expecting Ubicloud
+        id: setup
+        continue-on-error: true
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'true'
+          expect-cache: ubicloud
+
+      - name: Verify the step failed closed
+        shell: bash
+        env:
+          SETUP_OUTCOME: ${{ steps.setup.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$SETUP_OUTCOME" != failure ]]; then
+            echo "::error::expect-cache: ubicloud passed on a GitHub-hosted runner" >&2
+            exit 1
+          fi
+          if [[ -n "${ACTIONS_CACHE_SERVICE_V2+set}" ]]; then
+            echo "::error::the selection exported credentials before failing" >&2
+            exit 1
+          fi
+          echo "a missing Ubicloud proxy failed the job, as it must"

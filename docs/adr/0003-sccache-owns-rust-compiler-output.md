@@ -136,6 +136,16 @@ registry and the Git index. The cache key and the `cache-provider` boundary are
 unchanged, and the decision stands: sccache owns compiler output and no
 `target` archive returns (`#470`).
 
+## Addendum, 2026-09-24: the backend is selected by runner
+
+The Decision above says the actions select the GitHub Actions sccache backend
+by default. `setup-rust` now selects the backend by runner instead: Ubicloud's
+proxy when `ACTIONS_CACHE_URL` names a private address literal, GitHub's
+service on any other runner with a runtime token, and local disk under
+nektos/act or with no service. A caller's own switch or directory still wins.
+[ADR 0005](0005-runner-aware-sccache-backend.md) records that decision. This
+one stands: sccache owns compiler output, and no `target` archive returns.
+
 ## References
 
 - Issue `#424`, PR `#425`

@@ -24,6 +24,8 @@ repository-specific entries to the overlay instead.
 ## Architecture Decision Records
 
 - [ADR 0002: Explicit ps-module-name for PowerShell sidecars](adr/0002-explicit-ps-module-name.md)
+- [ADR 0003: sccache owns Rust compiler output](adr/0003-sccache-owns-rust-compiler-output.md)
+- [ADR 0005: setup-rust selects the sccache backend by runner](adr/0005-runner-aware-sccache-backend.md)
 
 ## Python Coverage Venv Architecture
 
@@ -333,12 +335,49 @@ two of these can be merged.
 Without that variable sccache writes to local disk, which nothing persists, so
 `RUSTC_WRAPPER` alone buys a wrapper and an empty cache.
 
-The selection order matters and the tests hold it. An explicit
-`SCCACHE_GHA_ENABLED` wins, `false` and empty included, and reports `caller`:
-someone who turned the cache off did so deliberately, and a `SCCACHE_DIR` set
-alongside it does not override that. Failing an explicit value, a caller-set
-`SCCACHE_DIR` means they mounted storage of their own, and reports `local`.
-Otherwise the GitHub Actions backend is chosen and reports `gha`.
+The selection is runner-aware, as
+[ADR 0005](adr/0005-runner-aware-sccache-backend.md) records. It is a pinned
+`actions/github-script` step, because the runner hands `ACTIONS_CACHE_URL` and
+`ACTIONS_RUNTIME_TOKEN` to action steps only, and the URL is what tells the
+runners apart. `runner.environment` cannot: on a fork-fallback job it varies
+with the event. The runner decides which service:
+
+- a private address literal in `ACTIONS_CACHE_URL`, with a runtime token, is
+  Ubicloud's proxy. The step masks both credentials before writing anything,
+  exports them, clears `ACTIONS_CACHE_SERVICE_V2`, and selects `ubicloud`. An
+  already-cleared `ACTIONS_CACHE_SERVICE_V2` means
+  `export-ubicloud-cache-credentials` ran first, and nothing is exported twice;
+- any other runner with a runtime token has GitHub's service, and selects
+  `github` without touching the credentials;
+- nektos/act (`ACT` set), or no runtime token, has no usable service, and
+  selects `local` rather than failing the build.
+
+The caller decides whether sccache uses a service at all, and the tests hold
+the order. An explicit `SCCACHE_GHA_ENABLED` or `SCCACHE_GHA_VERSION` wins,
+`false` and empty included, read the way sccache 0.17 reads it (`true`, `on` or
+`1`, in any case): someone who turned the cache off did so deliberately, and a
+`SCCACHE_DIR` set alongside it does not override that. Failing an explicit
+value, a caller-set `SCCACHE_DIR` means they mounted storage of their own, and
+selects `local`. Only when the caller chose nothing does the step write
+`SCCACHE_GHA_ENABLED=true` itself.
+
+`expect-cache` (`ubicloud`, `github` or `any`, default `any`) fails the step
+when the selection differs, before anything is exported. A job pinned to
+Ubicloud with no fork fallback sets `ubicloud`, so a missing proxy stays a red
+build rather than a silent fall to local disk.
+
+The step reports the selection as the `cache-backend` output and as
+`metric setup-rust.sccache.backend=<ubicloud|github|local>`, and names the
+chooser (`action`, `caller-switch` or `caller-directory`) in its notice. Keep
+the metric name fixed and its values inside that set, with no URL, path or
+token in either line.
+
+The private-address check is a copy of the one in
+`export-ubicloud-cache-credentials`, because a composite action cannot share a
+JavaScript module without reaching outside its own directory.
+`test_sccache_backend_properties.py` holds the two copies identical, character
+for character, and drives both decisions over the same hosts. Change them
+together.
 
 `.github/workflows/test-setup-rust-sccache.yml` proves the part the unit tests
 cannot: on a real runner it builds a trivial crate after the action and asserts
@@ -349,10 +388,10 @@ cache was still local, which is how that gap survived the first change. Further
 jobs assert a caller's wrapper and a caller's `SCCACHE_GHA_ENABLED=false` both
 survive.
 
-On Ubicloud, `export-ubicloud-cache-credentials` must run **before**
-`setup-rust`. The GitHub Actions backend reads its endpoint when the sccache
-server starts, so credentials published afterwards arrive too late and the
-compiler cache silently uses whatever the runner advertised.
+On Ubicloud, `setup-rust` needs no credentials step of its own any more. A job
+that does call `export-ubicloud-cache-credentials` must still call it **before**
+`setup-rust`: the GitHub Actions backend reads its endpoint when the sccache
+server starts, so credentials published afterwards arrive too late.
 
 ## Rust action cache ownership
 
@@ -366,6 +405,15 @@ the same paths through exactly one other provider. Consumers on Ubicloud, or on
 any other caller-owned cache setup, continue to use `cache-provider: external`.
 The coverage action deliberately leaves ratchet-baseline paths under their
 separate GitHub cache because external mode does not mount them.
+
+The compiler cache is a separate boundary. `cache-provider` governs the Cargo
+and uv archives only; which service sccache writes to is selected by runner, as
+[ADR 0005](adr/0005-runner-aware-sccache-backend.md)
+records and "`setup-rust` and the rustc wrapper" above describes. Neither input
+changes the other, so an Ubicloud job with `cache-provider: external` still
+gets Ubicloud's proxy for sccache. Caches do not cross between that proxy and
+GitHub's service: a fork's run on a GitHub-hosted runner starts cold, and
+nothing here tries to bridge the two.
 
 Those baseline steps use the `actions/cache/restore` and `actions/cache/save`
 sub-actions rather than the full `actions/cache` action. The full action
@@ -651,6 +699,15 @@ the answer, because the runner is billed.
 Callers set `RUSTC_WRAPPER` and `SCCACHE_GHA_ENABLED` after this action and
 before any step that starts an sccache server, because sccache reads the cache
 configuration once at server start and keeps it for that server's life.
+
+`setup-rust` now makes the same decision itself, and a job using it needs no
+credentials step; see [ADR 0005](adr/0005-runner-aware-sccache-backend.md).
+This action keeps its contract, including failing on a public host, for jobs
+that need the credentials for something else. `setup-rust` recognizes
+credentials this action already exported by the cleared
+`ACTIONS_CACHE_SERVICE_V2` and does not export them again. Its copy of the
+private-address check must stay identical to this one, and a contract in the
+`setup-rust` tests fails when they drift.
 
 ## `install-whitaker` action contract
 

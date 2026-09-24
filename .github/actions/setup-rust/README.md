@@ -22,12 +22,19 @@ require them, and set up macOS or OpenBSD cross-compilers.
 | with-openbsd          | Build OpenBSD std library for cross-compilation                                                                                                                              | no       | `false`                               |
 | openbsd-nightly       | Pinned nightly Rust for OpenBSD                                                                                                                                              | no       | `nightly-2025-07-20`                  |
 | rustflags             | `RUSTFLAGS` exported by the toolchain setup step. Set to the empty string to leave `RUSTFLAGS` unset, so an inherited value or the project's `build.rustflags` applies.      | no       | `-D warnings`                         |
+| expect-cache          | The sccache backend the job requires: `ubicloud`, `github` or `any`. Anything but `any` fails the job when the runner offers a different backend.                            | no       | `any`                                 |
 
 <!-- markdownlint-enable MD013 -->
 
 ## Outputs
 
-None
+<!-- markdownlint-disable MD013 -->
+
+| Name          | Description                                                                                      |
+| ------------- | ------------------------------------------------------------------------------------------------ |
+| cache-backend | The sccache backend selected: `ubicloud`, `github` or `local`. Empty when sccache is not in use. |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Example
 
@@ -144,11 +151,27 @@ so this action sets both:
 - `SCCACHE_GHA_ENABLED`, because sccache otherwise writes to local disk, which
   nothing persists between jobs. It is exported **before** the sccache steps,
   because sccache binds its backend once, at server start, and `GITHUB_ENV`
-  reaches only the next step. The selection order is: an explicit
-  `SCCACHE_GHA_ENABLED` wins, `false` and empty included; failing that, a
-  caller-set `SCCACHE_DIR` leaves sccache on their directory; otherwise the
-  GitHub Actions backend is chosen. Each run reports
-  `metric setup-rust.sccache.backend=<gha|local|caller>`.
+  reaches only the next step.
+
+The backend is selected by runner, in a JavaScript step, because only an action
+step can read `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`
+([ADR 0005](../../../docs/adr/0005-runner-aware-sccache-backend.md)):
+
+- a private address literal in `ACTIONS_CACHE_URL` is Ubicloud's cache proxy.
+  The action masks and exports both credentials, clears
+  `ACTIONS_CACHE_SERVICE_V2` (the proxy serves v1), and selects `ubicloud`, so
+  no `export-ubicloud-cache-credentials` step is needed first. Credentials that
+  step already exported are recognized and not exported again;
+- any other runner with a runtime token selects `github`, sccache's GitHub
+  Actions backend;
+- nektos/act, or no runtime token, selects `local` disk rather than failing.
+
+An explicit `SCCACHE_GHA_ENABLED` or `SCCACHE_GHA_VERSION` still wins, `false`
+and empty included; failing that, a caller-set `SCCACHE_DIR` leaves sccache on
+their directory. Set `expect-cache: ubicloud` on a job that runs only on
+Ubicloud, so a missing proxy fails it instead of falling back to local disk.
+Each run sets the `cache-backend` output and reports
+`metric setup-rust.sccache.backend=<ubicloud|github|local>`.
 
 A caller that has already set `RUSTC_WRAPPER` keeps its value, and the action
 says so in a notice.

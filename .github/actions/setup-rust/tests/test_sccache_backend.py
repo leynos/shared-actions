@@ -4,194 +4,324 @@ sccache stores compiler output on local disk unless `SCCACHE_GHA_ENABLED` is
 set, and nothing persists that directory between jobs, so a consumer that set
 only `RUSTC_WRAPPER` paid for the wrapper and got no cache across runs.
 
-Ordering is the subtle part and the manifest tests hold it. sccache binds its
-backend once, when the server starts, and the first thing this action does that
-starts one is the `--zero-stats` in the wrapper step. `GITHUB_ENV` reaches only
-the next step, so the variable has to be written *before* the sccache-action
-steps. Exported afterwards, as the wrapper is, it would be read by nobody while
-every log line claimed the backend was selected.
+The selection is runner-aware. A private literal in `ACTIONS_CACHE_URL` is
+Ubicloud's proxy, whose credentials the step publishes; any other runner with a
+runtime token has GitHub's cache service; nektos/act, or a runner with no
+token, gets local disk. A caller's own switch or directory still wins. The
+behavioural cases run the shipped script under Node through
+`sccache_backend_harness`.
 
-The sccache-action steps start no server of their own. Measurement on Ubicloud
-established that what they do instead is write `ACTIONS_CACHE_SERVICE_V2=on` to
-`GITHUB_ENV`, which is issue #441 and not this ordering.
+Ordering is the subtle part and the manifest tests hold it. sccache binds its
+backend once, when the server starts, and `GITHUB_ENV` reaches only the next
+step, so the selection has to be written *before* the sccache-action steps.
 """
 
 from __future__ import annotations
 
-import os
-import subprocess
 import typing as typ
 
 import pytest
 import yaml
-from hypothesis import given, settings
-from hypothesis import strategies as st
-from setup_rust_test_helpers import ACTION_PATH, get_step, requires_bash
+from sccache_backend_harness import (
+    ACT_RUNNER,
+    BACKEND_STEP,
+    BACKENDS,
+    GITHUB_RUNNER,
+    GITHUB_SCRIPT_REFERENCE,
+    GITHUB_V2_RUNNER,
+    PROXY_URL,
+    RUNTIME_TOKEN,
+    UBICLOUD_RUNNER,
+    run_selection,
+)
+from setup_rust_test_helpers import ACTION_PATH, get_step
 
-if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
-    from pathlib import Path
-
-BACKEND_STEP = "Select the sccache backend"
 SCCACHE_STEPS = ("Run sccache (x86_64 macOS)", "Run sccache")
 WRAPPER_STEP = "Export sccache as the rustc wrapper"
+VALIDATE_STEP = "Validate expect-cache"
 
-#: Every outcome the selection may report, and nothing else.
-BACKEND_OUTCOMES = frozenset({"gha", "local", "caller"})
-
-
-def _steps() -> list[dict[str, typ.Any]]:
-    """Return the composite action's step definitions."""
-    return yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))["runs"]["steps"]
-
-
-def _backend_script() -> str:
-    """Return the Bash fragment the selection step declares."""
-    script = get_step(BACKEND_STEP).get("run")
-    assert isinstance(script, str), "the selection step must be a shell fragment"
-    return script
+#: The three variables an Ubicloud selection publishes for sccache.
+CREDENTIALS = {
+    "ACTIONS_CACHE_URL": PROXY_URL,
+    "ACTIONS_RUNTIME_TOKEN": RUNTIME_TOKEN,
+    "ACTIONS_CACHE_SERVICE_V2": "",
+}
+SWITCH = {"SCCACHE_GHA_ENABLED": "true"}
 
 
-def _run_backend(
-    tmp_path: Path,
-    *,
-    gha_enabled: str | None = None,
-    sccache_dir: str | None = None,
-) -> tuple[subprocess.CompletedProcess[str], str]:
-    """Run the selection fragment and return the process and `GITHUB_ENV`."""
-    github_env = tmp_path / "github-env"
-    github_env.touch()
-    environment = {**os.environ, "GITHUB_ENV": str(github_env)}
-    for name in ("SCCACHE_GHA_ENABLED", "SCCACHE_DIR"):
-        environment.pop(name, None)
-    if gha_enabled is not None:
-        environment["SCCACHE_GHA_ENABLED"] = gha_enabled
-    if sccache_dir is not None:
-        environment["SCCACHE_DIR"] = sccache_dir
-    completed = subprocess.run(  # noqa: S603,TID251 - exercise the action fragment.
-        [requires_bash(), "-c", _backend_script()],
-        capture_output=True,
-        check=False,
-        env=environment,
-        text=True,
-        timeout=10,
-    )
-    return completed, github_env.read_text(encoding="utf-8")
+def _manifest() -> dict[str, typ.Any]:
+    """Return the parsed action manifest."""
+    return yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
 
 
-def _reported_backend(completed: subprocess.CompletedProcess[str]) -> str | None:
-    """Return the bounded backend outcome the fragment reported."""
-    prefix = "metric setup-rust.sccache.backend="
-    reported = [
-        line.removeprefix(prefix)
-        for line in completed.stdout.splitlines()
-        if line.startswith(prefix)
-    ]
-    assert len(reported) <= 1, f"more than one backend metric: {reported}"
-    return reported[0] if reported else None
+def _step_names() -> list[str]:
+    """Return the composite action's step names in order."""
+    return [step.get("name") for step in _manifest()["runs"]["steps"]]
 
 
-class TestOrdering:
-    """The one thing that makes the export effective rather than decorative."""
+class TestManifest:
+    """The shape the runner and every caller depend on."""
 
     def test_the_selection_precedes_every_sccache_step(self) -> None:
         """The server binds its backend at start, inside those steps.
 
-        Exported afterwards the variable would be read by nobody, and the job
-        would keep a local-disk cache while the log claimed otherwise.
+        Exported afterwards the variables would be read by nobody, and the
+        job would keep a local-disk cache while the log claimed otherwise.
         """
-        names = [step.get("name") for step in _steps()]
+        names = _step_names()
 
         for sccache_step in SCCACHE_STEPS:
-            assert names.index(BACKEND_STEP) < names.index(sccache_step)
+            assert names.index(BACKEND_STEP) < names.index(sccache_step), (
+                f"{BACKEND_STEP!r} must come before {sccache_step!r}"
+            )
 
     def test_the_wrapper_export_still_follows_them(self) -> None:
-        """The two exports sit on opposite sides, each for its own reason.
-
-        The wrapper needs `SCCACHE_PATH`, which those steps produce; the
-        backend must be chosen before they run. Neither can move.
-        """
-        names = [step.get("name") for step in _steps()]
+        """The wrapper needs `SCCACHE_PATH`, which those steps produce."""
+        names = _step_names()
 
         for sccache_step in SCCACHE_STEPS:
-            assert names.index(sccache_step) < names.index(WRAPPER_STEP)
+            assert names.index(sccache_step) < names.index(WRAPPER_STEP), (
+                f"{WRAPPER_STEP!r} must come after {sccache_step!r}"
+            )
 
     def test_the_selection_is_gated_on_the_same_conditions(self) -> None:
         """Whole predicate, so a future `||` cannot widen it unnoticed."""
         assert get_step(BACKEND_STEP)["if"] == (
             "${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}"
+        ), "the selection must run exactly when the sccache steps do"
+
+    def test_it_reads_the_runner_through_a_pinned_javascript_action(self) -> None:
+        """Only an action step sees `ACTIONS_CACHE_URL` and the runtime token.
+
+        A `run:` step reading them would find nothing on every runner and
+        select the same backend everywhere, which is the bug this replaces.
+        """
+        assert get_step(BACKEND_STEP)["uses"] == GITHUB_SCRIPT_REFERENCE, (
+            "the selection must run in the pinned actions/github-script"
+        )
+
+    def test_the_output_is_the_selection_steps(self) -> None:
+        """`cache-backend` reads the step that decides, not a copy of it."""
+        step = get_step(BACKEND_STEP)
+        output = _manifest()["outputs"]["cache-backend"]["value"]
+
+        assert step["id"] == "sccache-backend", "the step id the output names"
+        assert output == "${{ steps.sccache-backend.outputs.cache-backend }}", (
+            f"cache-backend must read the selection step's output, not {output!r}"
+        )
+
+    def test_the_expectation_reaches_the_script_as_input(self) -> None:
+        """`expect-cache` travels through `env`, never spliced into code."""
+        step = get_step(BACKEND_STEP)
+
+        assert step["env"] == {"SR_EXPECT_CACHE": "${{ inputs.expect-cache }}"}, (
+            "expect-cache must reach the script through the step's env"
+        )
+        assert "inputs." not in step["with"]["script"], (
+            "an expression spliced into the script is code injection"
+        )
+
+    def test_the_expectation_is_validated_before_the_toolchain(self) -> None:
+        """A misspelt `expect-cache` fails in seconds, not after an install."""
+        names = _step_names()
+
+        assert names.index(VALIDATE_STEP) < names.index("Install cargo-binstall"), (
+            f"{VALIDATE_STEP!r} must run before anything slow"
+        )
+        assert _manifest()["inputs"]["expect-cache"]["default"] == "any", (
+            "expect-cache must default to any, so no caller changes behaviour"
         )
 
 
-class TestBehaviour:
-    """Run the shipped fragment."""
+#: (runner, caller variables, backend, exported) for every runner case.
+_CASES: typ.Final[list[typ.Any]] = [
+    pytest.param(UBICLOUD_RUNNER, {}, "ubicloud", CREDENTIALS | SWITCH, id="ubicloud"),
+    pytest.param(GITHUB_RUNNER, {}, "github", SWITCH, id="github-public-url"),
+    pytest.param(GITHUB_V2_RUNNER, {}, "github", SWITCH, id="github-no-v1-url"),
+    pytest.param(ACT_RUNNER, {}, "local", {}, id="act"),
+    pytest.param({"ACTIONS_CACHE_URL": PROXY_URL}, {}, "local", {}, id="no-token"),
+    pytest.param({}, {}, "local", {}, id="nothing-at-all"),
+    pytest.param(
+        UBICLOUD_RUNNER,
+        {"ACTIONS_CACHE_SERVICE_V2": ""},
+        "ubicloud",
+        SWITCH,
+        id="credentials-already-exported",
+    ),
+    pytest.param(
+        UBICLOUD_RUNNER,
+        {"SCCACHE_DIR": "/mnt/sccache"},
+        "local",
+        {},
+        id="caller-directory",
+    ),
+    pytest.param(
+        UBICLOUD_RUNNER,
+        {"SCCACHE_GHA_ENABLED": "false"},
+        "local",
+        {},
+        id="caller-switch-off",
+    ),
+    pytest.param(
+        UBICLOUD_RUNNER, {"SCCACHE_GHA_ENABLED": ""}, "local", {}, id="caller-empty"
+    ),
+    pytest.param(
+        UBICLOUD_RUNNER,
+        {"SCCACHE_GHA_ENABLED": "ON"},
+        "ubicloud",
+        CREDENTIALS,
+        id="caller-switch-on",
+    ),
+    pytest.param(
+        UBICLOUD_RUNNER,
+        {"SCCACHE_GHA_ENABLED": "true", "SCCACHE_DIR": "/mnt/sccache"},
+        "ubicloud",
+        CREDENTIALS,
+        id="switch-beats-directory",
+    ),
+    pytest.param(
+        GITHUB_RUNNER,
+        {"SCCACHE_GHA_VERSION": "v2"},
+        "github",
+        {},
+        id="caller-version",
+    ),
+    pytest.param(
+        {
+            "ACTIONS_CACHE_URL": "http://10.attacker.example/token/",
+            "ACTIONS_RUNTIME_TOKEN": RUNTIME_TOKEN,
+        },
+        {},
+        "github",
+        SWITCH,
+        id="private-looking-dns-name",
+    ),
+]
 
-    def test_selects_the_github_actions_backend(self, tmp_path: Path) -> None:
-        """The default must be the backend that survives the job."""
-        completed, written = _run_backend(tmp_path)
 
-        assert completed.returncode == 0, completed.stderr
-        assert "SCCACHE_GHA_ENABLED=true" in written
-        assert _reported_backend(completed) == "gha"
+class TestSelection:
+    """Run the shipped script against each kind of runner and caller."""
 
-    @pytest.mark.parametrize("value", ["true", "false", ""])
-    def test_respects_a_caller_that_chose(self, tmp_path: Path, value: str) -> None:
-        """`false` is a choice, and an empty value is one too.
+    @pytest.mark.parametrize(("runner", "caller", "backend", "exported"), _CASES)
+    def test_each_runner_gets_its_backend(
+        self,
+        runner: dict[str, str],
+        caller: dict[str, str],
+        backend: str,
+        exported: dict[str, str],
+    ) -> None:
+        """The runner decides which service; the caller decides whether.
 
-        A caller who disabled the backend deliberately must not have it turned
-        back on, which is why the guard tests for the variable being set at all
-        rather than for a truthy value.
+        Exactly the listed variables are exported, so a case that publishes
+        the runtime token where it should not, or writes a switch the caller
+        already set, fails on the extra key.
         """
-        completed, written = _run_backend(tmp_path, gha_enabled=value)
+        calls = run_selection(runner, caller=caller)
 
-        assert completed.returncode == 0, completed.stderr
-        assert written == ""
-        assert _reported_backend(completed) == "caller"
-        assert "already set" in completed.stdout
+        assert calls.failure is None, calls.failure
+        assert calls.outputs == {"cache-backend": backend}, calls.outputs
+        assert calls.backend_metric() == backend, calls.info
+        assert calls.exported == exported, calls.exported
 
-    def test_leaves_a_caller_owned_directory_alone(self, tmp_path: Path) -> None:
-        """`SCCACHE_DIR` means the caller mounted storage of their own.
+    def test_a_name_that_looks_private_is_never_handed_the_token(self) -> None:
+        """`10.attacker.example` is a DNS name, not a private literal.
 
-        Forcing the GitHub backend would ignore the disk they provided, which
-        on a self-hosted runner is the faster of the two.
+        A prefix match would classify it as Ubicloud's proxy and publish the
+        runtime token for whoever controls the name.
         """
-        completed, written = _run_backend(tmp_path, sccache_dir=str(tmp_path))
-
-        assert completed.returncode == 0, completed.stderr
-        assert written == ""
-        assert _reported_backend(completed) == "local"
-
-    def test_an_explicit_choice_beats_a_cache_directory(self, tmp_path: Path) -> None:
-        """When both are set, the explicit variable wins and is reported."""
-        completed, _written = _run_backend(
-            tmp_path, gha_enabled="true", sccache_dir=str(tmp_path)
+        calls = run_selection(
+            {
+                "ACTIONS_CACHE_URL": "http://10.attacker.example/token/",
+                "ACTIONS_RUNTIME_TOKEN": RUNTIME_TOKEN,
+            }
         )
 
-        assert _reported_backend(completed) == "caller"
+        assert "ACTIONS_RUNTIME_TOKEN" not in calls.exported, calls.exported
+        assert RUNTIME_TOKEN not in calls.exported.values(), calls.exported
 
-    def test_the_metric_names_no_path(self, tmp_path: Path) -> None:
-        """A directory in the metric would give the series a path per runner."""
-        completed, _written = _run_backend(tmp_path, sccache_dir=str(tmp_path))
-        outcome = _reported_backend(completed)
+    def test_masks_both_credentials_before_it_writes_anything(self) -> None:
+        """The runner redacts only what it already knows, so order protects.
 
-        assert outcome in BACKEND_OUTCOMES
-        assert str(tmp_path) not in f"metric setup-rust.sccache.backend={outcome}"
+        Both secrets are registered before the first export, output, info
+        line or notice, and the URL is one of them: its path segment is
+        bearer-like.
+        """
+        calls = run_selection(UBICLOUD_RUNNER)
+        registrations = [
+            index for index, name in enumerate(calls.order) if name == "setSecret"
+        ]
+        writes = [
+            index
+            for index, name in enumerate(calls.order)
+            if name in {"exportVariable", "setOutput", "info", "notice"}
+        ]
+
+        assert set(calls.secrets) == {PROXY_URL, RUNTIME_TOKEN}, calls.secrets
+        assert max(registrations) < min(writes), calls.order
+
+    @pytest.mark.parametrize("runner", [UBICLOUD_RUNNER, GITHUB_RUNNER, ACT_RUNNER])
+    def test_nothing_logged_names_a_credential(self, runner: dict[str, str]) -> None:
+        """The metric and the notice carry a closed value, never the URL."""
+        calls = run_selection(runner)
+        logged = [*calls.info, *calls.notices]
+
+        for line in logged:
+            assert PROXY_URL not in line, line
+            assert RUNTIME_TOKEN not in line, line
+            assert "10.1.2.3" not in line, line
+        assert calls.backend_metric() in BACKENDS, calls.info
 
 
-CALLER_VALUES = st.text(st.sampled_from("truefals01 "), min_size=0, max_size=12)
+class TestExpectCache:
+    """A job that requires a backend fails loudly without it."""
 
+    @pytest.mark.parametrize(
+        ("runner", "expect"),
+        [
+            pytest.param(GITHUB_RUNNER, "ubicloud", id="ubicloud-on-github"),
+            pytest.param(GITHUB_V2_RUNNER, "ubicloud", id="ubicloud-no-proxy"),
+            pytest.param({}, "ubicloud", id="ubicloud-no-service"),
+            pytest.param(UBICLOUD_RUNNER, "github", id="github-on-ubicloud"),
+            pytest.param(ACT_RUNNER, "github", id="github-under-act"),
+        ],
+    )
+    def test_a_missing_backend_fails_and_exports_nothing(
+        self, runner: dict[str, str], expect: str
+    ) -> None:
+        """Silent fallback on a Ubicloud-only job is worse than a red build."""
+        calls = run_selection(runner, expect=expect)
 
-@given(value=CALLER_VALUES)
-@settings(max_examples=40, derandomize=True, deadline=None)
-def test_any_caller_value_survives(value: str, tmp_path_factory: object) -> None:
-    """No value a caller can set may be replaced.
+        assert calls.failure is not None, "a missing backend must fail the step"
+        assert f"expect-cache is {expect}" in calls.failure, calls.failure
+        assert calls.exported == {}, calls.exported
+        assert RUNTIME_TOKEN not in calls.failure, calls.failure
 
-    Whatever they wrote, they wrote it on purpose; the action's job is to
-    choose only when nobody has.
-    """
-    root = typ.cast("pytest.TempPathFactory", tmp_path_factory).mktemp("backend")
+    @pytest.mark.parametrize(
+        ("runner", "expect"),
+        [
+            pytest.param(UBICLOUD_RUNNER, "ubicloud", id="ubicloud"),
+            pytest.param(GITHUB_RUNNER, "github", id="github"),
+        ],
+    )
+    def test_the_expected_backend_passes(
+        self, runner: dict[str, str], expect: str
+    ) -> None:
+        """Meeting the expectation changes nothing about the selection."""
+        calls = run_selection(runner, expect=expect)
 
-    completed, written = _run_backend(root, gha_enabled=value)
+        assert calls.failure is None, calls.failure
+        assert calls.outputs == {"cache-backend": expect}, calls.outputs
 
-    assert completed.returncode == 0, completed.stderr
-    assert written == ""
-    assert _reported_backend(completed) == "caller"
+    @pytest.mark.parametrize(
+        "runner", [UBICLOUD_RUNNER, GITHUB_RUNNER, GITHUB_V2_RUNNER, ACT_RUNNER, {}]
+    )
+    def test_any_never_fails(self, runner: dict[str, str]) -> None:
+        """The default must not turn a missing service into a red build."""
+        assert run_selection(runner, expect="any").failure is None
+
+    def test_an_unknown_expectation_is_refused(self) -> None:
+        """The script refuses what the validation step would, if reached."""
+        calls = run_selection(UBICLOUD_RUNNER, expect="Ubicloud")
+
+        assert calls.failure == "expect-cache must be ubicloud, github or any."
+        assert calls.exported == {}, calls.exported

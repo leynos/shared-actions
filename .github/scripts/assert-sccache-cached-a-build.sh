@@ -13,10 +13,19 @@
 # write attempt, and only a write attempt can fail against the wrong endpoint.
 #
 # $1 the sccache binary, $2 the substring the cache location must contain.
+# $3, optional, is `--expect-hit-on-rebuild`: clean the probe and build it
+# again, and require a cache hit. A hit on the rebuild can only come from the
+# backend, since the clean removed the local object, so it proves the read
+# path as the miss proves the write path.
 set -euo pipefail
 
 sccache="${1:?path to sccache required}"
 expected_location="${2:?expected cache location substring required}"
+rebuild_mode="${3:-}"
+case "$rebuild_mode" in
+  ''|--expect-hit-on-rebuild) ;;
+  *) echo "::error::unknown option: ${rebuild_mode}" >&2; exit 2 ;;
+esac
 
 probe="$(mktemp -d)"
 mkdir -p "${probe}/src"
@@ -82,3 +91,18 @@ if [[ "${read_errors:-0}" -gt 0 ]]; then
 fi
 
 echo "a cacheable compilation was written to ${expected_location} without error"
+
+if [[ -z "$rebuild_mode" ]]; then
+  exit 0
+fi
+
+cargo clean --manifest-path "${probe}/Cargo.toml"
+cargo build --manifest-path "${probe}/Cargo.toml"
+stats="$("$sccache" --show-stats)"
+printf '%s\n' "$stats"
+hits="$(field 'Cache hits')"
+echo "hits after the rebuild=${hits:-0}"
+if [[ "${hits:-0}" -lt 1 ]]; then
+  fail "the rebuild recorded no cache hit, so nothing was read back from ${expected_location}"
+fi
+echo "the rebuild was served from ${expected_location}"

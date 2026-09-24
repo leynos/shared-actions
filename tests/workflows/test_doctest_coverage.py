@@ -477,6 +477,51 @@ _REACHABILITY_CASES: typ.Final[dict[str, tuple[str, int, str]]] = {
     ),
 }
 
+#: Probe modules whose `if` no reader can decide, with what counting
+#: fewer than both arms would mean. They cannot be checked against
+#: `DocTestFinder`, which imports the module and so sees only the arm
+#: that ran; each is asserted to count both arms directly.
+_UNDECIDABLE_CASES: typ.Final[dict[str, tuple[str, str]]] = {
+    "distinct-names-in-each-arm": (
+        """
+        if len('') == 0:
+            def f():
+                '''F, the arm that happens to run.
+
+                <prompt> 1
+                1
+                '''
+        else:
+            def g():
+                '''G, the arm that happens not to.
+
+                <prompt> 2
+                2
+                '''
+        """,
+        "one arm was pruned on a guess, and the arm pruned may be the one that runs",
+    ),
+    "one-name-in-each-arm": (
+        """
+        if len('') == 0:
+            def f():
+                '''F, one arm.
+
+                <prompt> 1
+                1
+                '''
+        else:
+            def f():
+                '''F, the other.
+
+                <prompt> 2
+                2
+                '''
+        """,
+        "one arm overwrote the other, so an example already found is demanded",
+    ),
+}
+
 
 #: The name the probe module is imported under. It is removed from
 #: `sys.modules` again, so nothing else can import it by accident.
@@ -523,6 +568,22 @@ def _finder_prompt_count(source: str) -> int:
         )
 
 
+def _probe_source(source: str) -> str:
+    """Return a probe's module source, with real prompts for placeholders."""
+    return textwrap.dedent(source).replace(_PROBE_PROMPT, ">" * 3)
+
+
+def _reader_prompt_count(source: str) -> int:
+    """Return how many prompts sit in docstrings the reader calls reachable.
+
+    The rule's own count, which the finder cases hold to
+    `_finder_prompt_count` and the undecidable cases hold to both arms.
+    """
+    return sum(
+        len(_PROMPT.findall(docstring)) for docstring in _docstrings(ast.parse(source))
+    )
+
+
 def _prompt_counts(path: Path) -> tuple[int, int]:
     """Return how many prompts *path* holds, and how many are reachable.
 
@@ -531,11 +592,7 @@ def _prompt_counts(path: Path) -> tuple[int, int]:
     when an example is written somewhere nothing will run it.
     """
     text = (REPOSITORY_ROOT / path).read_text(encoding="utf-8", errors="ignore")
-    total = len(_PROMPT.findall(text))
-    reachable = sum(
-        len(_PROMPT.findall(docstring)) for docstring in _docstrings(ast.parse(text))
-    )
-    return total, reachable
+    return len(_PROMPT.findall(text)), _reader_prompt_count(text)
 
 
 def _is_covered(candidate: Path, collected: list[str]) -> bool:
@@ -693,87 +750,39 @@ class TestDoctestCoverage:
             "module, class or function docstring"
         )
 
-    def test_both_arms_of_an_undecidable_condition_contribute(self) -> None:
+    @pytest.mark.parametrize(
+        ("source", "failure"),
+        [
+            pytest.param(source, failure, id=name)
+            for name, (source, failure) in _UNDECIDABLE_CASES.items()
+        ],
+    )
+    def test_both_arms_of_an_undecidable_condition_contribute(
+        self, source: str, failure: str
+    ) -> None:
         """An `if` no reader can decide contributes from both arms.
 
-        This one cannot be checked against `DocTestFinder`, and that is
-        the point. The finder imports the module, so the interpreter
-        decides the condition and only one arm ever binds; a static
-        reader cannot know which. Counting both is the permissive
-        direction: the example in the arm that does not run then passes
-        the coverage rule without executing. It is accepted because the
-        alternative guesses, and a wrong guess prunes the arm that runs,
-        failing the gate on an example it cannot see.
+        This cannot be checked against `DocTestFinder`, and that is the
+        point. The finder imports the module, so the interpreter decides
+        the condition and only one arm ever binds; a static reader cannot
+        know which. Counting both is the permissive direction: the example
+        in the arm that does not run then passes the coverage rule without
+        executing. It is accepted because the alternative guesses, and a
+        wrong guess prunes the arm that runs, failing the gate on an
+        example it cannot see.
 
-        Without this case the fixture set cannot tell the reader apart
+        Without these cases the fixture set cannot tell the reader apart
         from one that defaults an undecidable condition to "take the
         body", because every oracle case has a condition the interpreter
-        decides the same way a defaulting reader would guess.
+        decides the same way a defaulting reader would guess. The
+        one-name case also refuses a reader keyed by name alone, whose
+        second arm would overwrite the first.
         """
-        source = textwrap.dedent(
-            """
-            if len('') == 0:
-                def f():
-                    '''F, the arm that happens to run.
-
-                    <prompt> 1
-                    1
-                    '''
-            else:
-                def g():
-                    '''G, the arm that happens not to.
-
-                    <prompt> 2
-                    2
-                    '''
-            """
-        ).replace(_PROBE_PROMPT, ">" * 3)
-        reachable = sum(
-            len(_PROMPT.findall(docstring))
-            for docstring in _docstrings(ast.parse(source))
-        )
+        reachable = _reader_prompt_count(_probe_source(source))
 
         assert reachable == 2, (
             "both arms of an undecidable condition must contribute; counting "
-            f"{reachable} means one arm was pruned on a guess, and the arm "
-            "pruned may be the one that runs"
-        )
-
-    def test_one_name_in_both_undecidable_arms_contributes_twice(self) -> None:
-        """`def f` in each arm of an undecidable `if` keeps both docstrings.
-
-        Like the case above, this cannot be checked against the finder,
-        which sees only the arm that ran. Keyed by name alone, the second
-        arm would overwrite the first, and the gate would then demand an
-        example it has already found be listed again.
-        """
-        source = textwrap.dedent(
-            """
-            if len('') == 0:
-                def f():
-                    '''F, one arm.
-
-                    <prompt> 1
-                    1
-                    '''
-            else:
-                def f():
-                    '''F, the other.
-
-                    <prompt> 2
-                    2
-                    '''
-            """
-        ).replace(_PROBE_PROMPT, ">" * 3)
-        reachable = sum(
-            len(_PROMPT.findall(docstring))
-            for docstring in _docstrings(ast.parse(source))
-        )
-
-        assert reachable == 2, (
-            "a name bound in both arms of an undecidable condition must keep "
-            f"both alternatives; counting {reachable} means one arm overwrote "
-            "the other"
+            f"{reachable} means {failure}"
         )
 
     @pytest.mark.parametrize(
@@ -800,11 +809,8 @@ class TestDoctestCoverage:
         module exists to close. Each case is checked against the
         finder's own verdict, so the rule cannot drift from it.
         """
-        module_source = textwrap.dedent(source).replace(_PROBE_PROMPT, ">" * 3)
-        reachable = sum(
-            len(_PROMPT.findall(docstring))
-            for docstring in _docstrings(ast.parse(module_source))
-        )
+        module_source = _probe_source(source)
+        reachable = _reader_prompt_count(module_source)
 
         assert reachable == expected, (
             f"{reason}: the reader counts {reachable}, expected {expected}"

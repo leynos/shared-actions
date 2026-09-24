@@ -93,7 +93,7 @@ assets before the installer runs.
 Each line pairs a digest with an asset filename, for example:
 
 ```text
-78959394c6bbf77eb80ce7f6818d1dedabea68224a3603b3481ee927f8be9fa0  whitaker-installer-aarch64-apple-darwin-v0.2.7.tgz
+7ab59318fe717e1638cfa39a0055cc6da66e53ffa1b9d6a54470f567120b238f  whitaker-installer-aarch64-apple-darwin-v0.2.9.tgz
 ```
 
 ### The `installer-sha256` input

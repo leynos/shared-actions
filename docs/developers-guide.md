@@ -2389,10 +2389,11 @@ fork with no Linux CI at all, which is a worse answer to the same problem. The
 exceptions are the lanes a fork could not usefully run at all.
 `test-ubicloud-sccache-proxy.yml` proves that sccache reaches Ubicloud's cache
 proxy, which a GitHub-hosted runner cannot show, so a fallback would leave it
-green and proving nothing. `test-upload-codescene-coverage.yml` reads
-`CS_ACCESS_TOKEN` to prove the pinned CLI parses the Slipcover fixtures, and a
-fork's pull request cannot read a secret, so a fallback would move the lane to
-a hosted runner only to fail on the missing token. Both skip a fork's pull
+green and proving nothing. `test-upload-codescene-coverage.yml` installs the
+pinned CLI through the repository's own action tree, which a fork's pull
+request cannot reach in the shape the proof needs. Its service-touching half,
+`test-codescene-parser-proof.yml`, is dispatch-only from main, so no fork
+reaches it and it names the Ubicloud label outright. Both skip a fork's pull
 request instead, and `FORK_FALLBACK_EXEMPTIONS` records why while
 `test_a_fork_skipping_lane_really_skips_forks` checks the guard is actually
 there.

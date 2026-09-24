@@ -76,6 +76,11 @@ _MATRIX_REFERENCE: typ.Final[re.Pattern[str]] = re.compile(
     r"\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}"
 )
 
+#: A single-quoted string literal inside an expression. The fork fallback,
+#: `${{ ...fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}`, names its
+#: runners this way, and each arm is a runner the job can land on.
+_QUOTED_LITERAL: typ.Final[re.Pattern[str]] = re.compile(r"'([^']+)'")
+
 
 def _self_reference_target(uses: str, path: str) -> str | None:
     """Return what ``uses`` names under ``path`` in this repository, or ``None``.
@@ -335,23 +340,31 @@ def _matrix_labels(job: WorkflowJob, expression: str) -> list[str]:
     are runners; a ``python-version`` beside it is not a platform. An
     expression of any other shape is resolved to every value in the matrix,
     because which ones it selects cannot be read, and over-reading only adds
-    platforms the publisher must also cover, which fails loudly.
+    platforms the publisher must also cover, which fails loudly. Every quoted
+    literal such an expression names is a runner too: the fork fallback
+    selects between two of them, and a reader that dropped them would find
+    no runner at all and excuse the lane from the ratchet.
 
     Examples
     --------
     >>> job = {"strategy": {"matrix": {"os": ["windows-latest"], "py": ["3.13"]}}}
     >>> _matrix_labels(job, "${{ matrix.os }}")
     ['windows-latest']
+    >>> _matrix_labels({}, "${{ fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}")
+    ['ubuntu-latest', 'ubicloud-standard-2']
     """
     matrix = (job.get("strategy") or {}).get("matrix") or {}
     reference = _MATRIX_REFERENCE.fullmatch(expression.strip())
     if reference is not None:
         return _dimension_values(matrix, reference.group(1))
     return [
-        str(value)
-        for values in matrix.values()
-        if isinstance(values, list)
-        for value in values
+        *_QUOTED_LITERAL.findall(expression),
+        *(
+            str(value)
+            for values in matrix.values()
+            if isinstance(values, list)
+            for value in values
+        ),
     ]
 
 
@@ -396,10 +409,18 @@ def _platform_of(label: str) -> str:
 
     The label is returned unchanged when it names none of them, so an
     unrecognized runner is carried into the comparison rather than dropped.
+    Ubicloud's runners are Linux, so ``ubicloud-standard-2`` reads as
+    ``ubuntu``: the ratchet baseline is keyed by ``runner.os``, which is
+    ``Linux`` on both.
+
+    Examples
+    --------
+    >>> _platform_of("ubicloud-standard-2")
+    'ubuntu'
     """
-    for keyword in ("ubuntu", "linux", "windows", "macos"):
+    for keyword in ("ubuntu", "linux", "ubicloud", "windows", "macos"):
         if keyword in label:
-            return "ubuntu" if keyword == "linux" else keyword
+            return keyword if keyword in {"windows", "macos"} else "ubuntu"
     return label
 
 

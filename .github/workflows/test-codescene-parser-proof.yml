@@ -19,7 +19,10 @@ jobs:
     # runs with the repository secret, so any write-access account could
     # otherwise read CS_ACCESS_TOKEN out of a branch it controls.
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    # Dispatch only, so no fork's pull request can reach it: it names the
+    # Ubicloud label outright.
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

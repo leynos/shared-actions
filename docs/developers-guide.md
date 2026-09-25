@@ -2321,9 +2321,11 @@ change to this guide and to that set rather than a one-line edit nobody reads.
 ### Forks
 
 A fork's pull request cannot obtain an Ubicloud runner. Left alone it would
-queue until the job ceiling, so an external contribution would lose its Linux
-CI and take a quarter of an hour to find out. A lane a fork's pull request can
-reach therefore selects its label from the head repository:
+queue, and the job ceiling does not end that wait: `timeout-minutes` limits a
+job's running time, not its time in the queue, and GitHub lets a job wait for a
+runner for up to 24 hours. An external contribution would lose its Linux CI and
+might not learn so for a day. A lane a fork's pull request can reach therefore
+selects its label from the head repository:
 
 ```yaml
 runs-on: >-

@@ -113,7 +113,7 @@ def run_python_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 
 def test_venv_args_name_the_resolved_interpreter(run_python_module: ModuleType) -> None:
     """``uv venv --python`` uses exactly the path the resolver published."""
-    args = run_python_module._venv_args({"GC_COVERAGE_PYTHON": "/py/bin/python3.13"})
+    args = run_python_module._venv_args("/py/bin/python3.13")
 
     assert args == ["venv", "--python", "/py/bin/python3.13", ".venv-coverage"]
 
@@ -123,7 +123,7 @@ def test_venv_args_without_an_interpreter_keep_uv_discovery(
     run_python_module: ModuleType, value: str
 ) -> None:
     """A direct script run outside the action keeps uv's own discovery."""
-    assert run_python_module._venv_args({"GC_COVERAGE_PYTHON": value}) == [
+    assert run_python_module._venv_args(value) == [
         "venv",
         ".venv-coverage",
     ]

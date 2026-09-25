@@ -28,19 +28,6 @@ ROOT = find_project_root(start=Path(__file__).resolve().parent)
 prepend_to_syspath(ROOT)
 
 
-@pytest.fixture(autouse=True)
-def _no_resolved_coverage_interpreter(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Drop the interpreter the action resolved for its own Python step.
-
-    This repository's coverage lane runs these tests inside
-    ``generate-coverage``'s Python step, which exports
-    ``GC_COVERAGE_PYTHON``. ``run_python.py`` reads it to build its venv, so
-    an inherited value would leak into every venv assertion here. A test that
-    exercises the variable passes it explicitly.
-    """
-    monkeypatch.delenv("GC_COVERAGE_PYTHON", raising=False)
-
-
 @pytest.fixture
 def shell_stubs(cmd_mox: CmdMox, monkeypatch: pytest.MonkeyPatch) -> StubManager:
     """Return a ``StubManager`` configured for the current test."""

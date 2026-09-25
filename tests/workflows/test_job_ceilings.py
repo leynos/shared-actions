@@ -67,6 +67,7 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
         "refuses-a-github-hosted-runner",
     ): "assertion",
     ("test-codescene-parser-proof.yml", "parser-proof"): "install",
+    ("test-coverage-watchdog.yml", "terminates-an-overrunning-cargo"): "assertion",
     ("test-install-mdtablefix.yml", "install-mdtablefix"): "install",
     ("test-install-mdtablefix.yml", "install-mdtablefix-no-prebuilt"): "install",
     ("test-install-tool.yml", "installs-and-caches"): "install",

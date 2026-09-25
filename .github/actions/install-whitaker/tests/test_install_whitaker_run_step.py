@@ -9,6 +9,7 @@ carry the installer's fallback notice.
 
 from __future__ import annotations
 
+import dataclasses as dc
 import os
 import shutil
 import subprocess
@@ -49,6 +50,17 @@ exit "$STUB_STATUS"
 """
 
 
+@dc.dataclass(frozen=True)
+class StepScenario:
+    """Describe one run of the step: the runner and what the installer does."""
+
+    runner_os: str = "Linux"
+    extra_env: dict[str, str] = dc.field(default_factory=dict)
+    stdout: str = "suite installed\n"
+    stderr: str = ""
+    status: int = 0
+
+
 class StepRun(typ.NamedTuple):
     """The outcome of one run of the step and what its stubs recorded."""
 
@@ -65,16 +77,9 @@ def _write_executable(path: Path, body: str) -> None:
     path.chmod(0o755)
 
 
-def _run_step(
-    tmp_path: Path,
-    *,
-    runner_os: str = "Linux",
-    extra_env: dict[str, str] | None = None,
-    stdout: str = "suite installed\n",
-    stderr: str = "",
-    status: int = 0,
-) -> StepRun:
+def _run_step(tmp_path: Path, scenario: StepScenario | None = None) -> StepRun:
     """Run the step's script under bash with stubbed tools."""
+    scenario = scenario or StepScenario()
     bash = shutil.which("bash")
     if bash is None:  # pragma: no cover - environment guard
         pytest.skip("bash not found on PATH")
@@ -89,18 +94,18 @@ def _run_step(
     environment = {
         "PATH": f"{stubs}{os.pathsep}{os.environ.get('PATH', '')}",
         "HOME": str(tmp_path / "home"),
-        "RUNNER_OS": runner_os,
+        "RUNNER_OS": scenario.runner_os,
         "RUNNER_TEMP": str(tmp_path),
         "GITHUB_PATH": str(github_path),
         "GITHUB_STEP_SUMMARY": str(summary),
         "RECORD_DIR": str(tmp_path),
-        "STUB_STDOUT": stdout,
-        "STUB_STDERR": stderr,
-        "STUB_STATUS": str(status),
+        "STUB_STDOUT": scenario.stdout,
+        "STUB_STDERR": scenario.stderr,
+        "STUB_STATUS": str(scenario.status),
         "WHITAKER_INSTALLER_PATH": str(installer),
         "WHITAKER_INSTALLER_VERSION": "0.2.9",
         "WHITAKER_CRANELIFT": "false",
-        **(extra_env or {}),
+        **scenario.extra_env,
     }
     script = step_by_name("Run Whitaker installer")["run"]
     assert isinstance(script, str)
@@ -134,8 +139,9 @@ class TestToolDirectory:
         """
         run = _run_step(
             tmp_path,
-            runner_os="Windows",
-            extra_env={"USERPROFILE": r"C:\Users\runneradmin"},
+            StepScenario(
+                runner_os="Windows", extra_env={"USERPROFILE": r"C:\Users\runneradmin"}
+            ),
         )
 
         assert run.completed.returncode == 0, run.completed.stderr
@@ -144,7 +150,9 @@ class TestToolDirectory:
 
     def test_elsewhere_honours_xdg_bin_home(self, tmp_path: Path) -> None:
         """The installer uses XDG_BIN_HOME when set, so the step does too."""
-        run = _run_step(tmp_path, extra_env={"XDG_BIN_HOME": "/opt/tools/bin"})
+        run = _run_step(
+            tmp_path, StepScenario(extra_env={"XDG_BIN_HOME": "/opt/tools/bin"})
+        )
 
         assert run.completed.returncode == 0, run.completed.stderr
         assert run.path_head == "/opt/tools/bin"
@@ -169,7 +177,7 @@ class TestOutputStreams:
         self, tmp_path: Path, stdout: str, stderr: str
     ) -> None:
         """The suite's fallback is on stdout, a Dylint tool's on stderr."""
-        run = _run_step(tmp_path, stdout=stdout, stderr=stderr)
+        run = _run_step(tmp_path, StepScenario(stdout=stdout, stderr=stderr))
 
         assert run.completed.returncode != 0
         assert "whitaker-installer.suite-source=source" in run.summary
@@ -177,7 +185,9 @@ class TestOutputStreams:
 
     def test_the_installer_stderr_is_replayed(self, tmp_path: Path) -> None:
         """Capturing stderr for the backstop must not hide it from the log."""
-        run = _run_step(tmp_path, stderr="Installing required Dylint tools...\n")
+        run = _run_step(
+            tmp_path, StepScenario(stderr="Installing required Dylint tools...\n")
+        )
 
         assert run.completed.returncode == 0, run.completed.stderr
         assert "Installing required Dylint tools..." in run.completed.stderr
@@ -187,7 +197,7 @@ class TestOutputStreams:
         self, tmp_path: Path
     ) -> None:
         """The installer's status reaches the step, with the failure notice."""
-        run = _run_step(tmp_path, stderr="refused\n", status=34)
+        run = _run_step(tmp_path, StepScenario(stderr="refused\n", status=34))
 
         assert run.completed.returncode == 34
         assert "refused" in run.completed.stderr

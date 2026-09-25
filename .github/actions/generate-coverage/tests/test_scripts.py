@@ -3413,6 +3413,10 @@ def _python_integration_env(
         # Exercise the INPUT_PYTEST_WORKERS path explicitly; a fixed value
         # also makes the test independent of the action.yml default.
         "INPUT_PYTEST_WORKERS": "2",
+        # Empty keeps uv's own discovery, whatever this repository's coverage
+        # lane exported for its own run; a test that exercises the resolved
+        # interpreter passes it through ``extra_env``.
+        "GC_COVERAGE_PYTHON": "",
         **(extra_env or {}),
     }
     env["PATH"] = f"{run.bin_dir}{os.pathsep}{env['PATH']}"
@@ -3633,6 +3637,7 @@ def test_run_python_integration_mixed_lang_path(
         "DETECTED_FMT": "cobertura",
         "BASELINE_PYTHON_FILE": "",
         "GITHUB_OUTPUT": str(gh),
+        "GC_COVERAGE_PYTHON": "",
     }
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
     monkeypatch.chdir(tmp_path)

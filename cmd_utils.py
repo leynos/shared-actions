@@ -7,33 +7,32 @@ is echoed before execution to aid debugging in CI logs or local terminals.
 
 Examples
 --------
-Basic usage with the default ``call`` strategy::
+Each invocation is echoed before it runs, with the command resolved to the
+absolute path that was found on ``PATH``. That path is what varies between a
+developer's machine and a runner, so the examples below elide it.
+
+Basic usage with the default ``call`` strategy, which returns stdout::
 
     >>> from plumbum import local
-    >>> result = run_cmd(local["echo"]["hello"])
-    $ echo hello
+    >>> run_cmd(local["echo"]["hello"])  # doctest: +ELLIPSIS
+    $ ...echo hello
     'hello\n'
 
 Overriding the environment for a single command::
 
-    >>> cmd = local["env"]["MY_VAR"]
-    >>> run_cmd(cmd, env={"MY_VAR": "custom_value"})
-    $ env MY_VAR
+    >>> run_cmd(local["printenv"]["MY_VAR"], env={"MY_VAR": "custom_value"})
+    ... # doctest: +ELLIPSIS
+    $ ...printenv MY_VAR
     'custom_value\n'
 
-Streaming output in the foreground via ``run_fg``::
-
-    >>> run_cmd(local["make"]["test"], method="run_fg")
-    $ make test
-    # Output streams directly to stdout/stderr
-
-Inspecting exit status and stderr with the ``run`` method::
+Inspecting exit status and stderr with the ``run`` method, which returns a
+:class:`RunResult` rather than raising::
 
     >>> failure = run_cmd(
-    ...     local["python"]["-c", "import sys; sys.stderr.write('oops'); sys.exit(1)"],
+    ...     local["python3"]["-c", "import sys; sys.stderr.write('oops'); sys.exit(1)"],
     ...     method="run",
-    ... )
-    $ python -c "import sys; sys.stderr.write('oops'); sys.exit(1)"
+    ... )  # doctest: +ELLIPSIS
+    $ ...python3 -c ...
     >>> failure.returncode
     1
     >>> failure.stderr
@@ -42,12 +41,19 @@ Inspecting exit status and stderr with the ``run`` method::
 Enforcing a timeout for long-running processes::
 
     >>> run_cmd(
-    ...     local["python"]["-c", "import time; time.sleep(5)"],
+    ...     local["python3"]["-c", "import time; time.sleep(5)"],
     ...     method="run",
     ...     timeout=0.01,
-    ... )
+    ... )  # doctest: +ELLIPSIS
     Traceback (most recent call last):
-    ProcessTimedOut: ...
+    plumbum.commands.processes.ProcessTimedOut: ...
+
+The ``run_fg`` strategy streams to this process's own stdout and stderr
+instead of returning the output, so there is nothing for an example to
+assert. It is shown rather than executed, because running it here would run
+the whole test suite::
+
+    >>> run_cmd(local["make"]["test"], method="run_fg")  # doctest: +SKIP
 """
 
 from __future__ import annotations

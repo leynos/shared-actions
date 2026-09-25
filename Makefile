@@ -1,5 +1,5 @@
-.PHONY: all clean help test lint lint-whitaker markdownlint nixie fmt check-fmt \
-	typecheck spelling
+.PHONY: all clean help test doctest lint lint-whitaker markdownlint nixie fmt \
+	check-fmt typecheck spelling
 
 export GITHUB_ACTION_PATH ?= $(CURDIR)
 
@@ -36,7 +36,39 @@ TYPOS_CONFIG_BUILDER = $(UV_ENV) $(UV) tool run --python 3.14 --from \
 	"git+https://github.com/leynos/typos-config-builder.git@$(TYPOS_CONFIG_BUILDER_VERSION)" \
 	typos-config-builder
 
-test: .venv ## Run tests
+# Modules whose docstring examples are executed.
+#
+# A named list rather than the whole tree, because `--doctest-modules`
+# imports every module it collects and many action scripts are importable
+# only with the `sys.path` their action sets up: collecting all of them
+# fails at import in twenty-one places.
+#
+# A list is itself a trap, the same one `pytest.ini`'s testpaths used to be,
+# where a module added to it ran nowhere and passed by never running. So
+# `tests/workflows/test_doctest_coverage.py` asserts that every file
+# carrying a `>>>` is named here, and fails naming the file when one is not.
+DOCTEST_PATHS ?= bool_utils.py cargo_utils.py cmd_utils.py composite_fragments.py \
+	test_support \
+	.github/actions/determine-release-modes/scripts/determine_release_modes.py \
+	.github/actions/generate-coverage/scripts/run_python.py \
+	.github/actions/upload-codescene-coverage/scripts/prove_parser.py \
+	.github/actions/upload-release-assets/scripts/upload_release_assets.py \
+	tests/workflows/_watchdog_command_reading.py \
+	tests/workflows/publisher_binding.py \
+	tests/workflows/pull_request_boundary.py \
+	tests/workflows/test_coverage_timeout_tiers.py \
+	tests/workflows/workflow_boundary.py \
+	tests/workflows/workflow_expressions.py \
+	tests/workflows/workflow_triggers.py \
+	tests/workflows/workflow_yaml.py \
+	workflow_scripts/dependabot_commit_audit.py \
+	workflow_scripts/dependabot_decision.py \
+	workflow_scripts/dependabot_metrics.py
+
+doctest: .venv ## Execute the examples in docstrings
+	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-bdd --with syrupy --with hypothesis pytest --doctest-modules -p no:cacheprovider -q $(DOCTEST_PATHS)
+
+test: .venv doctest ## Run tests, docstring examples first
 	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest -n auto --dist worksteal -v
 # Truthy values: 1, true, TRUE, True, yes, YES, Yes, on, ON, On
 ifneq ($(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS))),)

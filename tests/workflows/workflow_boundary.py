@@ -207,7 +207,7 @@ def _walk_scalar(node: object) -> cabc.Iterator[str]:
 
 
 def effective_text(document: cabc.Mapping[typ.Any, typ.Any]) -> str:
-    """Return every string a workflow can act on, comments excluded.
+    r"""Return every string a workflow can act on, comments excluded.
 
     The scan used to read the file text, so that a `run:` step could not hide
     a call the parse would miss. It read comments too, and a comment contacts
@@ -237,8 +237,11 @@ def effective_text(document: cabc.Mapping[typ.Any, typ.Any]) -> str:
 
     Examples
     --------
+    Keys are strings a workflow acts on too, so they appear beside the
+    values, in document order:
+
     >>> effective_text({"jobs": {"a": {"steps": [{"run": "echo hi"}]}}})
-    'echo hi'
+    'jobs\na\nsteps\nrun\necho hi'
     """
     return "\n".join(_walk_strings(document))
 

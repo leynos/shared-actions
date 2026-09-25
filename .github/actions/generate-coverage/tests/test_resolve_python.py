@@ -119,27 +119,87 @@ def test_no_source_is_an_error(resolver: ModuleType, tmp_path: Path) -> None:
         resolver.choose_interpreter({}, tmp_path / ".python-version")
 
 
-def test_an_installed_interpreter_is_found_without_installing(
+def test_finding_an_interpreter_only_queries_uv(resolver: ModuleType) -> None:
+    """The lookup answers from ``uv python find`` and never installs."""
+    run = FakeRunner(
+        installed={"3.13": "/py/3.13/bin/python3.13"},
+        installable={"3.14": "/managed/python3.14"},
+    )
+
+    assert resolver.find_interpreter("3.13", run) == Path("/py/3.13/bin/python3.13")
+    assert resolver.find_interpreter("3.14", run) is None
+    assert [call[:3] for call in run.calls] == [["uv", "python", "find"]] * 2
+
+
+def test_a_failed_lookup_finds_nothing_whatever_it_prints(
     resolver: ModuleType,
 ) -> None:
-    """A runner that has the Python already downloads nothing."""
-    run = FakeRunner(installed={"3.13": "/py/3.13/bin/python3.13"})
+    """A non-zero ``uv python find`` is a miss even when it wrote a path."""
 
-    assert resolver.find_or_install("3.13", run) == Path("/py/3.13/bin/python3.13")
-    assert all(call[:3] != ["uv", "python", "install"] for call in run.calls)
+    def failing_find(_command: list[str]) -> tuple[int, str]:
+        return 2, "/usr/bin/python3\n"
+
+    assert resolver.find_interpreter("3.13", failing_find) is None
 
 
-def test_a_missing_interpreter_is_installed_then_found(resolver: ModuleType) -> None:
-    """Install the requested Python when uv cannot find one."""
+def test_installing_an_interpreter_makes_it_findable(resolver: ModuleType) -> None:
+    """The install command downloads the requested Python for the next lookup."""
     run = FakeRunner(installed={}, installable={"3.13": "/managed/python3.13"})
 
-    assert resolver.find_or_install("3.13", run) == Path("/managed/python3.13")
+    resolver.install_interpreter("3.13", run)
+
+    assert resolver.find_interpreter("3.13", run) == Path("/managed/python3.13")
 
 
 def test_an_uninstallable_interpreter_is_an_error(resolver: ModuleType) -> None:
     """Fail the step rather than build the venv on whatever uv finds."""
-    with pytest.raises(resolver.ResolutionError, match="could not find or install"):
-        resolver.find_or_install("2.7", FakeRunner(installed={}))
+    with pytest.raises(resolver.ResolutionError, match="could not install"):
+        resolver.install_interpreter("2.7", FakeRunner(installed={}))
+
+
+class InstallCase(typ.NamedTuple):
+    """Where the requested Python lives and how many installs that costs."""
+
+    installed: dict[str, str]
+    installable: dict[str, str]
+    expected_installs: int
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        InstallCase({"3.13": "/py/bin/python3.13"}, {}, 0),
+        InstallCase({}, {"3.13": "/py/bin/python3.13"}, 1),
+    ],
+    ids=["present", "missing"],
+)
+def test_resolve_installs_only_a_missing_interpreter(
+    resolver: ModuleType, tmp_path: Path, case: InstallCase
+) -> None:
+    """A runner that has the Python already downloads nothing."""
+    run = FakeRunner(
+        installed=case.installed,
+        installable=case.installable,
+        versions={"/py/bin/python3.13": "3.13"},
+    )
+
+    outputs = resolver.resolve({"UV_PYTHON": "3.13"}, tmp_path, run)
+
+    assert outputs["python"] == "/py/bin/python3.13"
+    installs = [call for call in run.calls if call[:3] == ["uv", "python", "install"]]
+    assert len(installs) == case.expected_installs
+
+
+def test_resolve_fails_when_an_installed_interpreter_stays_missing(
+    resolver: ModuleType, tmp_path: Path
+) -> None:
+    """An install that uv then cannot find fails rather than guessing a path."""
+
+    def install_succeeds_find_fails(command: list[str]) -> tuple[int, str]:
+        return (0, "") if command[:3] == ["uv", "python", "install"] else (2, "")
+
+    with pytest.raises(resolver.ResolutionError, match="could not find it"):
+        resolver.resolve({"UV_PYTHON": "3.13"}, tmp_path, install_succeeds_find_fails)
 
 
 @pytest.mark.parametrize(

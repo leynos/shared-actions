@@ -112,30 +112,29 @@ def choose_interpreter(
     raise ResolutionError(msg)
 
 
-def find_or_install(spec: str, run: Runner) -> Path:
-    """Install ``spec`` if uv cannot find it, then return its absolute path.
+def find_interpreter(spec: str, run: Runner) -> Path | None:
+    """Return the absolute path uv finds for ``spec``, or ``None``.
 
-    A command with a query result: it may download an interpreter.
+    A query: it runs ``uv python find`` and nothing else, so it never
+    downloads an interpreter.
+    """
+    code, out = run(["uv", "python", "find", spec])
+    lines = out.strip().splitlines()
+    return Path(lines[-1].strip()) if code == 0 and lines else None
 
-    uv is asked to find the interpreter first and to install it only when it
-    cannot, so a runner that already has the requested Python downloads
-    nothing.
+
+def install_interpreter(spec: str, run: Runner) -> None:
+    """Download ``spec`` into uv's managed interpreters.
 
     Raises
     ------
     ResolutionError
-        When uv can neither find nor install ``spec``.
+        When uv cannot install ``spec``.
     """
-    code, out = run(["uv", "python", "find", spec])
+    code, _ = run(["uv", "python", "install", spec])
     if code != 0:
-        install_code, _ = run(["uv", "python", "install", spec])
-        if install_code == 0:
-            code, out = run(["uv", "python", "find", spec])
-    path = out.strip().splitlines()[-1].strip() if out.strip() else ""
-    if code != 0 or not path:
-        msg = f"uv could not find or install an interpreter for {spec!r}"
+        msg = f"uv could not install an interpreter for {spec!r}"
         raise ResolutionError(msg)
-    return Path(path)
 
 
 def major_minor(python: Path, run: Runner) -> str:
@@ -175,9 +174,26 @@ def _run(command: list[str]) -> tuple[int, str]:
 
 
 def resolve(env: cabc.Mapping[str, str], cwd: Path, run: Runner) -> dict[str, str]:
-    """Return the step outputs for the interpreter the environment selects."""
+    """Return the step outputs for the interpreter the environment selects.
+
+    uv is asked to find the interpreter first and to install it only when it
+    cannot, so a runner that already has the requested Python downloads
+    nothing.
+
+    Raises
+    ------
+    ResolutionError
+        When no interpreter is chosen, uv cannot install it, or uv still
+        cannot find it after installing it.
+    """
     choice = choose_interpreter(env, cwd / ".python-version")
-    python = find_or_install(choice.spec, run)
+    python = find_interpreter(choice.spec, run)
+    if python is None:
+        install_interpreter(choice.spec, run)
+        python = find_interpreter(choice.spec, run)
+    if python is None:
+        msg = f"uv installed {choice.spec!r} but could not find it"
+        raise ResolutionError(msg)
     version = major_minor(python, run)
     return {
         "python": str(python),

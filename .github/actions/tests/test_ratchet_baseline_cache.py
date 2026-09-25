@@ -47,6 +47,18 @@ BASELINE_CACHE_STEPS = {
 KEY_PREFIX = "ratchet-baseline-${{ runner.os }}-"
 RUN_SCOPE = "${{ github.run_id }}"
 
+#: The interpreter segment ``generate-coverage`` inserts after the prefix:
+#: ``py<major.minor>-`` when Python is measured, empty otherwise. A change of
+#: interpreter then restores nothing and starts a fresh baseline instead of
+#: comparing figures measured on different Pythons.
+INTERPRETER_SEGMENT = "${{ steps.interpreter.outputs.baseline-segment }}"
+
+#: Each action's exact restore prefix, which the run-scoped key extends.
+RESTORE_PREFIXES = {
+    "generate-coverage": KEY_PREFIX + INTERPRETER_SEGMENT,
+    "ratchet-coverage": KEY_PREFIX,
+}
+
 #: How each cache action variant participates in the baseline lifecycle,
 #: as (reads, writes).
 CACHE_VARIANT_ROLES = {
@@ -141,8 +153,9 @@ def test_baseline_key_is_run_scoped_and_shared(action: str) -> None:
     restore_key = _step(action, restore_step)["with"]["key"]
     save_key = _step(action, save_step)["with"]["key"]
 
-    assert restore_key.startswith(KEY_PREFIX)
-    assert RUN_SCOPE in restore_key, f"{action}: restore key is not run-scoped"
+    assert restore_key == RESTORE_PREFIXES[action] + RUN_SCOPE, (
+        f"{action}: restore key is not its prefix plus the run scope: {restore_key}"
+    )
     assert save_key == restore_key, f"{action}: halves disagree on the key"
 
 
@@ -152,7 +165,7 @@ def test_baseline_restore_falls_back_to_the_shared_prefix(action: str) -> None:
     restore_step, _save_step = BASELINE_CACHE_STEPS[action]
     restore_keys = _step(action, restore_step)["with"]["restore-keys"]
 
-    assert restore_keys.strip() == KEY_PREFIX
+    assert restore_keys.strip() == RESTORE_PREFIXES[action]
 
 
 @pytest.mark.parametrize("action", ACTION_IDS)

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Measure Python coverage on an explicitly resolved interpreter. `Setup uv`
+  installs an exact uv release (0.12.19). A new `Resolve coverage interpreter`
+  step chooses the `python-version` input, then `UV_PYTHON`, then
+  `.python-version`, then the `python3` on `PATH`, and `.venv-coverage` is
+  built with `uv venv --python`. The ratchet baseline key gains the
+  interpreter's `major.minor` (`ratchet-baseline-<os>-py3.13-<run_id>`), so a
+  change of interpreter starts a fresh baseline. Existing Python callers
+  restore no baseline on their first run after upgrading, which passes, and
+  their next push to `main` saves one under the new key.
 - Add the optional `python-source` input for preserving a deliberate Slipcover
   source scope. Its comma-separated value is passed unchanged as one `--source`
   argument before `--branch`; empty values preserve default source discovery.

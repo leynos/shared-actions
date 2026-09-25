@@ -43,6 +43,10 @@ TOOLING_PACKAGES: tuple[str, ...] = (
     "coverage",
 )
 PROJECT_SYNC_ARGS: tuple[str, ...] = ("sync", "--inexact", "--python")
+#: The interpreter the "Resolve coverage interpreter" step chose. Empty keeps
+#: uv's own discovery, which is what a direct script run outside the action
+#: gets.
+COVERAGE_PYTHON_ENV = "GC_COVERAGE_PYTHON"
 
 SLIPCOVER_ARGS: tuple[str, ...] = ("-m", "slipcover")
 SLIPCOVER_BRANCH_ARG = "--branch"
@@ -83,6 +87,21 @@ def _find_coverage_python() -> Path | None:
     return None
 
 
+def _venv_args(env: cabc.Mapping[str, str]) -> list[str]:
+    """Return the ``uv venv`` arguments, naming the resolved interpreter.
+
+    Examples
+    --------
+    >>> _venv_args({"GC_COVERAGE_PYTHON": "/opt/py/bin/python3.13"})
+    ['venv', '--python', '/opt/py/bin/python3.13', '.venv-coverage']
+    >>> _venv_args({})
+    ['venv', '.venv-coverage']
+    """
+    interpreter = env.get(COVERAGE_PYTHON_ENV, "").strip()
+    python_args = ["--python", interpreter] if interpreter else []
+    return ["venv", *python_args, str(COVERAGE_VENV)]
+
+
 def _remove_coverage_venv() -> None:
     """Remove the coverage venv directory or non-directory placeholder.
 
@@ -117,7 +136,7 @@ def _recreate_coverage_venv() -> Path:
         _remove_coverage_venv()
     else:
         typer.echo(f"Creating coverage venv at {COVERAGE_VENV}")
-    run_cmd(uv["venv", str(COVERAGE_VENV)])
+    run_cmd(uv[*_venv_args(os.environ)])
     typer.echo(f"Coverage venv created at {COVERAGE_VENV}")
     python = _find_coverage_python()
     if python is None:

@@ -6,3 +6,15 @@
   
   '''
 # ---
+# name: test_the_source_diagnostics_are_stable[absolute-entry]
+  "Invalid python-source value: '/abs,femtologging'. Source directories must be repository-relative and resolve inside the repository; these do not: /abs."
+# ---
+# name: test_the_source_diagnostics_are_stable[empty-entry]
+  "Invalid python-source value: 'one,,two'. Empty entries are not allowed; provide comma-separated repository-relative source directories."
+# ---
+# name: test_the_source_diagnostics_are_stable[padded-entry]
+  "Invalid python-source value: 'femtologging, generated'. These entries have surrounding whitespace: ' generated'. Slipcover reads each entry exactly as written, so remove the spaces around the commas."
+# ---
+# name: test_the_source_diagnostics_are_stable[parent-escape]
+  "Invalid python-source value: '../elsewhere'. Source directories must be repository-relative and resolve inside the repository; these do not: ../elsewhere."
+# ---

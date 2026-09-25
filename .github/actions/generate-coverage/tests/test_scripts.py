@@ -13,6 +13,7 @@ import dataclasses
 import io
 import itertools
 import os
+import shutil
 import sys
 import typing as typ
 from pathlib import Path
@@ -22,6 +23,7 @@ import yaml
 from _coverage_test_support import _exit_code, _load_module
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from lxml import etree
 from plumbum import local
 
 from cmd_utils_importer import import_cmd_utils
@@ -2159,6 +2161,221 @@ def test_coverage_args_preserves_python_source_before_branch(
     assert args[2:5] == ["--source", python_source, "--branch"]
 
 
+@pytest.mark.parametrize("raw", [",femtologging", "femtologging,", "one,,two", "a, ,b"])
+def test_resolve_python_source_rejects_empty_entries(
+    run_python_module: ModuleType,
+    raw: str,
+) -> None:
+    """A non-empty source scope cannot contain an entry naming no directory."""
+    with pytest.raises(ValueError, match="Empty entries are not allowed"):
+        run_python_module._resolve_python_source(raw, Path.cwd())
+
+
+@pytest.mark.parametrize(
+    ("raw", "named"),
+    [
+        ("femtologging, generated", "' generated'"),
+        ("femtologging ,generated", "'femtologging '"),
+        ("\tfemtologging", "'\\tfemtologging'"),
+    ],
+)
+def test_python_source_entries_refuse_surrounding_whitespace(
+    run_python_module: ModuleType,
+    raw: str,
+    named: str,
+) -> None:
+    """A padded entry names a directory Slipcover will never find.
+
+    Slipcover splits on commas and strips nothing, so accepting the entry
+    would silently measure nothing for that path. The error names it.
+    """
+    with pytest.raises(ValueError, match="surrounding whitespace") as excinfo:
+        run_python_module._python_source_entries(raw)
+    assert named in str(excinfo.value), str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "escape", ["parent", "absolute"], ids=["parent-directory", "absolute"]
+)
+def test_resolve_python_source_rejects_paths_outside_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+    escape: str,
+) -> None:
+    """A source that escapes the repository cannot become a Slipcover boundary."""
+    project = tmp_path / "project"
+    project.mkdir()
+    foreign = tmp_path / "foreign-venv" / "site-packages"
+    foreign.mkdir(parents=True)
+    monkeypatch.chdir(project)
+    raw = "../foreign-venv/site-packages" if escape == "parent" else str(foreign)
+
+    with pytest.raises(ValueError, match="resolve inside the repository"):
+        run_python_module._resolve_python_source(raw, Path.cwd())
+
+
+def test_resolve_python_source_rejects_symlink_outside_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+) -> None:
+    """A repository-local symlink is judged by the directory it resolves to."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (tmp_path / "foreign-venv").mkdir()
+    (project / "linked").symlink_to(tmp_path / "foreign-venv")
+    monkeypatch.chdir(project)
+
+    with pytest.raises(ValueError, match="resolve inside the repository"):
+        run_python_module._resolve_python_source("linked", project)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "femtologging",
+        "./lading",
+        "episodic,alembic",
+        "src/../femtologging",
+        "linked",
+        "vendored/my package",
+    ],
+)
+def test_resolve_python_source_accepts_paths_inside_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+    raw: str,
+) -> None:
+    """Paths that stay inside, including a ``..`` or a symlink that does, pass.
+
+    The containment rule refuses a resolved location, not a spelling, so the
+    same forms that escape above are accepted when they land inside.
+    """
+    project = tmp_path / "project"
+    (project / "femtologging").mkdir(parents=True)
+    (project / "linked").symlink_to(project / "femtologging")
+    monkeypatch.chdir(project)
+
+    resolved = run_python_module._resolve_python_source(raw, project)
+    assert resolved == raw, resolved
+
+
+def test_an_absolute_entry_inside_the_repository_is_refused(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+) -> None:
+    """The scope is repository-relative; an absolute path is refused as such.
+
+    Slipcover would take an absolute entry as given, so one naming a
+    directory inside the repository would still pass unchecked through a
+    containment rule that only asked where the path resolves.
+    """
+    inside = tmp_path / "femtologging"
+    inside.mkdir()
+
+    with pytest.raises(ValueError, match="must be repository-relative"):
+        run_python_module._resolve_python_source(str(inside), tmp_path)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError("Symlink loop from 'loop'"), OSError("resolution failed")],
+    ids=["symlink-loop", "os-error"],
+)
+def test_an_unresolvable_entry_is_a_validation_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+    error: Exception,
+) -> None:
+    """A resolution failure takes the documented exit-2 path, not a traceback.
+
+    Python 3.12 raises ``RuntimeError`` for a symlink loop, and ``main``
+    catches only ``ValueError``; the failure is translated at the boundary.
+    """
+
+    def failing_resolve(self: Path, *_args: object, **_kwargs: object) -> Path:
+        raise error
+
+    monkeypatch.setattr(run_python_module.Path, "resolve", failing_resolve)
+
+    with pytest.raises(ValueError, match="could not be resolved"):
+        run_python_module._resolve_python_source("femtologging", tmp_path)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["one,,two", "femtologging, generated", "../elsewhere", "/abs,femtologging"],
+    ids=["empty-entry", "padded-entry", "parent-escape", "absolute-entry"],
+)
+def test_the_source_diagnostics_are_stable(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    raw: str,
+    snapshot: SnapshotAssertion,
+) -> None:
+    """Each refusal's full message is the contract a caller reads in the log.
+
+    Fixed inputs keep the snapshots free of temporary paths.
+    """
+    with pytest.raises(ValueError, match="Invalid python-source value") as excinfo:
+        run_python_module._resolve_python_source(raw, tmp_path)
+    assert str(excinfo.value) == snapshot
+
+
+def test_the_outside_entries_are_named(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+) -> None:
+    """Only the escaping entries are reported, judged against the given root."""
+    inside_but_absolute = str(tmp_path / "femtologging")
+    outside = run_python_module._sources_outside_repository(
+        ("femtologging", "../elsewhere", "/abs", inside_but_absolute), tmp_path
+    )
+    assert outside == ("../elsewhere", "/abs", inside_but_absolute), outside
+
+
+def test_python_source_excludes_foreign_venv_site_packages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+) -> None:
+    """Slipcover's source boundary rejects dependencies from a foreign venv."""
+    project = tmp_path / "project"
+    source_root = project / "femtologging"
+    source_root.mkdir(parents=True)
+    foreign_module = (
+        tmp_path
+        / "foreign-venv"
+        / "lib"
+        / "python3.14"
+        / "site-packages"
+        / "dependency"
+        / "module.py"
+    )
+    foreign_module.parent.mkdir(parents=True)
+    foreign_module.touch()
+    monkeypatch.chdir(project)
+    source = run_python_module._python_source_entries("femtologging")
+    script = (
+        "from pathlib import Path\n"
+        "from slipcover.importer import FileMatcher\n"
+        f"matcher = FileMatcher(sources={list(source)!r})\n"
+        "assert matcher.matches(Path('femtologging/module.py'))\n"
+        f"assert not matcher.matches(Path({str(foreign_module)!r}))\n"
+    )
+
+    result = run_plumbum_command(
+        local["uv"]["run", "--with", "slipcover==1.1.0", "python", "-c", script],
+        method="run",
+    )
+
+    assert source == ("femtologging",), source
+    assert result[0] == 0, result[2]
+
+
 @pytest.mark.parametrize("workers", ["auto", "logical", "4", "1"])
 def test_coverage_args_appends_workers_flag(
     tmp_path: Path,
@@ -2262,6 +2479,60 @@ _PYTEST_PARSER_SETTINGS = settings(
 )
 
 _WHITESPACE_ST = st.text(alphabet=" \t", max_size=4)
+
+_SOURCE_NAME_ST = st.text(
+    alphabet=st.characters(
+        blacklist_characters=",",
+        blacklist_categories=("Cs", "Cc"),
+    ),
+    min_size=1,
+    max_size=12,
+).filter(lambda name: name.strip())
+
+
+_PADDED_SOURCE_ST = st.tuples(_SOURCE_NAME_ST, _WHITESPACE_ST, _WHITESPACE_ST)
+
+
+@_PYTEST_PARSER_SETTINGS
+@given(entries=st.lists(_PADDED_SOURCE_ST, min_size=1, max_size=6))
+def test_python_source_entries_are_split_as_slipcover_splits(
+    run_python_module: ModuleType,
+    entries: list[tuple[str, str, str]],
+) -> None:
+    """Unpadded entries survive in order; any padding is refused.
+
+    Slipcover splits the value on commas and strips nothing, so the entries
+    validated are the entries it will read. A padded one names no directory
+    Slipcover can find.
+    """
+    names = [name.strip() for name, _, _ in entries]
+    parsed = run_python_module._python_source_entries(",".join(names))
+    assert parsed == tuple(names), parsed
+
+    padded = [f"{leading}{name}{trailing}" for name, leading, trailing in entries]
+    if padded != names:
+        with pytest.raises(ValueError, match="surrounding whitespace"):
+            run_python_module._python_source_entries(",".join(padded))
+
+
+@_PYTEST_PARSER_SETTINGS
+@given(
+    entries=st.lists(_PADDED_SOURCE_ST, min_size=1, max_size=5),
+    blank=_WHITESPACE_ST,
+    position=st.integers(min_value=0, max_value=5),
+)
+def test_python_source_entries_reject_generated_empty_entries(
+    run_python_module: ModuleType,
+    entries: list[tuple[str, str, str]],
+    blank: str,
+    position: int,
+) -> None:
+    """An empty or whitespace-only entry is refused wherever it appears."""
+    padded = [f"{leading}{name}{trailing}" for name, leading, trailing in entries]
+    padded.insert(min(position, len(padded)), blank)
+
+    with pytest.raises(ValueError, match="Empty entries are not allowed"):
+        run_python_module._python_source_entries(",".join(padded))
 
 
 @_PYTEST_PARSER_SETTINGS
@@ -2381,7 +2652,7 @@ def test_resolve_python_source_defaults_to_empty(
 ) -> None:
     """An unset action input preserves the unscoped Slipcover default."""
     monkeypatch.delenv("INPUT_PYTHON_SOURCE", raising=False)
-    assert run_python_module._resolve_python_source(None) == ""
+    assert run_python_module._resolve_python_source(None, Path.cwd()) == ""
 
 
 @pytest.mark.parametrize("python_source", ["episodic,alembic", "./lading"])
@@ -2392,7 +2663,7 @@ def test_resolve_python_source_reads_action_env_unchanged(
 ) -> None:
     """The named action environment value is preserved for Slipcover."""
     monkeypatch.setenv("INPUT_PYTHON_SOURCE", python_source)
-    assert run_python_module._resolve_python_source(None) == python_source
+    assert run_python_module._resolve_python_source(None, Path.cwd()) == python_source
 
 
 def test_main_translates_invalid_workers_into_typer_exit(
@@ -2422,6 +2693,56 @@ def test_main_translates_invalid_workers_into_typer_exit(
         )
     assert _exit_code(excinfo.value) == 2
     assert "Invalid pytest-workers value" in capsys.readouterr().err
+
+
+def test_main_rejects_invalid_source_before_coverage_subprocess(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run_python_module: ModuleType,
+) -> None:
+    """Malformed source input stops before Slipcover or venv setup can execute."""
+    output = tmp_path / "cov.xml"
+    github_output = tmp_path / "gh.txt"
+
+    def fake_run_cmd(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("run_cmd must not be invoked when source validation fails")
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    monkeypatch.setenv("INPUT_PYTHON_SOURCE", "femtologging,,tests")
+
+    with pytest.raises(run_python_module.typer.Exit) as excinfo:
+        run_python_module.main(output, "python", "cobertura", github_output)
+    assert _exit_code(excinfo.value) == 2
+    assert "Invalid python-source value" in capsys.readouterr().err
+
+
+def test_main_judges_containment_against_the_working_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run_python_module: ModuleType,
+) -> None:
+    """The action runs from the repository root, so that is the boundary.
+
+    A ``..`` escape from it stops ``main`` before any coverage command runs.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+
+    def fake_run_cmd(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("run_cmd must not be invoked when source validation fails")
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    monkeypatch.setenv("INPUT_PYTHON_SOURCE", "../outside")
+
+    with pytest.raises(run_python_module.typer.Exit) as excinfo:
+        run_python_module.main(
+            tmp_path / "cov.xml", "python", "cobertura", tmp_path / "gh.txt"
+        )
+    assert _exit_code(excinfo.value) == 2
+    assert "resolve inside the repository" in capsys.readouterr().err
 
 
 def test_tmp_coveragepy_xml_invokes_venv_python(
@@ -2472,6 +2793,7 @@ def test_run_python_cobertura_passes_out_flag(
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
     _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    monkeypatch.delenv("INPUT_PYTHON_SOURCE", raising=False)
 
     run_python_module.main(output, "python", "cobertura", github_output, None)
 
@@ -2957,68 +3279,89 @@ def _python_step_env_contract() -> dict[str, str]:
 _COVERAGE_SENTINEL_MARKER = "coverage-sentinel.out"
 
 
-def _write_fake_uv(
-    tmp_path: Path,
-    *,
-    venv_exit: int = 0,
-    sync_exit: int = 0,
-    python_log: Path | None = None,
-) -> tuple[Path, Path]:
-    """Write a fake uv executable and return its bin directory and log path.
+@dataclasses.dataclass(frozen=True)
+class _FakeUv:
+    """How the fake ``uv`` behaves.
+
+    ``venv_exit`` and ``sync_exit`` make ``uv venv`` or ``uv sync`` fail.
 
     When *python_log* is given, the coverage interpreter that the fake
     ``uv venv`` creates records every argument it receives on a line of its
     own, so a caller can tell one unsplit argument from several. That
     interpreter also runs ``coverage-sentinel`` by bare name. The sentinel
     exists only inside the coverage environment's scripts directory and writes
-    ``_COVERAGE_SENTINEL_MARKER`` under *tmp_path*, so the marker's presence
-    proves a real child process resolved an executable through the prepended
-    directory rather than through the ambient ``PATH``.
+    ``_COVERAGE_SENTINEL_MARKER`` under the test's directory, so the marker's
+    presence proves a real child process resolved an executable through the
+    prepended directory rather than through the ambient ``PATH``.
+
+    ``venv_python`` lets ``uv venv`` symlink a prepared coverage interpreter
+    into the throwaway venv instead of installing an inert stub, so a test can
+    observe the argv that ``run_python.py`` hands to the coverage tool.
     """
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    log = tmp_path / "uv-calls.log"
-    marker = tmp_path / _COVERAGE_SENTINEL_MARKER
+
+    venv_exit: int = 0
+    sync_exit: int = 0
+    python_log: Path | None = None
+    venv_python: Path | None = None
+
+
+def _install_python_script(fake: _FakeUv) -> str:
+    """Return the shell that places the coverage interpreter in ``$2/bin``."""
+    if fake.venv_python is not None:
+        return f"""ln -s '{fake.venv_python}' "$2/bin/python\""""
     record_argv = (
         ""
-        if python_log is None
+        if fake.python_log is None
         else (
-            f"printf '%s\\n' \"$@\" >> '{python_log}'\n"
+            f"printf '%s\\n' \"$@\" >> '{fake.python_log}'\n"
             "coverage-sentinel 2>/dev/null || true\n"
         )
     )
-    write_sentinel = (
-        ""
-        if python_log is None
-        else (
-            "    cat > \"$2/bin/coverage-sentinel\" <<'SENTINEL'\n"
-            "#!/usr/bin/env sh\n"
-            f"printf 'ran\\n' > '{marker}'\n"
-            "SENTINEL\n"
-            '    chmod +x "$2/bin/coverage-sentinel"\n'
-        )
+    return f"""cat > "$2/bin/python" <<'PY'
+#!/usr/bin/env sh
+{record_argv}exit 0
+PY"""
+
+
+def _sentinel_script(fake: _FakeUv, marker: Path) -> str:
+    """Return the shell that installs ``coverage-sentinel``, if one is wanted."""
+    if fake.python_log is None:
+        return ""
+    return (
+        "    cat > \"$2/bin/coverage-sentinel\" <<'SENTINEL'\n"
+        "#!/usr/bin/env sh\n"
+        f"printf 'ran\\n' > '{marker}'\n"
+        "SENTINEL\n"
+        '    chmod +x "$2/bin/coverage-sentinel"\n'
     )
+
+
+def _write_fake_uv(tmp_path: Path, fake: _FakeUv | None = None) -> tuple[Path, Path]:
+    """Write a fake uv executable and return its bin directory and log path."""
+    fake = fake or _FakeUv()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "uv-calls.log"
+    install_python = _install_python_script(fake)
+    write_sentinel = _sentinel_script(fake, tmp_path / _COVERAGE_SENTINEL_MARKER)
     uv = bin_dir / "uv"
     uv.write_text(
         f"""#!/usr/bin/env sh
 printf '%s\\n' "$*" >> '{log}'
 if [ "$1" = "venv" ]; then
-    if [ {venv_exit} -ne 0 ]; then
+    if [ {fake.venv_exit} -ne 0 ]; then
         echo "uv venv exploded" >&2
-        exit {venv_exit}
+        exit {fake.venv_exit}
     fi
     mkdir -p "$2/bin"
-    cat > "$2/bin/python" <<'PY'
-#!/usr/bin/env sh
-{record_argv}exit 0
-PY
+    {install_python}
     chmod +x "$2/bin/python"
 {write_sentinel}    exit 0
 fi
 if [ "$1" = "sync" ]; then
-    if [ {sync_exit} -ne 0 ]; then
+    if [ {fake.sync_exit} -ne 0 ]; then
         echo "uv sync exploded" >&2
-        exit {sync_exit}
+        exit {fake.sync_exit}
     fi
     exit 0
 fi
@@ -3085,6 +3428,126 @@ def _run_integration_script(
     run.monkeypatch.chdir(run.tmp_path)
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
     return run_script(script, env)
+
+
+def _write_boundary_project(tmp_path: Path) -> Path:
+    """Write a project whose test imports both local and foreign modules.
+
+    ``femtologging`` stands in for project source and ``dependency`` for a
+    third-party module reached through a sibling virtual environment, which is
+    the shape ``python-source`` exists to keep out of the report.
+    """
+    project = tmp_path / "project"
+    (project / "femtologging").mkdir(parents=True)
+    (project / "femtologging" / "__init__.py").write_text(
+        "def double(value: int) -> int:\n    return value * 2\n", encoding="utf-8"
+    )
+    foreign = (
+        project / "foreign-venv" / "lib" / "python3.14" / "site-packages" / "dependency"
+    )
+    foreign.mkdir(parents=True)
+    (foreign / "__init__.py").write_text('PACKAGE = "dependency"\n', encoding="utf-8")
+    (foreign / "module.py").write_text('VALUE = "foreign"\n', encoding="utf-8")
+    tests = project / "tests"
+    tests.mkdir()
+    (tests / "test_double.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "\n"
+        "SITE_PACKAGES = (\n"
+        "    Path(__file__).resolve().parents[1]\n"
+        '    / "foreign-venv" / "lib" / "python3.14" / "site-packages"\n'
+        ")\n"
+        "sys.path.insert(0, str(SITE_PACKAGES))\n"
+        "\n"
+        "import dependency.module as foreign\n"
+        "import femtologging\n"
+        "\n"
+        "\n"
+        "def test_double() -> None:\n"
+        "    assert femtologging.double(2) == 4\n"
+        '    assert foreign.VALUE == "foreign"\n',
+        encoding="utf-8",
+    )
+    return project
+
+
+def _write_coverage_python(tmp_path: Path) -> tuple[Path, Path]:
+    """Write a venv Python that records its argv and runs real slipcover.
+
+    ``run_python.py`` invokes the coverage venv's Python, so a script here is
+    the process boundary that observes the coverage argv while still executing
+    a genuine Slipcover run. The interpreter is supplied by ``uv`` with the
+    same pinned Slipcover the action installs. Returns the script and the argv
+    log it appends to.
+
+    The delegated ``uv run`` scrubs the variables this test harness leaks from
+    its enclosing session before delegating. A test session started through
+    ``uv run --with`` exports its overlay as ``VIRTUAL_ENV`` and exports its
+    site-packages through ``PYTHONPATH``; an inherited ``PYTHONPATH`` would
+    otherwise resolve pytest from the enclosing environment while Slipcover
+    came from this one, mixing two site-packages in a single process. An
+    inherited ``PYTEST_XDIST_WORKER`` is worse: Slipcover's pytest plugin
+    treats the variable's mere presence as "this process is an xdist worker",
+    so the fresh inner pytest would double-activate and abort. The real action
+    runs the coverage venv's interpreter from a plain shell, so scrubbing these
+    restores that isolation.
+    """
+    real_uv = shutil.which("uv")
+    assert real_uv is not None, "the test suite requires uv on PATH"
+    argv_log = tmp_path / "coverage-argv.log"
+    python = tmp_path / "fake-coverage-python"
+    python.write_text(
+        f"""#!/usr/bin/env sh
+printf '%s\\n' "$@" >> '{argv_log}'
+exec env -u PYTHONPATH -u VIRTUAL_ENV \\
+    -u PYTEST_XDIST_WORKER -u PYTEST_XDIST_WORKER_COUNT \\
+    -u PYTEST_XDIST_TESTRUNUID \\
+    '{real_uv}' run --no-project --quiet \\
+    --with 'slipcover==1.1.0' --with pytest --with pytest-xdist \\
+    python "$@"
+""",
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+    return python, argv_log
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+def test_run_python_integration_threads_source_boundary_to_slipcover(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_python.py bounds the coverage report through the action's env path.
+
+    Exercises the real Slipcover process boundary: the source input selected by
+    ``INPUT_PYTHON_SOURCE`` must reach the coverage argv, and the
+    report must cover project files while the foreign virtual-environment
+    module stays out of it.
+    """
+    project = _write_boundary_project(tmp_path)
+    coverage_python, argv_log = _write_coverage_python(project)
+    bin_dir, _log = _write_fake_uv(project, _FakeUv(venv_python=coverage_python))
+    run = _PythonIntegrationRun(project, shell_stubs, bin_dir, monkeypatch)
+    env = _python_integration_env(run, {"INPUT_PYTHON_SOURCE": "femtologging"})
+    out = Path(env["INPUT_OUTPUT_PATH"])
+    monkeypatch.chdir(project)
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
+
+    returncode, stdout, stderr = run_script(script, env)
+
+    assert returncode == 0, stderr
+    argv = argv_log.read_text(encoding="utf-8").splitlines()
+    assert "--source" in argv, f"slipcover argv lacks --source: {argv!r}"
+    source_index = argv.index("--source")
+    assert argv[source_index + 1] == "femtologging"
+    filenames = [str(name) for name in etree.parse(str(out)).xpath("//class/@filename")]
+    assert "femtologging/__init__.py" in filenames
+    assert not [name for name in filenames if "foreign-venv" in name], (
+        f"foreign site-packages leaked into the report: {filenames!r}"
+    )
+    assert "source scope=configured" in stdout, stdout
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
@@ -3192,7 +3655,7 @@ def test_run_python_integration_mixed_lang_path(
 class UvFailureSpec:
     """Pairs a fake-uv exit-code configuration with the expected stderr fragment."""
 
-    write_kwargs: dict[str, int]
+    fake: _FakeUv
     expected_in_stderr: str | None
 
 
@@ -3200,10 +3663,8 @@ class UvFailureSpec:
 @pytest.mark.parametrize(
     "spec",
     [
-        UvFailureSpec(write_kwargs={"venv_exit": 1}, expected_in_stderr=None),
-        UvFailureSpec(
-            write_kwargs={"sync_exit": 2}, expected_in_stderr="uv sync failed"
-        ),
+        UvFailureSpec(fake=_FakeUv(venv_exit=1), expected_in_stderr=None),
+        UvFailureSpec(fake=_FakeUv(sync_exit=2), expected_in_stderr="uv sync failed"),
     ],
     ids=["uv-venv-fails", "uv-sync-fails"],
 )
@@ -3214,7 +3675,7 @@ def test_run_python_integration_uv_failure_modes(
     spec: UvFailureSpec,
 ) -> None:
     """run_python.py exits non-zero when uv venv or uv sync fails."""
-    bin_dir, _log = _write_fake_uv(tmp_path, **spec.write_kwargs)
+    bin_dir, _log = _write_fake_uv(tmp_path, spec.fake)
 
     returncode, _stdout, stderr = _run_integration_script(
         _PythonIntegrationRun(tmp_path, shell_stubs, bin_dir, monkeypatch)
@@ -3321,7 +3782,7 @@ def test_run_python_integration_passes_one_unsplit_source_argument(
     its commas would appear as several lines rather than one.
     """
     argv_log = tmp_path / "coverage-python-argv.log"
-    bin_dir, _log = _write_fake_uv(tmp_path, python_log=argv_log)
+    bin_dir, _log = _write_fake_uv(tmp_path, _FakeUv(python_log=argv_log))
 
     returncode, _stdout, _stderr = _run_integration_script(
         _PythonIntegrationRun(tmp_path, shell_stubs, bin_dir, monkeypatch),
@@ -3343,7 +3804,7 @@ def test_run_python_integration_omits_source_when_the_input_is_unset(
 ) -> None:
     """An unset input leaves the Slipcover argv as it was before the scope."""
     argv_log = tmp_path / "coverage-python-argv.log"
-    bin_dir, _log = _write_fake_uv(tmp_path, python_log=argv_log)
+    bin_dir, _log = _write_fake_uv(tmp_path, _FakeUv(python_log=argv_log))
 
     returncode, _stdout, _stderr = _run_integration_script(
         _PythonIntegrationRun(tmp_path, shell_stubs, bin_dir, monkeypatch),
@@ -3369,7 +3830,7 @@ def test_run_python_integration_child_resolves_through_the_coverage_environment(
     it writes can only appear if that directory reached the child's ``PATH``.
     """
     argv_log = tmp_path / "coverage-python-argv.log"
-    bin_dir, _log = _write_fake_uv(tmp_path, python_log=argv_log)
+    bin_dir, _log = _write_fake_uv(tmp_path, _FakeUv(python_log=argv_log))
     sentinel = tmp_path / ".venv-coverage" / "bin" / "coverage-sentinel"
     marker = tmp_path / _COVERAGE_SENTINEL_MARKER
 

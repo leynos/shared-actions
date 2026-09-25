@@ -547,16 +547,118 @@ def _resolve_pytest_workers(pytest_workers: str | None) -> str:
     return _parse_pytest_workers(raw)
 
 
-def _resolve_python_source(python_source: str | None) -> str:
+def _python_source_entries(raw: str) -> tuple[str, ...]:
+    """Return the entries Slipcover will read from a ``--source`` value.
+
+    Slipcover splits the value on commas and strips nothing, so the entries
+    are returned exactly as it will see them. An empty or whitespace-only
+    entry names no source directory and is refused rather than passed on. So
+    is an entry with leading or trailing whitespace: ``femtologging, tests``
+    names a directory called `` tests``, which Slipcover never finds, and
+    accepting it would silently measure nothing for that path.
+
+    Raises
+    ------
+    ValueError
+        When any entry is empty, whitespace-only, or padded with whitespace.
+
+    Examples
+    --------
+    >>> _python_source_entries("episodic,alembic")
+    ('episodic', 'alembic')
+    """
+    entries = tuple(raw.split(","))
+    if any(not entry.strip() for entry in entries):
+        message = (
+            f"Invalid python-source value: {raw!r}. Empty entries are not "
+            "allowed; provide comma-separated repository-relative source "
+            "directories."
+        )
+        raise ValueError(message)
+    padded = [entry for entry in entries if entry != entry.strip()]
+    if padded:
+        message = (
+            f"Invalid python-source value: {raw!r}. These entries have "
+            f"surrounding whitespace: {', '.join(repr(e) for e in padded)}. "
+            "Slipcover reads each entry exactly as written, so remove the "
+            "spaces around the commas."
+        )
+        raise ValueError(message)
+    return entries
+
+
+def _sources_outside_repository(
+    entries: tuple[str, ...], repository_root: Path
+) -> tuple[str, ...]:
+    """Return the entries that are absolute or resolve outside the repository.
+
+    Slipcover resolves both the configured source and each candidate filename
+    before deciding whether a module is instrumentable, so a ``..`` escape or
+    a symlink pointing out of the repository would make a foreign
+    environment's dependencies eligible for instrumentation again. Each entry
+    is resolved against ``repository_root`` rather than the working
+    directory. An absolute entry is refused even when it names a directory
+    inside the repository, because the scope is documented as
+    repository-relative and Slipcover would take it as given.
+
+    This reads the filesystem: resolving follows symlinks.
+
+    Raises
+    ------
+    OSError, RuntimeError
+        When the root or an entry cannot be resolved; Python 3.12 raises
+        ``RuntimeError`` for a symlink loop.
+
+    Examples
+    --------
+    >>> _sources_outside_repository(("src", "../elsewhere", "/abs"), Path("/repo"))
+    ('../elsewhere', '/abs')
+    """
+    root = repository_root.resolve()
+    return tuple(
+        entry
+        for entry in entries
+        if Path(entry).is_absolute()
+        or not (root / entry).resolve().is_relative_to(root)
+    )
+
+
+def _resolve_python_source(python_source: str | None, repository_root: Path) -> str:
     """Resolve the optional Python source scope from the CLI or action env.
 
     The raw non-empty value is preserved so a comma-separated Slipcover source
     list reaches the subprocess as one argument. Empty and whitespace-only
-    values disable source scoping.
+    values disable source scoping. A non-empty value is validated against
+    *repository_root* before any coverage environment or subprocess exists.
+
+    Raises
+    ------
+    ValueError
+        When the value contains an empty or padded entry, an absolute entry,
+        an entry that resolves outside the repository through ``..`` or a
+        symlink, or an entry that cannot be resolved at all.
     """
     if python_source is None:
         python_source = os.getenv("INPUT_PYTHON_SOURCE", "")
-    return python_source if python_source.strip() else ""
+    if not python_source.strip():
+        return ""
+    entries = _python_source_entries(python_source)
+    try:
+        outside = _sources_outside_repository(entries, repository_root)
+    except (OSError, RuntimeError) as error:
+        message = (
+            f"Invalid python-source value: {python_source!r}. Its entries could "
+            f"not be resolved: {error}."
+        )
+        raise ValueError(message) from error
+    if outside:
+        message = (
+            f"Invalid python-source value: {python_source!r}. Source directories "
+            "must be repository-relative and resolve inside the repository; "
+            f"these do not: {', '.join(outside)}."
+        )
+        raise ValueError(message)
+    return python_source
 
 
 def _resolve_inputs(
@@ -643,10 +745,10 @@ def main(
     out, fmt, github_output = _resolve_inputs(output_path, lang, fmt, github_output)
     try:
         workers = _resolve_pytest_workers(pytest_workers)
+        source = _resolve_python_source(python_source, Path.cwd())
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from exc
-    source = _resolve_python_source(python_source)
     if workers:
         typer.echo(f"Pytest workers: {workers} (parallel via pytest-xdist)")
     else:

@@ -318,6 +318,47 @@ def test_legacy_installer_checksum_fails_closed(tmp_path: Path) -> None:
     assert "archive-checksum" in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("project_url", "expected_status"),
+    [
+        pytest.param("", 1, id="missing"),
+        pytest.param("https://api.codescene.io/v2/projects/72004", 0, id="present"),
+    ],
+)
+def test_check_mode_requires_a_project_url(
+    project_url: str, expected_status: int
+) -> None:
+    """Check mode names the missing project URL before any CLI work starts.
+
+    ``cs-coverage check`` reads the project from ``CS_PROJECT_URL``, so
+    without it the gate could only fail later with a less specific error.
+    The present case shows the refusal is about the URL and nothing else.
+    Extracted from #478.
+    """
+    if sys.platform == "win32":
+        pytest.skip("bash integration tests are not supported on Windows")
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash not found on PATH")
+    result = subprocess.run(  # noqa: S603,TID251 - exercise the action's bash.
+        [bash, "-c", str(_validation_step()["run"])],
+        check=False,
+        capture_output=True,
+        env=os.environ
+        | {
+            "INPUT_FORMAT": "cobertura",
+            "INPUT_MODE": "check",
+            "INPUT_PROJECT_URL": project_url,
+            "INPUT_INSTALLER_CHECKSUM": "",
+        },
+        text=True,
+    )
+
+    assert result.returncode == expected_status
+    refusal = "mode: check requires project-url"
+    assert (refusal in result.stderr) == (expected_status == 1)
+
+
 def test_newline_token_remains_one_environment_value(tmp_path: Path) -> None:
     """A newline token cannot add GITHUB_ENV records or become shell syntax."""
     if sys.platform == "win32":

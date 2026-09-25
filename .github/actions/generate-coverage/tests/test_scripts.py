@@ -3564,7 +3564,7 @@ def test_run_python_integration_threads_source_boundary_to_slipcover(
 
 @pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
 @pytest.mark.parametrize(
-    ("resolved", "expected_venv_call"),
+    "case",
     [
         (
             "/opt/py/bin/python3.13",
@@ -3578,10 +3578,10 @@ def test_run_python_integration_builds_the_venv_on_the_resolved_interpreter(
     tmp_path: Path,
     shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
-    resolved: str,
-    expected_venv_call: str,
+    case: tuple[str, str],
 ) -> None:
     """``main`` reads the resolved interpreter once and ``uv venv`` uses it."""
+    resolved, expected_venv_call = case
     bin_dir, log = _write_fake_uv(tmp_path)
 
     returncode, _stdout, _stderr = _run_integration_script(

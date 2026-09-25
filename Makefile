@@ -50,8 +50,17 @@ TYPOS_CONFIG_BUILDER = $(UV_ENV) $(UV) tool run --python 3.14 --from \
 DOCTEST_PATHS ?= bool_utils.py cargo_utils.py cmd_utils.py composite_fragments.py \
 	test_support \
 	.github/actions/determine-release-modes/scripts/determine_release_modes.py \
+	.github/actions/generate-coverage/scripts/run_python.py \
+	.github/actions/upload-codescene-coverage/scripts/prove_parser.py \
 	.github/actions/upload-release-assets/scripts/upload_release_assets.py \
+	tests/workflows/_watchdog_command_reading.py \
+	tests/workflows/publisher_binding.py \
+	tests/workflows/pull_request_boundary.py \
 	tests/workflows/test_coverage_timeout_tiers.py \
+	tests/workflows/workflow_boundary.py \
+	tests/workflows/workflow_expressions.py \
+	tests/workflows/workflow_triggers.py \
+	tests/workflows/workflow_yaml.py \
 	workflow_scripts/dependabot_commit_audit.py \
 	workflow_scripts/dependabot_decision.py \
 	workflow_scripts/dependabot_metrics.py

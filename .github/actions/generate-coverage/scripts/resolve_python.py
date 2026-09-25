@@ -30,6 +30,7 @@ from __future__ import annotations
 import collections.abc as cabc
 import dataclasses as dc
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -39,6 +40,7 @@ from plumbum import local
 #: run shows which rule chose it.
 SOURCES: tuple[str, ...] = ("input", "UV_PYTHON", ".python-version", "PATH")
 VERSION_PROBE = "import sys; print('%d.%d' % sys.version_info[:2])"
+MAJOR_MINOR = re.compile(r"\d+\.\d+")
 
 type Runner = cabc.Callable[[list[str]], tuple[int, str]]
 
@@ -143,9 +145,8 @@ def major_minor(python: Path, run: Runner) -> str:
         When the interpreter cannot be run or reports an unexpected version.
     """
     code, out = run([str(python), "-c", VERSION_PROBE])
-    version = out.strip()
-    major, _, minor = version.partition(".")
-    if code != 0 or not (major.isdigit() and minor.isdigit()):
+    version = out.strip() if code == 0 else ""
+    if not MAJOR_MINOR.fullmatch(version):
         msg = f"{python} did not report a major.minor version: {out!r}"
         raise ResolutionError(msg)
     return version

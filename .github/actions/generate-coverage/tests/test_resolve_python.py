@@ -67,10 +67,18 @@ class FakeRunner:
                 return 1, ""
 
 
+class SourceCase(typ.NamedTuple):
+    """One environment, an optional ``.python-version`` entry, and the winner."""
+
+    env: dict[str, str]
+    file_entry: str | None
+    expected: tuple[str, str]
+
+
 @pytest.mark.parametrize(
-    ("env", "file_entry", "expected"),
+    "case",
     [
-        (
+        SourceCase(
             {
                 "INPUT_PYTHON_VERSION": "3.12",
                 "UV_PYTHON": "3.13",
@@ -79,28 +87,30 @@ class FakeRunner:
             "3.11",
             ("3.12", "input"),
         ),
-        ({"UV_PYTHON": "3.13", "GC_PATH_PYTHON": "/p"}, "3.11", ("3.13", "UV_PYTHON")),
-        ({"GC_PATH_PYTHON": "/p"}, "3.11", ("3.11", ".python-version")),
-        ({"GC_PATH_PYTHON": "/usr/bin/python3"}, None, ("/usr/bin/python3", "PATH")),
-        ({"INPUT_PYTHON_VERSION": "  ", "GC_PATH_PYTHON": "/p"}, None, ("/p", "PATH")),
+        SourceCase(
+            {"UV_PYTHON": "3.13", "GC_PATH_PYTHON": "/p"}, "3.11", ("3.13", "UV_PYTHON")
+        ),
+        SourceCase({"GC_PATH_PYTHON": "/p"}, "3.11", ("3.11", ".python-version")),
+        SourceCase(
+            {"GC_PATH_PYTHON": "/usr/bin/python3"}, None, ("/usr/bin/python3", "PATH")
+        ),
+        SourceCase(
+            {"INPUT_PYTHON_VERSION": "  ", "GC_PATH_PYTHON": "/p"}, None, ("/p", "PATH")
+        ),
     ],
     ids=["input", "uv-python", "python-version-file", "path", "blank-input"],
 )
 def test_the_first_source_that_names_an_interpreter_wins(
-    resolver: ModuleType,
-    tmp_path: Path,
-    env: dict[str, str],
-    file_entry: str | None,
-    expected: tuple[str, str],
+    resolver: ModuleType, tmp_path: Path, case: SourceCase
 ) -> None:
     """Input, then ``UV_PYTHON``, then ``.python-version``, then ``PATH``."""
     version_file = tmp_path / ".python-version"
-    if file_entry is not None:
-        version_file.write_text(f"# pinned\n\n{file_entry}\n", encoding="utf-8")
+    if case.file_entry is not None:
+        version_file.write_text(f"# pinned\n\n{case.file_entry}\n", encoding="utf-8")
 
-    choice = resolver.choose_interpreter(env, version_file)
+    choice = resolver.choose_interpreter(case.env, version_file)
 
-    assert (choice.spec, choice.source) == expected
+    assert (choice.spec, choice.source) == case.expected
 
 
 def test_no_source_is_an_error(resolver: ModuleType, tmp_path: Path) -> None:

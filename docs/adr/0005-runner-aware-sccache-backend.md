@@ -102,9 +102,13 @@ A consumer calls `setup-rust` alone and gets a working compiler cache on either
 kind of runner, with no guard of its own. Fork-fallback jobs need no backend
 switch, and hosted lanes no longer hand-roll a local sccache cache.
 
-Each trunk push saves a new directory entry, and GitHub's per-repository limit
-evicts the oldest. A pull request's first run is warm from the default branch
-and never cold for want of its own save.
+Each trunk push saves a new directory entry, bounded to 2 GiB unless the caller
+sets `SCCACHE_CACHE_SIZE`, and GitHub's per-repository limit evicts the least
+recently used. A pull request's first run on a hosted lane is warm when the
+default branch has saved an entry for the same lane (OS, architecture, compiler
+and discriminator), and it never needs a save of its own to be. A lane that
+runs on Ubicloud on the default branch saves nothing for the hosted arm, so its
+hosted runs, such as a fork's, start cold.
 
 `export-ubicloud-cache-credentials` stays, with its current contract. It is
 still correct for jobs that need the credentials for something other than

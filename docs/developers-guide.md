@@ -410,13 +410,17 @@ for character, and drives both decisions over the same hosts. Change them
 together.
 
 `.github/workflows/test-setup-rust-sccache.yml` proves the part the unit tests
-cannot: on a real runner it builds a trivial crate after the action and asserts
-sccache recorded at least one compile request, which is exactly the measurement
-that was zero before this change, and that its cache location reads `ghac`
-rather than `Local disk`. Assert both: the request count alone passed while the
-cache was still local, which is how that gap survived the first change. Further
-jobs assert a caller's wrapper and a caller's `SCCACHE_GHA_ENABLED=false` both
-survive.
+cannot, on a real GitHub-hosted runner. It asserts the selection is `local`,
+that a cacheable compilation reached the backend without error, and that the
+cache location reads `Local disk`, which on this arm is the action-owned
+`${{ runner.temp }}/sccache`. Assert the location as well as the requests: the
+request count alone once passed while the cache was not where the log claimed.
+The lane also runs on pushes to main, so the trunk saves the directory, and
+whenever a directory was restored it requires the toy app's build to record a
+hit. Further jobs assert a caller's wrapper and a caller's
+`SCCACHE_GHA_ENABLED=false` both survive, and that `expect-cache: ubicloud`
+fails there. The `ghac` location is asserted on Ubicloud, by
+`test-ubicloud-sccache-proxy.yml`.
 
 On Ubicloud, `setup-rust` needs no credentials step of its own any more. A job
 that does call `export-ubicloud-cache-credentials` must still call it **before**

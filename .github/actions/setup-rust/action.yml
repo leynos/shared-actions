@@ -379,6 +379,9 @@ runs:
             local: 'local',
           };
           const EXPECTATIONS = new Set(['ubicloud', 'github', 'any']);
+          // The bound on the directory the action owns and saves on hosted
+          // runners, unless the caller sets SCCACHE_CACHE_SIZE.
+          const OWNED_CACHE_SIZE = '2G';
           const DESCRIPTIONS = {
             ubicloud: "Ubicloud's cache proxy",
             github: 'the GitHub Actions cache',
@@ -488,8 +491,9 @@ runs:
                 ...plan,
                 failure:
                   `expect-cache is ${expect}, but this job selected ` +
-                  `${DESCRIPTIONS[backend]} for sccache. On Ubicloud that ` +
-                  'means ACTIONS_CACHE_URL did not name a private cache proxy.',
+                  `${DESCRIPTIONS[backend]} for sccache. The runner's cache ` +
+                  "service and the caller's sccache settings together chose " +
+                  'a different backend.',
               };
             }
             return plan;
@@ -522,6 +526,12 @@ runs:
           const ownsCache = proceeds && plan.ownsLocalCache;
           if (ownsCache) {
             core.exportVariable('SCCACHE_DIR', process.env.SR_SCCACHE_DIR);
+            // sccache's local default is 10 GiB, and every trunk push saves
+            // a new entry against the repository's cache quota, so the
+            // directory the action owns is bounded unless the caller chose.
+            if (!isSet(process.env.SCCACHE_CACHE_SIZE)) {
+              core.exportVariable('SCCACHE_CACHE_SIZE', OWNED_CACHE_SIZE);
+            }
           }
           core.setOutput('owns-local-cache', ownsCache ? 'true' : 'false');
           core.setOutput('sccache-dir', ownsCache ? process.env.SR_SCCACHE_DIR : '');

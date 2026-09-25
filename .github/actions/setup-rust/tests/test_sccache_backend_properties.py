@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 from sccache_backend_harness import (
     BACKENDS,
@@ -123,6 +123,14 @@ def test_the_selection_agrees_with_the_credentials_action(
     expect=st.sampled_from(["any", "ubicloud"]),
     cache_provider=st.sampled_from(["github", "external"]),
 )
+# The empty caller directory is pinned rather than left to the seed: the
+# script reads it as no directory and takes ownership, which a presence
+# check on the key would wrongly reject.
+@example(
+    environment={"ACTIONS_RUNTIME_TOKEN": RUNTIME_TOKEN, "SCCACHE_DIR": ""},
+    expect="any",
+    cache_provider="github",
+)
 @settings(max_examples=80, derandomize=True, deadline=None)
 def test_every_selection_stays_inside_its_contract(
     environment: dict[str, str], expect: str, cache_provider: str
@@ -155,4 +163,8 @@ def test_every_selection_stays_inside_its_contract(
         assert cache_provider == "github", calls.outputs
         assert calls.exported["SCCACHE_DIR"] == SCCACHE_DIR, calls.exported
         assert calls.outputs["sccache-dir"] == SCCACHE_DIR, calls.outputs
-        assert not {"SCCACHE_DIR", "SCCACHE_GHA_ENABLED"} & set(environment), calls
+        # As the script reads them: an empty SCCACHE_DIR is no directory,
+        # while any SCCACHE_GHA_ENABLED, empty included, is the caller's.
+        assert not environment.get("SCCACHE_DIR"), calls
+        assert "SCCACHE_GHA_ENABLED" not in environment, calls
+        assert calls.exported.get("SCCACHE_CACHE_SIZE") == "2G", calls.exported

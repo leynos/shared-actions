@@ -49,8 +49,8 @@ CREDENTIALS = {
 }
 SWITCH = {"SCCACHE_GHA_ENABLED": "true"}
 #: What a GitHub-hosted selection left to the action publishes: its own
-#: directory, which the action then caches.
-OWNED_DIRECTORY = {"SCCACHE_DIR": SCCACHE_DIR}
+#: directory, which the action then caches, bounded to 2 GiB.
+OWNED_DIRECTORY = {"SCCACHE_DIR": SCCACHE_DIR, "SCCACHE_CACHE_SIZE": "2G"}
 
 
 def _manifest() -> dict[str, typ.Any]:
@@ -248,6 +248,17 @@ class TestSelection:
         }, calls.outputs
         assert calls.backend_metric() == backend, calls.info
         assert calls.exported == exported, calls.exported
+
+    def test_a_callers_cache_size_bounds_the_owned_directory(self) -> None:
+        """The 2 GiB bound is a default; a caller's `SCCACHE_CACHE_SIZE` wins.
+
+        The action still owns and caches the directory, so only the size
+        export is withheld.
+        """
+        calls = run_selection(GITHUB_RUNNER, caller={"SCCACHE_CACHE_SIZE": "5G"})
+
+        assert calls.outputs["owns-local-cache"] == "true", calls.outputs
+        assert calls.exported == {"SCCACHE_DIR": SCCACHE_DIR}, calls.exported
 
     def test_an_external_cache_provider_keeps_the_directory_the_callers(
         self,

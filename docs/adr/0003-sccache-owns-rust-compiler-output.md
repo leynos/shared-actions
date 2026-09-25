@@ -140,9 +140,12 @@ unchanged, and the decision stands: sccache owns compiler output and no
 
 The Decision above says the actions select the GitHub Actions sccache backend
 by default. `setup-rust` now selects the backend by runner instead: Ubicloud's
-proxy when `ACTIONS_CACHE_URL` names a private address literal, GitHub's
-service on any other runner with a runtime token, and local disk under
-nektos/act or with no service. A caller's own switch or directory still wins.
+proxy when `ACTIONS_CACHE_URL` names a private address literal and a runtime
+token is present; on any other runner with a runtime token, local disk under
+`${{ runner.temp }}/sccache`, which the action restores and saves through
+`actions/cache`; and plain local disk under nektos/act or with no service. The
+GitHub Actions backend is selected only when a caller enables it. A caller's
+own switch or directory still wins.
 [ADR 0005](0005-runner-aware-sccache-backend.md) records that decision. This
 one stands: sccache owns compiler output, and no `target` archive returns.
 

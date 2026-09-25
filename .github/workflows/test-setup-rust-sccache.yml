@@ -43,10 +43,6 @@ jobs:
             echo "::error::a GitHub-hosted runner selected ${CACHE_BACKEND:-nothing}" >&2
             exit 1
           fi
-          # Before anything else compiles: a directory restored from main
-          # must serve hits to the same crate on the same path.
-          .github/scripts/assert-sccache-warm-hit.sh \
-            "$RUSTC_WRAPPER" rust-toy-app/Cargo.toml
           if [[ -z "${RUSTC_WRAPPER:-}" ]]; then
             echo "::error::RUSTC_WRAPPER did not reach this step" >&2
             exit 1
@@ -55,6 +51,11 @@ jobs:
             echo "::error::RUSTC_WRAPPER is not an executable: $RUSTC_WRAPPER" >&2
             exit 1
           fi
+          # Before anything compiles, and after the wrapper checks so a
+          # missing wrapper reports as one: a directory restored from main
+          # must serve hits to the same crate on the same path.
+          .github/scripts/assert-sccache-warm-hit.sh \
+            "$RUSTC_WRAPPER" rust-toy-app/Cargo.toml
           # Asserts a cacheable compilation actually reached the backend, not
           # merely that requests were counted. See the script for why a
           # hello-world binary proves neither.

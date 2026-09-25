@@ -23,7 +23,7 @@ require them, and set up macOS or OpenBSD cross-compilers.
 | openbsd-nightly             | Pinned nightly Rust for OpenBSD                                                                                                                                              | no       | `nightly-2025-07-20`                  |
 | rustflags                   | `RUSTFLAGS` exported by the toolchain setup step. Set to the empty string to leave `RUSTFLAGS` unset, so an inherited value or the project's `build.rustflags` applies.      | no       | `-D warnings`                         |
 | sccache-cache-discriminator | Separates this job's sccache directory cache from other jobs on the same OS, architecture and compiler. Used only on a GitHub-hosted runner the action owns.                 | no       | the job id                            |
-| expect-cache                | The sccache backend the job requires: `ubicloud`, `github` or `any`. Anything but `any` fails the job when the runner offers a different backend.                            | no       | `any`                                 |
+| expect-cache                | The sccache backend the job requires: `ubicloud`, `github` or `any`. Anything but `any` fails the job when the selected backend differs, after caller settings apply.        | no       | `any`                                 |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -218,48 +218,51 @@ proxy the same way and just as quietly. The token is masked before it is
 recorded, and the notices name variables rather than values.
 
 **A caller who never set a variable keeps the action's value**, including the
-`on` that suits a GitHub-hosted runner. Restoring an absence would clear it and
-point sccache at a v1 service GitHub no longer runs. On Ubicloud the caller is
-expected to run
+`on` that suits GitHub's service. Restoring an absence would clear it and point
+sccache at a v1 service GitHub no longer runs. On Ubicloud the selection step
+sets the flag empty itself (so does
+[`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials), if
+a job still runs it first), and this restore is what carries that choice past
+the sccache steps. It is what makes `use-sccache: 'true'` reach the proxy at
+all.
+
+Where the compiled objects go follows from the backend. On Ubicloud's proxy, or
+on GitHub's service where a caller enables it, the `ghac` arm, sccache stores
+them through the cache service; there is no local directory and no cache key of
+this action's own. On a GitHub-hosted runner left to the action, they go to
+`${{ runner.temp }}/sccache`, which the action bounds to 2 GiB (unless
+`SCCACHE_CACHE_SIZE` is set), restores on every run and saves on a push to the
+default branch, under a key separate from the Rust dependency cache above. A
+caller-selected local backend is the alternative: an explicit
+`SCCACHE_GHA_ENABLED` that is not true-like, which includes `false` and an
+empty value, or a caller-set `SCCACHE_DIR`. Objects then go to that directory,
+defaulting to `~/.cache/sccache`, and the action archives none of it; a lane
+that wants it to survive between jobs owns the cache step and its key.
+
+On Ubicloud, `setup-rust` publishes the proxy credentials itself, so
+`use-sccache: 'true'` is the right setting there with no other step. The
 [`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials)
-first, which sets the flag empty, and this restore is what carries that choice
-past the sccache steps. It is what makes `use-sccache: 'true'` reach the proxy
-at all.
+action stays available for jobs that need the credentials for something else;
+if a job runs it, it must run **before** `setup-rust`, and its exports are
+recognized rather than repeated.
 
-Where the compiled objects go follows from the backend. On the GitHub Actions
-backend, the `ghac` arm, sccache stores them through the cache service; there
-is no local directory and no cache key of this action's own. The local backend
-is everything else: an explicit `SCCACHE_GHA_ENABLED` that is not true-like,
-which includes `false` and an empty value, or a caller-selected `SCCACHE_DIR`.
-sccache reads that variable as a boolean and treats empty as false, so a caller
-who clears it gets local disk exactly as one who wrote `false` does. Objects
-then go to that directory, defaulting to `~/.cache/sccache`. This action does
-not archive that directory; a lane that wants it to survive between jobs owns
-the cache step and its key, which must be separate from the Rust dependency
-cache above, because the two hold unrelated data.
-
-On Ubicloud, run the
-[`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials)
-action **before** `setup-rust`. Without it the GitHub Actions backend cannot
-reach Ubicloud's store, and the compiler cache silently falls back to whatever
-the runner advertises. With it, `use-sccache: 'true'` is the right setting
-there; the restore above is what makes it so.
-
-On a GitHub-hosted runner, prefer the local-disk arm for Rust. The GitHub
-Actions backend measured 0.28 s per cache hit against 0.42 s per compile on
-Chutoro, which is most of the benefit gone, and Whitaker's Windows lane had
-every one of 643 writes rejected. The same lane on a local directory under
-`actions/cache` had no read errors, no write errors and a 78 % warm hit rate.
-So set `use-sccache: 'false'`, install a pinned sccache, **export
-`RUSTC_WRAPPER` naming it**, point `SCCACHE_DIR` at a directory inside the
-workspace, restore it with
-`actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9` on pull requests, and
-let one designated job save it on a push to `main`. The wrapper is the step
-that is easy to leave out and impossible to notice: `use-sccache: 'false'`
-turns off this action's export along with its installation, so without it Cargo
-never routes through the sccache the lane just installed and cached. That is
-the failure #437 was. Ubicloud is the opposite case: its proxy is on the
-runner's own network, so the GitHub Actions arm is the fast one there.
+On a GitHub-hosted runner the action uses local disk by default, for the
+measured reason: the GitHub Actions backend managed 0.28 s per cache hit
+against 0.42 s per compile on Chutoro, which is most of the benefit gone, and
+Whitaker's Windows lane had every one of 643 writes rejected. The same lane on
+a local directory under `actions/cache` had no read errors, no write errors and
+a 78 % warm hit rate. Owning that cache yourself remains an alternative, for a
+lane that needs an sccache this action does not install: set
+`use-sccache: 'false'`, install a pinned sccache, **export `RUSTC_WRAPPER`
+naming it**, point `SCCACHE_DIR` at a directory inside the workspace, restore
+it with `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9` on pull
+requests, and let one designated job save it on a push to `main`. The wrapper
+is the step that is easy to leave out and impossible to notice:
+`use-sccache: 'false'` turns off this action's export along with its
+installation, so without it Cargo never routes through the sccache the lane
+just installed and cached. That is the failure #437 was. Ubicloud is the
+opposite case: its proxy is on the runner's own network, so the `ghac` arm is
+the fast one there.
 
 The revised Node.js-backed actions are pinned to specific commits for
 reproducibility: `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`,
@@ -277,12 +280,14 @@ this: Whitaker run 33744418209 (coverage under `-C instrument-coverage`) and
 Cuprum run 33677926269 (Cranelift-built Whitaker lints) each report
 `Non-cacheable compilations 0`.
 
-sccache defaults to a 10 GiB store. Under this action's GitHub Actions backend
-(`SCCACHE_GHA_ENABLED=true`) GitHub's own per-repository cache limit applies
-instead, so no sizing input is exposed here. Callers who self-manage a local
-sccache directory should raise `SCCACHE_CACHE_SIZE` above the default so one
-store holds both build shapes rather than evicting one to make room for the
-other.
+sccache defaults to a 10 GiB store. On the `ghac` arm
+(`SCCACHE_GHA_ENABLED=true`) the service's own limit applies instead. On the
+hosted local arm the action owns, it exports `SCCACHE_CACHE_SIZE=2G` unless the
+caller set one, because every trunk push saves a new entry against the
+repository's cache quota; no sizing input is exposed beyond the variable
+itself. Callers who self-manage a local sccache directory should raise
+`SCCACHE_CACHE_SIZE` above the default so one store holds both build shapes
+rather than evicting one to make room for the other.
 
 An external cache does not replace this compiler-cache backend automatically.
 Callers that use a local cache volume for sccache must pass

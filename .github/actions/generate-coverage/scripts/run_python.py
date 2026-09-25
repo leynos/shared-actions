@@ -191,6 +191,21 @@ def _install_coverage_tooling(python: Path) -> None:
     typer.echo(f"Coverage tooling installed into {COVERAGE_VENV}")
 
 
+def _discard_venv_for_explicit_interpreter(interpreter: str) -> None:
+    """Remove a leftover coverage venv when an interpreter is named.
+
+    A venv left in the workspace may sit on another Python than the one the
+    baseline key names, so an explicit interpreter always rebuilds it.
+    """
+    if not interpreter.strip():
+        return
+    if COVERAGE_VENV.exists() or COVERAGE_VENV.is_symlink():
+        typer.echo(
+            f"Rebuilding {COVERAGE_VENV} on the resolved interpreter {interpreter}"
+        )
+        _remove_coverage_venv()
+
+
 def _acquire_coverage_python(interpreter: str = "") -> Path:
     """Discover or create the coverage venv and return its Python path.
 
@@ -216,13 +231,7 @@ def _acquire_coverage_python(interpreter: str = "") -> Path:
             "candidates": [str(c) for c in candidates],
         },
     )
-    if interpreter.strip() and (COVERAGE_VENV.exists() or COVERAGE_VENV.is_symlink()):
-        # A venv left in the workspace may sit on another Python than the one
-        # the baseline key names, so an explicit interpreter always rebuilds.
-        typer.echo(
-            f"Rebuilding {COVERAGE_VENV} on the resolved interpreter {interpreter}"
-        )
-        _remove_coverage_venv()
+    _discard_venv_for_explicit_interpreter(interpreter)
     python = _find_coverage_python()
     if python is None:
         python = _recreate_coverage_venv(interpreter)

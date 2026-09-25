@@ -216,6 +216,13 @@ def _acquire_coverage_python(interpreter: str = "") -> Path:
             "candidates": [str(c) for c in candidates],
         },
     )
+    if interpreter.strip() and (COVERAGE_VENV.exists() or COVERAGE_VENV.is_symlink()):
+        # A venv left in the workspace may sit on another Python than the one
+        # the baseline key names, so an explicit interpreter always rebuilds.
+        typer.echo(
+            f"Rebuilding {COVERAGE_VENV} on the resolved interpreter {interpreter}"
+        )
+        _remove_coverage_venv()
     python = _find_coverage_python()
     if python is None:
         python = _recreate_coverage_venv(interpreter)

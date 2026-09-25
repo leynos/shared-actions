@@ -112,8 +112,10 @@ def choose_interpreter(
     raise ResolutionError(msg)
 
 
-def locate(spec: str, run: Runner) -> Path:
-    """Return the absolute interpreter path uv resolves ``spec`` to.
+def find_or_install(spec: str, run: Runner) -> Path:
+    """Install ``spec`` if uv cannot find it, then return its absolute path.
+
+    A command with a query result: it may download an interpreter.
 
     uv is asked to find the interpreter first and to install it only when it
     cannot, so a runner that already has the requested Python downloads
@@ -175,7 +177,7 @@ def _run(command: list[str]) -> tuple[int, str]:
 def resolve(env: cabc.Mapping[str, str], cwd: Path, run: Runner) -> dict[str, str]:
     """Return the step outputs for the interpreter the environment selects."""
     choice = choose_interpreter(env, cwd / ".python-version")
-    python = locate(choice.spec, run)
+    python = find_or_install(choice.spec, run)
     version = major_minor(python, run)
     return {
         "python": str(python),
@@ -185,10 +187,14 @@ def resolve(env: cabc.Mapping[str, str], cwd: Path, run: Runner) -> dict[str, st
     }
 
 
-def main() -> int:
-    """Resolve the interpreter and publish it as step outputs."""
+def main(env: cabc.Mapping[str, str], cwd: Path, run: Runner) -> int:
+    """Resolve the interpreter and publish it as step outputs.
+
+    The environment, working directory and command runner are injected, so
+    the entry point is exercised without touching the process environment.
+    """
     try:
-        outputs = resolve(os.environ, Path.cwd(), _run)
+        outputs = resolve(env, cwd, run)
     except ResolutionError as error:
         print(f"::error title=generate-coverage interpreter::{error}", file=sys.stderr)
         return 1
@@ -196,10 +202,10 @@ def main() -> int:
         "::notice title=generate-coverage interpreter::"
         f"python={outputs['version']} source={outputs['source']}"
     )
-    with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+    with Path(env["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
         handle.writelines(f"{name}={value}\n" for name, value in outputs.items())
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(os.environ, Path.cwd(), _run))

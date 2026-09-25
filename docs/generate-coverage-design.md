@@ -152,6 +152,21 @@ action and the evolution of its supporting scripts.
   `default` or `configured`. The composed `PATH` is not reported, being
   unbounded, and the decision line carries the state rather than the scope
   itself, which the command logger already shows in the Slipcover command line.
+- *2026-09-25* — Python coverage is measured on an explicitly resolved
+  interpreter. A bare `uv venv` took whatever interpreter uv discovered first,
+  and the action installed the newest uv on every run, so uv 0.12.19 moved pull
+  requests to 3.14 while `main`'s baseline had been measured on 3.13 and every
+  ratchet failed with no code change. `Setup uv` now installs an exact release.
+  `scripts/resolve_python.py` chooses the interpreter (the `python-version`
+  input, then `UV_PYTHON`, then `.python-version`, then the `python3` on
+  `PATH`), installs it only when uv cannot find it, and fails rather than fall
+  back on discovery. `run_python.py`'s `main` reads the result once and passes
+  it down as `interpreter` to `uv venv --python`, rebuilding a leftover venv
+  when one is given. The ratchet baseline key carries `py<major.minor>-`, so a
+  change of interpreter restores nothing and starts a fresh baseline. Rust and
+  Python baselines share one cache entry, so in a mixed repository the Rust
+  baseline restarts with the Python one; that trade-off was accepted over
+  splitting the entry.
 
 ## Rust Coverage Environment Overrides
 

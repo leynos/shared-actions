@@ -81,8 +81,8 @@ once.
 <!-- markdownlint-disable MD013 -->
 | Symbol                 | Signature                                                                                         | Role                                                                                                                                    |
 | ---------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `coverage_cmd_for_fmt` | `(fmt, out, workers="", python_source="")`                                                        | Build a slipcover command, optionally with `-n <workers>` for pytest-xdist and `--source <python_source>` to scope coverage collection. |
-| `tmp_coveragepy_xml`   | `(out)`                                                                                           | Generate temporary Cobertura XML.                                                                                                       |
+| `coverage_cmd_for_fmt` | `(fmt, out, workers="", python_source="", interpreter="")`                                        | Build a slipcover command, optionally with `-n <workers>` for pytest-xdist and `--source <python_source>` to scope coverage collection. |
+| `tmp_coveragepy_xml`   | `(out, interpreter="")`                                                                           | Generate temporary Cobertura XML.                                                                                                       |
 | `main`                 | `(output_path, lang, fmt, github_output, baseline_file, pytest_workers=None, python_source=None)` | Run.                                                                                                                                    |
 <!-- markdownlint-enable MD013 -->
 
@@ -90,6 +90,10 @@ once.
 `workers` is non-empty, it appends `-n <workers>` so pytest-xdist parallelizes
 the run; an empty string preserves the historical serial pytest invocation.
 `tmp_coveragepy_xml` yields a temporary XML path and removes it on exit. `main`
+reads `GC_COVERAGE_PYTHON` once and passes it down as `interpreter`, through
+the memoized venv helpers to `uv venv --python`; an empty value keeps uv's own
+discovery, and an explicit one always rebuilds a leftover `.venv-coverage`,
+which could sit on another Python than the one the baseline key names. `main`
 resolves `pytest_workers` from the CLI option, falling back to the
 `INPUT_PYTEST_WORKERS` environment variable and finally to `"auto"`. Accepted
 values are `"auto"`, `"logical"`, a positive integer string, or `""` to disable

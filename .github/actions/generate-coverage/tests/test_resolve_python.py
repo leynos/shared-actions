@@ -125,7 +125,7 @@ def test_an_installed_interpreter_is_found_without_installing(
     """A runner that has the Python already downloads nothing."""
     run = FakeRunner(installed={"3.13": "/py/3.13/bin/python3.13"})
 
-    assert resolver.locate("3.13", run) == Path("/py/3.13/bin/python3.13")
+    assert resolver.find_or_install("3.13", run) == Path("/py/3.13/bin/python3.13")
     assert all(call[:3] != ["uv", "python", "install"] for call in run.calls)
 
 
@@ -133,13 +133,13 @@ def test_a_missing_interpreter_is_installed_then_found(resolver: ModuleType) -> 
     """Install the requested Python when uv cannot find one."""
     run = FakeRunner(installed={}, installable={"3.13": "/managed/python3.13"})
 
-    assert resolver.locate("3.13", run) == Path("/managed/python3.13")
+    assert resolver.find_or_install("3.13", run) == Path("/managed/python3.13")
 
 
 def test_an_uninstallable_interpreter_is_an_error(resolver: ModuleType) -> None:
     """Fail the step rather than build the venv on whatever uv finds."""
     with pytest.raises(resolver.ResolutionError, match="could not find or install"):
-        resolver.locate("2.7", FakeRunner(installed={}))
+        resolver.find_or_install("2.7", FakeRunner(installed={}))
 
 
 @pytest.mark.parametrize(
@@ -209,3 +209,39 @@ def test_the_segment_comes_from_the_interpreter_not_the_request(
     outputs = resolver.resolve({"INPUT_PYTHON_VERSION": request_text}, tmp_path, run)
 
     assert outputs["baseline-segment"] == "py3.13-"
+
+
+def test_main_publishes_the_outputs_and_a_bounded_notice(
+    resolver: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The entry point writes the four outputs and names the rule it used."""
+    github_output = tmp_path / "github_output"
+    run = FakeRunner(
+        installed={"3.13": "/py/bin/python3.13"},
+        versions={"/py/bin/python3.13": "3.13"},
+    )
+    env = {"INPUT_PYTHON_VERSION": "3.13", "GITHUB_OUTPUT": str(github_output)}
+
+    assert resolver.main(env, tmp_path, run) == 0
+    assert github_output.read_text(encoding="utf-8").splitlines() == [
+        "python=/py/bin/python3.13",
+        "version=3.13",
+        "baseline-segment=py3.13-",
+        "source=input",
+    ]
+    assert (
+        "::notice title=generate-coverage interpreter::python=3.13 source=input"
+        in capsys.readouterr().out
+    )
+
+
+def test_main_fails_the_step_without_writing_outputs(
+    resolver: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With no interpreter to choose, the step fails and publishes nothing."""
+    github_output = tmp_path / "github_output"
+    env = {"GITHUB_OUTPUT": str(github_output)}
+
+    assert resolver.main(env, tmp_path, FakeRunner(installed={})) == 1
+    assert not github_output.exists()
+    assert "::error title=generate-coverage interpreter::" in capsys.readouterr().err

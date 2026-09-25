@@ -1746,6 +1746,30 @@ def test_ensure_coverage_venv_reuses_existing_coverage_venv(
     ]
 
 
+def test_ensure_coverage_venv_rebuilds_an_existing_venv_for_an_explicit_interpreter(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A leftover venv may sit on another Python, so an explicit one rebuilds it."""
+    setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
+    stale = setup.coverage_venv / "bin" / "python"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("stale", encoding="utf-8")
+
+    run_python_module._ensure_coverage_venv("/py/bin/python3.13")
+
+    assert setup.recorded[0][1:] == [
+        "venv",
+        "--python",
+        "/py/bin/python3.13",
+        str(setup.coverage_venv),
+    ]
+    assert stale.read_text(encoding="utf-8") == "", (
+        "the stale interpreter must be replaced"
+    )
+
+
 def test_ensure_coverage_venv_recovers_from_broken_cache(
     tmp_path: Path,
     run_python_module: ModuleType,

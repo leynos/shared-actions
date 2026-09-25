@@ -68,10 +68,21 @@ def _first_entry(python_version_file: Path) -> str:
     ...     _ = path.write_text("# pinned\\n3.13\\n3.12\\n", encoding="utf-8")
     ...     _first_entry(path)
     '3.13'
+
+    Raises
+    ------
+    ResolutionError
+        When the file exists but cannot be read or is not UTF-8, so the step
+        reports it instead of failing with a traceback.
     """
     if not python_version_file.is_file():
         return ""
-    for line in python_version_file.read_text(encoding="utf-8").splitlines():
+    try:
+        text = python_version_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        msg = f"could not read {python_version_file}: {error}"
+        raise ResolutionError(msg) from error
+    for line in text.splitlines():
         entry = line.strip()
         if entry and not entry.startswith("#"):
             return entry

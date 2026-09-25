@@ -9,6 +9,7 @@ the process environment or needs a second interpreter installed.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import typing as typ
 from pathlib import Path
@@ -305,3 +306,34 @@ def test_main_fails_the_step_without_writing_outputs(
     assert resolver.main(env, tmp_path, FakeRunner(installed={})) == 1
     assert not github_output.exists()
     assert "::error title=generate-coverage interpreter::" in capsys.readouterr().err
+
+
+def test_main_reports_an_unreadable_python_version_file(
+    resolver: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A ``.python-version`` that cannot be decoded fails the step cleanly."""
+    (tmp_path / ".python-version").write_bytes(b"\xff\xfe3.13\n")
+    github_output = tmp_path / "github_output"
+    env = {"GITHUB_OUTPUT": str(github_output)}
+
+    assert resolver.main(env, tmp_path, FakeRunner(installed={})) == 1
+    assert not github_output.exists()
+    assert "could not read" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0,
+    reason="file modes do not deny reads to root or on Windows",
+)
+def test_an_unreadable_python_version_file_is_a_resolution_error(
+    resolver: ModuleType, tmp_path: Path
+) -> None:
+    """A read the operating system refuses is reported, not raised raw."""
+    version_file = tmp_path / ".python-version"
+    version_file.write_text("3.13\n", encoding="utf-8")
+    version_file.chmod(0)
+    try:
+        with pytest.raises(resolver.ResolutionError, match="could not read"):
+            resolver.choose_interpreter({}, version_file)
+    finally:
+        version_file.chmod(0o600)

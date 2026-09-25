@@ -421,7 +421,14 @@ the same job, and discarded when the runner workspace is cleaned up.
 
 1. `_ensure_coverage_venv()` checks whether `.venv-coverage` contains a Python
    executable.
-   - If absent, it creates the venv via `uv venv .venv-coverage`.
+   - If absent, it creates the venv via
+     `uv venv --python <interpreter> .venv-coverage`, where `<interpreter>` is
+     the path `scripts/resolve_python.py` resolved and `main` read from
+     `GC_COVERAGE_PYTHON`. With no resolved interpreter it runs a bare
+     `uv venv .venv-coverage`.
+   - If present and an interpreter was resolved, it removes the existing venv
+     and recreates it, because a leftover venv could sit on another Python than
+     the one the baseline key names.
    - If present but broken (Python binary missing), it removes the existing
      path - unlinking files and symlinks and removing directories - and then
      recreates it.

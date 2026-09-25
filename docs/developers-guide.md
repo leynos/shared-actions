@@ -503,6 +503,18 @@ its empty list records. Every one of these was found by running the binary
 rather than by assuming, and an assumption here fails on a runner and nowhere
 earlier.
 
+`merman-cli` 0.7.0 illustrates an entry built from a release archive rather than
+`cargo install`. It carries `x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`
+and `aarch64-apple-darwin`, each a `.tar.xz` archive with the binary under
+`merman-cli-<target>/merman-cli`, and `x86_64-pc-windows-msvc`, a `.zip`
+archive with the binary at the archive root as `merman-cli.exe`; `member` is
+what records that difference. There is no `aarch64-unknown-linux-gnu` entry,
+because upstream publishes no archive for that target at 0.7.0, so
+`install-tool` fails closed there rather than substituting another target's
+archive. Each digest was computed from an independent download and matched
+against Merman's `.sha256` sidecar, and the entries record
+`sidecar-verified = "true"`.
+
 Rules to keep:
 
 - **The pinned digest is the trust anchor, computed from an independent

@@ -169,11 +169,17 @@ class TestWhichValuesAreDeclarations:
             },
         }
 
-        assert _runner_declarations(job) == {
+        declarations = _runner_declarations(job)
+        expected = {
             "runs-on": "${{ matrix.runner }}",
             "runner[0]": "ubicloud-standard-2",
             "include[0].runner": "windows-latest",
         }
+
+        assert declarations == expected, (
+            "only the `runner` dimension and its `include` value are runner "
+            f"declarations; expected {expected!r}, read {declarations!r}"
+        )
 
     def test_a_dimension_inside_a_fork_selector_is_read(self) -> None:
         """A dimension named inside a larger expression still counts."""

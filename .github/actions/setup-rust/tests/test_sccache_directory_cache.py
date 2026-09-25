@@ -56,6 +56,22 @@ class TestPlacement:
             assert names.index(BACKEND_STEP) < names.index(name), name
             assert names.index(name) < names.index(SERVER_STEP), name
 
+    def test_the_key_reads_the_inputs_the_manifest_names(self) -> None:
+        """The fragment's variables are bound to the action's inputs.
+
+        The key cases below set `SR_DISCRIMINATOR` and `SR_LOCK_HASH`
+        directly, so they would pass if the manifest bound either to
+        something else. Here the bindings themselves are pinned: the
+        discriminator is the caller's input or the job id, and the lockfile
+        hash covers every `Cargo.lock`.
+        """
+        assert get_step(KEY_STEP)["env"] == {
+            "SR_DISCRIMINATOR": (
+                "${{ inputs.sccache-cache-discriminator || github.job }}"
+            ),
+            "SR_LOCK_HASH": "${{ hashFiles('**/Cargo.lock') }}",
+        }, "the key step must read the discriminator input and the lockfiles"
+
     def test_the_key_is_derived_only_when_the_action_owns_the_directory(
         self,
     ) -> None:

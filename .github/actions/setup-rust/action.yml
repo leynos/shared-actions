@@ -25,6 +25,19 @@ inputs:
       owner, such as a Namespace cache volume.
     required: false
     default: "github"
+  save-cache:
+    description: >
+      Whether this job writes the cargo archive cache, as opposed to only
+      reading it. Each resolved cache key must have exactly one owner:
+      when two jobs write the same key, one reserves it and the other is
+      refused, and the entry can end up written but not readable. The key
+      is "<runner os>-cargo-<hash of rust-toolchain.toml and Cargo.lock>",
+      so jobs on different runner operating systems resolve different keys
+      and each of those keys needs its own owner. Set this to "false" in
+      every job but the one owning the key that job resolves. Reading is
+      unaffected either way, so a reader still gets a warm registry.
+    required: false
+    default: "true"
   install-binstall:
     description: Install cargo-binstall for faster binary crate installations
     required: false
@@ -85,6 +98,22 @@ runs:
           github|external) ;;
           *)
             echo "::error::cache-provider must be github or external" >&2
+            exit 1
+            ;;
+        esac
+    - name: Validate cache ownership
+      shell: bash
+      env:
+        SR_SAVE_CACHE: ${{ inputs.save-cache }}
+      run: |
+        set -euo pipefail
+        # Refused rather than guessed at. Reading a typo as "not false" would
+        # silently make a second writer of a key that must have one owner,
+        # which is the defect this input exists to prevent.
+        case "$SR_SAVE_CACHE" in
+          true|false) ;;
+          *)
+            echo "::error::save-cache must be true or false" >&2
             exit 1
             ;;
         esac
@@ -189,11 +218,26 @@ runs:
         echo "OPENBSD_NIGHTLY=$OPENBSD_NIGHTLY" >> "$GITHUB_ENV"
         echo "NIGHTLY_SYSROOT=$(rustc +$OPENBSD_NIGHTLY --print sysroot)" >> "$GITHUB_ENV"
       shell: bash
+    # Two steps rather than one, because a composite action cannot choose
+    # which action a step uses at run time. Exactly one of them runs: the
+    # owner saves and restores, every other job only restores.
     - name: Cache cargo registry
       id: cargo-cache
-      if: ${{ inputs.cache-provider == 'github' }}
+      if: ${{ inputs.cache-provider == 'github' && inputs.save-cache == 'true' }}
       # v6.1.0
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+    - name: Restore the cargo registry cache
+      id: cargo-cache-restore
+      if: ${{ inputs.cache-provider == 'github' && inputs.save-cache == 'false' }}
+      # v6.1.0, the restore-only half of the same action at the same commit.
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: |
           ~/.cargo/registry
@@ -209,8 +253,11 @@ runs:
         SR_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         SR_UV_STEP_OUTCOME: ${{ steps.setup-uv.outcome }}
         SR_UV_CACHE_HIT: ${{ steps.setup-uv.outputs.cache-hit }}
+        SR_SAVE_CACHE: ${{ inputs.save-cache }}
         SR_CARGO_STEP_OUTCOME: ${{ steps.cargo-cache.outcome }}
         SR_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
+        SR_CARGO_RESTORE_OUTCOME: ${{ steps.cargo-cache-restore.outcome }}
+        SR_CARGO_RESTORE_CACHE_HIT: ${{ steps.cargo-cache-restore.outputs.cache-hit }}
       run: |
         set -euo pipefail
         cache_outcome() {
@@ -233,7 +280,22 @@ runs:
           cargo_outcome='disabled'
           uv_outcome='disabled'
         else
-          cargo_outcome="$(cache_outcome "$SR_CARGO_STEP_OUTCOME" "$SR_CARGO_CACHE_HIT")"
+          # Exactly one of the two cache steps ran, so the reported outcome
+          # comes from that one. Reading the skipped step instead would
+          # report every restore-only job as "disabled" and hide whether
+          # its registry was warm.
+          #
+          # An unset variable falls back to saving, matching the input's
+          # own default, so a caller of this fragment that does not set it
+          # reports the behaviour the action actually has.
+          if [[ "${SR_SAVE_CACHE:-true}" == 'false' ]]; then
+            cargo_step_outcome="$SR_CARGO_RESTORE_OUTCOME"
+            cargo_cache_hit="$SR_CARGO_RESTORE_CACHE_HIT"
+          else
+            cargo_step_outcome="$SR_CARGO_STEP_OUTCOME"
+            cargo_cache_hit="$SR_CARGO_CACHE_HIT"
+          fi
+          cargo_outcome="$(cache_outcome "$cargo_step_outcome" "$cargo_cache_hit")"
           if [[ "$SR_RUNNER_ENVIRONMENT" == 'github-hosted' ]]; then
             uv_outcome="$(cache_outcome "$SR_UV_STEP_OUTCOME" "$SR_UV_CACHE_HIT")"
           else

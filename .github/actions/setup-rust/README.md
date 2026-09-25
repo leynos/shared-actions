@@ -16,6 +16,7 @@ require them, and set up macOS or OpenBSD cross-compilers.
 | install-sqlite-deps   | Install SQLite dev libraries (Windows)                                                                                                                                       | no       | `false`                               |
 | use-sccache           | Enable sccache for non-release runs                                                                                                                                          | no       | `true`                                |
 | cache-provider        | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner                                                                          | no       | `github`                              |
+| save-cache            | Whether this job writes the Cargo archive cache, or only reads it. Each resolved key has one owner, so set `false` in every job but that one.                                | no       | `true`                                |
 | install-binstall      | Install cargo-binstall for faster binary crate installations                                                                                                                 | no       | `true`                                |
 | with-darwin           | Install macOS cross build toolchain                                                                                                                                          | no       | `false`                               |
 | darwin-sdk-version    | macOS SDK version for osxcross                                                                                                                                               | no       | `12.3`                                |
@@ -109,7 +110,48 @@ the Cargo registry and Cargo Git dependencies only. The `target` directory is
 deliberately uncached: sccache is the sole owner of compiler output. `setup-uv`
 retains its historical automatic policy: its GitHub cache is enabled on
 GitHub-hosted runners and disabled on self-hosted runners. These archive caches
-are restored during setup and saved after the job.
+are restored during setup, and the Cargo one is saved after the job unless the
+caller says otherwise.
+
+### One job owns the Cargo cache key
+
+A GitHub cache key has one owner. When two jobs of a workflow write the same
+key, one reserves it and the other is refused, and the entry can end up written
+and then not readable. The Cargo key this action builds is
+`<runner os>-cargo-<hash of rust-toolchain.toml and Cargo.lock>`, so every job
+calling the action on the same runner operating system resolves the same key
+and a workflow calling it twice there contends with itself.
+
+The rule is one owner per resolved key, not one owner per workflow. Jobs on
+different runner operating systems resolve different keys, so a Linux job and a
+Windows job can each own theirs; two Linux jobs cannot.
+
+`save-cache: 'false'` makes a call restore-only. It still reads the key, so the
+registry is warm; it simply does not write. Set it in every job but the one
+that owns the key that job resolves, and prefer as owner a job that runs on
+every trigger the workflow serves, so the key is written whatever the event.
+
+```yaml
+  # The job that owns the key. Its default is to save, so this is explicit
+  # rather than required.
+  - name: Set up Rust
+    uses: ./.github/actions/setup-rust
+    with:
+      save-cache: 'true'
+```
+
+```yaml
+  # Every other job in the same workflow.
+  - name: Set up Rust
+    uses: ./.github/actions/setup-rust
+    with:
+      save-cache: 'false'
+```
+
+The default is `true`, so an existing caller keeps writing the key it wrote
+before. A value other than `true` or `false` is refused rather than read as
+"not false", because treating a typo as saving would quietly create the second
+writer this input exists to prevent.
 
 Set `cache-provider: external` when the caller mounts those paths through one
 other cache service, such as a Namespace cache volume. External mode disables

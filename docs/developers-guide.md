@@ -1056,7 +1056,12 @@ request: it proves the runner starts cold, installs the pinned CLI through the
 action's `install` mode, asserts the resolved version offline, checks the
 Slipcover fixtures are present and well formed, and drives the installer's
 refusals. It holds no credential and names neither the service nor its gate
-subcommand.
+subcommand. `test_check_mode.py` requires its job guard whole, and requires the
+cold check and the fixture check each as a whole script on a step with no
+`if:`, comment lines aside. The cold check must also run before the install
+step, which must use the local action with no `if:`. A script that only
+contains the check's text, such as one behind `false &&` or with its `exit 1`
+dropped, fails the contract.
 
 `test-codescene-parser-proof.yml` holds the half that contacts the service.
 `cs-coverage check` reads the CodeScene project configuration over the network
@@ -1129,7 +1134,12 @@ following step — coverage-path resolution, installer download, GitHub artefact
 upload, cache and CLI installation, PATH setup, and the upload/check commands —
 must require `steps.gate-applicability.outputs.skip != 'true'`. Do not add a
 check-mode step outside that guard unless it is deliberately meant to run for
-skipped pull requests.
+skipped pull requests. The tests read each guard through
+`tests/workflows/workflow_expressions.py`: the term must be a top-level `&&`
+conjunct, and a guard with an unquoted `||` requires nothing, so
+`<term> || true` fails where a substring search would pass. The upload and
+check steps' `inputs.access-token != ''` and the install-mode exclusions'
+`inputs.mode != 'install'` are read the same way.
 
 The check command is an observable diagnostic contract. After validating the
 CLI, coverage file, and LCOV suffix, run

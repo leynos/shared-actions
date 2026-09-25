@@ -1596,14 +1596,14 @@ def _set_fake_coverage_python_cmd(
     monkeypatch.setattr(
         run_python_module,
         "_coverage_python_cmd",
-        lambda: local[python],
+        lambda _interpreter="": local[python],
     )
     # The run environment is derived from the same interpreter, so the fake has
     # to stand in for both or the coverage run would build a real venv.
     monkeypatch.setattr(
         run_python_module,
         "_coverage_venv_python",
-        lambda: python,
+        lambda _interpreter="": python,
     )
     return python
 
@@ -1744,6 +1744,30 @@ def test_ensure_coverage_venv_reuses_existing_coverage_venv(
         "--python",
         str(python_path.resolve()),
     ]
+
+
+def test_ensure_coverage_venv_rebuilds_an_existing_venv_for_an_explicit_interpreter(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A leftover venv may sit on another Python, so an explicit one rebuilds it."""
+    setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
+    stale = setup.coverage_venv / "bin" / "python"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("stale", encoding="utf-8")
+
+    run_python_module._ensure_coverage_venv("/py/bin/python3.13")
+
+    assert setup.recorded[0][1:] == [
+        "venv",
+        "--python",
+        "/py/bin/python3.13",
+        str(setup.coverage_venv),
+    ]
+    assert stale.read_text(encoding="utf-8") == "", (
+        "the stale interpreter must be replaced"
+    )
 
 
 def test_ensure_coverage_venv_recovers_from_broken_cache(
@@ -3063,7 +3087,9 @@ def test_run_python_coveragepy_empty_xml(
     captured_python: list[str] = []
 
     @contextlib.contextmanager
-    def fake_tmp_coveragepy_xml(_out: Path) -> typ.Iterator[Path]:
+    def fake_tmp_coveragepy_xml(
+        _out: Path, _interpreter: str = ""
+    ) -> typ.Iterator[Path]:
         captured_python.append(
             next(iter(run_python_module._coverage_python_cmd().formulate()))
         )
@@ -3112,7 +3138,9 @@ def test_main_echoes_previous_coverage_when_baseline_present(
         pass
 
     @contextlib.contextmanager
-    def fake_tmp_coveragepy_xml(out: Path) -> typ.Iterator[Path]:
+    def fake_tmp_coveragepy_xml(
+        out: Path, _interpreter: str = ""
+    ) -> typ.Iterator[Path]:
         xml = out.with_suffix(".xml")
         xml.write_text(
             "<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8"
@@ -3168,7 +3196,9 @@ def test_run_python_coveragepy_malformed_xml_exits(
     captured_python: list[str] = []
 
     @contextlib.contextmanager
-    def fake_tmp_coveragepy_xml(_out: Path) -> typ.Iterator[Path]:
+    def fake_tmp_coveragepy_xml(
+        _out: Path, _interpreter: str = ""
+    ) -> typ.Iterator[Path]:
         captured_python.append(
             next(iter(run_python_module._coverage_python_cmd().formulate()))
         )
@@ -3306,9 +3336,9 @@ class _FakeUv:
 
 
 def _install_python_script(fake: _FakeUv) -> str:
-    """Return the shell that places the coverage interpreter in ``$2/bin``."""
+    """Return the shell that places the coverage interpreter in ``$venv_dir/bin``."""
     if fake.venv_python is not None:
-        return f"""ln -s '{fake.venv_python}' "$2/bin/python\""""
+        return f"""ln -s '{fake.venv_python}' "$venv_dir/bin/python\""""
     record_argv = (
         ""
         if fake.python_log is None
@@ -3317,7 +3347,7 @@ def _install_python_script(fake: _FakeUv) -> str:
             "coverage-sentinel 2>/dev/null || true\n"
         )
     )
-    return f"""cat > "$2/bin/python" <<'PY'
+    return f"""cat > "$venv_dir/bin/python" <<'PY'
 #!/usr/bin/env sh
 {record_argv}exit 0
 PY"""
@@ -3328,11 +3358,11 @@ def _sentinel_script(fake: _FakeUv, marker: Path) -> str:
     if fake.python_log is None:
         return ""
     return (
-        "    cat > \"$2/bin/coverage-sentinel\" <<'SENTINEL'\n"
+        "    cat > \"$venv_dir/bin/coverage-sentinel\" <<'SENTINEL'\n"
         "#!/usr/bin/env sh\n"
         f"printf 'ran\\n' > '{marker}'\n"
         "SENTINEL\n"
-        '    chmod +x "$2/bin/coverage-sentinel"\n'
+        '    chmod +x "$venv_dir/bin/coverage-sentinel"\n'
     )
 
 
@@ -3353,9 +3383,11 @@ if [ "$1" = "venv" ]; then
         echo "uv venv exploded" >&2
         exit {fake.venv_exit}
     fi
-    mkdir -p "$2/bin"
+    # The venv path is the last argument, after any `--python <interpreter>`.
+    for venv_dir do :; done
+    mkdir -p "$venv_dir/bin"
     {install_python}
-    chmod +x "$2/bin/python"
+    chmod +x "$venv_dir/bin/python"
 {write_sentinel}    exit 0
 fi
 if [ "$1" = "sync" ]; then
@@ -3413,6 +3445,10 @@ def _python_integration_env(
         # Exercise the INPUT_PYTEST_WORKERS path explicitly; a fixed value
         # also makes the test independent of the action.yml default.
         "INPUT_PYTEST_WORKERS": "2",
+        # Empty keeps uv's own discovery, whatever this repository's coverage
+        # lane exported for its own run; a test that exercises the resolved
+        # interpreter passes it through ``extra_env``.
+        "GC_COVERAGE_PYTHON": "",
         **(extra_env or {}),
     }
     env["PATH"] = f"{run.bin_dir}{os.pathsep}{env['PATH']}"
@@ -3551,6 +3587,42 @@ def test_run_python_integration_threads_source_boundary_to_slipcover(
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+@pytest.mark.parametrize(
+    "case",
+    [
+        (
+            "/opt/py/bin/python3.13",
+            "venv --python /opt/py/bin/python3.13 .venv-coverage",
+        ),
+        ("", "venv .venv-coverage"),
+    ],
+    ids=["resolved", "unresolved"],
+)
+def test_run_python_integration_builds_the_venv_on_the_resolved_interpreter(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+    case: tuple[str, str],
+) -> None:
+    """``main`` reads the resolved interpreter once and ``uv venv`` uses it."""
+    resolved, expected_venv_call = case
+    bin_dir, log = _write_fake_uv(tmp_path)
+
+    returncode, _stdout, _stderr = _run_integration_script(
+        _PythonIntegrationRun(tmp_path, shell_stubs, bin_dir, monkeypatch),
+        {"GC_COVERAGE_PYTHON": resolved},
+    )
+
+    venv_calls = [
+        call
+        for call in log.read_text(encoding="utf-8").splitlines()
+        if call.startswith("venv ")
+    ]
+    assert returncode == 0
+    assert venv_calls == [expected_venv_call]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
 def test_run_python_integration_cobertura_success(
     tmp_path: Path,
     shell_stubs: StubManager,
@@ -3633,6 +3705,7 @@ def test_run_python_integration_mixed_lang_path(
         "DETECTED_FMT": "cobertura",
         "BASELINE_PYTHON_FILE": "",
         "GITHUB_OUTPUT": str(gh),
+        "GC_COVERAGE_PYTHON": "",
     }
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
     monkeypatch.chdir(tmp_path)

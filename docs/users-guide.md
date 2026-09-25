@@ -690,6 +690,17 @@ entries.
     python-source: episodic,alembic
 ```
 
+The Python coverage environment is built on an interpreter the action resolves
+explicitly: the optional `python-version` input, then `UV_PYTHON` when the job
+sets it, then the first entry of `.python-version`, then the `python3` on
+`PATH` that `actions/setup-python` installs. The run logs which rule chose it.
+When none of these names an interpreter, or uv can neither find nor install the
+one named, the step fails rather than measure on whichever Python uv would
+discover. The interpreter's major.minor is part of the Python ratchet baseline
+key, so moving to a new Python starts a fresh baseline instead of failing pull
+requests against a figure measured on the old one; in a repository measuring
+both Rust and Python, the Rust baseline restarts with it.
+
 Separately, the action prepends the coverage environment's scripts directory --
 the directory containing the `.venv-coverage` interpreter -- to `PATH` for the
 coverage process, keeping the inherited `PATH` after it. An executable that a

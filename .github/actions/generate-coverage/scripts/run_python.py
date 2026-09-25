@@ -43,6 +43,10 @@ TOOLING_PACKAGES: tuple[str, ...] = (
     "coverage",
 )
 PROJECT_SYNC_ARGS: tuple[str, ...] = ("sync", "--inexact", "--python")
+#: Where the "Resolve coverage interpreter" step publishes its choice. Read
+#: once, in :func:`main`, and passed down as ``interpreter``; empty keeps uv's
+#: own discovery, which is what a direct script run outside the action gets.
+COVERAGE_PYTHON_ENV = "GC_COVERAGE_PYTHON"
 
 SLIPCOVER_ARGS: tuple[str, ...] = ("-m", "slipcover")
 SLIPCOVER_BRANCH_ARG = "--branch"
@@ -83,6 +87,21 @@ def _find_coverage_python() -> Path | None:
     return None
 
 
+def _venv_args(interpreter: str) -> list[str]:
+    """Return the ``uv venv`` arguments, naming the resolved interpreter.
+
+    Examples
+    --------
+    >>> _venv_args("/opt/py/bin/python3.13")
+    ['venv', '--python', '/opt/py/bin/python3.13', '.venv-coverage']
+    >>> _venv_args("")
+    ['venv', '.venv-coverage']
+    """
+    interpreter = interpreter.strip()
+    python_args = ["--python", interpreter] if interpreter else []
+    return ["venv", *python_args, str(COVERAGE_VENV)]
+
+
 def _remove_coverage_venv() -> None:
     """Remove the coverage venv directory or non-directory placeholder.
 
@@ -95,8 +114,11 @@ def _remove_coverage_venv() -> None:
         COVERAGE_VENV.unlink(missing_ok=True)
 
 
-def _recreate_coverage_venv() -> Path:
+def _recreate_coverage_venv(interpreter: str = "") -> Path:
     """Remove any existing broken venv, create a fresh one, and return its Python.
+
+    ``interpreter`` is the resolved Python to build the venv on; empty keeps
+    uv's own discovery.
 
     Returns
     -------
@@ -117,7 +139,7 @@ def _recreate_coverage_venv() -> Path:
         _remove_coverage_venv()
     else:
         typer.echo(f"Creating coverage venv at {COVERAGE_VENV}")
-    run_cmd(uv["venv", str(COVERAGE_VENV)])
+    run_cmd(uv[*_venv_args(interpreter)])
     typer.echo(f"Coverage venv created at {COVERAGE_VENV}")
     python = _find_coverage_python()
     if python is None:
@@ -169,8 +191,26 @@ def _install_coverage_tooling(python: Path) -> None:
     typer.echo(f"Coverage tooling installed into {COVERAGE_VENV}")
 
 
-def _acquire_coverage_python() -> Path:
+def _discard_venv_for_explicit_interpreter(interpreter: str) -> None:
+    """Remove a leftover coverage venv when an interpreter is named.
+
+    A venv left in the workspace may sit on another Python than the one the
+    baseline key names, so an explicit interpreter always rebuilds it.
+    """
+    if not interpreter.strip():
+        return
+    if COVERAGE_VENV.exists() or COVERAGE_VENV.is_symlink():
+        typer.echo(
+            f"Rebuilding {COVERAGE_VENV} on the resolved interpreter {interpreter}"
+        )
+        _remove_coverage_venv()
+
+
+def _acquire_coverage_python(interpreter: str = "") -> Path:
     """Discover or create the coverage venv and return its Python path.
+
+    ``interpreter`` is passed to :func:`_recreate_coverage_venv` when a venv
+    has to be created.
 
     Returns
     -------
@@ -191,9 +231,10 @@ def _acquire_coverage_python() -> Path:
             "candidates": [str(c) for c in candidates],
         },
     )
+    _discard_venv_for_explicit_interpreter(interpreter)
     python = _find_coverage_python()
     if python is None:
-        python = _recreate_coverage_venv()
+        python = _recreate_coverage_venv(interpreter)
         logger.debug(
             "created fresh coverage venv",
             extra={
@@ -223,8 +264,10 @@ def _acquire_coverage_python() -> Path:
     return python
 
 
-def _ensure_coverage_venv() -> str:
+def _ensure_coverage_venv(interpreter: str = "") -> str:
     """Create or repair the coverage venv and install project/test tooling.
+
+    ``interpreter`` is the resolved Python the venv is built on, if any.
 
     Delegates venv discovery and creation to _acquire_coverage_python, then
     runs ``uv sync`` to install project dependencies, followed by
@@ -244,7 +287,7 @@ def _ensure_coverage_venv() -> str:
         Propagated from ``uv sync`` or ``uv pip install`` when either
         command exits with a non-zero return code.
     """
-    python = _acquire_coverage_python()
+    python = _acquire_coverage_python(interpreter)
     logger.info(
         "using coverage venv Python for uv commands",
         extra={
@@ -272,19 +315,19 @@ def _ensure_coverage_venv() -> str:
 # single thread, so no synchronization is required; the cache is safe to
 # use without a lock for the lifetime of this process.
 @lru_cache(maxsize=1)
-def _coverage_venv_python() -> str:
+def _coverage_venv_python(interpreter: str = "") -> str:
     """Return the coverage venv interpreter, creating the venv on first use."""
-    return _ensure_coverage_venv()
+    return _ensure_coverage_venv(interpreter)
 
 
-def _coverage_child_path() -> str:
+def _coverage_child_path(interpreter: str = "") -> str:
     """Return ``PATH`` with the coverage environment's scripts directory first."""
-    scripts_dir = str(Path(_coverage_venv_python()).parent)
+    scripts_dir = str(Path(_coverage_venv_python(interpreter)).parent)
     inherited_path = os.environ.get("PATH", "")
     return os.pathsep.join(part for part in (scripts_dir, inherited_path) if part)
 
 
-def coverage_child_env() -> dict[str, str]:
+def coverage_child_env(interpreter: str = "") -> dict[str, str]:
     """Return the environment a coverage subprocess must run under.
 
     ``run_cmd`` re-applies the process environment to every command it runs, so
@@ -292,20 +335,20 @@ def coverage_child_env() -> dict[str, str]:
     subprocess starts. The value therefore has to travel as the run's explicit
     environment.
     """
-    return {**os.environ, "PATH": _coverage_child_path()}
+    return {**os.environ, "PATH": _coverage_child_path(interpreter)}
 
 
 @lru_cache(maxsize=1)
-def _coverage_python_cmd() -> BoundCommand:
+def _coverage_python_cmd(interpreter: str = "") -> BoundCommand:
     """Return coverage Python with its scripts available to child processes."""
-    python = _coverage_venv_python()
+    python = _coverage_venv_python(interpreter)
     scripts_dir = str(Path(python).parent)
     # Two bounded lines, once per process: which interpreter runs the coverage
     # and which directory child executables resolve against. The composed PATH
     # itself is not reported, because the inherited half is unbounded.
     typer.echo(f"Coverage interpreter: {python}")
     typer.echo(f"Coverage scripts directory prepended to PATH: {scripts_dir}")
-    return local[python].with_env(PATH=_coverage_child_path())
+    return local[python].with_env(PATH=_coverage_child_path(interpreter))
 
 
 _VALID_NAMED_WORKERS = frozenset({"auto", "logical"})
@@ -383,6 +426,7 @@ def coverage_cmd_for_fmt(
     out: Path,
     workers: str = "",
     python_source: str = "",
+    interpreter: str = "",
 ) -> BoundCommand:
     """Return the slipcover command for the requested coverage format.
 
@@ -404,13 +448,16 @@ def coverage_cmd_for_fmt(
         Slipcover's automatic source discovery in place; any other value is
         passed through unchanged as one ``--source`` argument before
         ``--branch``, so a comma-separated scope stays a single value.
+    interpreter : str
+        Resolved Python the coverage venv is built on; empty keeps uv's own
+        discovery.
 
     Returns
     -------
     plumbum.commands.base.BoundCommand
         A plumbum command that runs slipcover via the coverage venv Python.
     """
-    python_cmd = _coverage_python_cmd()
+    python_cmd = _coverage_python_cmd(interpreter)
     scope = "configured" if python_source.strip() else "default"
     # The decision, not the value: the scope reaches the log once already,
     # inside the command line the command logger reports. A bounded state line
@@ -420,7 +467,7 @@ def coverage_cmd_for_fmt(
 
 
 @contextlib.contextmanager
-def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
+def tmp_coveragepy_xml(out: Path, interpreter: str = "") -> cabc.Generator[Path]:
     """Generate a Cobertura XML from coverage.py and clean it up afterwards.
 
     Invokes ``python -m coverage xml -o <xml_tmp>`` using the coverage venv
@@ -444,10 +491,10 @@ def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
         If ``coverage xml`` exits with a non-zero return code.
     """
     xml_tmp = out.with_suffix(".xml")
-    python_cmd = _coverage_python_cmd()
+    python_cmd = _coverage_python_cmd(interpreter)
     try:
         cmd = python_cmd["-m", "coverage", "xml", "-o", str(xml_tmp)]
-        run_cmd(cmd, env=coverage_child_env())
+        run_cmd(cmd, env=coverage_child_env(interpreter))
     except ProcessExecutionError as exc:
         typer.echo(
             f"coverage xml failed with code {exc.retcode}: {exc.stderr}",
@@ -486,6 +533,7 @@ def _run_coverage(
     out: Path,
     workers: str = "",
     python_source: str = "",
+    interpreter: str = "",
 ) -> str:
     """Run slipcover and return the line coverage percentage.
 
@@ -500,6 +548,9 @@ def _run_coverage(
     python_source : str
         Slipcover source scope passed to :func:`coverage_cmd_for_fmt`; empty
         and whitespace-only values leave source discovery automatic.
+    interpreter : str
+        Resolved Python the coverage venv is built on; empty keeps uv's own
+        discovery.
 
     Returns
     -------
@@ -514,8 +565,8 @@ def _run_coverage(
         ``coveragepy`` format mode.
     """
     try:
-        cmd = coverage_cmd_for_fmt(fmt, out, workers, python_source)
-        run_cmd(cmd, method="run_fg", env=coverage_child_env())
+        cmd = coverage_cmd_for_fmt(fmt, out, workers, python_source, interpreter)
+        run_cmd(cmd, method="run_fg", env=coverage_child_env(interpreter))
     except ProcessExecutionError as exc:
         raise typer.Exit(code=exc.retcode or 1) from exc
     except RuntimeError as exc:
@@ -523,7 +574,7 @@ def _run_coverage(
         raise typer.Exit(code=1) from exc
 
     if fmt == "coveragepy":
-        with tmp_coveragepy_xml(out) as xml_tmp:
+        with tmp_coveragepy_xml(out, interpreter) as xml_tmp:
             percent = get_line_coverage_percent_from_cobertura(xml_tmp)
         Path(".coverage").replace(out)
         return percent
@@ -754,7 +805,10 @@ def main(
     else:
         typer.echo("Pytest workers: disabled (serial pytest run)")
     out.parent.mkdir(parents=True, exist_ok=True)
-    percent = _run_coverage(fmt, out, workers, source)
+    # The one read of the resolved interpreter; everything below takes it as a
+    # parameter, so nothing further down depends on the ambient environment.
+    interpreter = os.getenv(COVERAGE_PYTHON_ENV, "")
+    percent = _run_coverage(fmt, out, workers, source, interpreter)
     typer.echo(f"Current coverage: {percent}%")
     previous = read_previous_coverage(baseline_file)
     if previous is not None:

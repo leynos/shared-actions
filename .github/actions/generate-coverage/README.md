@@ -157,6 +157,7 @@ Known limitations:
 | cucumber-rs-args      | Extra arguments for cucumber                                                                                                                                                                       | no       |                             |
 | pytest-workers        | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism.                                                                   | no       | `auto`                      |
 | python-source         | Optional comma-separated Python source scope passed unchanged to Slipcover as one `--source` argument.                                                                                             | no       |                             |
+| python-version        | Interpreter for the Python coverage venv. Empty uses `UV_PYTHON`, then `.python-version`, then the `python3` on `PATH`. Its major.minor keys the Python ratchet baseline.                          | no       |                             |
 | cache-provider        | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner.                                                                                               | no       | `github`                    |
 <!-- markdownlint-enable MD013 -->
 
@@ -626,6 +627,26 @@ repository is refused too: an absolute path, a path that escapes through `..`,
 or a symlink pointing outside the repository. The action names the offending
 entries and exits before creating the coverage environment or starting the
 coverage subprocess.
+
+### Coverage interpreter
+
+The Python coverage venv is built on an interpreter the action resolves
+explicitly: the `python-version` input, then `UV_PYTHON`, then the first entry
+of `.python-version`, then the `python3` on `PATH` (the one
+`actions/setup-python` installs). The run logs which rule chose it. Its
+major.minor is part of the Python ratchet baseline key, so moving to a new
+Python starts a fresh baseline rather than failing pull requests against a
+figure measured on the old one.
+
+```yaml
+- uses: actions/setup-python@v5
+  with:
+    python-version: '3.13'
+- uses: ./.github/actions/generate-coverage
+  with:
+    output-path: coverage.xml
+    python-version: '3.13'
+```
 
 ### Parallel Python tests via pytest-xdist
 

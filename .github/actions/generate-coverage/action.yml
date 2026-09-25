@@ -125,6 +125,15 @@ inputs:
       every entry must resolve inside the repository.
     required: false
     default: ""
+  python-version:
+    description: >-
+      Interpreter for the Python coverage venv, as uv's `--python` accepts it
+      (for example "3.13"). When empty, the action uses `UV_PYTHON` if the
+      caller sets it, then the first entry of `.python-version`, then the
+      `python3` on PATH, which is the one `actions/setup-python` installs. The
+      resolved major.minor is part of the Python ratchet baseline key.
+    required: false
+    default: ""
   cache-provider:
     description: >
       Cache owner for Cargo and uv state. Use "github" for the action's
@@ -182,6 +191,11 @@ runs:
       id: setup-uv
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
       with:
+        # An exact uv release. Without it every run installs the newest uv,
+        # and a uv release changed which interpreter a bare `uv venv` picks,
+        # so pull requests and main measured coverage on different Pythons.
+        # Dependabot does not bump this value; change it deliberately.
+        version: '0.12.19'
         enable-cache: ${{ inputs.cache-provider == 'github' && runner.environment == 'github-hosted' }}
         cache-dependency-glob: |
           **/pyproject.toml
@@ -193,6 +207,19 @@ runs:
         INPUT_FORMAT: ${{ inputs.format }}
         INPUT_CARGO_MANIFEST: ${{ inputs.cargo-manifest }}
         INPUT_LANGUAGE: ${{ inputs.language }}
+      shell: bash
+    - name: Resolve coverage interpreter
+      id: interpreter
+      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
+      # Chooses the Python the coverage venv is built on before the baseline
+      # is restored, because its major.minor is part of the baseline key. The
+      # PATH interpreter is captured here, outside `uv run`, whose own venv
+      # would otherwise shadow the one `actions/setup-python` installed.
+      run: |
+        GC_PATH_PYTHON="$(command -v python3 || command -v python || true)" \
+          uv run --script "${{ github.action_path }}/scripts/resolve_python.py"
+      env:
+        INPUT_PYTHON_VERSION: ${{ inputs.python-version }}
       shell: bash
     - name: Restore baselines
       id: restore-baselines
@@ -208,8 +235,12 @@ runs:
         path: |
           ${{ inputs.baseline-rust-file }}
           ${{ inputs.baseline-python-file }}
-        key: ratchet-baseline-${{ runner.os }}-${{ github.run_id }}
-        restore-keys: ratchet-baseline-${{ runner.os }}-
+        # `baseline-segment` is `py<major.minor>-` when Python is measured and
+        # empty otherwise: a change of interpreter restores nothing and starts
+        # a fresh baseline rather than failing every pull request against a
+        # figure measured on another Python.
+        key: ratchet-baseline-${{ runner.os }}-${{ steps.interpreter.outputs.baseline-segment }}${{ github.run_id }}
+        restore-keys: ratchet-baseline-${{ runner.os }}-${{ steps.interpreter.outputs.baseline-segment }}
     - name: Ensure baseline files
       if: inputs.with-ratchet == 'true'
       run: |
@@ -349,6 +380,7 @@ runs:
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
         INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
         BASELINE_PYTHON_FILE: ${{ inputs.baseline-python-file }}
+        GC_COVERAGE_PYTHON: ${{ steps.interpreter.outputs.python }}
         INPUT_PYTEST_WORKERS: ${{ inputs.pytest-workers }}
         INPUT_PYTHON_SOURCE: ${{ inputs.python-source }}
       shell: bash
@@ -409,7 +441,7 @@ runs:
         path: |
           ${{ inputs.baseline-rust-file }}
           ${{ inputs.baseline-python-file }}
-        key: ratchet-baseline-${{ runner.os }}-${{ github.run_id }}
+        key: ratchet-baseline-${{ runner.os }}-${{ steps.interpreter.outputs.baseline-segment }}${{ github.run_id }}
     - name: Report ratchet baseline cache decisions
       # Reported here rather than in the archive-cache step above because the
       # save half runs later; both halves of the split are observable in one

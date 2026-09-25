@@ -81,8 +81,8 @@ once.
 <!-- markdownlint-disable MD013 -->
 | Symbol                 | Signature                                                                                         | Role                                                                                                                                    |
 | ---------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `coverage_cmd_for_fmt` | `(fmt, out, workers="", python_source="")`                                                        | Build a slipcover command, optionally with `-n <workers>` for pytest-xdist and `--source <python_source>` to scope coverage collection. |
-| `tmp_coveragepy_xml`   | `(out)`                                                                                           | Generate temporary Cobertura XML.                                                                                                       |
+| `coverage_cmd_for_fmt` | `(fmt, out, workers="", python_source="", interpreter="")`                                        | Build a slipcover command, optionally with `-n <workers>` for pytest-xdist and `--source <python_source>` to scope coverage collection. |
+| `tmp_coveragepy_xml`   | `(out, interpreter="")`                                                                           | Generate temporary Cobertura XML.                                                                                                       |
 | `main`                 | `(output_path, lang, fmt, github_output, baseline_file, pytest_workers=None, python_source=None)` | Run.                                                                                                                                    |
 <!-- markdownlint-enable MD013 -->
 
@@ -90,6 +90,10 @@ once.
 `workers` is non-empty, it appends `-n <workers>` so pytest-xdist parallelizes
 the run; an empty string preserves the historical serial pytest invocation.
 `tmp_coveragepy_xml` yields a temporary XML path and removes it on exit. `main`
+reads `GC_COVERAGE_PYTHON` once and passes it down as `interpreter`, through
+the memoized venv helpers to `uv venv --python`; an empty value keeps uv's own
+discovery, and an explicit one always rebuilds a leftover `.venv-coverage`,
+which could sit on another Python than the one the baseline key names. `main`
 resolves `pytest_workers` from the CLI option, falling back to the
 `INPUT_PYTEST_WORKERS` environment variable and finally to `"auto"`. Accepted
 values are `"auto"`, `"logical"`, a positive integer string, or `""` to disable
@@ -397,6 +401,40 @@ pair, a run-scoped key shared by both halves, the prefix restore-key that
 recovers the newest entry, restore before save over identical paths, and no
 `cache-hit` guard on the save. Each action's own test directory keeps only what
 is specific to it.
+
+`generate-coverage` measures Python on an interpreter it chooses explicitly,
+because a bare `uv venv` takes whatever interpreter uv discovers first and that
+changed between uv releases. From uv 0.12.19 a pull request could measure on
+3.14 while `main`'s baseline had been measured on 3.13, and every pull request
+then failed the ratchet with no code change. Three mechanisms close it, each
+contracted and proved by mutation:
+
+- `Setup uv` installs an exact uv release (`version:`), so a uv release no
+  longer changes what a run discovers. Dependabot does not bump that value;
+  change it deliberately.
+- `Resolve coverage interpreter` (`scripts/resolve_python.py`) runs after
+  detection and before the baseline is restored, for Python and mixed runs. It
+  takes the `python-version` input, then `UV_PYTHON` when the caller already
+  pins it, then the first entry of `.python-version`, then the `python3` on
+  `PATH` that `actions/setup-python` installed, which the step captures before
+  `uv run` can put its own interpreter first. It fails the step rather than
+  fall back on uv's discovery. uv locates the interpreter, installing it only
+  when it is missing, and `run_python.py` builds `.venv-coverage` with
+  `uv venv --python <path>`.
+- The ratchet baseline key carries the interpreter's `major.minor`, as
+  `ratchet-baseline-<os>-py<major.minor>-<run_id>`, restored by the prefix
+  `ratchet-baseline-<os>-py<major.minor>-`. The segment is empty for a
+  Rust-only run. A change of interpreter therefore restores nothing and starts
+  a fresh baseline instead of failing every pull request against a figure
+  measured on another Python, even where the first two mechanisms are bypassed.
+  In a mixed repository the Rust baseline shares that entry and restarts with
+  it.
+
+[`test_coverage_interpreter.py`](../.github/actions/generate-coverage/tests/test_coverage_interpreter.py)
+holds the manifest wiring and the venv arguments,
+[`test_resolve_python.py`](../.github/actions/generate-coverage/tests/test_resolve_python.py)
+the resolution order and version reading, and the cross-action cache contract
+the key shape.
 
 A separate reporting step emits bounded outcomes for both halves, because the
 save runs long after the archive-cache reporter. Keep the restore states closed

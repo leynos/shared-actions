@@ -19,7 +19,7 @@ import re
 import typing as typ
 from pathlib import Path
 
-import yaml
+from .workflow_yaml import load_workflow as load_strict_yaml
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -195,17 +195,41 @@ class WorkflowDocument(typ.TypedDict, total=False):
     jobs: cabc.Mapping[str, JobBody]
 
 
-def load_workflow(name: str) -> WorkflowDocument:
+def load_workflow(
+    name: str, *, directory: Path = WORKFLOWS_DIRECTORY
+) -> WorkflowDocument:
     """Return the parsed workflow named *name*, validated at the boundary.
 
-    `yaml.safe_load` returns `Any`, so both the document and its `jobs`
-    entry are checked here, once, rather than trusted by every reader
-    downstream. Either failing to be a mapping raises `TypeError` naming
-    the file, because a workflow that does not parse to a mapping cannot
-    be read by any rule that follows.
+    The file is read through `workflow_yaml.load_workflow`, whose loader
+    refuses a key declared twice. `yaml.safe_load` keeps the last of two
+    `runs-on` or `timeout-minutes` keys silently, so the placement and
+    ceiling rules would pass a workflow GitHub rejects. The parse returns
+    `object`, so both the document and its `jobs` entry are checked here,
+    once, rather than trusted by every reader downstream.
+
+    Parameters
+    ----------
+    name : str
+        The workflow's file name.
+    directory : Path
+        Where to find it; `.github/workflows` unless a test supplies its
+        own.
+
+    Returns
+    -------
+    WorkflowDocument
+        The parsed document, known to be a mapping whose `jobs`, if
+        present, is a mapping too.
+
+    Raises
+    ------
+    ValueError
+        If the file cannot be read, is not valid YAML, or declares a key
+        twice. The message names the file.
+    TypeError
+        If the document, or its `jobs` entry, is not a mapping.
     """
-    text = (WORKFLOWS_DIRECTORY / name).read_text(encoding="utf-8")
-    document = yaml.safe_load(text)
+    document = load_strict_yaml(directory / name)
     match document:
         case dict():
             pass
@@ -230,13 +254,31 @@ def workflow_document_on(document: WorkflowDocument) -> object:
 
     PyYAML reads the bare key `on` as the boolean `True`, so the lookup
     tries both spellings against the untyped view of the document.
+
+    Parameters
+    ----------
+    document : WorkflowDocument
+        A document returned by `load_workflow`.
+
+    Returns
+    -------
+    object
+        The trigger value as written: a string, a list or a mapping, or
+        None when the document declares no triggers.
     """
     raw = typ.cast("dict[typ.Hashable, object]", document)
     return raw.get(True, raw.get("on"))
 
 
 def workflow_names() -> list[str]:
-    """Return every workflow file name, sorted."""
+    """Return every workflow file name, sorted.
+
+    Returns
+    -------
+    list of str
+        The names of the files under `.github/workflows` with a workflow
+        suffix.
+    """
     return sorted(
         path.name
         for path in WORKFLOWS_DIRECTORY.iterdir()
@@ -245,24 +287,59 @@ def workflow_names() -> list[str]:
 
 
 def jobs(name: str) -> cabc.Iterator[tuple[str, JobBody]]:
-    """Yield each job id and body in the workflow named *name*."""
+    """Yield each job id and body in the workflow named *name*.
+
+    Parameters
+    ----------
+    name : str
+        The workflow's file name.
+
+    Yields
+    ------
+    tuple of (str, JobBody)
+        The job's id and its body, in document order.
+    """
     yield from (load_workflow(name).get("jobs") or {}).items()
 
 
 def all_jobs() -> list[tuple[str, str]]:
-    """Return every (workflow, job id) pair in the repository, sorted."""
+    """Return every (workflow, job id) pair in the repository, sorted.
+
+    Returns
+    -------
+    list of tuple of (str, str)
+        One pair per job across every workflow file.
+    """
     return sorted(
         (name, job_id) for name in workflow_names() for job_id, _ in jobs(name)
     )
 
 
 def runner_job_ids() -> list[tuple[str, str]]:
-    """Return every pair for a job that occupies a runner."""
+    """Return every pair for a job that occupies a runner.
+
+    Returns
+    -------
+    list of tuple of (str, str)
+        `all_jobs()` without the jobs in `CALLER_JOBS`, which call a
+        reusable workflow and occupy no runner of their own.
+    """
     return [pair for pair in all_jobs() if pair not in CALLER_JOBS]
 
 
 def identifier(*parts: str) -> str:
-    """Return a readable pytest id for *parts*."""
+    """Return a readable pytest id for *parts*.
+
+    Parameters
+    ----------
+    *parts : str
+        The pieces to join, such as a workflow name and a job id.
+
+    Returns
+    -------
+    str
+        The pieces joined with `::`.
+    """
     return "::".join(parts)
 
 
@@ -272,5 +349,16 @@ def label_token(label: str) -> re.Pattern[str]:
     The delimiters are explicit rather than `\b`, because a word
     boundary sits inside a hyphenated label and would find
     `ubuntu-latest` in a longer name that merely contains it.
+
+    Parameters
+    ----------
+    label : str
+        The runner label to find.
+
+    Returns
+    -------
+    re.Pattern of str
+        A pattern matching *label* only where no label character touches
+        either end.
     """
     return re.compile(rf"(?<![A-Za-z0-9_-]){re.escape(label)}(?![A-Za-z0-9_-])")

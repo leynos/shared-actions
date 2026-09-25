@@ -73,7 +73,14 @@ DIGEST_VARIABLE: typ.Final[str] = "CODESCENE_CLI_SHA256"
 LOCAL_WORKFLOW_PATH: typ.Final[str] = ".github/workflows/"
 #: A ``runs-on`` expression naming exactly one matrix dimension.
 _MATRIX_REFERENCE: typ.Final[re.Pattern[str]] = re.compile(
-    r"\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}"
+    r"\$\{\{\s*matrix(?:\.([A-Za-z0-9_-]+)|\[\s*(['\"])([A-Za-z0-9_-]+)\2\s*\])\s*\}\}"
+)
+
+#: A matrix reference anywhere inside an expression, in either spelling.
+#: Its quoted key, as in `matrix['os']`, names a dimension, not a runner,
+#: so references are removed before quoted literals are read as runners.
+_MATRIX_ANYWHERE: typ.Final[re.Pattern[str]] = re.compile(
+    r"matrix(?:\.[A-Za-z0-9_-]+|\[\s*(['\"])[A-Za-z0-9_-]+\1\s*\])"
 )
 
 #: A single-quoted string literal inside an expression. The fork fallback,
@@ -352,13 +359,17 @@ def _matrix_labels(job: WorkflowJob, expression: str) -> list[str]:
     ['windows-latest']
     >>> _matrix_labels({}, "${{ fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}")
     ['ubuntu-latest', 'ubicloud-standard-2']
+    >>> _matrix_labels(job, "${{ matrix['os'] }}")
+    ['windows-latest']
+    >>> _matrix_labels(job, "${{ fork && 'ubuntu-latest' || matrix['os'] }}")
+    ['ubuntu-latest', 'windows-latest', '3.13']
     """
     matrix = (job.get("strategy") or {}).get("matrix") or {}
     reference = _MATRIX_REFERENCE.fullmatch(expression.strip())
     if reference is not None:
-        return _dimension_values(matrix, reference.group(1))
+        return _dimension_values(matrix, reference.group(1) or reference.group(3))
     return [
-        *_QUOTED_LITERAL.findall(expression),
+        *_QUOTED_LITERAL.findall(_MATRIX_ANYWHERE.sub("", expression)),
         *(
             str(value)
             for values in matrix.values()

@@ -83,3 +83,13 @@ class TestStageArtefactsPathSafety:
     ) -> None:
         """Generated parent traversal destinations cannot escape staging."""
         _assert_path_traversal_rejected(tmp_path, f"../{destination}")
+
+
+def test_the_shared_property_settings_set_no_deadline() -> None:
+    """Keep host load from failing the staging properties (#487).
+
+    The properties that share these settings stage real files, so a
+    wall-clock deadline would assert the host's load rather than the code.
+    The deadline must be absent, not merely generous.
+    """
+    assert HYPOTHESIS_SETTINGS.deadline is None

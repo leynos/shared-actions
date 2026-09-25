@@ -28,6 +28,31 @@ ROOT = find_project_root(start=Path(__file__).resolve().parent)
 prepend_to_syspath(ROOT)
 
 
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Apply a single bounded retry to tests that use ``shell_stubs``.
+
+    The cmd-mox IPC server can drop a reply when a client disconnects
+    mid-request, and prints a ``BrokenPipeError`` traceback while doing so
+    (leynos/cmd-mox#256). That is a shared-fixture race, so any test taking
+    ``shell_stubs`` is exposed to it regardless of what the test asserts. One
+    retry keeps a scheduling hiccup from failing an entire CI job.
+
+    ``flaky`` is the marker ``pytest-rerunfailures`` reads; the plugin
+    registers it, so this hook only has to attach it. The retry is scoped
+    deliberately:
+
+    - only tests that directly request ``shell_stubs`` are marked, so an
+      unrelated failure anywhere else in the suite is never retried;
+    - ``reruns=1`` is a cap, not a licence to retry indefinitely; and
+    - a genuine, deterministic failure still fails, because the same assertion
+      fails again on the second attempt. pytest reports the rerun in its
+      summary, so a rerun that hid a real regression would be visible.
+    """
+    for item in items:
+        if "shell_stubs" in getattr(item, "fixturenames", ()):
+            item.add_marker(pytest.mark.flaky(reruns=1))
+
+
 @pytest.fixture
 def shell_stubs(cmd_mox: CmdMox, monkeypatch: pytest.MonkeyPatch) -> StubManager:
     """Return a ``StubManager`` configured for the current test."""

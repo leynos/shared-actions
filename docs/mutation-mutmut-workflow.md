@@ -28,18 +28,23 @@ supported by this workflow's first release.
   `window-hours` and translate changed `*.py` files into mutant-name globs
   (mutmut 3.x rejects file paths as run arguments): with the default
   `module-prefix-strip` of `src/`, `src/pkg/mod.py` scopes the run to
-  `pkg.mod.*`. When nothing relevant changed, the run writes a skip message and
-  finishes in seconds.
+  `pkg.mod.*`. Test modules (`conftest.py`, `test_*`, `*_test`, and
+  files under a `test/` or `tests/` directory) are not mutable source,
+  so they are excluded from glob translation; a change window containing
+  only test files short-circuits as a no-op with a "no mutable source"
+  summary note. When nothing relevant changed, the run writes a skip
+  message and finishes in seconds.
 - **`workflow_dispatch` runs** bypass the guard and mutate everything
-  in `source_paths`. There is no shard fan-out — mutmut has no shard equivalent
-  — so size `timeout-minutes` to the suite.
+  in `source_paths`. There is no shard fan-out — mutmut has no shard
+  equivalent — so size `timeout-minutes` to the suite.
 - **Exit codes:** mutmut already exits 0 when mutants survive, so no
-  masking is needed; a non-zero `mutmut run` indicates a failing baseline or
-  usage error and fails the job.
+  masking is needed; a non-zero `mutmut run` indicates a failing
+  baseline or usage error and fails the job.
 - **Reports:** the job summary lists per-status counts (killed,
-  survived, no tests, timeout, …) and a survivors table; inspect a survivor
-  locally with `uv run mutmut show <name>`. The raw results listing and
-  `mutants/mutmut-stats.json` upload as the `mutation-report-mutmut` artefact.
+  survived, no tests, timeout, ...) and a survivors table; inspect a
+  survivor locally with `uv run mutmut show <name>`. The raw results
+  listing and `mutants/mutmut-stats.json` upload as the
+  `mutation-report-mutmut` artefact.
 
 ## Required permissions
 

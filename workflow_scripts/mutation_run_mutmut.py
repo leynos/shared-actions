@@ -18,7 +18,13 @@ Behavioural notes (validated empirically against mutmut 3.6.0)
   step naturally.
 - Positional run arguments are mutant-name globs in module-path form
   (file paths are rejected), so changed files are translated to module
-  globs: ``src/pkg/mod.py`` becomes ``pkg.mod.*``.
+  globs: ``src/pkg/mod.py`` becomes ``pkg.mod.*``. Test modules are not
+  mutable source, so they are skipped; a scope of test files alone
+  short-circuits to a graceful no-op rather than aborting mutmut with an
+  empty filter.
+- The reusable workflow's ``INPUT_*`` variables configure this script but
+  are stripped from the environment before ``mutmut run``, so they cannot
+  leak into the mutated project's in-process pytest baseline.
 - Results live in per-source ``.meta`` files under ``mutants/``; the
   parseable interface is ``mutmut results --all true``, which prints
   ``name: status`` lines.
@@ -56,6 +62,7 @@ from __future__ import annotations
 import collections
 import dataclasses
 import os
+import re
 import shlex
 import sys
 import typing as typ
@@ -64,12 +71,22 @@ from pathlib import Path, PurePosixPath
 from cyclopts import App, Parameter
 from plumbum import RETCODE, local
 
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
 if __package__:
     from .output import emit, fail
 else:
     from output import emit, fail  # type: ignore[import-not-found,no-redef]
 
 app = App()
+
+#: Prefix of the workflow-input environment variables. mutmut runs the
+#: caller's test suite in-process as its baseline, inheriting this
+#: process's environment; leaving ``INPUT_*`` set would let workflow
+#: inputs (for example ``INPUT_MODULE_PREFIX_STRIP``) leak into the
+#: mutated project's tests, so they are stripped before ``mutmut run``.
+WORKFLOW_INPUT_ENV_PREFIX = "INPUT_"
 
 #: Statuses that indicate the suite failed to kill a runnable mutant.
 SURVIVOR_STATUSES: frozenset[str] = frozenset({"survived", "no tests"})
@@ -92,14 +109,37 @@ class MutantResult:
     status: str
 
 
+#: Stems marking a pytest test module: ``conftest``, ``test_*``, ``*_test``.
+TEST_STEM_RE = re.compile(r"^(?:conftest|test_.*|.*_test)$")
+
+#: Directory names that hold test modules.
+TEST_DIR_NAMES: frozenset[str] = frozenset({"test", "tests"})
+
+
+def _is_test_file(path: PurePosixPath) -> bool:
+    """Return True when ``path`` is a pytest test module, not source.
+
+    mutmut only generates mutants for source files, so a change window of
+    test modules alone maps to no mutants and would abort ``mutmut run``
+    with an empty filter. Files whose stem matches ``TEST_STEM_RE`` or
+    that sit under a ``test``/``tests`` directory are treated as
+    non-mutable and skipped.
+    """
+    if TEST_STEM_RE.match(path.stem):
+        return True
+    return any(part in TEST_DIR_NAMES for part in path.parts[:-1])
+
+
 def _module_glob_for(name: str, prefix_strip: str) -> str | None:
     """Translate one changed file into a mutant-name glob, or None.
 
-    ``__init__.py`` maps to its package; non-Python paths and paths that
-    reduce to nothing after stripping yield None.
+    ``__init__.py`` maps to its package; non-Python paths, test modules,
+    and paths that reduce to nothing after stripping yield None.
     """
     path = PurePosixPath(name)
     if path.suffix != ".py":
+        return None
+    if _is_test_file(path):
         return None
     stripped_base = PurePosixPath(prefix_strip.rstrip("/")) if prefix_strip else None
     if stripped_base is not None and path.is_relative_to(stripped_base):
@@ -238,6 +278,16 @@ def _mutmut_command(version: str) -> list[str]:
     return ["run", "--with", f"mutmut=={version}", "mutmut"]
 
 
+def _workflow_input_env_names(names: cabc.Iterable[str]) -> list[str]:
+    """Return the workflow-input variable names among ``names``.
+
+    These are the ``INPUT_*`` variables the reusable workflow sets on the
+    run step; they configure this script but must not reach the mutated
+    project's test environment.
+    """
+    return [name for name in names if name.startswith(WORKFLOW_INPUT_ENV_PREFIX)]
+
+
 def _run_mutation_testing(
     globs: list[str], mutmut_version: str, extra_args: str
 ) -> None:
@@ -254,7 +304,15 @@ def _run_mutation_testing(
         *globs,
     ]
     emit("mutation_mutmut_command", ["uv", *run_arguments])
-    code = local["uv"][run_arguments] & RETCODE(FG=True)
+    # mutmut runs the caller's test suite in-process as its baseline,
+    # inheriting the subprocess environment; strip the workflow's INPUT_*
+    # variables so they cannot leak into the mutated project's tests
+    # (shared-actions#369). The `with` block restores the environment on
+    # exit, leaving the later `mutmut results` call unaffected.
+    with local.env():
+        for name in _workflow_input_env_names(list(local.env.keys())):
+            del local.env[name]
+        code = local["uv"][run_arguments] & RETCODE(FG=True)
     emit("mutation_mutmut_exit_code", code)
     if code != 0:
         emit(
@@ -263,6 +321,23 @@ def _run_mutation_testing(
             stream=sys.stderr,
         )
         raise SystemExit(code)
+
+
+NO_SOURCE_SUMMARY = """## Mutation testing results (mutmut)
+
+Skipped: changed files contain no mutable source.
+"""
+
+
+def _write_no_source_summary(summary_path: str) -> None:
+    """Note a graceful no-op in the job summary when nothing is mutable.
+
+    Reached when the changed-file scope contains only non-Python or test
+    files, so no mutant-name globs are produced; skipping keeps ``mutmut
+    run`` from aborting on an empty filter (agent-helper-scripts#74).
+    """
+    with Path(summary_path).open("a", encoding="utf-8") as handle:
+        handle.write(NO_SOURCE_SUMMARY)
 
 
 def _publish_results(mutmut_version: str, results_file: str, summary_path: str) -> None:
@@ -320,8 +395,9 @@ def main(
 
     globs = files_to_module_globs(files, module_prefix_strip)
     if files.strip() and not globs:
-        emit("mutation_mutmut_outcome", "no python files in scope")
+        emit("mutation_mutmut_outcome", "changed files contain no mutable source")
         Path(results_file).write_text("", encoding="utf-8")
+        _write_no_source_summary(summary_env)
         return
 
     _run_mutation_testing(globs, mutmut_version, extra_args)

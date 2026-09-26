@@ -145,3 +145,44 @@ jobs:
             exit 1
           fi
           .github/scripts/assert-sccache-cached-a-build.sh "$RUSTC_WRAPPER" ghac
+
+  selects-the-proxy-by-itself:
+    # The consumer path after ADR 0005: setup-rust alone, no credentials step,
+    # and expect-cache: ubicloud so that a runner without the proxy fails here
+    # rather than passing on local disk. The rebuild proves the read path: its
+    # hit can only come from Ubicloud's store.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        id: setup
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'true'
+          expect-cache: ubicloud
+
+      - name: Verify the selection and a round trip through the proxy
+        shell: bash
+        env:
+          CACHE_BACKEND: ${{ steps.setup.outputs.cache-backend }}
+        run: |
+          set -euo pipefail
+          if [[ "$CACHE_BACKEND" != ubicloud ]]; then
+            echo "::error::an Ubicloud runner selected ${CACHE_BACKEND:-nothing}" >&2
+            exit 1
+          fi
+          if [[ -n "${ACTIONS_CACHE_SERVICE_V2:-}" ]]; then
+            echo "::error::the sccache steps' v2 flag survived the restore" >&2
+            exit 1
+          fi
+          .github/scripts/assert-sccache-cached-a-build.sh \
+            "$RUSTC_WRAPPER" ghac --expect-hit-on-rebuild

@@ -701,6 +701,15 @@ key, so moving to a new Python starts a fresh baseline instead of failing pull
 requests against a figure measured on the old one; in a repository measuring
 both Rust and Python, the Rust baseline restarts with it.
 
+The resolver does not read `requires-python`. Whichever rule chooses the
+interpreter, it must satisfy the project's `requires-python`, or `uv sync`
+refuses it and the coverage step fails. Before `2a910bfc` the action ran a bare
+`uv venv`, which picked a compatible interpreter by itself, so a lane whose
+`actions/setup-python` step installs a version outside `requires-python` passed
+on older revisions and fails from `2a910bfc` on. Set `python-version` in
+`actions/setup-python` (or the action's own `python-version` input) to a
+version the project accepts.
+
 Separately, the action prepends the coverage environment's scripts directory --
 the directory containing the `.venv-coverage` interpreter -- to `PATH` for the
 coverage process, keeping the inherited `PATH` after it. An executable that a

@@ -1801,6 +1801,17 @@ make typecheck     # Ty, resolving imports through .venv
 make lint          # Ruff lint + action-validator + markdownlint
 ```
 
+### Hypothesis deadlines
+
+A Hypothesis property that writes files or starts a process sets
+`deadline=None`. Its duration measures the host's load rather than the code, so
+Hypothesis's default 200 ms deadline turns contention into a `FlakyFailure`
+that names the wrong cause. A larger deadline only moves the load at which the
+property fails, so the deadline is removed, not raised. The
+`stage-release-artefacts` properties share one settings object in their
+`conftest.py` for this reason (#487), and a test asserts that it carries no
+deadline.
+
 ## `install-nixie` Action Maintenance
 
 The composite action boundary is `.github/actions/install-nixie/action.yml`. It

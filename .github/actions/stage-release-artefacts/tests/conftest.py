@@ -71,8 +71,15 @@ TRAVERSAL_DESTINATIONS = st.text(
     min_size=1,
     max_size=12,
 ).filter(lambda value: "{" not in value and "}" not in value)
+#: Every property here stages files and asserts where they landed, so its
+#: duration measures the host's filesystem and load, not the code. Under
+#: contention one example has taken thirty-one times its unobstructed time
+#: (#487), and Hypothesis's default 200 ms deadline turned that into a
+#: ``FlakyFailure`` naming the wrong cause. A larger deadline would only move
+#: the load at which it fails, so there is none.
 HYPOTHESIS_SETTINGS = settings(
     max_examples=25,
+    deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 ARCHIVE_MEMBER_NAMES = st.text(

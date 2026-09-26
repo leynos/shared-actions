@@ -456,10 +456,12 @@ checks the rolling assets before the installer runs and retries a short
 absence. Set it off only where the rolling release cannot be reached; it no
 longer permits a source build.
 
-A run whose installer succeeds records
-`whitaker-installer.suite-source=<prebuilt|source>`; a failed installation
-exits before that metric. With `ci-mode` on, the asset check also records the
-toolchain the published libraries were built with as
+A run whose installer exits successfully records
+`whitaker-installer.suite-source=<prebuilt|source>`. When that value is
+`source`, the installer reported a source fallback, and the action records the
+metric and then fails the run. An installer that exits with an error stops the
+step before the metric is recorded. With `ci-mode` on, the asset check also
+records the toolchain the published libraries were built with as
 `whitaker-installer.suite-toolchain=<toolchain>`, so a lint result can be tied
 to the compiler that produced it. With `ci-mode` off, that metric is absent.
 

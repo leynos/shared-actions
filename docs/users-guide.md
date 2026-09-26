@@ -456,10 +456,20 @@ checks the rolling assets before the installer runs and retries a short
 absence. Set it off only where the rolling release cannot be reached; it no
 longer permits a source build.
 
-Every run records `whitaker-installer.suite-source=<prebuilt|source>`, and the
+A run whose installer succeeds records
+`whitaker-installer.suite-source=<prebuilt|source>`; a failed installation
+exits before that metric. With `ci-mode` on, the asset check also records the
 toolchain the published libraries were built with as
 `whitaker-installer.suite-toolchain=<toolchain>`, so a lint result can be tied
-to the compiler that produced it.
+to the compiler that produced it. With `ci-mode` off, that metric is absent.
+
+The installer puts `cargo-dylint` and `dylint-link` in its tool directory:
+`XDG_BIN_HOME` when it is set, otherwise `~/.local/bin`, and on Windows the
+`.local\bin` directory under the user profile. The action adds that directory to
+`PATH` for the installer, which checks the tools by running them, and appends
+it to `GITHUB_PATH`, so later steps in the job can call `cargo dylint` and
+`dylint-link` by name. The Windows images do not have the directory on `PATH`
+by default.
 
 The optional `installer-version` input selects the `whitaker-installer` version
 and defaults to `0.2.9`; the action refuses any older version, because older

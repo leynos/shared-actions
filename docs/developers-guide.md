@@ -24,6 +24,7 @@ repository-specific entries to the overlay instead.
 ## Architecture Decision Records
 
 - [ADR 0002: Explicit ps-module-name for PowerShell sidecars](adr/0002-explicit-ps-module-name.md)
+- [ADR 0005: install-whitaker installs binaries only](adr/0005-binary-only-whitaker-install.md)
 
 ## Python Coverage Venv Architecture
 
@@ -711,8 +712,9 @@ The `cargo-home` input defaults to `~/.cargo` and controls the cached installer
 location. The step expands a leading `~` against `HOME`, validates the path,
 adds the Windows executable suffix when required, and records the installer
 path for the cache and later execution. The `installer-version` input defaults
-to `0.2.8`, above the `0.2.7` floor described under
-[The installer floor](#the-installer-floor).
+to `0.2.9`, the floor described under
+[The installer floor](#the-installer-floor), and validation refuses anything
+older.
 
 On a miss, a `Resolve Whitaker release` step selects the runner's supported
 release target and resolves the expected digest, then dedicated
@@ -726,7 +728,40 @@ release selection, cache reuse, digest precedence, and failure boundaries.
 Those tests drive the shipped fragments through the shared harness described
 under `install-mdtablefix`, which runs each fragment from a file the way a
 runner does. This action reports its failures from `ERR` traps, and that
-reporting is only observable when the fragment is invoked that way.
+reporting is only observable when the fragment is invoked that way. The one
+exception is the installer's own exit status in `Run Whitaker installer`, which
+is reported explicitly: bash 3.2 on the macOS runners does not run the trap for
+a failing subshell.
+
+### Binary-only installs
+
+[ADR 0005](adr/0005-binary-only-whitaker-install.md) records why the action
+installs published binaries only. The `Run Whitaker installer` step implements
+it:
+
+- The installer always receives `--no-source-fallback`, so a missing published
+  lint library or Dylint tool archive fails before Cargo starts.
+  `cranelift: true` adds `--cranelift`; there are two literal invocations
+  rather than an options array, because bash 3.2 errors on an empty array under
+  `set -u`.
+- Validation refuses a non-empty `suite-version`, which stays declared only so
+  that setting it errors. `allow-suite-pin` no longer exists. `cranelift` must
+  be `true` or `false`.
+- The step prepends the installer's tool directory to `PATH` and appends it to
+  `GITHUB_PATH`: `%USERPROFILE%\.local\bin` on Windows (converted with
+  `cygpath`), otherwise `XDG_BIN_HOME` or `~/.local/bin`. The installer proves
+  cargo-dylint by running `cargo dylint`, which finds its subcommand only on
+  `PATH`, and the Windows images lack the directory.
+- stdout and stderr are captured to separate files. stderr is replayed after
+  the installer exits. Both are searched for a fallback notice, because the
+  installer reports a Dylint tool's fallback on stderr and the suite's on
+  stdout. A notice fails the step in every mode.
+- `ci-mode` only decides whether `Verify the published lint assets` runs first.
+
+The step records `whitaker-installer.suite=default-branch-tip`,
+`whitaker-installer.suite-source=<prebuilt|source>` and, from the asset check,
+`whitaker-installer.suite-toolchain=<toolchain>` and
+`whitaker-installer.rolling-assets=<complete|missing|unsupported-runner>`.
 
 An external volume must mount the suite's parent (`~/.local/share`) rather than
 the terminal `~/.local/share/whitaker` path. Whitaker treats an absent child as
@@ -742,7 +777,7 @@ The archive's SHA-256 digest is pinned in
 Each line pairs a digest with an asset filename, for example:
 
 ```text
-78959394c6bbf77eb80ce7f6818d1dedabea68224a3603b3481ee927f8be9fa0  whitaker-installer-aarch64-apple-darwin-v0.2.7.tgz
+7ab59318fe717e1638cfa39a0055cc6da66e53ffa1b9d6a54470f567120b238f  whitaker-installer-aarch64-apple-darwin-v0.2.9.tgz
 ```
 
 This pinned manifest is the trust anchor, not the release's own `.sha256`
@@ -925,16 +960,21 @@ The job summary carries these metric names, read from `action.yml`:
   `whitaker-installer.transfer.sha256=...`.
 - `whitaker-installer.failure=resolve`, `whitaker-installer.failure=install`,
   `whitaker-installer.failure=execution`.
+- `whitaker-installer.suite=default-branch-tip`,
+  `whitaker-installer.suite-source=<prebuilt|source>`,
+  `whitaker-installer.suite-toolchain=<toolchain>`,
+  `whitaker-installer.rolling-assets=<complete|missing|unsupported-runner>`.
 - `whitaker-installer.result=success`.
 
 ### The installer floor
 
-No lane may ask for a Whitaker installer older than 0.2.7, and the action's own
-`installer-version` default may not sit below it either. Below 0.2.7 the
+No lane may ask for a Whitaker installer older than 0.2.9, and the action's own
+`installer-version` default may not sit below it either. 0.2.9 is the first
+installer with `--no-source-fallback`, which the action always passes, so an
+older one fails the run. The floor was 0.2.7 before that: below 0.2.7 the
 installer compiles `dylint-link` from crates.io instead of installing the
 published artefact, and since 2026-09-17 that build needs rustc 1.91 while this
-repository pins 1.89. The failure only shows on a cold installer cache, so a
-green run is no evidence that a lane is safe.
+repository pins 1.89, a failure that only shows on a cold installer cache.
 
 `tests/workflows/test_whitaker_installer_floor.py` enforces the floor, reading
 every workflow with a `.yml` or `.yaml` extension in any case:

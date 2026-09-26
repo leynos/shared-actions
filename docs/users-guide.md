@@ -442,45 +442,45 @@ action from a workflow in this repository with its local path:
 
 The repository must be checked out before invoking this local action.
 
-**The action pins the installer, not the lints it installs.** By default the
-installer builds the Dylint suite from the Whitaker default branch tip, so a
-change on that branch alters lint results with no commit in the consuming
-repository. The optional `suite-version` input names a tag, branch or commit to
-build from instead, so a suite change arrives as a reviewed bump:
+**The action pins the installer and never the lints.** The installer is an
+exact version, 0.2.9 by default, and the action refuses anything older. The
+lint suite is a rolling release that every consumer takes from the Whitaker
+default branch tip. A non-empty `suite-version` fails the step, and
+`allow-suite-pin` no longer exists.
 
-```yaml
-- name: Install Whitaker
-  uses: ./.github/actions/install-whitaker
-  with:
-    suite-version: v0.2.8
-```
+**Nothing is built from source.** Every run passes `--no-source-fallback` to
+the installer, so a missing published lint library or Dylint tool archive fails
+the run before Cargo starts. The action also reads the installer's output as a
+backstop and fails a run that reports a source build. `ci-mode`, on by default,
+checks the rolling assets before the installer runs and retries a short
+absence. Set it off only where the rolling release cannot be reached; it no
+longer permits a source build.
 
-A pin costs a source build, because prebuilt lint libraries are published only
-for the branch tip, and it needs installer 0.2.8 or later. The action's
-`ci-mode` input defaults to on and rejects a pin for that reason: CI pins the
-installer and consumes the published binaries, and a lane that wants the cost
-must say so with `allow-suite-pin: true`. `ci-mode` also verifies the rolling
-assets before the installer runs, retrying a short absence, and fails the step
-if the installer resorted to a source build anyway.
-
-Every run records which path it took as
-`whitaker-installer.suite-source=<prebuilt|source>`, and the toolchain the
-published libraries were built with as
+A run whose installer exits successfully records
+`whitaker-installer.suite-source=<prebuilt|source>`. When that value is
+`source`, the installer reported a source fallback, and the action records the
+metric and then fails the run. An installer that exits with an error stops the
+step before the metric is recorded. With `ci-mode` on, the asset check also
+records the toolchain the published libraries were built with as
 `whitaker-installer.suite-toolchain=<toolchain>`, so a lint result can be tied
-to the compiler that produced it. Set `ci-mode: false` when a source build is
-the intention, such as reproducing a lint locally against a modified suite. The
-path is still recorded, but `source` no longer fails the step.
+to the compiler that produced it. With `ci-mode` off, that metric is absent.
 
-A pin cannot be applied when the workflow runs inside a Whitaker checkout
-because checking out a reference there would move the working tree the run is
-using. Each run records which arm it took as
-`whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`.
-Only a full commit identifier reports as `pinned-commit`; a branch or tag is
-reported as mutable because it can move without the caller changing anything.
+The installer puts `cargo-dylint` and `dylint-link` in its tool directory:
+`XDG_BIN_HOME` when it is set, otherwise `~/.local/bin`, and on Windows the
+`.local\bin` directory under the user profile. The action adds that directory to
+`PATH` for the installer, which checks the tools by running them, and appends
+it to `GITHUB_PATH`, so later steps in the job can call `cargo dylint` and
+`dylint-link` by name. The Windows images do not have the directory on `PATH`
+by default.
 
 The optional `installer-version` input selects the `whitaker-installer` version
-and defaults to `0.2.8`. The optional `cargo-home` input defaults to
-`~/.cargo`; it controls the cached `whitaker-installer` location
+and defaults to `0.2.9`; the action refuses any older version, because older
+installers reject `--no-source-fallback`. Set the optional `cranelift` input to
+`true` when the repository's builds select the Cranelift codegen backend: the
+action then passes `--cranelift`, and the installer adds
+`rustc-codegen-cranelift` to the lint suite's toolchain through rustup. The
+optional `cargo-home` input defaults to `~/.cargo`; it controls the cached
+`whitaker-installer` location
 (`${{ steps.validate-inputs.outputs.installer-path }}`). The optional
 `cache-provider` input defaults to `github`; use `external` when the caller
 mounts this path and the installed suite through a Namespace cache volume.

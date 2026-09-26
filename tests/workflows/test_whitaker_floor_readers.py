@@ -81,7 +81,7 @@ class TestTheActionReference:
         lanes = list(floor._lanes("ci.yml", workflow))
 
         assert lanes == [("ci.yml", "lint", "0.2.6")], lanes
-        with pytest.raises(AssertionError, match=re.escape("below the 0.2.7 floor")):
+        with pytest.raises(AssertionError, match=re.escape("below the 0.2.9 floor")):
             floor._assert_at_or_above_floor(lanes[0][2], subject="ci.yml::lint")
 
 

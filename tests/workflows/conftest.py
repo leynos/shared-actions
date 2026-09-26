@@ -80,20 +80,35 @@ def _windows_executable_suffixes(
 # Windows has no execute permission bit, so `os.access(path, os.X_OK)` answers
 # True for every readable file there. Executability on that platform is carried
 # by the suffix, which is what PATHEXT enumerates.
-def _is_executable_file(path: Path, *, on_windows: bool = _ON_WINDOWS) -> bool:
-    """Return True when *path* is a file the operating system would run."""
+def _is_executable_file(
+    path: Path,
+    *,
+    on_windows: bool = _ON_WINDOWS,
+    environ: cabc.Mapping[str, str] | None = None,
+) -> bool:
+    """Return True when *path* is a file the operating system would run.
+
+    *environ* supplies PATHEXT on Windows. It defaults to the process
+    environment, read in `_windows_executable_suffixes` and nowhere else,
+    so a caller or a test can pass its own mapping instead.
+    """
     if not path.is_file():
         return False
     if on_windows:
-        return path.suffix.lower() in _windows_executable_suffixes()
+        return path.suffix.lower() in _windows_executable_suffixes(environ)
     return os.access(path, os.X_OK)
 
 
-def _command_available(command: str) -> bool:
-    """Return True when *command* names an executable file or PATH command."""
+def _command_available(
+    command: str, *, environ: cabc.Mapping[str, str] | None = None
+) -> bool:
+    """Return True when *command* names an executable file or PATH command.
+
+    *environ* is passed through to `_is_executable_file` for a path.
+    """
     command_path = Path(command)
     if command_path.parent != Path():
-        return _is_executable_file(command_path)
+        return _is_executable_file(command_path, environ=environ)
     return shutil.which(command) is not None
 
 

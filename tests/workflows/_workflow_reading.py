@@ -20,6 +20,7 @@ import typing as typ
 from pathlib import Path
 
 from .workflow_yaml import load_workflow as load_strict_yaml
+from .workflow_yaml import workflow_paths
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -151,11 +152,6 @@ CALLER_JOBS: typ.Final[frozenset[tuple[str, str]]] = frozenset(
     }
 )
 
-#: Both extensions GitHub accepts for a workflow file. Scanning only
-#: `.yml` would let a `.yaml` workflow past every rule in this module
-#: while the module still claimed to be exhaustive.
-WORKFLOW_SUFFIXES: typ.Final[tuple[str, ...]] = (".yml", ".yaml")
-
 #: A `runs-on` that defers to the job's matrix, captured exactly. A
 #: looser pattern would read `${{ matrix.os }}-latest` as a bare matrix
 #: reference and lose the suffix.
@@ -227,7 +223,8 @@ def load_workflow(
         If the file cannot be read, is not valid YAML, or declares a key
         twice. The message names the file.
     TypeError
-        If the document, or its `jobs` entry, is not a mapping.
+        If the document is not a mapping, or its `jobs` entry is absent,
+        null, empty or not a mapping.
     """
     document = load_strict_yaml(directory / name)
     match document:
@@ -241,10 +238,13 @@ def load_workflow(
     raw = typ.cast("dict[typ.Hashable, object]", document)
     jobs = raw.get("jobs")
     match jobs:
-        case None | dict():
+        case dict() if jobs:
             pass
         case _:
-            msg = f"{name}: 'jobs' is not a mapping: {jobs!r}"
+            # A workflow holds one or more jobs. Absent, null or empty,
+            # `jobs` would give every rule here nothing to inspect, and
+            # each would pass by inspecting nothing.
+            msg = f"{name}: 'jobs' is not a non-empty mapping: {jobs!r}"
             raise TypeError(msg)
     return typ.cast("WorkflowDocument", document)
 
@@ -270,40 +270,60 @@ def workflow_document_on(document: WorkflowDocument) -> object:
     return raw.get(True, raw.get("on"))
 
 
-def workflow_names() -> list[str]:
+def workflow_names(directory: Path = WORKFLOWS_DIRECTORY) -> list[str]:
     """Return every workflow file name, sorted.
+
+    Listed through `workflow_yaml.workflow_paths`, the same boundary the
+    other workflow contracts use: its suffix match ignores case, so a
+    `.YML` file is not skipped, and a directory that cannot be listed
+    raises rather than yielding nothing for every rule to pass over.
+
+    Parameters
+    ----------
+    directory : Path
+        The workflows directory; `.github/workflows` unless a test
+        supplies its own.
 
     Returns
     -------
     list of str
-        The names of the files under `.github/workflows` with a workflow
-        suffix.
+        The names of the workflow files in *directory*.
+
+    Raises
+    ------
+    ValueError
+        If *directory* is missing or cannot be listed.
     """
-    return sorted(
-        path.name
-        for path in WORKFLOWS_DIRECTORY.iterdir()
-        if path.suffix in WORKFLOW_SUFFIXES and path.is_file()
-    )
+    return sorted(path.name for path in workflow_paths(directory) if path.is_file())
 
 
-def jobs(name: str) -> cabc.Iterator[tuple[str, JobBody]]:
+def jobs(
+    name: str, *, directory: Path = WORKFLOWS_DIRECTORY
+) -> cabc.Iterator[tuple[str, JobBody]]:
     """Yield each job id and body in the workflow named *name*.
 
     Parameters
     ----------
     name : str
         The workflow's file name.
+    directory : Path
+        Where to find it.
 
     Yields
     ------
     tuple of (str, JobBody)
         The job's id and its body, in document order.
     """
-    yield from (load_workflow(name).get("jobs") or {}).items()
+    yield from load_workflow(name, directory=directory)["jobs"].items()
 
 
-def all_jobs() -> list[tuple[str, str]]:
-    """Return every (workflow, job id) pair in the repository, sorted.
+def all_jobs(directory: Path = WORKFLOWS_DIRECTORY) -> list[tuple[str, str]]:
+    """Return every (workflow, job id) pair in *directory*, sorted.
+
+    Parameters
+    ----------
+    directory : Path
+        The workflows directory.
 
     Returns
     -------
@@ -311,12 +331,19 @@ def all_jobs() -> list[tuple[str, str]]:
         One pair per job across every workflow file.
     """
     return sorted(
-        (name, job_id) for name in workflow_names() for job_id, _ in jobs(name)
+        (name, job_id)
+        for name in workflow_names(directory)
+        for job_id, _ in jobs(name, directory=directory)
     )
 
 
-def runner_job_ids() -> list[tuple[str, str]]:
+def runner_job_ids(directory: Path = WORKFLOWS_DIRECTORY) -> list[tuple[str, str]]:
     """Return every pair for a job that occupies a runner.
+
+    Parameters
+    ----------
+    directory : Path
+        The workflows directory.
 
     Returns
     -------
@@ -324,7 +351,7 @@ def runner_job_ids() -> list[tuple[str, str]]:
         `all_jobs()` without the jobs in `CALLER_JOBS`, which call a
         reusable workflow and occupy no runner of their own.
     """
-    return [pair for pair in all_jobs() if pair not in CALLER_JOBS]
+    return [pair for pair in all_jobs(directory) if pair not in CALLER_JOBS]
 
 
 def identifier(*parts: str) -> str:

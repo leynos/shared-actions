@@ -107,6 +107,33 @@ class TestExecutableDetection:
             "not make it a command"
         )
 
+    @pytest.mark.parametrize(
+        ("pathext", "expected"),
+        [
+            pytest.param(".EXE;.CMD", True, id="suffix-listed"),
+            pytest.param(".COM", False, id="suffix-not-listed"),
+        ],
+    )
+    def test_is_executable_file_reads_pathext_from_the_mapping_given(
+        self,
+        tmp_path: Path,
+        pathext: str,
+        expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+    ) -> None:
+        """PATHEXT comes from the caller's mapping, not the process.
+
+        The same file is accepted or refused by the mapping alone, which is
+        only true if the mapping reaches the Windows suffix rule.
+        """
+        path = tmp_path / "tool.exe"
+        path.write_text("#!/bin/sh\n", encoding="utf-8")
+
+        found = conftest._is_executable_file(
+            path, on_windows=True, environ={"PATHEXT": pathext}
+        )
+
+        assert found is expected, f"PATHEXT={pathext!r} gave {found!r}"
+
     def test_windows_executable_suffixes_reads_the_environment(self) -> None:
         """PATHEXT is split on the path separator and lower-cased."""
         suffixes = conftest._windows_executable_suffixes(

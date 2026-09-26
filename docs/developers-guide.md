@@ -1683,6 +1683,39 @@ mapping, bypassing the cache.
 be injected into the `act` subprocess - currently used to forward `DOCKER_HOST`
 when a healthy Podman socket is discovered automatically.
 
+### Deciding whether a command is runnable
+
+`_act_command` may name a bare command or a path, and the probe answers the two
+differently. A bare name is resolved through `PATH` by `shutil.which`; a name
+carrying a directory is checked directly, because a path the caller wrote out
+is not on `PATH` and `which` would report it missing.
+
+<!-- markdownlint-disable MD013 -->
+| Symbol                         | Type                                       | Role                                                                                        |
+| ------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `_command_available`           | `(str, *, environ?) -> bool`               | Resolve a bare name through `PATH`, and check a path-bearing name as a file.                |
+| `_is_executable_file`          | `(Path, *, on_windows?, environ?) -> bool` | Answer whether the operating system would run the file, by permission bit or by suffix.     |
+| `_windows_executable_suffixes` | `(environ?) -> frozenset[str]`             | Read `PATHEXT` into lower-cased suffixes, falling back to `.COM;.EXE;.BAT;.CMD` when unset. |
+<!-- markdownlint-enable MD013 -->
+
+Windows has no execute permission bit, so `os.access(path, os.X_OK)` answers
+`True` for every readable file there and would call a text file runnable.
+Executability is carried by the suffix instead, which is what `PATHEXT`
+enumerates.
+
+`PATHEXT` is the list Windows searches, not the list of files a caller can
+spawn, so the interpreted entries are filtered out: `.ps1`, `.vbs`, `.vbe`,
+`.js`, `.jse`, `.wsf`, `.wsh`, `.msc` and `.cpl`. Windows runs those by handing
+them to an interpreter, and `_run_act` does not: it passes the resolved path
+straight to `plumbum.local[...]`, which spawns it as a process and selects
+neither `powershell` nor `wscript`. A `.ps1` accepted by the availability check
+would therefore fail at process creation, reporting the file rather than the
+probe. Filtering them keeps the check's answer and the caller's behaviour the
+same thing. `PATHEXT` is separated by semicolons on Windows whatever
+`os.pathsep` says on the host reading it, so the separator is written out
+rather than borrowed from the platform, and the tests pin `PATHEXT` rather than
+inheriting it so the outcome does not depend on the developer's shell.
+
 ### Skip Markers
 
 <!-- markdownlint-disable MD013 -->
@@ -2294,3 +2327,237 @@ five things:
   warning and the withdrawal notice. Every other test asserts on the one line
   it cares about, and so passes while a neighbouring line is renamed or
   dropped; dropping `automerge_commit_pages_read` fails four of these.
+
+## Runner placement and job ceilings
+
+Two decisions sit in every job header here, and both disappear from view once
+the workflow is green: which runner the job takes, and how long it may take it.
+Five modules under `tests/workflows/` hold the answers and fail when a workflow
+drifts from them, one per responsibility:
+
+<!-- markdownlint-disable MD013 -->
+| Module                        | What it holds                                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `test_runner_placement.py`    | Which runner each Linux lane takes, the exemptions that name a reason, and the lanes that must stay on Linux. |
+| `test_job_ceilings.py`        | The tier each job belongs to, and the ceiling that tier carries.                                              |
+| `test_fork_fallback_guard.py` | The fork fallback, and which lanes are excused it because they skip forks instead.                            |
+| `test_check_names.py`         | That a matrix job's reported name is stable across both arms of the fallback.                                 |
+| `test_runner_declarations.py` | That `runs-on`, and each matrix dimension it references, parses to one line.                                  |
+<!-- markdownlint-enable MD013 -->
+
+They share `_workflow_reading.py`, which is not collected: it holds the
+constants, the validated YAML readers and the exemption mappings, so a workflow
+whose shape has drifted fails at the boundary with the file named rather than
+reaching an assertion as something unchecked. It lists and loads through
+`workflow_yaml`, the boundary the other workflow contracts use: the listing
+matches suffixes in any case and raises on a directory it cannot read, and the
+loader refuses a duplicate key. A workflow whose `jobs` is absent, null or
+empty is refused too, because every rule would pass it by inspecting nothing.
+Each reader takes the workflows directory as an argument, defaulting to
+`.github/workflows`, so its refusals are tested against files a test writes.
+
+### Where Linux work runs
+
+Linux work runs on `ubicloud-standard-2`. Windows and macOS legs stay on
+GitHub-hosted runners, because Ubicloud offers neither.
+
+For the per-action self-tests this is the point rather than a saving. A
+self-test is the only place an action meets a real runner, and the runners that
+consume these actions are Ubicloud. An action proved only on GitHub's image is
+proved somewhere nobody ships: the image differs, the cache service differs,
+and the difference is exactly what a self-test exists to find.
+
+Start at `ubicloud-standard-2` and move to a larger shape only on measured disk
+or wall-time evidence from a run in this repository. The larger labels are
+deliberately absent from the contract's recognized set, so adopting one is a
+change to this guide and to that set rather than a one-line edit nobody reads.
+
+### Forks
+
+A fork's pull request cannot obtain an Ubicloud runner. Left alone it would
+queue, and the job ceiling does not end that wait: `timeout-minutes` limits a
+job's running time, not its time in the queue, and GitHub lets a job wait for a
+runner for up to 24 hours. An external contribution would lose its Linux CI and
+might not learn so for a day. A lane a fork's pull request can reach therefore
+selects its label from the head repository:
+
+```yaml
+runs-on: >-
+  ${{ github.event.pull_request.head.repo.fork
+  && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+```
+
+On every other event `github.event.pull_request` is absent, so the expression
+yields the Ubicloud label and a push, dispatch or tag lane is unaffected. A
+lane with no `pull_request` trigger names the label outright, because no fork
+can reach it and the expression would be decoration.
+
+Falling back rather than skipping is the point. A guard that skips leaves a
+fork with no Linux CI at all, which is a worse answer to the same problem. The
+exceptions are the lanes a fork could not usefully run at all.
+`test-ubicloud-sccache-proxy.yml` proves that sccache reaches Ubicloud's cache
+proxy, which a GitHub-hosted runner cannot show, so a fallback would leave it
+green and proving nothing. `test-upload-codescene-coverage.yml` installs the
+pinned CLI through the repository's own action tree, which a fork's pull
+request cannot reach in the shape the proof needs. Its service-touching half,
+`test-codescene-parser-proof.yml`, is dispatch-only from main, so no fork
+reaches it and it names the Ubicloud label outright. Both skip a fork's pull
+request instead, and `FORK_FALLBACK_EXEMPTIONS` records why while
+`test_a_fork_skipping_lane_really_skips_forks` checks the guard is actually
+there.
+
+A lane may write that guard either way round: excluding pull requests with
+`github.event_name != 'pull_request'`, or naming the event it does serve with
+`github.event_name == 'workflow_dispatch'`. Both are read as arms no fork can
+reach, and both are written out in full rather than matched by shape, because
+`github.event_name == 'pull_request'` looks the same and means the opposite.
+Neither stands alone: an arm requiring the head-repository comparison has to be
+present, or the lane never runs on a pull request at all and has stopped
+proving what the exemption was granted for.
+
+The contract parses the expression rather than comparing it as a string, so
+each part is asserted on its own: the field path exactly, the fork arm as the
+hosted label, the other arm as the Ubicloud one. An expression it cannot parse
+is treated as a Linux lane and fails, rather than being waved through as
+something it does not recognize. That matters more than it looks: keying on a
+sibling field such as `head.repo.private` changes which pull requests fall
+back, and an earlier draft of the contract let exactly that mutation past by
+concluding the lane was no longer a Linux lane at all.
+
+Four kinds of Linux job stay GitHub-hosted, each recorded with its reason in
+`HOSTED_LINUX_EXEMPTIONS`:
+
+| Job                                                                          | Why it stays hosted                                                                                                                                                                       |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test-export-ubicloud-cache-credentials.yml::refuses-a-github-hosted-runner` | The job proves the action fails closed against a real GitHub-hosted cache endpoint. On Ubicloud that endpoint is the one the action accepts, so the job would pass while testing nothing. |
+| `mutation-cargo.yml` and `mutation-mutmut.yml`                               | Scheduled, never developer-blocking, and free on public-repository minutes.                                                                                                               |
+| `dependabot-automerge.yml::automerge`                                        | A delayed-comment lane that waits on other checks rather than computing anything.                                                                                                         |
+| Caller jobs that only `uses:` another workflow                               | They occupy no runner of their own.                                                                                                                                                       |
+
+An exemption whose job has been renamed or deleted fails the contract. That is
+deliberate: without it the mapping accumulates permissions for jobs that no
+longer exist, and the next job to take one of those names inherits a decision
+nobody made about it.
+
+Step conditions select a platform with `runner.os`, never by naming a runner
+label. Fourteen conditions in `ci.yml` once read
+`matrix.os == 'ubuntu-latest'`. Changing the label would have switched off
+formatting, spelling, Markdown lint, diagram validation and the whole lint
+target on the only leg that runs them, leaving a green job that did almost
+nothing.
+
+### What a job is called
+
+A required status check is matched by name, so a check name that moves takes
+every required context with it. A matrix job with no `name:` gets one composed
+from its matrix values, which means the runner label lands in the check name.
+Under the fork fallback that label is not even constant: the Linux leg of
+`python-tests` reports as `python-tests (ubicloud-standard-2)` for an internal
+pull request and `python-tests (ubuntu-latest)` for a fork's. No required-check
+list can hold a name that depends on who opened the pull request.
+
+So every job whose runner comes from its matrix declares a `name:` keyed on a
+platform word:
+
+```yaml
+name: build-release (${{ matrix.platform }}, ${{ matrix.target }})
+runs-on: ${{ matrix.runner }}
+```
+
+`matrix.platform` is the runner's platform word rather than the target's
+operating system, and it is the same on both arms of the fork fallback.
+`matrix.target` stays in the name because it is what distinguishes one leg from
+another and nothing about the runner decides it.
+
+`test_no_job_name_interpolates_its_runner` refuses a name that interpolates the
+matrix dimension supplying `runs-on`, that writes a runner label out in full,
+or that reaches for a `runner.*` context.
+`test_a_matrix_runner_job_declares_its_own_name` refuses the absent `name:`
+that would compose one anyway. The reader is asserted in both directions: a
+name carrying `matrix.target` beside the platform word passes, and a
+hypothetical `ubuntu-latest-arm64` is not read as `ubuntu-latest`.
+
+Renaming these jobs changes the required contexts in `main-required-checks`,
+which is a repository setting rather than a file in the tree. Ten contexts move
+when this rule is applied here, and a branch carrying the rename is blocked
+until they do.
+
+### A folded expression that keeps its line break
+
+The fork fallback is written as a folded scalar, and folding only joins lines
+that share the first line's indent. A continuation indented deeper keeps its
+break, so this:
+
+<!-- folding-counter-example: this snippet is deliberately broken -->
+
+```yaml
+runs-on: >-
+  ${{ github.event.pull_request.head.repo.fork
+     && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+```
+
+parses to a value with a newline in the middle of the expression. GitHub
+evaluates it regardless, so a green run says nothing about it, and all
+twenty-five fork fallbacks on this branch were written that way before
+`test_no_runner_declaration_carries_a_line_break` read them from the parsed
+document. Keep the continuation at the same indent as the line it continues.
+Only `runs-on` and the matrix dimensions it references are read. A multi-line
+value in some other dimension, such as a script body, selects no runner, so it
+is left alone. `runs-on` is read in all three of its forms: a label, a sequence
+of labels, or a `group`/`labels` mapping. Any other shape is refused. A
+dimension counts as referenced whether it is written `matrix.os` or
+`matrix['os']`.
+
+### How long a job may take
+
+A job without `timeout-minutes` inherits GitHub's six-hour default. That is not
+a budget anybody chose; it is the absence of one, and it turns an overrun into
+six hours of a runner and no diagnosis. Every job this repository owns carries
+a ceiling from one of five tiers, each sized from run history rather than from
+a round number that looked safe.
+
+| Tier      | Minutes | What it covers                                                                   | Longest observed                  |
+| --------- | ------- | -------------------------------------------------------------------------------- | --------------------------------- |
+| Assertion | 10      | Checkout, run an action, assert its outputs. No release archive, no compilation. | 13 s                              |
+| Install   | 15      | Downloads and verifies a pinned release archive.                                 | 5 min 40 s (Windows Whitaker leg) |
+| Build     | 20      | Cross-compiles the toy application.                                              | 4 min 36 s (a Windows leg)        |
+| Suite     | 20      | Runs the Python suite uninstrumented.                                            | 12 min 45 s                       |
+| Coverage  | 30      | Runs the same suite under `generate-coverage`.                                   | 6 min 53 s                        |
+
+The figures come from the five most recent successful runs of each workflow as
+of 2026-09-15, measured as job busy time, which excludes queueing. The headroom
+is deliberate and uneven: the assertion tier sits far above its measurement
+because `ubicloud-standard-2` has half the vCPUs of a GitHub-hosted runner and
+because a cold cache on a new store makes the first run of any lane
+unrepresentative.
+
+These ceilings are the outermost of the four timers described under "Test
+timeouts: four tiers, outermost last" in the users' guide. Nothing in this
+repository runs `cargo` under `generate-coverage`, so the watchdog and the two
+nextest timers do not apply; see
+`tests/workflows/test_coverage_timeout_tiers.py` for what happens to that if a
+root `Cargo.toml` ever appears.
+
+### Changing a decision
+
+`pytest.ini` names `tests/workflows` as a `testpaths` entry rather than listing
+the modules inside it. A contract module is only a gate if something collects
+it, and an enumeration exists to be forgotten: six modules here were never
+listed, twelve of their assertions ran nowhere, and two contracts added in #480
+were in the same state until they were added to the list.
+`test_contracts_are_collected.py` keeps the enumeration from coming back.
+
+Both the runner and the ceiling of every job are enumerated in the contract,
+and a job in neither the tier table nor one of the two exclusion sets fails it.
+So a new workflow cannot inherit both defaults quietly: adding one means saying
+where it runs and how long it may run, with the measurement that says so.
+
+### The suite runs once per platform
+
+The coverage job is the only Linux test execution. `ci.yml` used to run the
+pytest suite twice for every pull request, once uninstrumented in the
+`python-tests` matrix leg and once under `generate-coverage`, at a measured
+cost of 5 minutes 14 seconds a run for no information.
+`tests/workflows/test_linux_suite_executes_once.py` holds both halves of the
+rule, because forbidding the Linux run alone would be satisfied by deleting the
+coverage run instead.

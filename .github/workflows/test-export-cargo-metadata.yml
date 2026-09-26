@@ -5,7 +5,10 @@ on:
 
 jobs:
   test-export-metadata:
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -29,7 +32,10 @@ jobs:
           [[ "${{ steps.metadata.outputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]
 
   test-export-metadata-env-overrides:
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

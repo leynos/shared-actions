@@ -40,11 +40,75 @@ def _act_command(environ: cabc.Mapping[str, str] | None = None) -> str:
     return source.get("ACT", "act")
 
 
-def _command_available(command: str) -> bool:
-    """Return True when *command* names an executable file or PATH command."""
+_ON_WINDOWS = os.name == "nt"
+_DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
+# PATHEXT is semicolon-separated on Windows whatever os.pathsep says on the
+# host running these tests, so the separator is written out rather than
+# borrowed from the platform.
+_PATHEXT_SEPARATOR = ";"
+
+
+#: Suffixes `PATHEXT` commonly carries that name a script rather than a
+#: program: Windows runs them by handing them to an interpreter, and the
+#: probe's caller does not. `_run_act` passes the resolved path straight
+#: to `plumbum.local[...]`, which spawns it as a process and does not
+#: select `powershell` or `wscript`, so a `.PS1` here would pass the
+#: availability check and then fail at process creation with a message
+#: about the file rather than about the probe. Refusing them keeps the
+#: check's answer and the caller's behaviour the same thing.
+_INTERPRETED_SUFFIXES: typ.Final[frozenset[str]] = frozenset(
+    {".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc", ".cpl"}
+)
+
+
+# `PATHEXT` is the list Windows searches, not the list of files a caller can
+# spawn. The interpreted suffixes are filtered out because the caller hands
+# the resolved path straight to plumbum, which selects no interpreter.
+def _windows_executable_suffixes(
+    environ: cabc.Mapping[str, str] | None = None,
+) -> frozenset[str]:
+    """Return the lower-cased suffixes Windows would spawn directly."""
+    source = os.environ if environ is None else environ
+    raw = source.get("PATHEXT") or _DEFAULT_PATHEXT
+    return frozenset(
+        suffix.strip().lower()
+        for suffix in raw.split(_PATHEXT_SEPARATOR)
+        if suffix.strip() and suffix.strip().lower() not in _INTERPRETED_SUFFIXES
+    )
+
+
+# Windows has no execute permission bit, so `os.access(path, os.X_OK)` answers
+# True for every readable file there. Executability on that platform is carried
+# by the suffix, which is what PATHEXT enumerates.
+def _is_executable_file(
+    path: Path,
+    *,
+    on_windows: bool = _ON_WINDOWS,
+    environ: cabc.Mapping[str, str] | None = None,
+) -> bool:
+    """Return True when *path* is a file the operating system would run.
+
+    *environ* supplies PATHEXT on Windows. It defaults to the process
+    environment, read in `_windows_executable_suffixes` and nowhere else,
+    so a caller or a test can pass its own mapping instead.
+    """
+    if not path.is_file():
+        return False
+    if on_windows:
+        return path.suffix.lower() in _windows_executable_suffixes(environ)
+    return os.access(path, os.X_OK)
+
+
+def _command_available(
+    command: str, *, environ: cabc.Mapping[str, str] | None = None
+) -> bool:
+    """Return True when *command* names an executable file or PATH command.
+
+    *environ* is passed through to `_is_executable_file` for a path.
+    """
     command_path = Path(command)
     if command_path.parent != Path():
-        return command_path.is_file() and os.access(command_path, os.X_OK)
+        return _is_executable_file(command_path, environ=environ)
     return shutil.which(command) is not None
 
 

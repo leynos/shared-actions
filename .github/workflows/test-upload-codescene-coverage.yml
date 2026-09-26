@@ -27,7 +27,11 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.actor != 'dependabot[bot]'
-    runs-on: ubuntu-latest
+    # The lane skips a fork's pull request rather than falling back (see
+    # the `if:` above). It therefore names the Ubicloud label outright: no
+    # arm of it ever runs on a fork's runner.
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

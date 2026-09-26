@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import time
 import typing as typ
 
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 from stage_common.config import ArtefactConfig
 from stage_common.pipeline import stage_artefacts
@@ -93,3 +94,21 @@ def test_the_shared_property_settings_set_no_deadline() -> None:
     The deadline must be absent, not merely generous.
     """
     assert HYPOTHESIS_SETTINGS.deadline is None
+
+
+def test_a_property_on_the_shared_settings_outlives_any_deadline() -> None:
+    """A property slower than Hypothesis's default deadline still passes (#520).
+
+    Each example sleeps past the default 200 ms deadline, standing in for a
+    staging example on a contended host. Only the example count is narrowed,
+    so the deadline is whatever the shared settings carry: were it inherited
+    from the default, this would raise ``DeadlineExceeded``.
+    """
+    slow_example_seconds = 0.3
+
+    @settings(HYPOTHESIS_SETTINGS, max_examples=2, database=None)
+    @given(st.integers())
+    def property_slower_than_the_default_deadline(_value: int) -> None:
+        time.sleep(slow_example_seconds)
+
+    property_slower_than_the_default_deadline()

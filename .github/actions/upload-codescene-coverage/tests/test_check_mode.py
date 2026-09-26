@@ -31,6 +31,17 @@ assert _WORKFLOW_YAML_SPEC is not None
 assert _WORKFLOW_YAML_SPEC.loader is not None
 workflow_yaml = importlib.util.module_from_spec(_WORKFLOW_YAML_SPEC)
 _WORKFLOW_YAML_SPEC.loader.exec_module(workflow_yaml)
+#: The contracts' guard reader: a guard is the conjunction of its top-level
+#: ``&&`` terms, and one with an unquoted ``||`` requires nothing. Loaded by
+#: path for the same reason as ``workflow_yaml``.
+_WORKFLOW_EXPRESSIONS_SPEC = importlib.util.spec_from_file_location(
+    "workflow_expressions",
+    ACTION_YML.parents[3] / "tests/workflows/workflow_expressions.py",
+)
+assert _WORKFLOW_EXPRESSIONS_SPEC is not None
+assert _WORKFLOW_EXPRESSIONS_SPEC.loader is not None
+workflow_expressions = importlib.util.module_from_spec(_WORKFLOW_EXPRESSIONS_SPEC)
+_WORKFLOW_EXPRESSIONS_SPEC.loader.exec_module(workflow_expressions)
 
 
 def _workflow(path: Path) -> dict[object, object]:
@@ -193,9 +204,9 @@ def test_skipped_gate_suppresses_all_following_steps() -> None:
 
     for step in steps[applicability_index + 1 :]:
         condition = str(step.get("if", ""))
-        assert "steps.gate-applicability.outputs.skip != 'true'" in condition, step[
-            "name"
-        ]
+        assert workflow_expressions.requires_every(
+            condition, ["steps.gate-applicability.outputs.skip != 'true'"]
+        ), f"{step['name']} does not require the skip output: {condition!r}"
 
 
 def test_gate_success_streams_diagnostic_without_verbose(
@@ -257,8 +268,10 @@ def test_cli_steps_scope_inputs_without_github_environment_exports() -> None:
     assert str(upload_env["CS_ACCESS_TOKEN"]).endswith(input_key + " }}")
     assert str(check_env["CS_ACCESS_TOKEN"]).endswith(input_key + " }}")
     assert check_env["CS_PROJECT_URL"] == "${{ inputs.project-url }}"
-    assert "inputs.access-token != ''" in str(upload["if"])
-    assert "inputs.access-token != ''" in str(check["if"])
+    for step in (upload, check):
+        assert workflow_expressions.requires_every(
+            str(step["if"]), ["inputs.access-token != ''"]
+        ), f"{step['name']} does not require a token: {step['if']!r}"
     manifest = yaml.safe_load(action)
     assert manifest["inputs"]["access-token"] == {
         "description": "CodeScene project access token",
@@ -368,7 +381,70 @@ def test_install_mode_skips_coverage_file_and_artefact_work() -> None:
     steps = _steps()
     for name in ("Determine coverage file", "Upload coverage GitHub artefact"):
         step = next(step for step in steps if step["name"] == name)
-        assert "inputs.mode != 'install'" in str(step["if"])
+        assert workflow_expressions.requires_every(
+            str(step["if"]), ["inputs.mode != 'install'"]
+        ), f"{name} runs in install mode: {step['if']!r}"
+
+
+#: The cold-runner job's guard, whitespace collapsed.
+COLD_RUNNER_JOB_GUARD = (
+    "github.event_name == 'workflow_dispatch' || "
+    "github.event.pull_request.head.repo.full_name == github.repository && "
+    "github.actor != 'dependabot[bot]'"
+)
+#: The commands that prove the runner starts without the CLI.
+COLD_CHECK_SCRIPT = (
+    "if command -v cs-coverage >/dev/null 2>&1; then",
+    "echo 'cs-coverage was unexpectedly preinstalled on this runner' >&2",
+    "exit 1",
+    "fi",
+)
+#: The commands that fail the lane when the parser proof's fixtures vanish.
+FIXTURE_CHECK_SCRIPT = (
+    "set -euo pipefail",
+    "shopt -s nullglob",
+    (
+        "fixtures=(.github/actions/upload-codescene-coverage/tests/fixtures/"
+        "slipcover-*-cobertura.xml)"
+    ),
+    'if [ "${#fixtures[@]}" -eq 0 ]; then',
+    "echo 'no Slipcover cobertura fixtures remain for the parser proof' >&2",
+    "exit 1",
+    "fi",
+    'for fixture in "${fixtures[@]}"; do',
+    (
+        "python3 -c 'import sys, xml.etree.ElementTree as ET; "
+        'ET.parse(sys.argv[1])\' "$fixture"'
+    ),
+    "done",
+)
+
+
+def _script(run: object) -> tuple[str, ...]:
+    """Return a ``run:`` body's command lines, without blanks or comments."""
+    lines = (line.strip() for line in str(run).splitlines())
+    return tuple(line for line in lines if line and not line.startswith("#"))
+
+
+def _cold_runner_steps() -> list[dict[str, object]]:
+    """Return the cold-runner job's steps."""
+    return _workflow(COLD_RUNNER_YML)["jobs"]["cold-runner-contract"]["steps"]
+
+
+def _sole_script_steps(
+    steps: list[dict[str, object]], script: tuple[str, ...]
+) -> list[int]:
+    """Return the indices of unguarded steps whose whole body is *script*.
+
+    ``false && <command>`` contains the command's text and runs nothing, and
+    so does a step whose ``if:`` is never true, so a substring cannot say a
+    command runs.
+    """
+    return [
+        index
+        for index, step in enumerate(steps)
+        if "if" not in step and _script(step.get("run", "")) == script
+    ]
 
 
 def _triggers(path: Path) -> dict[str, object]:
@@ -392,24 +468,46 @@ class TestTheColdRunnerProofRunsOnPullRequests:
             f"read {triggers!r}"
         )
 
-    def test_it_installs_the_pinned_cli_on_a_cold_runner(self) -> None:
-        """The install path is what a pull request is here to exercise."""
-        workflow = _workflow(COLD_RUNNER_YML)
-        steps = workflow["jobs"]["cold-runner-contract"]["steps"]
-        installs = [
-            step
-            for step in steps
-            if "upload-codescene-coverage" in str(step.get("uses", ""))
-            and str((step.get("with") or {}).get("mode", "")) == "install"
-        ]
-        assert len(installs) == 1, (
-            f"{COLD_RUNNER_YML.name} must install the pinned CLI exactly once; "
-            f"found {len(installs)}"
+    def test_its_job_runs_for_a_same_repository_pull_request(self) -> None:
+        """Every step below is vacuous if the job itself never starts.
+
+        The guard is compared whole: it is a disjunction by design, so no
+        conjunct reading applies, and ``false`` or an extra ``&& false``
+        must not pass.
+        """
+        job = _workflow(COLD_RUNNER_YML)["jobs"]["cold-runner-contract"]
+        guard = " ".join(str(job.get("if", "")).split())
+
+        assert guard == COLD_RUNNER_JOB_GUARD, (
+            f"{COLD_RUNNER_YML.name} changed when its job runs: {guard!r}"
         )
-        assert any(
-            "cs-coverage was unexpectedly preinstalled" in str(step.get("run", ""))
-            for step in steps
-        ), f"{COLD_RUNNER_YML.name} no longer proves the runner starts cold"
+
+    def test_it_installs_the_pinned_cli_on_a_cold_runner(self) -> None:
+        """The install path is what a pull request is here to exercise.
+
+        The cold check must be a whole unguarded step, and it must run before
+        the install: after it, the check proves nothing about the runner.
+        """
+        steps = _cold_runner_steps()
+        installs = [
+            index
+            for index, step in enumerate(steps)
+            if step.get("uses") == "./.github/actions/upload-codescene-coverage"
+            and (step.get("with") or {}).get("mode") == "install"
+            and "if" not in step
+        ]
+        cold_checks = _sole_script_steps(steps, COLD_CHECK_SCRIPT)
+
+        assert len(installs) == 1, (
+            f"{COLD_RUNNER_YML.name} must install the pinned CLI exactly once, "
+            f"unguarded; found {len(installs)}"
+        )
+        assert len(cold_checks) == 1, (
+            f"{COLD_RUNNER_YML.name} no longer proves the runner starts cold"
+        )
+        assert cold_checks[0] < installs[0], (
+            f"{COLD_RUNNER_YML.name} checks for a preinstalled CLI after installing one"
+        )
 
     def test_it_holds_no_credential_and_calls_no_service_command(self) -> None:
         """Its whole reason for staying on the lane is that it contacts nothing.
@@ -437,9 +535,14 @@ class TestTheColdRunnerProofRunsOnPullRequests:
         )
 
     def test_it_keeps_the_parser_proof_fixtures_honest(self) -> None:
-        """A deleted fixture would make the parser proof loop over nothing."""
-        text = COLD_RUNNER_YML.read_text(encoding="utf-8")
-        assert "no Slipcover cobertura fixtures remain for the parser proof" in text, (
+        """A deleted fixture would make the parser proof loop over nothing.
+
+        The script is required whole, on a step with no ``if:``, so neither
+        dropping its ``exit 1`` nor guarding the step off passes.
+        """
+        steps = _cold_runner_steps()
+
+        assert len(_sole_script_steps(steps, FIXTURE_CHECK_SCRIPT)) == 1, (
             f"{COLD_RUNNER_YML.name} no longer fails when the fixtures vanish"
         )
 

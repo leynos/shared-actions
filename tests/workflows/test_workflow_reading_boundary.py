@@ -36,6 +36,9 @@ class TestTheSharedReader:
             ),
             pytest.param("- a list\n", TypeError, id="not-a-mapping"),
             pytest.param("jobs: [a]\n", TypeError, id="jobs-not-a-mapping"),
+            pytest.param("on: push\n", TypeError, id="jobs-absent"),
+            pytest.param("jobs:\n", TypeError, id="jobs-null"),
+            pytest.param("jobs: {}\n", TypeError, id="jobs-empty"),
         ],
     )
     def test_a_workflow_github_would_reject_is_refused(
@@ -61,6 +64,31 @@ class TestTheSharedReader:
         document = reading.load_workflow("lane.yml", directory=tmp_path)
 
         assert document == {"jobs": {"a": {"runs-on": "ubuntu-latest"}}}, document
+
+
+class TestWorkflowEnumeration:
+    """Which files the rules enumerate, through the injected directory."""
+
+    def test_every_workflow_suffix_is_listed_in_any_case(self, tmp_path: Path) -> None:
+        """A `.YML` file is a workflow, as it is to the other contracts.
+
+        Skipping it by case would put its jobs beyond every placement and
+        ceiling rule while the enumeration still claimed to be exhaustive.
+        """
+        body = "jobs:\n  a:\n    runs-on: ubuntu-latest\n"
+        for name in ("lower.yml", "upper.YML", "long.yaml", "notes.txt"):
+            (tmp_path / name).write_text(body, encoding="utf-8")
+
+        names = reading.workflow_names(tmp_path)
+        pairs = reading.all_jobs(tmp_path)
+
+        assert names == ["long.yaml", "lower.yml", "upper.YML"], names
+        assert ("upper.YML", "a") in pairs, pairs
+
+    def test_a_directory_that_cannot_be_listed_is_refused(self, tmp_path: Path) -> None:
+        """A missing directory raises; it does not enumerate as empty."""
+        with pytest.raises(ValueError, match="cannot list workflows"):
+            reading.workflow_names(tmp_path / "absent")
 
 
 class TestRunnerPlatforms:

@@ -1691,11 +1691,11 @@ carrying a directory is checked directly, because a path the caller wrote out
 is not on `PATH` and `which` would report it missing.
 
 <!-- markdownlint-disable MD013 -->
-| Symbol                         | Type                             | Role                                                                                        |
-| ------------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------- |
-| `_command_available`           | `(str) -> bool`                  | Resolve a bare name through `PATH`, and check a path-bearing name as a file.                |
-| `_is_executable_file`          | `(Path, *, on_windows?) -> bool` | Answer whether the operating system would run the file, by permission bit or by suffix.     |
-| `_windows_executable_suffixes` | `(environ?) -> frozenset[str]`   | Read `PATHEXT` into lower-cased suffixes, falling back to `.COM;.EXE;.BAT;.CMD` when unset. |
+| Symbol                         | Type                                       | Role                                                                                        |
+| ------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `_command_available`           | `(str, *, environ?) -> bool`               | Resolve a bare name through `PATH`, and check a path-bearing name as a file.                |
+| `_is_executable_file`          | `(Path, *, on_windows?, environ?) -> bool` | Answer whether the operating system would run the file, by permission bit or by suffix.     |
+| `_windows_executable_suffixes` | `(environ?) -> frozenset[str]`             | Read `PATHEXT` into lower-cased suffixes, falling back to `.COM;.EXE;.BAT;.CMD` when unset. |
 <!-- markdownlint-enable MD013 -->
 
 Windows has no execute permission bit, so `os.access(path, os.X_OK)` answers
@@ -2348,7 +2348,13 @@ drifts from them, one per responsibility:
 They share `_workflow_reading.py`, which is not collected: it holds the
 constants, the validated YAML readers and the exemption mappings, so a workflow
 whose shape has drifted fails at the boundary with the file named rather than
-reaching an assertion as something unchecked.
+reaching an assertion as something unchecked. It lists and loads through
+`workflow_yaml`, the boundary the other workflow contracts use: the listing
+matches suffixes in any case and raises on a directory it cannot read, and the
+loader refuses a duplicate key. A workflow whose `jobs` is absent, null or
+empty is refused too, because every rule would pass it by inspecting nothing.
+Each reader takes the workflows directory as an argument, defaulting to
+`.github/workflows`, so its refusals are tested against files a test writes.
 
 ### Where Linux work runs
 

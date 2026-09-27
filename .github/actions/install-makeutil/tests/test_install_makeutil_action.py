@@ -47,9 +47,10 @@ class TestInputsAndOutputs:
         """Callers depend on these names; the set is part of the interface."""
         outputs = load_action()["outputs"]
 
-        assert set(outputs) == {"path", "version"}
+        assert set(outputs) == {"path", "version", "result"}
         assert outputs["path"]["value"] == "${{ steps.install.outputs.path }}"
         assert outputs["version"]["value"] == "${{ steps.install.outputs.version }}"
+        assert outputs["result"]["value"] == "${{ steps.install.outputs.result }}"
 
 
 class TestOrdering:

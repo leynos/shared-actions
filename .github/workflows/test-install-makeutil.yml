@@ -65,13 +65,14 @@ jobs:
 
       - name: Verify the second install was cached
         shell: bash
+        env:
+          SECOND_RESULT: ${{ steps.install-again.outputs.result }}
         run: |
           set -euo pipefail
-          # The action's own log carries exactly one
-          # `install-makeutil.result` line per run; the second run's must
-          # say `cached`, not `installed`, or the digest re-verification and
-          # the cache step are both buying nothing.
-          grep -q 'install-makeutil.result=cached' "$GITHUB_STEP_SUMMARY"
+          # The second run finds the verified binary already in bin-dir, so it
+          # must report `cached`, not `installed`. Each step writes its own
+          # summary file, so the action's output is read rather than a summary.
+          test "${SECOND_RESULT}" = cached
 
   install-makeutil-digest-mismatch:
     # A tampered expected digest must fail closed even though the real

@@ -150,6 +150,18 @@ class InstallResult:
     path: Path | None = None
 
 
+@dc.dataclass(slots=True, frozen=True)
+class AssetUrls:
+    """The release asset URL and its published `.sha256` sidecar URL.
+
+    Grouped so `install_makeutil` takes one URL argument instead of two; the
+    pair is always resolved together and never used independently.
+    """
+
+    binary: str
+    sidecar: str
+
+
 def _cached_digest_matches(target: Path, expected_sha256: str) -> bool:
     """Return whether a file already at `target` carries `expected_sha256`."""
     if not target.is_file():
@@ -161,8 +173,7 @@ def install_makeutil(
     *,
     executable_path: Path,
     expected_sha256: str,
-    binary_url: str,
-    sidecar_url: str,
+    asset_urls: AssetUrls,
     downloader: Downloader = default_downloader,
 ) -> InstallResult:
     """Install makeutil's verified binary, or report why installation stopped.
@@ -181,10 +192,8 @@ def install_makeutil(
     expected_sha256 : str
         The digest the download must match; ordinarily the digest table's
         entry, but overridable for a test that tampers with it.
-    binary_url : str
-        The release asset URL.
-    sidecar_url : str
-        The asset's published `.sha256` sidecar URL.
+    asset_urls : AssetUrls
+        The release asset URL and its published `.sha256` sidecar URL.
     downloader : Downloader
         Injected so tests need no network.
 
@@ -197,7 +206,7 @@ def install_makeutil(
         return InstallResult(CACHED, path=executable_path)
 
     try:
-        binary = downloader(binary_url)
+        binary = downloader(asset_urls.binary)
     except MakeutilError as error:
         return InstallResult(DOWNLOAD_FAILED, message=str(error))
 
@@ -210,7 +219,7 @@ def install_makeutil(
         return InstallResult(DIGEST_MISMATCH, message=message)
 
     try:
-        sidecar_bytes = downloader(sidecar_url)
+        sidecar_bytes = downloader(asset_urls.sidecar)
     except MakeutilError as error:
         return InstallResult(DOWNLOAD_FAILED, message=str(error))
 
@@ -219,7 +228,7 @@ def install_makeutil(
     except UnicodeDecodeError as error:
         return InstallResult(SIDECAR_MISMATCH, message=f"sidecar is not ASCII: {error}")
 
-    expected_name = binary_url.rsplit("/", 1)[-1]
+    expected_name = asset_urls.binary.rsplit("/", 1)[-1]
     try:
         sidecar_digest = parse_sidecar(sidecar_text, expected_name)
     except SidecarError as error:

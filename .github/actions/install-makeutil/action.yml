@@ -32,6 +32,11 @@ outputs:
   version:
     description: Version installed, as named by the `version` input
     value: ${{ steps.install.outputs.version }}
+  result:
+    description: >-
+      `installed` when this run downloaded and verified the binary, or
+      `cached` when a binary already in bin-dir matched the pinned digest
+    value: ${{ steps.install.outputs.result }}
 
 runs:
   using: composite

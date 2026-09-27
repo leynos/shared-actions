@@ -17,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import install_makeutil as cli
+import pytest
 from makeutil_verify import CACHED, sha256_hex
 
 
@@ -103,78 +104,62 @@ class TestResolveSubcommand:
         assert outputs["expected-sha256"] == override
         assert "99dd28a1" in outputs["cache-key"]
 
-    def test_an_unsupported_platform_reports_the_bounded_metric(
-        self, tmp_path: Path
-    ) -> None:
-        """The step summary carries exactly the documented result value."""
-        env = _fake_env(tmp_path)
-
-        exit_code = cli.main(
-            [
-                "resolve",
-                "--version",
+    @pytest.mark.parametrize(
+        ("version", "runner_os", "runner_arch", "expected_metric"),
+        [
+            pytest.param(
                 "0.1.0",
-                "--bin-dir",
-                str(tmp_path / "bin"),
-                "--runner-os",
                 "Windows",
-                "--runner-arch",
                 "X64",
-            ],
-            env,
-        )
-
-        assert exit_code == 1
-        summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
-        assert "install-makeutil.result=unsupported-platform" in summary
-
-    def test_an_unknown_version_reports_the_bounded_metric(
-        self, tmp_path: Path
-    ) -> None:
-        """0.0.1 is never in the table; the metric says so, not a traceback."""
-        env = _fake_env(tmp_path)
-
-        exit_code = cli.main(
-            [
-                "resolve",
-                "--version",
-                "0.0.1",
-                "--bin-dir",
-                str(tmp_path / "bin"),
-                "--runner-os",
-                "Linux",
-                "--runner-arch",
-                "X64",
-            ],
-            env,
-        )
-
-        assert exit_code == 1
-        summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
-        assert "install-makeutil.result=unknown-version" in summary
-
-    def test_a_malformed_version_reports_invalid_input(self, tmp_path: Path) -> None:
-        """Input validation runs, and reports, before the platform check."""
-        env = _fake_env(tmp_path)
-
-        exit_code = cli.main(
-            [
-                "resolve",
-                "--version",
+                "unsupported-platform",
+                id="unsupported-platform",
+            ),
+            pytest.param(
+                "0.0.1", "Linux", "X64", "unknown-version", id="unknown-version"
+            ),
+            pytest.param(
                 "not-a-version",
+                "Linux",
+                "X64",
+                "invalid-input",
+                id="malformed-version",
+            ),
+        ],
+    )
+    def test_a_refused_resolve_reports_its_bounded_metric(
+        self,
+        tmp_path: Path,
+        version: str,
+        runner_os: str,
+        runner_arch: str,
+        expected_metric: str,
+    ) -> None:
+        """Each refusal stage - input, version, platform - exits 1 and
+        reports exactly its own documented result value, never a traceback.
+        Input validation runs before the version and platform checks, which
+        is what the malformed-version case, run against a valid platform,
+        proves.
+        """
+        env = _fake_env(tmp_path)
+
+        exit_code = cli.main(
+            [
+                "resolve",
+                "--version",
+                version,
                 "--bin-dir",
                 str(tmp_path / "bin"),
                 "--runner-os",
-                "Linux",
+                runner_os,
                 "--runner-arch",
-                "X64",
+                runner_arch,
             ],
             env,
         )
 
         assert exit_code == 1
         summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
-        assert "install-makeutil.result=invalid-input" in summary
+        assert f"install-makeutil.result={expected_metric}" in summary
 
 
 class TestInstallSubcommand:
@@ -212,5 +197,6 @@ class TestInstallSubcommand:
         outputs = _outputs(env)
         assert outputs["path"] == str(target)
         assert outputs["version"] == "0.1.0"
+        assert outputs["result"] == CACHED
         summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
         assert f"install-makeutil.result={CACHED}" in summary

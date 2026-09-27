@@ -20,6 +20,7 @@ from makeutil_verify import (
     DOWNLOAD_FAILED,
     INSTALLED,
     SIDECAR_MISMATCH,
+    AssetUrls,
     install_makeutil,
     sha256_hex,
 )
@@ -31,6 +32,7 @@ _BINARY = b"pretend this is a static makeutil binary\n"
 _NAME = "makeutil-x86_64-unknown-linux-musl"
 _BINARY_URL = f"https://github.com/leynos/makeutil/releases/download/v0.1.0/{_NAME}"
 _SIDECAR_URL = f"{_BINARY_URL}.sha256"
+_ASSET_URLS = AssetUrls(binary=_BINARY_URL, sidecar=_SIDECAR_URL)
 
 
 def _sidecar_for(data: bytes, name: str = _NAME) -> bytes:
@@ -66,8 +68,7 @@ class TestSuccess:
         result = install_makeutil(
             executable_path=target,
             expected_sha256=digest,
-            binary_url=_BINARY_URL,
-            sidecar_url=_SIDECAR_URL,
+            asset_urls=_ASSET_URLS,
             downloader=_fake_downloader(),
         )
 
@@ -88,8 +89,7 @@ class TestFailureScenarios:
         result = install_makeutil(
             executable_path=target,
             expected_sha256=wrong_digest,
-            binary_url=_BINARY_URL,
-            sidecar_url=_SIDECAR_URL,
+            asset_urls=_ASSET_URLS,
             downloader=_fake_downloader(),
         )
 
@@ -97,37 +97,33 @@ class TestFailureScenarios:
         assert not target.exists()
         assert not target.parent.exists()
 
-    def test_a_sidecar_digest_mismatch_installs_nothing(self, tmp_path: Path) -> None:
-        """The table digest matches, but the sidecar names a different one."""
-        target = tmp_path / "bin" / "makeutil"
-        digest = sha256_hex(_BINARY)
-        tampered_sidecar = f"{'f' * 64}  {_NAME}\n".encode()
-
-        result = install_makeutil(
-            executable_path=target,
-            expected_sha256=digest,
-            binary_url=_BINARY_URL,
-            sidecar_url=_SIDECAR_URL,
-            downloader=_fake_downloader(sidecar=tampered_sidecar),
-        )
-
-        assert result.outcome == SIDECAR_MISMATCH
-        assert not target.exists()
-
-    def test_a_sidecar_naming_the_wrong_file_installs_nothing(
-        self, tmp_path: Path
+    @pytest.mark.parametrize(
+        "tampered_sidecar",
+        [
+            pytest.param(
+                f"{'f' * 64}  {_NAME}\n".encode(), id="wrong-digest-right-name"
+            ),
+            pytest.param(
+                _sidecar_for(_BINARY, name="makeutil-other-target"),
+                id="right-digest-wrong-name",
+            ),
+        ],
+    )
+    def test_a_sidecar_mismatch_installs_nothing(
+        self, tmp_path: Path, tampered_sidecar: bytes
     ) -> None:
-        """A sidecar for a different asset must not verify this one."""
+        """The table digest matches, but the sidecar disagrees - either by
+        digest or by naming a different file. Both are refused the same way,
+        and neither ever reaches the filesystem.
+        """
         target = tmp_path / "bin" / "makeutil"
         digest = sha256_hex(_BINARY)
-        wrong_name_sidecar = _sidecar_for(_BINARY, name="makeutil-other-target")
 
         result = install_makeutil(
             executable_path=target,
             expected_sha256=digest,
-            binary_url=_BINARY_URL,
-            sidecar_url=_SIDECAR_URL,
-            downloader=_fake_downloader(sidecar=wrong_name_sidecar),
+            asset_urls=_ASSET_URLS,
+            downloader=_fake_downloader(sidecar=tampered_sidecar),
         )
 
         assert result.outcome == SIDECAR_MISMATCH
@@ -144,8 +140,7 @@ class TestFailureScenarios:
         result = install_makeutil(
             executable_path=target,
             expected_sha256=sha256_hex(_BINARY),
-            binary_url=_BINARY_URL,
-            sidecar_url=_SIDECAR_URL,
+            asset_urls=_ASSET_URLS,
             downloader=_failing_downloader,
         )
 
@@ -168,8 +163,7 @@ class TestFailureScenarios:
         result = install_makeutil(
             executable_path=target,
             expected_sha256=digest,
-            binary_url=_BINARY_URL,
-            sidecar_url=_SIDECAR_URL,
+            asset_urls=_ASSET_URLS,
             downloader=_download,
         )
 
@@ -196,8 +190,7 @@ class TestCacheReverification:
         result = install_makeutil(
             executable_path=target,
             expected_sha256=digest,
-            binary_url=_BINARY_URL,
-            sidecar_url=_SIDECAR_URL,
+            asset_urls=_ASSET_URLS,
             downloader=_unreachable_downloader,
         )
 
@@ -216,8 +209,7 @@ class TestCacheReverification:
         result = install_makeutil(
             executable_path=target,
             expected_sha256=digest,
-            binary_url=_BINARY_URL,
-            sidecar_url=_SIDECAR_URL,
+            asset_urls=_ASSET_URLS,
             downloader=_fake_downloader(),
         )
 

@@ -28,7 +28,7 @@ from makeutil_errors import (
     UnknownVersionError,
     UnsupportedPlatformError,
 )
-from makeutil_verify import CACHED, INSTALLED, install_makeutil
+from makeutil_verify import CACHED, INSTALLED, AssetUrls, install_makeutil
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing only
     import collections.abc as cabc
@@ -71,6 +71,59 @@ def validate_version(version: str) -> None:
         raise InvalidInputError(msg)
 
 
+def _reject_crlf_in_bin_dir(bin_dir_input: str) -> None:
+    """Reject a `bin-dir` containing a carriage return or newline."""
+    if "\r" in bin_dir_input or "\n" in bin_dir_input:
+        msg = "bin-dir must not contain a carriage return or newline"
+        raise InvalidInputError(msg)
+
+
+def _reject_overlong_bin_dir(bin_dir_input: str) -> None:
+    """Reject a `bin-dir` longer than the runner-safe ceiling."""
+    if len(bin_dir_input) > _MAX_BIN_DIR_LENGTH:
+        msg = f"bin-dir must be at most {_MAX_BIN_DIR_LENGTH} characters"
+        raise InvalidInputError(msg)
+
+
+def _expand_bin_dir(bin_dir_input: str) -> str:
+    """Expand an absolute or `~/`-relative `bin-dir` to a plain path string."""
+    if bin_dir_input == "~" or bin_dir_input.startswith("~/"):
+        return str(Path.home()) + bin_dir_input[1:]
+    if bin_dir_input.startswith("/"):
+        return bin_dir_input
+    msg = "bin-dir must be an absolute path or start with ~/"
+    raise InvalidInputError(msg)
+
+
+def _reject_parent_components(expanded_bin_dir: str) -> None:
+    """Reject an expanded `bin-dir` containing a parent-directory component."""
+    if "/../" in f"/{expanded_bin_dir}/":
+        msg = "bin-dir must not contain parent-directory components"
+        raise InvalidInputError(msg)
+
+
+def _reject_path_separator(expanded_bin_dir: str) -> None:
+    """Reject an expanded `bin-dir` containing the runner PATH separator."""
+    if ":" in expanded_bin_dir:
+        msg = "bin-dir must not contain the runner PATH separator"
+        raise InvalidInputError(msg)
+
+
+def _create_bin_dir(bin_dir_input: str, expanded_bin_dir: str) -> Path:
+    """Create the expanded `bin-dir` and return its resolved, absolute form.
+
+    `bin_dir_input` is threaded through separately so a creation failure's
+    message names the value the caller supplied, not the expanded form.
+    """
+    path = Path(expanded_bin_dir)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        msg = f"bin-dir {bin_dir_input} could not be created on this runner"
+        raise InvalidInputError(msg) from error
+    return path.resolve()
+
+
 def resolve_bin_dir(bin_dir_input: str) -> Path:
     """Validate `bin_dir_input` and return it as an absolute, existing path.
 
@@ -89,32 +142,12 @@ def resolve_bin_dir(bin_dir_input: str) -> Path:
     InvalidInputError
         If the input is malformed, or the directory could not be created.
     """
-    if "\r" in bin_dir_input or "\n" in bin_dir_input:
-        msg = "bin-dir must not contain a carriage return or newline"
-        raise InvalidInputError(msg)
-    if len(bin_dir_input) > _MAX_BIN_DIR_LENGTH:
-        msg = f"bin-dir must be at most {_MAX_BIN_DIR_LENGTH} characters"
-        raise InvalidInputError(msg)
-    if bin_dir_input == "~" or bin_dir_input.startswith("~/"):
-        expanded = str(Path.home()) + bin_dir_input[1:]
-    elif bin_dir_input.startswith("/"):
-        expanded = bin_dir_input
-    else:
-        msg = "bin-dir must be an absolute path or start with ~/"
-        raise InvalidInputError(msg)
-    if "/../" in f"/{expanded}/":
-        msg = "bin-dir must not contain parent-directory components"
-        raise InvalidInputError(msg)
-    if ":" in expanded:
-        msg = "bin-dir must not contain the runner PATH separator"
-        raise InvalidInputError(msg)
-    path = Path(expanded)
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-    except OSError as error:
-        msg = f"bin-dir {bin_dir_input} could not be created on this runner"
-        raise InvalidInputError(msg) from error
-    return path.resolve()
+    _reject_crlf_in_bin_dir(bin_dir_input)
+    _reject_overlong_bin_dir(bin_dir_input)
+    expanded_bin_dir = _expand_bin_dir(bin_dir_input)
+    _reject_parent_components(expanded_bin_dir)
+    _reject_path_separator(expanded_bin_dir)
+    return _create_bin_dir(bin_dir_input, expanded_bin_dir)
 
 
 def resolve_target(runner_os: str, runner_arch: str) -> str:
@@ -246,8 +279,7 @@ def _run_install(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
     result = install_makeutil(
         executable_path=Path(args.executable_path),
         expected_sha256=args.expected_sha256,
-        binary_url=args.binary_url,
-        sidecar_url=args.sidecar_url,
+        asset_urls=AssetUrls(binary=args.binary_url, sidecar=args.sidecar_url),
     )
     _emit_metric(env, result.outcome)
     if result.outcome not in {CACHED, INSTALLED}:
@@ -255,6 +287,7 @@ def _run_install(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
         return 1
     _append_output(env, "path", str(result.path))
     _append_output(env, "version", args.version)
+    _append_output(env, "result", result.outcome)
     return 0
 
 

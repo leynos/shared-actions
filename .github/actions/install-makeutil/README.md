@@ -99,6 +99,7 @@ install.
 | --------- | ----------------------------------------- |
 | `path`    | Absolute path of the installed executable |
 | `version` | Version installed, as named by `version`  |
+| `result`  | `installed` or `cached`, for this run     |
 
 ## Usage
 

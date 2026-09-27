@@ -8,26 +8,34 @@ require them, and set up macOS or OpenBSD cross-compilers.
 
 <!-- markdownlint-disable MD013 -->
 
-| Name                  | Description                                                                                                                                                                  | Required | Default                               |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------- |
-| toolchain             | Rust toolchain to install (e.g., `stable`, `nightly`, `1.70.0`). If omitted, uses `.rust-toolchain.toml` when present, otherwise `stable`.                                   | no       | _see description_                     |
-| install-postgres-deps | Install PostgreSQL system dependencies                                                                                                                                       | no       | `false`                               |
-| workspaces            | Cargo workspace to target mappings for `Swatinem/rust-cache`. Each non-empty line must use the format `workspace -> target`; leave empty to cache the default `. -> target`. | no       | _(empty)_ (defaults to `. -> target`) |
-| install-sqlite-deps   | Install SQLite dev libraries (Windows)                                                                                                                                       | no       | `false`                               |
-| use-sccache           | Enable sccache for non-release runs                                                                                                                                          | no       | `true`                                |
-| cache-provider        | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner                                                                          | no       | `github`                              |
-| install-binstall      | Install cargo-binstall for faster binary crate installations                                                                                                                 | no       | `true`                                |
-| with-darwin           | Install macOS cross build toolchain                                                                                                                                          | no       | `false`                               |
-| darwin-sdk-version    | macOS SDK version for osxcross                                                                                                                                               | no       | `12.3`                                |
-| with-openbsd          | Build OpenBSD std library for cross-compilation                                                                                                                              | no       | `false`                               |
-| openbsd-nightly       | Pinned nightly Rust for OpenBSD                                                                                                                                              | no       | `nightly-2025-07-20`                  |
-| rustflags             | `RUSTFLAGS` exported by the toolchain setup step. Set to the empty string to leave `RUSTFLAGS` unset, so an inherited value or the project's `build.rustflags` applies.      | no       | `-D warnings`                         |
+| Name                        | Description                                                                                                                                                                  | Required | Default                               |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------- |
+| toolchain                   | Rust toolchain to install (e.g., `stable`, `nightly`, `1.70.0`). If omitted, uses `.rust-toolchain.toml` when present, otherwise `stable`.                                   | no       | _see description_                     |
+| install-postgres-deps       | Install PostgreSQL system dependencies                                                                                                                                       | no       | `false`                               |
+| workspaces                  | Cargo workspace to target mappings for `Swatinem/rust-cache`. Each non-empty line must use the format `workspace -> target`; leave empty to cache the default `. -> target`. | no       | _(empty)_ (defaults to `. -> target`) |
+| install-sqlite-deps         | Install SQLite dev libraries (Windows)                                                                                                                                       | no       | `false`                               |
+| use-sccache                 | Enable sccache for non-release runs                                                                                                                                          | no       | `true`                                |
+| cache-provider              | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner                                                                          | no       | `github`                              |
+| install-binstall            | Install cargo-binstall for faster binary crate installations                                                                                                                 | no       | `true`                                |
+| with-darwin                 | Install macOS cross build toolchain                                                                                                                                          | no       | `false`                               |
+| darwin-sdk-version          | macOS SDK version for osxcross                                                                                                                                               | no       | `12.3`                                |
+| with-openbsd                | Build OpenBSD std library for cross-compilation                                                                                                                              | no       | `false`                               |
+| openbsd-nightly             | Pinned nightly Rust for OpenBSD                                                                                                                                              | no       | `nightly-2025-07-20`                  |
+| rustflags                   | `RUSTFLAGS` exported by the toolchain setup step. Set to the empty string to leave `RUSTFLAGS` unset, so an inherited value or the project's `build.rustflags` applies.      | no       | `-D warnings`                         |
+| sccache-cache-discriminator | Separates this job's sccache directory cache from other jobs on the same OS, architecture and compiler. Used only on a GitHub-hosted runner the action owns.                 | no       | the job id                            |
+| expect-cache                | The sccache backend the job requires: `ubicloud`, `github` or `any`. Anything but `any` fails the job when the selected backend differs, after caller settings apply.        | no       | `any`                                 |
 
 <!-- markdownlint-enable MD013 -->
 
 ## Outputs
 
-None
+<!-- markdownlint-disable MD013 -->
+
+| Name          | Description                                                                                      |
+| ------------- | ------------------------------------------------------------------------------------------------ |
+| cache-backend | The sccache backend selected: `ubicloud`, `github` or `local`. Empty when sccache is not in use. |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Example
 
@@ -141,14 +149,35 @@ so this action sets both:
 - `RUSTC_WRAPPER`, naming the installed binary, because Cargo routes
   compilation through sccache only when that variable is set. Without it
   sccache is installed and never used.
-- `SCCACHE_GHA_ENABLED`, because sccache otherwise writes to local disk, which
-  nothing persists between jobs. It is exported **before** the sccache steps,
+- a backend, because sccache otherwise writes to a local directory that
+  nothing persists between jobs. It is chosen **before** the sccache steps,
   because sccache binds its backend once, at server start, and `GITHUB_ENV`
-  reaches only the next step. The selection order is: an explicit
-  `SCCACHE_GHA_ENABLED` wins, `false` and empty included; failing that, a
-  caller-set `SCCACHE_DIR` leaves sccache on their directory; otherwise the
-  GitHub Actions backend is chosen. Each run reports
-  `metric setup-rust.sccache.backend=<gha|local|caller>`.
+  reaches only the next step.
+
+The backend is selected by runner, in a JavaScript step, because only an action
+step can read `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`
+([ADR 0005](../../../docs/adr/0005-runner-aware-sccache-backend.md)):
+
+- a private address literal in `ACTIONS_CACHE_URL` is Ubicloud's cache proxy.
+  The action masks and exports both credentials, clears
+  `ACTIONS_CACHE_SERVICE_V2` (the proxy serves v1), and selects `ubicloud`, so
+  no `export-ubicloud-cache-credentials` step is needed first. Credentials that
+  step already exported are recognized and not exported again;
+- any other runner with a runtime token is GitHub-hosted and selects `local`
+  disk at `${{ runner.temp }}/sccache`. The action caches that directory
+  itself: every run restores the default branch's newest save for the lane (OS,
+  architecture, compiler, `sccache-cache-discriminator` or the job id, then
+  `Cargo.lock`), and only a push to the default branch saves. Under
+  `cache-provider: external` it caches nothing;
+- nektos/act, or no runtime token, selects `local` disk rather than failing.
+
+An explicit `SCCACHE_GHA_ENABLED` or `SCCACHE_GHA_VERSION` still wins, `false`
+and empty included, and is the way to get GitHub's cache service (`github`) on
+a hosted runner; failing that, a caller-set `SCCACHE_DIR` leaves sccache on
+their directory, uncached by the action. Set `expect-cache: ubicloud` on a job
+that runs only on Ubicloud, so a missing proxy fails it instead of falling back
+to local disk. Each run sets the `cache-backend` output and reports
+`metric setup-rust.sccache.backend=<ubicloud|github|local>`.
 
 A caller that has already set `RUSTC_WRAPPER` keeps its value, and the action
 says so in a notice.
@@ -189,48 +218,51 @@ proxy the same way and just as quietly. The token is masked before it is
 recorded, and the notices name variables rather than values.
 
 **A caller who never set a variable keeps the action's value**, including the
-`on` that suits a GitHub-hosted runner. Restoring an absence would clear it and
-point sccache at a v1 service GitHub no longer runs. On Ubicloud the caller is
-expected to run
+`on` that suits GitHub's service. Restoring an absence would clear it and point
+sccache at a v1 service GitHub no longer runs. On Ubicloud the selection step
+sets the flag empty itself (so does
+[`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials), if
+a job still runs it first), and this restore is what carries that choice past
+the sccache steps. It is what makes `use-sccache: 'true'` reach the proxy at
+all.
+
+Where the compiled objects go follows from the backend. On Ubicloud's proxy, or
+on GitHub's service where a caller enables it, the `ghac` arm, sccache stores
+them through the cache service; there is no local directory and no cache key of
+this action's own. On a GitHub-hosted runner left to the action, they go to
+`${{ runner.temp }}/sccache`, which the action bounds to 2 GiB (unless
+`SCCACHE_CACHE_SIZE` is set), restores on every run and saves on a push to the
+default branch, under a key separate from the Rust dependency cache above. A
+caller-selected local backend is the alternative: an explicit
+`SCCACHE_GHA_ENABLED` that is not true-like, which includes `false` and an
+empty value, or a caller-set `SCCACHE_DIR`. Objects then go to that directory,
+defaulting to `~/.cache/sccache`, and the action archives none of it; a lane
+that wants it to survive between jobs owns the cache step and its key.
+
+On Ubicloud, `setup-rust` publishes the proxy credentials itself, so
+`use-sccache: 'true'` is the right setting there with no other step. The
 [`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials)
-first, which sets the flag empty, and this restore is what carries that choice
-past the sccache steps. It is what makes `use-sccache: 'true'` reach the proxy
-at all.
+action stays available for jobs that need the credentials for something else;
+if a job runs it, it must run **before** `setup-rust`, and its exports are
+recognized rather than repeated.
 
-Where the compiled objects go follows from the backend. On the GitHub Actions
-backend, the `ghac` arm, sccache stores them through the cache service; there
-is no local directory and no cache key of this action's own. The local backend
-is everything else: an explicit `SCCACHE_GHA_ENABLED` that is not true-like,
-which includes `false` and an empty value, or a caller-selected `SCCACHE_DIR`.
-sccache reads that variable as a boolean and treats empty as false, so a caller
-who clears it gets local disk exactly as one who wrote `false` does. Objects
-then go to that directory, defaulting to `~/.cache/sccache`. This action does
-not archive that directory; a lane that wants it to survive between jobs owns
-the cache step and its key, which must be separate from the Rust dependency
-cache above, because the two hold unrelated data.
-
-On Ubicloud, run the
-[`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials)
-action **before** `setup-rust`. Without it the GitHub Actions backend cannot
-reach Ubicloud's store, and the compiler cache silently falls back to whatever
-the runner advertises. With it, `use-sccache: 'true'` is the right setting
-there; the restore above is what makes it so.
-
-On a GitHub-hosted runner, prefer the local-disk arm for Rust. The GitHub
-Actions backend measured 0.28 s per cache hit against 0.42 s per compile on
-Chutoro, which is most of the benefit gone, and Whitaker's Windows lane had
-every one of 643 writes rejected. The same lane on a local directory under
-`actions/cache` had no read errors, no write errors and a 78 % warm hit rate.
-So set `use-sccache: 'false'`, install a pinned sccache, **export
-`RUSTC_WRAPPER` naming it**, point `SCCACHE_DIR` at a directory inside the
-workspace, restore it with
-`actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9` on pull requests, and
-let one designated job save it on a push to `main`. The wrapper is the step
-that is easy to leave out and impossible to notice: `use-sccache: 'false'`
-turns off this action's export along with its installation, so without it Cargo
-never routes through the sccache the lane just installed and cached. That is
-the failure #437 was. Ubicloud is the opposite case: its proxy is on the
-runner's own network, so the GitHub Actions arm is the fast one there.
+On a GitHub-hosted runner the action uses local disk by default, for the
+measured reason: the GitHub Actions backend managed 0.28 s per cache hit
+against 0.42 s per compile on Chutoro, which is most of the benefit gone, and
+Whitaker's Windows lane had every one of 643 writes rejected. The same lane on
+a local directory under `actions/cache` had no read errors, no write errors and
+a 78 % warm hit rate. Owning that cache yourself remains an alternative, for a
+lane that needs an sccache this action does not install: set
+`use-sccache: 'false'`, install a pinned sccache, **export `RUSTC_WRAPPER`
+naming it**, point `SCCACHE_DIR` at a directory inside the workspace, restore
+it with `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9` on pull
+requests, and let one designated job save it on a push to `main`. The wrapper
+is the step that is easy to leave out and impossible to notice:
+`use-sccache: 'false'` turns off this action's export along with its
+installation, so without it Cargo never routes through the sccache the lane
+just installed and cached. That is the failure #437 was. Ubicloud is the
+opposite case: its proxy is on the runner's own network, so the `ghac` arm is
+the fast one there.
 
 The revised Node.js-backed actions are pinned to specific commits for
 reproducibility: `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`,
@@ -248,12 +280,14 @@ this: Whitaker run 33744418209 (coverage under `-C instrument-coverage`) and
 Cuprum run 33677926269 (Cranelift-built Whitaker lints) each report
 `Non-cacheable compilations 0`.
 
-sccache defaults to a 10 GiB store. Under this action's GitHub Actions backend
-(`SCCACHE_GHA_ENABLED=true`) GitHub's own per-repository cache limit applies
-instead, so no sizing input is exposed here. Callers who self-manage a local
-sccache directory should raise `SCCACHE_CACHE_SIZE` above the default so one
-store holds both build shapes rather than evicting one to make room for the
-other.
+sccache defaults to a 10 GiB store. On the `ghac` arm
+(`SCCACHE_GHA_ENABLED=true`) the service's own limit applies instead. On the
+hosted local arm the action owns, it exports `SCCACHE_CACHE_SIZE=2G` unless the
+caller set one, because every trunk push saves a new entry against the
+repository's cache quota; no sizing input is exposed beyond the variable
+itself. Callers who self-manage a local sccache directory should raise
+`SCCACHE_CACHE_SIZE` above the default so one store holds both build shapes
+rather than evicting one to make room for the other.
 
 An external cache does not replace this compiler-cache backend automatically.
 Callers that use a local cache volume for sccache must pass

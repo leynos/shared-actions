@@ -52,18 +52,55 @@ Each run reports one bounded `metric setup-rust.sccache.wrapper=<state>` line,
 over `exported`, `exported-stats-not-zeroed`, `caller-set`, and
 `missing-sccache-path`.
 
-The action also selects the cache backend, exporting `SCCACHE_GHA_ENABLED`
-before sccache starts. Without it sccache writes to local disk, which nothing
+The action also selects the cache backend before sccache starts, and it selects
+by runner. Without a backend sccache writes to local disk, which nothing
 persists between jobs, so the wrapper would cost time and return an empty cache
-on every run. The selection order is: an explicit `SCCACHE_GHA_ENABLED` wins,
-`false` and an empty value included, so a workflow that sets it at job level
-keeps its own value and needs no change; failing that, a caller-set
-`SCCACHE_DIR` leaves sccache on that directory; otherwise the GitHub Actions
-backend is chosen. `SCCACHE_DIR` therefore selects local disk only when
-`SCCACHE_GHA_ENABLED` is unset. This choice is reported as
-`metric setup-rust.sccache.backend=<gha|local|caller>`. To confirm it took
-effect, `sccache --show-stats` reports a `ghac` cache location rather than
-`Local disk`.
+on every run.
+
+- **Ubicloud.** When the runner's cache URL names a private address literal and
+  a runtime token is present, the action publishes the Ubicloud cache proxy's
+  credentials itself and selects `ubicloud`. No
+  `export-ubicloud-cache-credentials` step is needed before `setup-rust`; a job
+  that still calls it first is harmless, and its exported credentials are
+  recognized rather than exported again.
+- **GitHub-hosted.** Any other runner selects `local` disk, and the action
+  caches the directory itself: it restores the default branch's saved directory
+  on every run and saves a new one only on a push to the default branch. A
+  caller that wants GitHub's cache service instead sets
+  `SCCACHE_GHA_ENABLED: 'true'`, which then reports `github`.
+- **Local.** Under nektos/act, or on a runner with no cache service at all, the
+  action selects `local` disk rather than failing the build.
+
+Caller settings take precedence. An explicit `SCCACHE_GHA_ENABLED` (or
+`SCCACHE_GHA_VERSION`) is left alone, `false` and an empty value included, so a
+workflow that sets it at job level keeps its own value and needs no change.
+Failing that, a caller-set `SCCACHE_DIR` leaves sccache on that directory, and
+the action caches none of it. `SCCACHE_DIR` therefore selects local disk only
+when `SCCACHE_GHA_ENABLED` is unset. Caches do not cross between Ubicloud's
+proxy and the hosted arm's cache. A job with a fork fallback runs on Ubicloud
+on the default branch, so it saves nothing for the hosted arm, and a fork's
+pull request starts cold.
+
+The selection is the `cache-backend` output (`ubicloud`, `github` or `local`,
+and empty when sccache is not in use) and the line
+`metric setup-rust.sccache.backend=<ubicloud|github|local>`. To confirm it took
+effect, `sccache --show-stats` reports a `ghac` cache location on Ubicloud, and
+`Local disk` naming `${{ runner.temp }}/sccache` on a GitHub-hosted runner.
+
+A job that must have a particular backend says so with `expect-cache`:
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/setup-rust@<sha>
+  with:
+    # This job runs only on Ubicloud and has no fork fallback, so a missing
+    # proxy should fail it rather than fall back to local disk.
+    expect-cache: ubicloud
+```
+
+`expect-cache` takes `ubicloud`, `github` or `any`, and defaults to `any`,
+which never fails for want of a backend. Leave it at `any` on a job with a fork
+fallback: the fork's run is meant to take whatever the GitHub-hosted runner
+offers. The setting applies only when sccache is in use.
 
 The action starts the sccache server too, in a `run:` step of its own that is
 the last of its sccache steps. sccache reads its cache configuration once, when
@@ -93,11 +130,10 @@ other two are tracked because they are the sccache-action's to change. **If you
 never set a variable, the action's value stays**, including the `on` that suits
 a GitHub-hosted runner.
 
-So on Ubicloud, run `export-ubicloud-cache-credentials` before `setup-rust` and
-leave `use-sccache: 'true'`. On a GitHub-hosted runner, run the credentials
-action nowhere, and prefer the local-disk arm described under
-[Rust cache ownership](#rust-cache-ownership): the GitHub Actions backend is
-not worth its cost for Rust there.
+So leave `use-sccache: 'true'` on either kind of runner. On Ubicloud
+`setup-rust` publishes the proxy credentials; on a GitHub-hosted runner it owns
+a local sccache directory and its cache, as described under
+[Rust cache ownership](#rust-cache-ownership).
 
 ### Reserved `ACTIONS_*` variables, once
 
@@ -150,16 +186,32 @@ disabled.
 
 ### Which sccache backend for which runner
 
-On Ubicloud, use the GitHub Actions backend, which `setup-rust` selects by
-default. The proxy is on the runner's own private network, so a hit costs
-almost nothing.
+On Ubicloud, use the proxy, which `setup-rust` selects by default. The proxy is
+on the runner's own private network, so a hit costs almost nothing.
 
-On a GitHub-hosted runner, prefer the local-disk arm for Rust. The GitHub
-Actions backend measured 0.28 s per cache hit against 0.42 s per compile on
-Chutoro, which spends most of what it saves, and Whitaker's Windows lane had
-every one of 643 writes rejected. The same lane against a local directory under
-`actions/cache` recorded no read errors, no write errors and a 78 % warm hit
-rate. So on those runners:
+On a GitHub-hosted runner `setup-rust` uses local disk and caches it itself.
+The GitHub Actions backend measured 0.28 s per cache hit against 0.42 s per
+compile on Chutoro, which spends most of what it saves, and Whitaker's Windows
+lane had every one of 643 writes rejected. The same lane against a local
+directory under `actions/cache` recorded no read errors, no write errors and a
+78 % warm hit rate, so that is what the action now does by default:
+
+- sccache writes to `${{ runner.temp }}/sccache`;
+- every run restores the newest directory the default branch saved for the
+  same OS, architecture, compiler and job, preferring one saved for the same
+  `Cargo.lock`;
+- only a push to the default branch saves, so pull requests read and never
+  write, and there is exactly one writer per lane;
+- matrix entries that share a runner and compiler but build differently can
+  keep separate lanes with `sccache-cache-discriminator`, which defaults to the
+  job id.
+
+A job whose default branch never pushes (for example, a workflow that runs only
+on pull requests) stays cold; add a `push` trigger for the default branch to
+the job that builds, so the trunk can save.
+
+Hand-rolling this is no longer needed. Workflows that did the following can
+drop it and leave `use-sccache: 'true'`:
 
 - set `use-sccache: 'false'`, which turns off both the installation and the
   server, and install a pinned, checksum-verified sccache yourself;
@@ -170,7 +222,8 @@ rate. So on those runners:
 - let one designated job save it on a push to `main`, so the readers and the
   writer do not contend for the key.
 
-The install is the lane's own, and pinned by version and digest, because
+Keep that shape only where a lane needs an sccache the action does not install.
+Its install is the lane's own, and pinned by version and digest, because
 nothing here is built from source or fetched unverified. This one is for
 **Linux x86_64 runners**, and only those: it names the
 `x86_64-unknown-linux-musl` archive, and `sha256sum` is a GNU coreutils tool

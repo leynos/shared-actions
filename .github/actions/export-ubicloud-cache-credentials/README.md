@@ -8,6 +8,13 @@ later shell steps can reach it.
 > GitHub-hosted runner rather than exporting that runner's cache endpoint
 > under Ubicloud's name.
 
+A job that needs the credentials only for `setup-rust`'s sccache no longer
+needs this action. `setup-rust` makes the same private-address check and
+publishes the credentials itself, and on a GitHub-hosted runner it selects
+local disk, which it caches itself, instead of failing. Calling this action
+first remains harmless: `setup-rust` recognizes the credentials it exported. See
+[ADR 0005](../../../docs/adr/0005-runner-aware-sccache-backend.md).
+
 ## Why it exists
 
 A GitHub Actions runner exposes `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`

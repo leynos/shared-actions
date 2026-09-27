@@ -72,6 +72,20 @@ inputs:
       instead of falling back. Applies only when sccache is in use.
     required: false
     default: any
+  install-mold:
+    description: >
+      Install the pinned mold linker on a Linux runner, verified against the
+      action's SHA-256 table and put on PATH as mold and ld.mold. A no-op with
+      a notice on macOS and Windows, so a matrix can pass it unconditionally.
+      Sets no linker flag: select mold in the project's Cargo configuration.
+    required: false
+    default: 'false'
+  mold-version:
+    description: >
+      mold release to install when install-mold is "true". Only versions
+      whose digests the action records are accepted.
+    required: false
+    default: '2.41.0'
 outputs:
   cache-backend:
     description: >
@@ -79,6 +93,16 @@ outputs:
       when sccache is not in use (use-sccache is not "true", or the event is
       a release).
     value: ${{ steps.sccache-backend.outputs.cache-backend }}
+  mold-status:
+    description: >
+      "installed", "cached" or "skipped" (install-mold on a runner other than
+      Linux). Empty when install-mold is not "true".
+    value: ${{ steps.mold.outputs.status || steps.mold-skip.outputs.status }}
+  mold-version:
+    description: >
+      The mold version now on PATH. Empty when mold was skipped or not
+      requested.
+    value: ${{ steps.mold.outputs.version }}
 runs:
   using: composite
   steps:
@@ -122,6 +146,19 @@ runs:
           ubicloud|github|any) ;;
           *)
             echo "::error::expect-cache must be ubicloud, github or any" >&2
+            exit 1
+            ;;
+        esac
+    - name: Validate install-mold
+      shell: bash
+      env:
+        SR_INSTALL_MOLD: ${{ inputs.install-mold }}
+      run: |
+        set -euo pipefail
+        case "$SR_INSTALL_MOLD" in
+          true|false) ;;
+          *)
+            echo "::error::install-mold must be true or false" >&2
             exit 1
             ;;
         esac
@@ -215,6 +252,35 @@ runs:
           **/pyproject.toml
           **/uv.lock
           **/scripts/*.py
+    # The script owns every decision (release, digest, tool-cache reuse,
+    # PATH); the step only binds the runner's values. It sets no linker flag:
+    # the consumer's .cargo/config.toml selects mold.
+    - name: Install mold
+      id: mold
+      if: ${{ inputs.install-mold == 'true' && runner.os == 'Linux' }}
+      shell: bash
+      env:
+        SR_MOLD_SCRIPT: ${{ github.action_path }}/scripts/install_mold.py
+        SR_MOLD_VERSION: ${{ inputs.mold-version }}
+        SR_RUNNER_ARCH: ${{ runner.arch }}
+        SR_TOOL_CACHE: ${{ runner.tool_cache }}
+        SR_RUNNER_TEMP: ${{ runner.temp }}
+      run: >-
+        uv run --script "$SR_MOLD_SCRIPT"
+        --mold-version "$SR_MOLD_VERSION"
+        --runner-arch "$SR_RUNNER_ARCH"
+        --tool-cache "$SR_TOOL_CACHE"
+        --temp-dir "$SR_RUNNER_TEMP"
+        --github-path "$GITHUB_PATH"
+        --github-output "$GITHUB_OUTPUT"
+    - name: Skip mold off Linux
+      id: mold-skip
+      if: ${{ inputs.install-mold == 'true' && runner.os != 'Linux' }}
+      shell: bash
+      run: |
+        echo "::notice title=setup-rust mold::mold is Linux-only; skipped on $RUNNER_OS, where the platform linker is used"
+        echo "metric setup-rust.mold=skipped"
+        echo "status=skipped" >> "$GITHUB_OUTPUT"
     - name: Install nightly toolchain (needed for OpenBSD cross-compilation)
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
       run: |

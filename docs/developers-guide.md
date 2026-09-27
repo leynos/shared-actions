@@ -431,6 +431,56 @@ that does call `export-ubicloud-cache-credentials` must still call it **before**
 `setup-rust`: the GitHub Actions backend reads its endpoint when the sccache
 server starts, so credentials published afterwards arrive too late.
 
+## `setup-rust` and the mold linker
+
+`install-mold` installs a pinned mold release on Linux runners so that the
+estate's build standard can enable mold with one input rather than an `apt`
+step in every workflow. The step runs
+`.github/actions/setup-rust/scripts/install_mold.py`, which owns every
+decision; the step only binds the runner's values through `env`.
+
+Why this is not an `install-tool` manifest entry: `install-tool` installs one
+binary member from an archive. mold is a tree, and a compiler driver asked for
+`-fuse-ld=mold` looks for `ld.mold`, which the archive ships as a symbolic link
+beside `mold`, with `libexec/mold/ld` and `lib/mold/mold-wrapper.so` for the
+other ways of invoking it. Extending `install-tool` to trees would change its
+contract for every tool it serves, so setup-rust holds its own digest table,
+`MOLD_DIGESTS`, in the script.
+
+Rules to keep:
+
+- **The pinned digest is the trust anchor, computed from an independent
+  download.** 2.41.0's digests were computed from fresh downloads and agree
+  with the digests GitHub records for the release assets and with netsuke's
+  `tools/mold/SHA256SUMS`. A new version needs both architectures recorded
+  before a caller can ask for it, and the action's `mold-version` default must
+  be one of them; a contract holds that.
+- **Fail closed.** An unlisted version or architecture, a digest mismatch, an
+  archive without `bin/mold` and `bin/ld.mold`, a member that would land
+  outside the staging directory, or a binary reporting another version all fail
+  the job, and none of them leaves a completion marker or a `PATH` entry.
+- **The tool-cache path carries the digest.**
+  `<tool cache>/mold/<version>-<digest>/<arch>` with an `<arch>.complete`
+  marker beside it. A changed pin for the same version therefore never reuses a
+  tree unpacked from the old archive, and a marker is trusted only when the
+  binary under it still reports the pinned version.
+- **The unpacked tree is renamed into place.** It is unpacked beside its
+  destination, so the rename stays on one filesystem and a reader never sees
+  half a tree.
+- **No linker flag.** Selecting mold is the consumer's `.cargo/config.toml`
+  (concordat BD-002). A contract refuses `fuse-ld` and `*_LINKER` in every step
+  of the action.
+- **Off Linux it is a notice.** A matrix passes `install-mold` to every leg,
+  so macOS and Windows report `skipped` and never fail.
+
+`tests/test_install_mold.py` drives the script against stand-in archives served
+from a `file://` base URL, and `tests/test_mold_contract.py` holds the
+manifest's guards, command, outputs and default. Both were proved by mutation.
+`.github/workflows/test-setup-rust-mold.yml` runs the action on x86_64 and
+aarch64 Linux (a fresh install, a cached second call, a build linked by mold
+and a tampered archive refused) and on macOS and Windows (the skip), with every
+assertion in `.github/scripts/assert_mold_install.py`.
+
 ## Rust action cache ownership
 
 The [`setup-rust`](../.github/actions/setup-rust/action.yml) and

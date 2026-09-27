@@ -57,7 +57,7 @@ _PATHEXT_SEPARATOR = ";"
 #: about the file rather than about the probe. Refusing them keeps the
 #: check's answer and the caller's behaviour the same thing.
 _INTERPRETED_SUFFIXES: typ.Final[frozenset[str]] = frozenset(
-    {".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc", ".cpl"}
+    {".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc", ".cpl", ".py"}
 )
 
 
@@ -112,9 +112,13 @@ def _command_available(
     return shutil.which(command) is not None
 
 
-def _act_available() -> bool:
-    """Return True if act is installed and runnable."""
-    return _command_available(_act_command())
+def _act_available(environ: cabc.Mapping[str, str] | None = None) -> bool:
+    """Return True if act is installed and runnable.
+
+    *environ* reaches both the `ACT` lookup and the PATHEXT check.
+    """
+    source = os.environ if environ is None else environ
+    return _command_available(_act_command(source), environ=source)
 
 
 def _default_podman_socket(environ: cabc.Mapping[str, str]) -> Path:
@@ -208,7 +212,7 @@ def _probe_act_runtime(
     """Probe the container runtime path used by act workflow tests."""
     source = os.environ if environ is None else environ
     act_command = _act_command(source)
-    if not _command_available(act_command):
+    if not _command_available(act_command, environ=source):
         return ActRuntimeStatus(
             available=False,
             reason=f"act executable not found: {act_command}",

@@ -146,7 +146,7 @@ class TestExecutableDetection:
         )
 
     @pytest.mark.parametrize(
-        "suffix", [".PS1", ".VBS", ".JS", ".WSF", ".MSC"], ids=str.lower
+        "suffix", [".PS1", ".VBS", ".JS", ".WSF", ".MSC", ".PY"], ids=str.lower
     )
     def test_an_interpreted_suffix_is_refused(self, suffix: str) -> None:
         """A PATHEXT entry Windows runs through an interpreter is not spawnable.
@@ -231,7 +231,7 @@ def test_probe_reports_unhealthy_podman_docker_api(
     socket_path = tmp_path / "podman.sock"
     socket_path.touch()
 
-    monkeypatch.setattr(conftest, "_command_available", lambda _command: True)
+    monkeypatch.setattr(conftest, "_command_available", lambda _command, **_kw: True)
     monkeypatch.setattr(conftest.shutil, "which", lambda command: command)
     monkeypatch.setattr(conftest, "_command_succeeds", lambda *_args: False)
     monkeypatch.setattr(
@@ -257,7 +257,7 @@ def test_probe_exports_podman_docker_host_when_socket_is_healthy(
     socket_path = podman_dir / "podman.sock"
     socket_path.touch()
 
-    monkeypatch.setattr(conftest, "_command_available", lambda _command: True)
+    monkeypatch.setattr(conftest, "_command_available", lambda _command, **_kw: True)
     monkeypatch.setattr(
         conftest.shutil,
         "which",
@@ -276,16 +276,23 @@ def test_probe_honours_configured_act_command(monkeypatch: pytest.MonkeyPatch) -
     """The Makefile-provided ACT path should be used for discovery."""
     seen: list[str] = []
 
-    def command_available(command: str) -> bool:
+    seen_environ: list[object] = []
+
+    def command_available(command: str, *, environ: object = None) -> bool:
         seen.append(command)
+        seen_environ.append(environ)
         return False
 
     monkeypatch.setattr(conftest, "_command_available", command_available)
+    supplied = {"ACT": "/custom/bin/act", "PATHEXT": ".EXE"}
 
-    status = conftest._probe_act_runtime({"ACT": "/custom/bin/act"})
+    status = conftest._probe_act_runtime(supplied)
 
     assert not status.available
     assert seen == ["/custom/bin/act"]
+    # The mapping the probe was given is the one the availability check
+    # reads, so PATHEXT comes from it and not from the process.
+    assert seen_environ == [supplied], seen_environ
     assert status.reason == "act executable not found: /custom/bin/act"
 
 
@@ -321,7 +328,7 @@ def test_docker_host_failure_paths(
         monkeypatch.setattr(conftest, "_read_unix_http", _raise_oserror)
 
     monkeypatch.setenv("DOCKER_HOST", docker_host)
-    monkeypatch.setattr(conftest, "_command_available", lambda _command: True)
+    monkeypatch.setattr(conftest, "_command_available", lambda _command, **_kw: True)
 
     usable, reason = conftest._docker_host_usable(os.environ["DOCKER_HOST"])
     status = conftest._probe_act_runtime({"DOCKER_HOST": docker_host})

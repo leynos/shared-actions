@@ -1797,8 +1797,9 @@ enumerates.
 
 `PATHEXT` is the list Windows searches, not the list of files a caller can
 spawn, so the interpreted entries are filtered out: `.ps1`, `.vbs`, `.vbe`,
-`.js`, `.jse`, `.wsf`, `.wsh`, `.msc` and `.cpl`. Windows runs those by handing
-them to an interpreter, and `_run_act` does not: it passes the resolved path
+`.js`, `.jse`, `.wsf`, `.wsh`, `.msc`, `.cpl` and `.py` (a `PATHEXT` may list
+`.PY` when Python's launcher is installed). Windows runs those by handing them
+to an interpreter, and `_run_act` does not: it passes the resolved path
 straight to `plumbum.local[...]`, which spawns it as a process and selects
 neither `powershell` nor `wscript`. A `.ps1` accepted by the availability check
 would therefore fail at process creation, reporting the file rather than the

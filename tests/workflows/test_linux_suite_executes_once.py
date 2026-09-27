@@ -29,7 +29,8 @@ import typing as typ
 from pathlib import Path
 
 import pytest
-import yaml
+
+from . import _workflow_reading as reading
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -118,9 +119,12 @@ def _make_runs_the_suite(script: str) -> bool:
 
 @pytest.fixture(scope="module")
 def ci_jobs() -> cabc.Mapping[str, dict[str, typ.Any]]:
-    """Return the jobs of `ci.yml`."""
-    document = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
-    return document["jobs"]
+    """Return the jobs of `ci.yml`, read through the shared boundary.
+
+    The duplicate-refusing loader, so a second `run:` or `runs-on` is a
+    refusal naming the file rather than a silently kept last value.
+    """
+    return reading.load_workflow(CI_WORKFLOW.name)["jobs"]
 
 
 def _suite_steps(job: cabc.Mapping[str, typ.Any]) -> list[dict[str, typ.Any]]:

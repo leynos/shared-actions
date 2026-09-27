@@ -83,6 +83,13 @@ _MATRIX_ANYWHERE: typ.Final[re.Pattern[str]] = re.compile(
     r"matrix(?:\.[A-Za-z0-9_-]+|\[\s*(['\"])[A-Za-z0-9_-]+\1\s*\])"
 )
 
+#: A quoted literal compared with something, on either side of `==` or
+#: `!=`. It is an operand, as in `github.event_name == 'pull_request'`, and
+#: never a runner, so it is removed before runner literals are read.
+_COMPARED_LITERAL: typ.Final[re.Pattern[str]] = re.compile(
+    r"(?:==|!=)\s*'[^']*'|'[^']*'\s*(?:==|!=)"
+)
+
 #: A single-quoted string literal inside an expression. The fork fallback,
 #: `${{ ...fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}`, names its
 #: runners this way, and each arm is a runner the job can land on.
@@ -369,7 +376,9 @@ def _matrix_labels(job: WorkflowJob, expression: str) -> list[str]:
     if reference is not None:
         return _dimension_values(matrix, reference.group(1) or reference.group(3))
     return [
-        *_QUOTED_LITERAL.findall(_MATRIX_ANYWHERE.sub("", expression)),
+        *_QUOTED_LITERAL.findall(
+            _COMPARED_LITERAL.sub("", _MATRIX_ANYWHERE.sub("", expression))
+        ),
         *(
             str(value)
             for values in matrix.values()

@@ -108,6 +108,12 @@ class TestRunnerPlatforms:
                 id="fork-fallback-literals",
             ),
             pytest.param(
+                "${{ github.event_name == 'pull_request' && 'ubuntu-latest'"
+                " || 'macos-15' }}",
+                {"ubuntu", "macos", "windows"},
+                id="compared-operand-is-not-a-runner",
+            ),
+            pytest.param(
                 "${{ fork && 'ubuntu-latest' || matrix['os'] }}",
                 {"ubuntu", "windows"},
                 id="literal-beside-a-bracketed-reference",

@@ -91,6 +91,10 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ("test-rustflags-export.yml", "setup-rust-toolchain-available"): "assertion",
     ("test-setup-rust-sccache.yml", "exports-the-wrapper"): "assertion",
     (
+        "test-setup-rust-sccache.yml",
+        "refuses_a_missing_ubicloud_proxy",
+    ): "assertion",
+    (
         "test-upload-codescene-coverage.yml",
         "cold-runner-contract",
     ): "install",
@@ -111,6 +115,7 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ): "assertion",
     ("test-stage-release-artefacts.yml", "test-stage-artefacts-binstall"): "assertion",
     ("test-ubicloud-sccache-proxy.yml", "reaches-the-proxy"): "assertion",
+    ("test-ubicloud-sccache-proxy.yml", "selects-the-proxy-by-itself"): "assertion",
     ("test-upload-release-assets.yml", "test-upload-assets-dry-run"): "assertion",
     ("test-upload-release-assets.yml", "test-upload-assets-env-overrides"): "assertion",
 }

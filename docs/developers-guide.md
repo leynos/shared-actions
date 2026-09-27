@@ -2500,10 +2500,11 @@ Falling back rather than skipping is the point. A guard that skips leaves a
 fork with no Linux CI at all, which is a worse answer to the same problem. The
 exceptions are the lanes a fork could not usefully run at all.
 `test-ubicloud-sccache-proxy.yml` proves that sccache reaches Ubicloud's cache
-proxy, which a GitHub-hosted runner cannot show, so a fallback would leave it
-green and proving nothing. `test-upload-codescene-coverage.yml` installs the
-pinned CLI through the repository's own action tree, which a fork's pull
-request cannot reach in the shape the proof needs. Its service-touching half,
+proxy, and that `setup-rust` selects the proxy on its own, neither of which a
+GitHub-hosted runner can show, so a fallback would leave both jobs green and
+proving nothing. `test-upload-codescene-coverage.yml` installs the pinned CLI
+through the repository's own action tree, which a fork's pull request cannot
+reach in the shape the proof needs. Its service-touching half,
 `test-codescene-parser-proof.yml`, is dispatch-only from main, so no fork
 reaches it and it names the Ubicloud label outright. Both skip a fork's pull
 request instead, and `FORK_FALLBACK_EXEMPTIONS` records why while
@@ -2528,15 +2529,16 @@ sibling field such as `head.repo.private` changes which pull requests fall
 back, and an earlier draft of the contract let exactly that mutation past by
 concluding the lane was no longer a Linux lane at all.
 
-Four kinds of Linux job stay GitHub-hosted, each recorded with its reason in
+Five kinds of Linux job stay GitHub-hosted, each recorded with its reason in
 `HOSTED_LINUX_EXEMPTIONS`:
 
-| Job                                                                          | Why it stays hosted                                                                                                                                                                       |
-| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `test-export-ubicloud-cache-credentials.yml::refuses-a-github-hosted-runner` | The job proves the action fails closed against a real GitHub-hosted cache endpoint. On Ubicloud that endpoint is the one the action accepts, so the job would pass while testing nothing. |
-| `mutation-cargo.yml` and `mutation-mutmut.yml`                               | Scheduled, never developer-blocking, and free on public-repository minutes.                                                                                                               |
-| `dependabot-automerge.yml::automerge`                                        | A delayed-comment lane that waits on other checks rather than computing anything.                                                                                                         |
-| Caller jobs that only `uses:` another workflow                               | They occupy no runner of their own.                                                                                                                                                       |
+| Job                                                                                         | Why it stays hosted                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test-export-ubicloud-cache-credentials.yml::refuses-a-github-hosted-runner`                | The job proves the action fails closed against a real GitHub-hosted cache endpoint. On Ubicloud that endpoint is the one the action accepts, so the job would pass while testing nothing. |
+| `test-setup-rust-sccache.yml::exports-the-wrapper` and `::refuses_a_missing_ubicloud_proxy` | They prove `setup-rust`'s GitHub-hosted arm and that `expect-cache: ubicloud` fails where there is no proxy. On Ubicloud the action selects the proxy, so both would test the other arm.  |
+| `mutation-cargo.yml` and `mutation-mutmut.yml`                                              | Scheduled, never developer-blocking, and free on public-repository minutes.                                                                                                               |
+| `dependabot-automerge.yml::automerge`                                                       | A delayed-comment lane that waits on other checks rather than computing anything.                                                                                                         |
+| Caller jobs that only `uses:` another workflow                                              | They occupy no runner of their own.                                                                                                                                                       |
 
 An exemption whose job has been renamed or deleted fails the contract. That is
 deliberate: without it the mapping accumulates permissions for jobs that no

@@ -66,6 +66,16 @@ HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
         "GitHub-hosted cache endpoint. On Ubicloud the endpoint is the one "
         "the action accepts, so the job would pass without testing anything."
     ),
+    ("test-setup-rust-sccache.yml", "exports-the-wrapper"): (
+        "The job proves setup-rust's GitHub-hosted arm: a local sccache "
+        "directory the action caches. On Ubicloud the action selects the "
+        "proxy instead, so the job would test the other arm."
+    ),
+    ("test-setup-rust-sccache.yml", "refuses_a_missing_ubicloud_proxy"): (
+        "The job proves expect-cache: ubicloud fails closed where there is "
+        "no proxy. On Ubicloud the proxy is present and the job would pass "
+        "without testing anything."
+    ),
     ("mutation-cargo.yml", "detect"): _MUTATION_REASON,
     ("mutation-cargo.yml", "mutants"): _MUTATION_REASON,
     ("mutation-cargo.yml", "summarize"): _MUTATION_REASON,
@@ -102,6 +112,11 @@ FORK_FALLBACK_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
         "which is observable on an Ubicloud runner and nowhere else. A "
         "fallback to a GitHub-hosted runner would leave it green and "
         "proving nothing, so it skips a fork's pull request instead."
+    ),
+    ("test-ubicloud-sccache-proxy.yml", "selects-the-proxy-by-itself"): (
+        "The job proves setup-rust selects Ubicloud's proxy on its own, "
+        "which is observable on an Ubicloud runner and nowhere else, so "
+        "it skips a fork's pull request rather than falling back."
     ),
     ("test-upload-codescene-coverage.yml", "cold-runner-contract"): (
         "The job installs the pinned CLI through the repository's own "

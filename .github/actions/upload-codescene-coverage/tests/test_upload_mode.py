@@ -32,10 +32,14 @@ def _upload_script() -> str:
 
 
 def _write_stub_cli(directory: Path) -> None:
-    """Write a ``cs-coverage`` stand-in that echoes its arguments."""
+    """Write a ``cs-coverage`` stand-in that prints each argument on its own line.
+
+    Printing ``"$@"`` one per line keeps argument boundaries visible, so a
+    report path split on whitespace shows up as extra lines.
+    """
     cli = directory / "cs-coverage"
     cli.write_text(
-        "#!/usr/bin/env bash\nprintf 'arguments: %s\\n' \"$*\"\n",
+        "#!/usr/bin/env bash\nprintf 'argument: %s\\n' \"$@\"\n",
         encoding="utf-8",
     )
     cli.chmod(0o755)
@@ -75,16 +79,39 @@ def _stub_path(tmp_path: Path) -> str:
     return f"{tmp_path}{os.pathsep}{os.environ['PATH']}"
 
 
-def test_upload_sends_the_report_as_line_coverage(tmp_path: Path) -> None:
-    """A present report is uploaded in its format as the line-coverage metric."""
-    (tmp_path / "coverage.xml").write_text("<coverage/>\n", encoding="utf-8")
+@pytest.mark.parametrize(
+    "report",
+    [
+        pytest.param("coverage.xml", id="plain"),
+        pytest.param("reports/line coverage.xml", id="spaced"),
+    ],
+)
+def test_upload_sends_the_report_as_line_coverage(tmp_path: Path, report: str) -> None:
+    """A present report is uploaded in its format as the line-coverage metric.
+
+    The spaced path must reach the CLI as one argument, which only a quoted
+    expansion in the step preserves.
+    """
+    path = tmp_path / report
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("<coverage/>\n", encoding="utf-8")
     _write_stub_cli(tmp_path)
 
-    result = _run_upload(tmp_path, search_path=_stub_path(tmp_path))
+    result = _run_upload(
+        tmp_path, search_path=_stub_path(tmp_path), coverage_file=report
+    )
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [
-        "arguments: upload --format cobertura --metric line-coverage coverage.xml"
+        f"argument: {value}"
+        for value in (
+            "upload",
+            "--format",
+            "cobertura",
+            "--metric",
+            "line-coverage",
+            report,
+        )
     ]
 
 
@@ -98,7 +125,7 @@ def test_upload_refuses_a_missing_report_and_names_it(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "Coverage file not found: absent.xml" in result.stderr
-    assert "arguments:" not in result.stdout
+    assert "argument:" not in result.stdout
 
 
 def test_upload_refuses_when_the_cli_is_not_installed(tmp_path: Path) -> None:

@@ -84,13 +84,16 @@ REQUIRED_WORKFLOWS: typ.Final[frozenset[str]] = frozenset(
     }
 )
 
+#: `test-coverage-watchdog.yml` is not here: its own contract
+#: (tests/workflows/test_coverage_watchdog_lane.py) requires it to run on
+#: every pull request, so that it can become a required check.
+#:
 #: The exact set of workflows that skip a library-only change: self-test
 #: lanes for actions the library cannot affect, which no required check and
 #: no other workflow depends on. Anything else runs for a library change,
 #: including the main-branch publisher and the Dependabot automerge path.
 LIBRARY_SKIPPING_LANES: typ.Final[frozenset[str]] = frozenset(
     {
-        "test-coverage-watchdog.yml",
         "test-dependabot-automerge.yml",
         "test-export-ubicloud-cache-credentials.yml",
         "test-install-mdtablefix.yml",

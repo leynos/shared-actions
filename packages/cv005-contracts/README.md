@@ -4,10 +4,9 @@
 the `codescene` environment contract in one place. A repository runs them
 against its own workflows with one command. It never copies the rules.
 
-Main owns CodeScene. One push-to-main publisher uploads coverage and writes
-the ratchet baseline. Nothing a pull request can start talks to CodeScene or
-holds its credential. Only the uploading job may declare the `codescene`
-environment.
+Main owns CodeScene. One push-to-main publisher uploads coverage and writes the
+ratchet baseline. Nothing a pull request can start talks to CodeScene or holds
+its credential. Only the uploading job may declare the `codescene` environment.
 
 ## Running it
 
@@ -26,21 +25,21 @@ test-workflow-contracts:
 
 The command's exit status tells a violation from a fault:
 
-| Status | Meaning                                                                                      |
-| ------ | -------------------------------------------------------------------------------------------- |
-| 0      | Every selected contract holds.                                                               |
-| 1      | At least one clause is broken. Each violation is printed as one `clause: message` line.      |
+| Status | Meaning                                                                                     |
+| ------ | ------------------------------------------------------------------------------------------- |
+| 0      | Every selected contract holds.                                                              |
+| 1      | At least one clause is broken. Each violation is printed as one `clause: message` line.     |
 | 2      | The tree or the configuration could not be read, such as a duplicate key or a missing file. |
 
 A reading failure is never a pass. `--only` runs a subset of the families
-`pull-request`, `publisher`, `token`, `coverage` and `environment`, for
-example `cv005-contracts check --only environment`.
+`pull-request`, `publisher`, `token`, `coverage` and `environment`, for example
+`cv005-contracts check --only environment`.
 
 ## Configuration
 
-Each repository keeps its parameters in `.github/cv005.toml`. Only
-`repository` is required. An unknown key is refused, so a misspelt parameter
-cannot fall back to its default.
+Each repository keeps its parameters in `.github/cv005.toml`. Only `repository`
+is required. An unknown key is refused, so a misspelt parameter cannot fall
+back to its default.
 
 ```toml
 repository = "leynos/example"    # required; used to refuse this repository's own calls at a ref
@@ -62,8 +61,7 @@ the retired checksum names.
 - **Pull-request surface.** No workflow a pull request can start, directly
   or through local reusable workflows and local composite actions, names the
   CodeScene host, the credential, the client or the uploader. None forwards
-  secrets wholesale, or reads the `secrets` context without naming one
-  secret.
+  secrets wholesale, or reads the `secrets` context without naming one secret.
   - Seeding fails closed: every event outside `release`, `schedule`,
     `workflow_call`, `workflow_dispatch`, `workflow_run` and `push` seeds the
     closure. `workflow_run` workflows are seeded too, and so is a push not
@@ -78,8 +76,7 @@ the retired checksum names.
 - **Token.** A check step runs exactly
   `echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"`.
   The upload runs only when that output is `true` and the ref is main, and it
-  passes the secret straight to `access-token`. The token appears in no
-  `env`.
+  passes the secret straight to `access-token`. The token appears in no `env`.
 - **Coverage lanes.**
   - Each pull-request lane ratchets and publishes no artefact.
   - Each lane measures the publisher's selection under the same merged
@@ -91,11 +88,11 @@ the retired checksum names.
   `contents: read`, and its checkouts set `persist-credentials: false`.
 - **Environment.** Every uploading job declares `codescene`, in either form
   and in any case. No other job declares it, and no job a pull request can
-  reach declares it. A job whose environment name is an expression is
-  refused, because its placement cannot be proved.
+  reach declares it. A job whose environment name is an expression is refused,
+  because its placement cannot be proved.
 
-`environment: codescene` refuses a branch `workflow_dispatch` of the
-publisher for the whole job, rather than skipping the upload.
+`environment: codescene` refuses a branch `workflow_dispatch` of the publisher
+for the whole job, rather than skipping the upload.
 
 ## Developing the library
 
@@ -109,13 +106,14 @@ make check-fmt lint typecheck test   # the gates
 make mutation-ledger                 # prove every clause by mutation
 ```
 
-`tests/mutations.toml` records one exact substitution per clause, and the
-test that must fail once it is applied. `scripts/mutation_ledger.py` applies
-each substitution to a fresh copy of the package in a temporary directory, so
-the working tree is never edited. It refuses an anchor that does not occur
-exactly once.
+`tests/mutations.toml` records one exact substitution per clause, and the test
+that must fail once it is applied. `scripts/mutation_ledger.py` applies each
+substitution to a fresh copy of the package in a temporary directory, so the
+working tree is never edited. It refuses an anchor that does not occur exactly
+once.
 
 Every new clause needs three things:
+
 - a breaching case;
 - a narrow case, showing the rule still accepts the shape it must accept;
 - a ledger entry.

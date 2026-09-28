@@ -17,6 +17,7 @@ import typing as typ
 
 import pytest
 from contract_fixtures import REPOSITORY
+from cv005_contracts.actions import load_action
 from cv005_contracts.expressions import (
     ConditionError,
     conjuncts,
@@ -221,3 +222,75 @@ def test_every_key_and_scalar_is_read_at_any_depth() -> None:
         document for document in _placements() if MARKER not in set(texts(document))
     ]
     assert not missed, missed[:5]
+
+
+#: Mixed graphs: two workflows and two local actions. A workflow may call a
+#: workflow (a job-level `uses:`) or run an action (a step-level `uses:`);
+#: an action may run an action. Nothing calls a workflow from an action.
+WORKFLOWS: typ.Final[tuple[str, ...]] = ("w0.yml", "w1.yml")
+ACTIONS: typ.Final[tuple[str, ...]] = (".github/actions/a0", ".github/actions/a1")
+MIXED_EDGES: typ.Final[tuple[tuple[str, str], ...]] = (
+    *itertools.product(WORKFLOWS, WORKFLOWS),
+    *itertools.product(WORKFLOWS, ACTIONS),
+    *itertools.product(ACTIONS, ACTIONS),
+)
+
+
+def _mixed_documents(
+    edges: set[tuple[str, str]], seeds: set[str]
+) -> dict[str, Document]:
+    """Build the workflows and actions one mixed graph describes."""
+    documents: dict[str, Document] = {}
+    for workflow in WORKFLOWS:
+        calls = {
+            f"call{index}": {"uses": f"./.github/workflows/{callee}"}
+            for index, (caller, callee) in enumerate(sorted(edges))
+            if caller == workflow and callee in WORKFLOWS
+        }
+        action_steps = [
+            {"uses": f"./{callee}"}
+            for caller, callee in sorted(edges)
+            if caller == workflow and callee in ACTIONS
+        ]
+        documents[workflow] = {
+            "on": "pull_request" if workflow in seeds else {"workflow_call": None},
+            "jobs": {**calls, "run": {"runs-on": "x", "steps": action_steps}},
+        }
+    for action in ACTIONS:
+        runs = "\n".join(
+            f"    - uses: ./{callee}"
+            for caller, callee in sorted(edges)
+            if caller == action
+        )
+        documents[action] = load_action(
+            f"runs:\n  using: composite\n  steps:\n{runs or '    - run: echo'}\n"
+        )
+    return documents
+
+
+def _mixed_reachable(edges: set[tuple[str, str]], seeds: set[str]) -> set[str]:
+    """Return every node reachable from the seeds, by breadth-first search."""
+    found, frontier = set(seeds), list(seeds)
+    while frontier:
+        node = frontier.pop()
+        for caller, callee in edges:
+            if caller == node and callee not in found:
+                found.add(callee)
+                frontier.append(callee)
+    return found
+
+
+def test_the_closure_is_reachability_over_every_mixed_graph() -> None:
+    """Workflows and local actions close together, for every graph and seed set.
+
+    That is 4,096 edge sets over two workflows and two actions, each with
+    every non-empty set of seed workflows.
+    """
+    seed_sets = [{WORKFLOWS[0]}, {WORKFLOWS[1]}, set(WORKFLOWS)]
+    wrong = []
+    for mask, seeds in itertools.product(range(1 << len(MIXED_EDGES)), seed_sets):
+        edges = {edge for bit, edge in enumerate(MIXED_EDGES) if mask >> bit & 1}
+        closure = pull_request_closure(_mixed_documents(edges, seeds), REPOSITORY)
+        if set(closure) != _mixed_reachable(edges, seeds):
+            wrong.append((sorted(edges), sorted(seeds)))
+    assert not wrong, wrong[:5]

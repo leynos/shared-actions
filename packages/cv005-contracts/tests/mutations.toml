@@ -706,3 +706,31 @@ file = "cv005_contracts/lanes.py"
 old = "    for scope in (document, held, step):\n"
 new = "    for scope in (step, held, document):\n"
 expect = "test_the_step_env_overrides_the_jobs"
+
+[[mutation]]
+id = "E4 quote-unaware scanner (property)"
+file = "cv005_contracts/expressions.py"
+old = "            is_quoted = not is_quoted\n"
+new = "            is_quoted = False\n"
+expect = "test_the_scanner_finds_each_body_whole"
+
+[[mutation]]
+id = "E5 open expression read as empty (property)"
+file = "cv005_contracts/expressions.py"
+old = "    return len(text)\n"
+new = "    return start\n"
+expect = "test_an_open_expression_reads_to_the_end"
+
+[[mutation]]
+id = "G1 action edges not followed (property)"
+file = "cv005_contracts/closure.py"
+old = "        pending.extend(called_actions(documents[name], repository, skip))\n"
+new = ""
+expect = "test_the_closure_is_reachability_over_every_mixed_graph"
+
+[[mutation]]
+id = "R23b every push seeds (narrow direction)"
+file = "cv005_contracts/reach.py"
+old = "    return not is_tags_only and filters not in TRUNK_FILTERS\n"
+new = "    return True\n"
+expect = "test_a_push_to_main_or_tags_is_outside_the_closure"

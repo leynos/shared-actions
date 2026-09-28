@@ -26,7 +26,9 @@ IGNORED = shutil.ignore_patterns(".venv", "__pycache__", ".pytest_cache", "*.pyc
 
 def _failing_tests(root: Path) -> tuple[int, list[str]]:
     """Run the suite in a mutated copy and return its status and failures."""
-    pytest = local[sys.executable]["-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    pytest = local[sys.executable][
+        "-m", "pytest", "-q", "-p", "no:cacheprovider", "-n", "auto"
+    ]
     with local.cwd(root), local.env(PYTHONPATH=str(root), PYTHONDONTWRITEBYTECODE="1"):
         status, stdout, _ = pytest.run(retcode=None)
     failed = [line for line in stdout.splitlines() if line.startswith("FAILED")]

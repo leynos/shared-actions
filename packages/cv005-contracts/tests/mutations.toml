@@ -608,3 +608,80 @@ file = "cv005_contracts/publisher_rules.py"
 old = "            (\"the upload job\", held.get(\"concurrency\")),\n"
 new = ""
 expect = "test_the_group_may_sit_on_the_upload_job"
+
+[[mutation]]
+id = "H1 upload job may write"
+file = "cv005_contracts/hardening.py"
+old = "        if _effective_permissions(document, job) == READ_ONLY\n"
+new = "        if True\n"
+expect = "test_the_upload_job_holds_least_privilege"
+
+[[mutation]]
+id = "H2 checkout may keep credentials"
+file = "cv005_contracts/hardening.py"
+old = "        if invokes(step, CHECKOUT_ACTION) and not _keeps_no_credentials(step)\n"
+new = "        if False\n"
+expect = "test_the_upload_job_holds_least_privilege"
+
+[[mutation]]
+id = "H3 persist-credentials compared loosely"
+file = "cv005_contracts/hardening.py"
+old = "    return _input(step, \"persist-credentials\") is False\n"
+new = "    return not _input(step, \"persist-credentials\") or _input(step, \"persist-credentials\") == \"false\"\n"
+expect = "test_the_upload_job_holds_least_privilege"
+
+[[mutation]]
+id = "H4 lane may continue on error"
+file = "cv005_contracts/hardening.py"
+old = "            _continues_on_error(step) or _continues_on_error(job),\n"
+new = "            False,\n"
+expect = "test_lane_coverage_cannot_fail_green_or_write"
+
+[[mutation]]
+id = "H5 lane conditions not read"
+file = "cv005_contracts/hardening.py"
+old = "            not (_only_guarded(step) and _only_guarded(job)),\n"
+new = "            False,\n"
+expect = "test_lane_coverage_cannot_fail_green_or_write"
+
+[[mutation]]
+id = "H6 lane may write"
+file = "cv005_contracts/hardening.py"
+old = "            _effective_permissions(document, job) != READ_ONLY,\n"
+new = "            False,\n"
+expect = "test_lane_coverage_cannot_fail_green_or_write"
+
+[[mutation]]
+id = "H7 workflow permissions not inherited"
+file = "cv005_contracts/hardening.py"
+old = "    return job[\"permissions\"] if \"permissions\" in job else document.get(\"permissions\")\n"
+new = "    return job.get(\"permissions\")\n"
+expect = "test_workflow_level_read_only_permissions_count"
+
+[[mutation]]
+id = "H8 report artefacts allowed"
+file = "cv005_contracts/hardening.py"
+old = "        if invokes(step, ARTEFACT_ACTION)\n"
+new = "        if False\n"
+expect = "test_a_lane_may_not_upload_its_report_as_an_artefact"
+
+[[mutation]]
+id = "H9 every artefact refused"
+file = "cv005_contracts/hardening.py"
+old = "        if report != \"None\" and report in str(_input(step, \"path\"))\n"
+new = "        if True\n"
+expect = "test_an_unrelated_artefact_is_allowed"
+
+[[mutation]]
+id = "H10 the pull-request guard refused"
+file = "cv005_contracts/hardening.py"
+old = "        return frozenset(conjuncts(holder[\"if\"])) == PULL_REQUEST_GUARD\n"
+new = "        return False\n"
+expect = "test_the_compliant_tree_is_hardened"
+
+[[mutation]]
+id = "H11 every job's checkout held"
+file = "cv005_contracts/hardening.py"
+old = "        for step in steps(job)\n        if invokes(step, CHECKOUT_ACTION)"
+new = "        for held in jobs(document).values()\n        for step in steps(held)\n        if invokes(step, CHECKOUT_ACTION)"
+expect = "test_a_publisher_checkout_elsewhere_is_not_the_upload_jobs"

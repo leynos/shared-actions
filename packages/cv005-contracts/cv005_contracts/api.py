@@ -14,6 +14,7 @@ from .actions import read_actions
 from .config import Config, load_config
 from .credential import check_step_violations, token_scope_violations
 from .environment import environment_violations
+from .hardening import lane_hardening_violations, publisher_hardening_violations
 from .lanes import (
     interpreter_violations,
     publisher_lane_violations,
@@ -160,6 +161,11 @@ def _clauses(
         "publisher.retired-checksum",
         lambda: retired_checksum_violations(documents),
     )
+    yield (
+        "publisher",
+        "publisher.least-privilege",
+        lambda: publisher_hardening_violations(publisher),
+    )
     yield ("token", "token.check-step", lambda: check_step_violations(publisher))
     yield ("token", "token.scope", lambda: token_scope_violations(publisher))
     closure = pull_request_closure(documents, repository)
@@ -167,6 +173,11 @@ def _clauses(
         "coverage",
         "coverage.pull-request-lane",
         lambda: pull_request_lane_violations(closure),
+    )
+    yield (
+        "coverage",
+        "coverage.lane-hardening",
+        lambda: lane_hardening_violations(closure),
     )
     yield (
         "coverage",

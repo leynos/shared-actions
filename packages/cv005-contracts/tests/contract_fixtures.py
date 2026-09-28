@@ -43,6 +43,8 @@ PULL_REQUEST_LANE: typ.Final[str] = textwrap.dedent(f"""\
     jobs:
       build-test:
         runs-on: ubuntu-latest
+        permissions:
+          contents: read
         steps:
           - uses: actions/checkout@v4
           - name: Test and Measure Coverage
@@ -71,8 +73,12 @@ PUBLISHER: typ.Final[str] = textwrap.dedent(f"""\
       coverage-upload:
         runs-on: ubuntu-latest
         environment: codescene
+        permissions:
+          contents: read
         steps:
           - uses: actions/checkout@v4
+            with:
+              persist-credentials: false
           - name: Generate coverage
             env:
               UV_PYTHON: '3.13'

@@ -2,6 +2,10 @@ name: Test setup-rust sccache wrapper
 
 on:
   pull_request:
+    # A library-only change cannot affect this lane; see
+    # tests/workflows/test_cv005_contracts_lane.py.
+    paths-ignore:
+      - 'packages/cv005-contracts/**'
   # A push to main is the one run that saves the sccache directory
   # setup-rust owns, so the next run of exports-the-wrapper starts warm.
   push:

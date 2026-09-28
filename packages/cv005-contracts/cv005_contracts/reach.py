@@ -14,7 +14,7 @@ import typing as typ
 from .closure import reachable
 from .expressions import expression_bodies
 from .loading import Document, WorkflowReadingError
-from .reading import PULL_REQUEST_TRIGGERS, jobs, texts, trigger_filters, triggers
+from .reading import jobs, texts, trigger_filters, triggers
 
 #: Case-folded patterns no pull-request-reachable document may contain:
 #: the CodeScene host (a DNS name, so case-insensitive), the credential,
@@ -75,8 +75,27 @@ def _pushes_other_branches(document: Document) -> bool:
     return not is_tags_only and filters not in TRUNK_FILTERS
 
 
+#: Events that cannot run a workflow for a pull request. Every other event
+#: seeds the closure, so an event added to GitHub later, or one this list
+#: never considered, is read as pull-request surface rather than skipped.
+#: `push` is judged by its filters, and `workflow_run` is seeded separately.
+NON_PULL_REQUEST_EVENTS: typ.Final[frozenset[str]] = frozenset(
+    {
+        "release",
+        "schedule",
+        "workflow_call",
+        "workflow_dispatch",
+        "workflow_run",
+        "push",
+    }
+)
+
+
 def is_pull_request_seed(document: Document) -> bool:
     """Return whether a workflow is started directly by a pull request.
+
+    Seeding fails closed: any event outside `NON_PULL_REQUEST_EVENTS` seeds,
+    as the pull-request events themselves do.
 
     Parameters
     ----------
@@ -90,7 +109,7 @@ def is_pull_request_seed(document: Document) -> bool:
 
     """
     return (
-        bool(triggers(document) & PULL_REQUEST_TRIGGERS)
+        bool(triggers(document) - NON_PULL_REQUEST_EVENTS)
         or _is_chained_on_a_run(document)
         or _pushes_other_branches(document)
     )

@@ -226,3 +226,36 @@ def test_an_unbounded_configured_interpreter_is_refused(interpreter: str) -> Non
     found = interpreter_violations(documents["coverage-main.yml"], interpreter)
     assert found, found
     assert "explicit version" in found[0], found
+
+
+def _hoist_pin(text: str, indent: str) -> str:
+    """Move a coverage step's `UV_PYTHON` pin up to the workflow's `env`."""
+    step_env = f"{indent}env:\n{indent}  UV_PYTHON: '3.13'\n"
+    assert text.count(step_env) == 1, text
+    return text.replace(step_env, "").replace(
+        "jobs:\n", "env:\n  UV_PYTHON: '3.13'\njobs:\n", 1
+    )
+
+
+def test_a_pin_at_the_workflow_level_counts() -> None:
+    """GitHub layers workflow, job and step `env`, so a hoisted pin still pins."""
+    texts = tree()
+    texts["coverage-main.yml"] = _hoist_pin(texts["coverage-main.yml"], "        ")
+    documents = _documents(texts)
+    publisher = documents["coverage-main.yml"]
+    closure = {"ci.yml": documents["ci.yml"]}
+    assert publisher_lane_violations(publisher, closure) == []
+    assert interpreter_violations(publisher, "3.13") == []
+
+
+def test_the_step_env_overrides_the_jobs() -> None:
+    """GitHub applies the step's `env` last, so its pin wins over the job's."""
+    texts = mutate(
+        "ci.yml",
+        "    runs-on: ubuntu-latest\n",
+        "    runs-on: ubuntu-latest\n    env:\n      UV_PYTHON: '3.14'\n",
+    )
+    documents = _documents(texts)
+    closure = {"ci.yml": documents["ci.yml"]}
+    found = publisher_lane_violations(documents["coverage-main.yml"], closure)
+    assert found == [], found

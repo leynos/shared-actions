@@ -324,3 +324,24 @@ def test_another_repository_is_not_followed() -> None:
     """A cross-repository call is out of this tree and is not a local callee."""
     callee = local_callee("leynos/other/.github/workflows/x.yml@main", REPOSITORY)
     assert callee is None, callee
+
+
+@pytest.mark.parametrize(
+    "event",
+    ["issues", "repository_dispatch", "check_suite", "deployment", "discussion"],
+)
+def test_an_event_outside_the_allowlist_seeds_the_closure(event: str) -> None:
+    """Seeding fails closed: an event nobody vetted counts as pull-request surface."""
+    probe = f"on: [{event}]\n" + CURL_JOB
+    findings = _findings(tree(extra={"probe.yml": probe}))
+    assert any(item.startswith("probe.yml") for item in findings), findings
+
+
+@pytest.mark.parametrize(
+    "event", ["schedule", "release", "workflow_dispatch", "workflow_call"]
+)
+def test_an_allowlisted_event_stays_off_the_surface(event: str) -> None:
+    """The five vetted events cannot run a workflow for a pull request."""
+    probe = f"on: [{event}]\n" + CURL_JOB
+    findings = _findings(tree(extra={"probe.yml": probe}))
+    assert not any(item.startswith("probe.yml") for item in findings), findings

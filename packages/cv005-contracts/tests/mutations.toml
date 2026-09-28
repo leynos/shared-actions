@@ -144,7 +144,7 @@ expect = "test_a_push_lane_cannot_write_a_second_baseline"
 [[mutation]]
 id = "R25 selection not compared"
 file = "cv005_contracts/lanes.py"
-old = "            if _selection(step) != _selection(baseline):"
+old = "            if _selection(document, step) != _selection(publisher, baseline):"
 new = "            if False:"
 expect = "test_the_publisher_measures_what_each_lane_measures"
 
@@ -161,13 +161,6 @@ file = "cv005_contracts/publisher_rules.py"
 old = "        found.append(\"the push trigger must filter on exactly `branches: [main]`\")"
 new = "        pass"
 expect = "test_the_publisher_runs_only_on_a_push_to_main"
-
-[[mutation]]
-id = "R28 review events not seeds"
-file = "cv005_contracts/reading.py"
-old = "    \"pull_request_review\",\n"
-new = ""
-expect = "test_every_pull_request_event_seeds_the_closure"
 
 [[mutation]]
 id = "R29 checksum refresher allowed"
@@ -424,7 +417,7 @@ expect = "test_a_tree_without_actions_reads_as_none"
 [[mutation]]
 id = "I1 env not compared"
 file = "cv005_contracts/lanes.py"
-old = "    return {\"with\": inputs, \"env\": step.get(\"env\")}\n"
+old = "    return {\"with\": inputs, \"env\": generator_env(document, step)}\n"
 new = "    return {\"with\": inputs}\n"
 expect = "test_a_lane_measures_under_the_publishers_interpreter"
 [[mutation]]
@@ -685,3 +678,31 @@ file = "cv005_contracts/hardening.py"
 old = "        for step in steps(job)\n        if invokes(step, CHECKOUT_ACTION)"
 new = "        for held in jobs(document).values()\n        for step in steps(held)\n        if invokes(step, CHECKOUT_ACTION)"
 expect = "test_a_publisher_checkout_elsewhere_is_not_the_upload_jobs"
+
+[[mutation]]
+id = "S1 only the pull-request event seeds"
+file = "cv005_contracts/reach.py"
+old = "        bool(triggers(document) - NON_PULL_REQUEST_EVENTS)\n"
+new = "        bool(triggers(document) & frozenset({\"pull_request\"}))\n"
+expect = "test_an_event_outside_the_allowlist_seeds_the_closure"
+
+[[mutation]]
+id = "S2 a vetted event seeds"
+file = "cv005_contracts/reach.py"
+old = "    \"schedule\",\n"
+new = ""
+expect = "test_an_allowlisted_event_stays_off_the_surface"
+
+[[mutation]]
+id = "M1 only the step env compared"
+file = "cv005_contracts/lanes.py"
+old = "    for scope in (document, held, step):\n"
+new = "    for scope in (step,):\n"
+expect = "test_a_pin_at_the_workflow_level_counts"
+
+[[mutation]]
+id = "M2 env layers merged in the wrong order"
+file = "cv005_contracts/lanes.py"
+old = "    for scope in (document, held, step):\n"
+new = "    for scope in (step, held, document):\n"
+expect = "test_the_step_env_overrides_the_jobs"

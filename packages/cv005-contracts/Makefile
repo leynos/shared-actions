@@ -7,7 +7,7 @@ RUN = $(UV) run --python $(PYTHON)
 all: check-fmt lint typecheck test mutation-ledger ## Run every gate
 
 test: ## Run the suite
-	$(RUN) python -m pytest -q -n auto
+	$(RUN) python -m pytest -q -n auto --doctest-modules cv005_contracts tests
 
 lint: ## Lint with the repository's Ruff configuration
 	$(UV) tool run ruff check .

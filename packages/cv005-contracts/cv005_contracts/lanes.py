@@ -161,17 +161,55 @@ def second_writer_violations(
     ]
 
 
-def _selection(step: dict[str, object]) -> dict[str, object]:
+def generator_env(document: Document, step: dict[str, object]) -> dict[object, object]:
+    """Return the environment a step runs with: workflow, job and step merged.
+
+    GitHub layers `env` from the workflow, then the job, then the step, each
+    overriding the last, so a pin set at any level reaches the action and a
+    comparison of the step's own `env` alone would miss it.
+
+    Parameters
+    ----------
+    document : Document
+        The workflow holding the step.
+    step : dict[str, object]
+        The step, by identity, within one of the document's jobs.
+
+    Returns
+    -------
+    dict[object, object]
+        The merged environment.
+
+    Examples
+    --------
+    >>> step = {"env": {"B": "2"}}
+    >>> generator_env({"env": {"A": "1"}, "jobs": {"j": {"steps": [step]}}}, step)
+    {'A': '1', 'B': '2'}
+
+    """
+    held = next(
+        (job for job in jobs(document).values() if any(s is step for s in steps(job))),
+        {},
+    )
+    merged: dict[object, object] = {}
+    for scope in (document, held, step):
+        env = scope.get("env")
+        if isinstance(env, dict):
+            merged.update(env)
+    return merged
+
+
+def _selection(document: Document, step: dict[str, object]) -> dict[str, object]:
     """Return the inputs and environment that decide what a run measures.
 
-    The step's `env` counts as well as its inputs: the action builds its
+    The merged `env` counts as well as the inputs: the action builds its
     venv with whatever interpreter the environment selects, and two
     interpreters count lines differently.
 
     Returns
     -------
     dict[str, object]
-        The step's measuring inputs, under `with`, and its `env`.
+        The step's measuring inputs, under `with`, and its merged `env`.
 
     """
     inputs = {
@@ -179,7 +217,7 @@ def _selection(step: dict[str, object]) -> dict[str, object]:
         for key, value in _inputs(step).items()
         if key not in LANE_LOCAL_INPUTS
     }
-    return {"with": inputs, "env": step.get("env")}
+    return {"with": inputs, "env": generator_env(document, step)}
 
 
 #: An explicit interpreter version, such as `3.13` or `3.13.5`. uv also
@@ -188,9 +226,11 @@ def _selection(step: dict[str, object]) -> dict[str, object]:
 _BOUNDED_PYTHON: typ.Final[re.Pattern[str]] = re.compile(r"\d+\.\d+(?:\.\d+)?")
 
 
-def _pins_interpreter(step: dict[str, object], interpreter: str) -> bool:
-    """Return whether a coverage step's `env` pins exactly `interpreter`."""
-    match step.get("env"):
+def _pins_interpreter(
+    document: Document, step: dict[str, object], interpreter: str
+) -> bool:
+    """Return whether a coverage step's merged `env` pins exactly `interpreter`."""
+    match generator_env(document, step):
         case {"UV_PYTHON": str() as version}:
             return version == interpreter
         case _:
@@ -233,7 +273,9 @@ def interpreter_violations(publisher: Document, interpreter: str) -> list[str]:
         )
         return [message]
     generators = action_steps(publisher, COVERAGE_ACTION)
-    if generators and all(_pins_interpreter(step, interpreter) for step in generators):
+    if generators and all(
+        _pins_interpreter(publisher, step, interpreter) for step in generators
+    ):
         return []
     message = (
         f"the publisher's generate-coverage must set env UV_PYTHON: "
@@ -282,7 +324,7 @@ def publisher_lane_violations(
     for name, document in sorted(closure.items()):
         for step in action_steps(document, COVERAGE_ACTION):
             pins.add(pin_of(step))
-            if _selection(step) != _selection(baseline):
+            if _selection(document, step) != _selection(publisher, baseline):
                 found.append(f"{name}: coverage selection differs from the publisher's")
     if len(pins) != 1 or not all(PINNED_COMMIT.match(pin) for pin in pins):
         found.append(

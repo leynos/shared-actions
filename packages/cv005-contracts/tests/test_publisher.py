@@ -21,7 +21,6 @@ from cv005_contracts.loading import (
 from cv005_contracts.publisher import find_publisher
 from cv005_contracts.publisher_rules import (
     concurrency_violations,
-    permissions_violations,
     retired_checksum_violations,
     trigger_violations,
     upload_step_violations,
@@ -220,13 +219,6 @@ def test_an_unnamed_secret_read_is_refused_in_the_publisher(run: str) -> None:
         f"      - run: {run}\n",
     )
     found = token_scope_violations(_publisher(texts))
-    assert found, found
-
-
-def test_the_publisher_grants_no_workflow_scope() -> None:
-    """A workflow-level scope reaches every job, so it must be empty."""
-    texts = mutate("coverage-main.yml", "permissions: {}\n", "")
-    found = permissions_violations(_publisher(texts))
     assert found, found
 
 

@@ -47,7 +47,7 @@ publisher = "coverage-main.yml"  # the publisher's file name
 interpreter = "3.13"             # the Python version every generator pins through UV_PYTHON;
                                  # omit it where the repository measures no Python
 environment = true               # hold the `codescene` environment contract
-[selection]                      # generator inputs the publisher must carry exactly
+[selection]                      # inputs each ratcheting publisher generator must carry
 language = "python"
 format = "cobertura"
 ```
@@ -66,21 +66,36 @@ the retired checksum names.
     `workflow_call`, `workflow_dispatch`, `workflow_run` and `push` seeds the
     closure. `workflow_run` workflows are seeded too, and so is a push not
     confined to `main` or tags.
-- **Publisher.** It is triggered by a push to `main`, with dispatch allowed,
-  and has workflow permissions `{}`.
+- **Publisher.** It is triggered by a push to `main`, with dispatch allowed.
+  A job declaring no `permissions` of its own inherits the workflow's. It is
+  refused when the workflow declares none, since it then holds the default
+  token, or when the workflow's grant can write.
   - Concurrency: one ref-keyed group that never cancels, at one scope only.
   - The upload runs in upload mode, reading the report its own job wrote
-    earlier, from the same commit pin as the generator.
+    earlier, from the same commit pin as the generator. An omitted `path` or
+    `format` reads as the action's default: `cobertura`, and `coverage.xml`
+    or, for `lcov`, `lcov.info`. A report merged from several legs counts
+    when an earlier `run` step, after a generator of the same format,
+    redirects its output to the uploaded file.
   - Nothing in the publisher may carry `continue-on-error`. Only the upload
     step may carry an `if:`.
 - **Token.** A check step runs exactly
   `echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"`.
   The upload runs only when that output is `true` and the ref is main, and it
   passes the secret straight to `access-token`. The token appears in no `env`.
+  - The check step is the one whose `available` output the upload guard
+    reads, under any id (`codescene-token` or `codescene-credential`). The
+    guard reads exactly one such output.
 - **Coverage lanes.**
-  - Each pull-request lane ratchets and publishes no artefact.
-  - Each lane measures the publisher's selection under the same merged
-    `env`: workflow, then job, then step.
+  - Each job measuring coverage, in a lane or the publisher, ratchets
+    exactly one of its legs. The action keys the baseline by job.
+  - Lanes publish no artefact and never set `publish-baseline`.
+  - Each lane leg measures the selection of one publisher leg: the same
+    inputs, and the same merged `env` (workflow, then job, then step).
+    Inputs that name, ship or save the report are not compared. Nor are
+    environment keys that pin or place another tool: names ending
+    `_VERSION`, `_REV` or `_SHA256` (with any platform suffix), uv's tool and
+    cache directories, and Cargo's network retry settings.
   - Each lane pins the configured interpreter.
   - Each lane runs read-only and cannot continue on error.
   - Only the publisher writes the baseline on a push.

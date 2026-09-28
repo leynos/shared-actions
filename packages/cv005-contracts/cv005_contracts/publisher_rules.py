@@ -16,16 +16,15 @@ from .publisher import (
     PUBLISHER_GROUPS,
     TOKEN_INPUT,
     UPLOAD_ACTION,
-    UPLOAD_GUARD,
     action_steps,
-    invokes,
+    availability_ids,
     pin_of,
-    position,
+    upload_guard,
     upload_job,
     upload_step,
 )
 from .reach import TRUNK_FILTERS
-from .reading import jobs, steps, texts, trigger_filters, triggers
+from .reading import jobs, texts, trigger_filters, triggers
 
 if typ.TYPE_CHECKING:
     from .loading import Document
@@ -125,13 +124,23 @@ def _normalized(group: object) -> str:
     )
 
 
-def _guard_violations(step: dict[str, object]) -> list[str]:
-    """Require the ref and availability guard as whole `&&` terms."""
+def _guard_violations(document: Document) -> list[str]:
+    """Require the ref and availability guard as whole `&&` terms.
+
+    Two availability terms would leave the check step ambiguous, so the
+    guard must read exactly one.
+    """
     try:
-        missing = missing_terms(step.get("if"), UPLOAD_GUARD)
+        missing = missing_terms(upload_step(document).get("if"), upload_guard(document))
     except ConditionError as error:
         return [str(error)]
-    return [f"the upload guard lacks {term!r}" for term in missing]
+    found = [f"the upload guard lacks {term!r}" for term in missing]
+    ids = availability_ids(document)
+    if len(ids) > 1:
+        found.append(
+            f"the upload guard reads availability from more than one step: {ids}"
+        )
+    return found
 
 
 def upload_step_violations(document: Document) -> list[str]:
@@ -163,14 +172,18 @@ def upload_step_violations(document: Document) -> list[str]:
     ]
     if not PINNED_COMMIT.match(pin_of(step)):
         found.append(f"the uploader is not pinned to a commit: {step.get('uses')!r}")
-    return found + _guard_violations(step)
+    return found + _guard_violations(document)
 
 
 def permissions_violations(document: Document) -> list[str]:
-    """Require the publisher's workflow-level token to hold no scope.
+    """Require every publisher job to run with a declared scope that cannot write.
 
-    Each job then opts in to what it needs; a scope granted at workflow
-    level reaches every job, the check and upload steps included.
+    A job's own `permissions` replaces the workflow's, so a workflow-level
+    grant reaches only the jobs that declare none. Those jobs run with the
+    repository's default token when the workflow declares nothing, which
+    may write, and with every write scope the workflow grants otherwise.
+    A job that declares its own scope is held elsewhere, the upload job by
+    `publisher.least-privilege`.
 
     Parameters
     ----------
@@ -180,51 +193,39 @@ def permissions_violations(document: Document) -> list[str]:
     Returns
     -------
     list[str]
-        Every violation of the publisher's permissions requirement.
+        One violation for each job left to the default token or to a
+        workflow-level write grant.
 
     """
     declared = document.get("permissions")
-    return (
-        [] if declared == {} else [f"workflow permissions are {declared!r}, not {{}}"]
-    )
+    inheriting = [
+        name for name, job in jobs(document).items() if "permissions" not in job
+    ]
+    if declared is None:
+        return [
+            f"job {name} declares no permissions and runs with the default token"
+            for name in inheriting
+        ]
+    if _grants_write(declared):
+        return [
+            f"job {name} inherits the workflow's write grant {declared!r}"
+            for name in inheriting
+        ]
+    return []
 
 
-def wiring_violations(document: Document) -> list[str]:
-    """Require the upload to read the file, in the format, the publisher writes.
+def _grants_write(declared: object) -> bool:
+    """Return whether a `permissions` value grants any write scope.
 
-    The report must be written earlier in the upload's own job: a generator
-    after the upload, or in another job, leaves the uploader nothing to read
-    while every other clause passes. Both ends must name the file: two
-    absent inputs compare equal, and the actions' defaults are not read
-    here, so an empty reading would otherwise pass.
-
-    Parameters
-    ----------
-    document : Document
-        The publisher workflow document.
-
-    Returns
-    -------
-    list[str]
-        Every violation of the upload's wiring to an earlier generator.
+    Examples
+    --------
+    >>> [_grants_write(v) for v in ({}, "read-all", {"id-token": "write"})]
+    [False, False, True]
 
     """
-    upload = upload_step(document)
-    job_steps = steps(upload_job(document))
-    earlier = job_steps[: position(job_steps, upload)]
-    written = [
-        (_input(step, "output-path"), _input(step, "format"))
-        for step in earlier
-        if invokes(step, COVERAGE_ACTION)
-    ]
-    read = (_input(upload, "path"), _input(upload, "format"))
-    if not _names_a_file(read[0]):
-        return ["the upload must name its report with an explicit `path`"]
-    return (
-        []
-        if read in written
-        else [f"the upload reads {read!r}; earlier steps of its job write {written!r}"]
-    )
+    if isinstance(declared, dict):
+        return any(value != "read" and value != "none" for value in declared.values())
+    return declared != "read-all"
 
 
 #: Keys that let a job or step be skipped, or fail without failing the run.
@@ -268,17 +269,6 @@ def condition_violations(document: Document) -> list[str]:
         for step in action_steps(document, UPLOAD_ACTION)
         if "continue-on-error" in step
     ]
-
-
-def _input(step: dict[str, object], name: str) -> object:
-    """Return one `with` input of a step, or None when it has none."""
-    inputs = step.get("with")
-    return inputs.get(name) if isinstance(inputs, dict) else None
-
-
-def _names_a_file(value: object) -> bool:
-    """Return whether an input value is a non-empty file name."""
-    return isinstance(value, str) and bool(value)
 
 
 def retired_checksum_violations(documents: dict[str, Document]) -> list[str]:

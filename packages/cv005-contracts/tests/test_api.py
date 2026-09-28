@@ -160,12 +160,13 @@ def test_the_cli_reports_violations(
     """A breach exits 1 with one line naming the clause."""
     texts = tree()
     texts["coverage-main.yml"] = texts["coverage-main.yml"].replace(
-        "permissions: {}\n", ""
+        "  workflow_dispatch:\n",
+        "  workflow_dispatch:\n  schedule:\n    - cron: '0 0 * * *'\n",
     )
     root = _write_tree(tmp_path, texts)
     assert check(repository=root) == EXIT_VIOLATIONS
     out = capsys.readouterr().out
-    assert out.startswith("publisher.permissions: "), out
+    assert out.startswith("publisher.triggers: "), out
 
 
 @pytest.mark.parametrize("breakage", ["no-config", "no-workflows", "duplicate-key"])

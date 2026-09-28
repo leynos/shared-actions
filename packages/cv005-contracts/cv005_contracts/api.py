@@ -17,11 +17,11 @@ from .environment import environment_violations
 from .hardening import lane_hardening_violations, publisher_hardening_violations
 from .lanes import (
     interpreter_violations,
-    publisher_lane_violations,
     pull_request_lane_violations,
     second_writer_violations,
 )
 from .loading import Document, read_workflows
+from .parity import inputs_of, is_true, publisher_lane_violations
 from .publisher import COVERAGE_ACTION, action_steps, find_publisher
 from .publisher_rules import (
     concurrency_violations,
@@ -30,9 +30,9 @@ from .publisher_rules import (
     retired_checksum_violations,
     trigger_violations,
     upload_step_violations,
-    wiring_violations,
 )
 from .reach import pull_request_closure, pull_request_violations
+from .wiring import wiring_violations
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -215,12 +215,19 @@ def _named(found: str, expected: str) -> list[str]:
 
 
 def _selection_violations(publisher: Document, selection: dict[str, str]) -> list[str]:
-    """Refuse a publisher generator whose inputs differ from the configured ones."""
-    generators = action_steps(publisher, COVERAGE_ACTION)
-    inputs = generators[0].get("with") if len(generators) == 1 else None
-    held = inputs if isinstance(inputs, dict) else {}
+    """Refuse a ratcheting publisher generator whose inputs differ from the config.
+
+    The configured selection is what the baseline measures, so it binds each
+    ratcheting leg; a publisher with no ratcheting leg fails the parity rule.
+    """
+    ratcheting = [
+        inputs_of(step)
+        for step in action_steps(publisher, COVERAGE_ACTION)
+        if is_true(inputs_of(step).get("with-ratchet"))
+    ]
     return [
         f"the publisher's generate-coverage sets {key}={held.get(key)!r}, not {value!r}"
+        for held in ratcheting or [{}]
         for key, value in sorted(selection.items())
         if str(held.get(key)) != value
     ]

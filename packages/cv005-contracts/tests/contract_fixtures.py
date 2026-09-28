@@ -13,11 +13,11 @@ import typing as typ
 from cv005_contracts.actions import load_action
 from cv005_contracts.credential import check_step_violations, token_scope_violations
 from cv005_contracts.lanes import (
-    publisher_lane_violations,
     pull_request_lane_violations,
     second_writer_violations,
 )
 from cv005_contracts.loading import Document, load_workflow
+from cv005_contracts.parity import publisher_lane_violations
 from cv005_contracts.publisher import find_publisher
 from cv005_contracts.publisher_rules import (
     concurrency_violations,
@@ -26,9 +26,9 @@ from cv005_contracts.publisher_rules import (
     retired_checksum_violations,
     trigger_violations,
     upload_step_violations,
-    wiring_violations,
 )
 from cv005_contracts.reach import pull_request_closure, pull_request_violations
+from cv005_contracts.wiring import wiring_violations
 
 REPOSITORY: typ.Final[str] = "leynos/example"
 PIN: typ.Final[str] = "a" * 40

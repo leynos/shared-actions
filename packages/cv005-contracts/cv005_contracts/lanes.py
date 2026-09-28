@@ -14,28 +14,18 @@ import typing as typ
 
 from .closure import reachable
 from .expressions import ConditionError, missing_terms
-from .publisher import (
-    COVERAGE_ACTION,
-    PINNED_COMMIT,
-    UPLOAD_ACTION,
-    action_steps,
-    invokes,
-    pin_of,
-    upload_step,
+from .parity import (
+    generator_env,
+    inputs_of,
+    is_false,
+    ratchet_violations,
 )
+from .publisher import COVERAGE_ACTION, action_steps, invokes
 from .reading import jobs, steps, triggers
 
 if typ.TYPE_CHECKING:
     from .loading import Document
 
-#: Inputs that may differ between a pull-request lane and the publisher,
-#: because they name or ship the report rather than select what runs.
-LANE_LOCAL_INPUTS: typ.Final[frozenset[str]] = frozenset(
-    {
-        "artefact-name-suffix",
-        "publish-artefact",
-    }
-)
 PULL_REQUEST_GUARD: typ.Final[frozenset[str]] = frozenset(
     {
         "github.event_name == 'pull_request'",
@@ -43,24 +33,12 @@ PULL_REQUEST_GUARD: typ.Final[frozenset[str]] = frozenset(
 )
 
 
-def _inputs(step: dict[str, object]) -> dict[str, object]:
-    """Return a step's `with` mapping, empty when it declares none."""
-    inputs = step.get("with") or {}
-    return typ.cast("dict[str, object]", inputs) if isinstance(inputs, dict) else {}
-
-
-def _is_true(value: object) -> bool:
-    """Return whether an action input reads as true."""
-    return value is True or value == "true"
-
-
-def _is_false(value: object) -> bool:
-    """Return whether an action input reads as false."""
-    return value is False or value == "false"
-
-
 def pull_request_lane_violations(closure: dict[str, Document]) -> list[str]:
     """Require every pull-request lane to ratchet and publish nothing.
+
+    Each job ratchets exactly one of its coverage legs, and no leg ships
+    its report or sets `publish-baseline`, which could save a baseline from
+    a pull request.
 
     Parameters
     ----------
@@ -80,14 +58,20 @@ def pull_request_lane_violations(closure: dict[str, Document]) -> list[str]:
     ]
     if not lanes:
         return ["no pull-request workflow generates coverage"]
-    return [
-        f"{name}: generate-coverage must set {key}: {wanted!r}"
+    found = [
+        problem
+        for name, document in sorted(closure.items())
+        for problem in ratchet_violations(document, name)
+    ]
+    found += [
+        f"{name}: generate-coverage must set publish-artefact: 'false'"
         for name, step in lanes
-        for key, wanted, check in (
-            ("with-ratchet", "true", _is_true),
-            ("publish-artefact", "false", _is_false),
-        )
-        if not check(_inputs(step).get(key))
+        if not is_false(inputs_of(step).get("publish-artefact"))
+    ]
+    return found + [
+        f"{name}: generate-coverage may not set publish-baseline"
+        for name, step in lanes
+        if "publish-baseline" in inputs_of(step)
     ]
 
 
@@ -161,65 +145,6 @@ def second_writer_violations(
     ]
 
 
-def generator_env(document: Document, step: dict[str, object]) -> dict[object, object]:
-    """Return the environment a step runs with: workflow, job and step merged.
-
-    GitHub layers `env` from the workflow, then the job, then the step, each
-    overriding the last, so a pin set at any level reaches the action and a
-    comparison of the step's own `env` alone would miss it.
-
-    Parameters
-    ----------
-    document : Document
-        The workflow holding the step.
-    step : dict[str, object]
-        The step, by identity, within one of the document's jobs.
-
-    Returns
-    -------
-    dict[object, object]
-        The merged environment.
-
-    Examples
-    --------
-    >>> step = {"env": {"B": "2"}}
-    >>> generator_env({"env": {"A": "1"}, "jobs": {"j": {"steps": [step]}}}, step)
-    {'A': '1', 'B': '2'}
-
-    """
-    held = next(
-        (job for job in jobs(document).values() if any(s is step for s in steps(job))),
-        {},
-    )
-    merged: dict[object, object] = {}
-    for scope in (document, held, step):
-        env = scope.get("env")
-        if isinstance(env, dict):
-            merged.update(env)
-    return merged
-
-
-def _selection(document: Document, step: dict[str, object]) -> dict[str, object]:
-    """Return the inputs and environment that decide what a run measures.
-
-    The merged `env` counts as well as the inputs: the action builds its
-    venv with whatever interpreter the environment selects, and two
-    interpreters count lines differently.
-
-    Returns
-    -------
-    dict[str, object]
-        The step's measuring inputs, under `with`, and its merged `env`.
-
-    """
-    inputs = {
-        key: value
-        for key, value in _inputs(step).items()
-        if key not in LANE_LOCAL_INPUTS
-    }
-    return {"with": inputs, "env": generator_env(document, step)}
-
-
 #: An explicit interpreter version, such as `3.13` or `3.13.5`. uv also
 #: accepts `3` or `>=3.12`, but those still take the newest match on the
 #: runner, which is the drift this pin exists to stop.
@@ -242,9 +167,9 @@ def interpreter_violations(publisher: Document, interpreter: str) -> list[str]:
 
     `generate-coverage` builds its venv with `uv venv`, which takes the
     newest Python it can find, so a lane whose earlier steps download
-    another Python measures under that one. The lanes rule already holds
-    every generator's `env` equal to the publisher's, so pinning the
-    publisher pins them all.
+    another Python measures under that one. The parity rule already holds
+    every lane generator's measured `env` equal to a publisher generator's,
+    so pinning the publisher pins them all.
 
     Parameters
     ----------
@@ -283,52 +208,3 @@ def interpreter_violations(publisher: Document, interpreter: str) -> list[str]:
         "on the runner"
     )
     return [message]
-
-
-def publisher_lane_violations(
-    publisher: Document, closure: dict[str, Document]
-) -> list[str]:
-    """Require the publisher to ratchet the selection every lane measures.
-
-    The publisher's generator, its uploader and every pull-request
-    generator share one commit pin, so the lanes measure with the same
-    action that writes their baseline. Each generator also carries the same
-    `env`: a baseline measured under one Python and a lane measured under
-    another differ by the lines each counts, not by the tests.
-    `interpreter_violations` holds the pin itself where a repository measures
-    Python.
-
-    Parameters
-    ----------
-    publisher : Document
-        The publisher workflow document.
-    closure : dict[str, Document]
-        The pull-request-reachable workflows, by file name.
-
-    Returns
-    -------
-    list[str]
-        Every violation of the shared-selection and shared-pin rules.
-
-    """
-    generators = action_steps(publisher, COVERAGE_ACTION)
-    if len(generators) != 1:
-        return [f"the publisher must generate coverage once; found {len(generators)}"]
-    baseline = generators[0]
-    found = (
-        []
-        if _is_true(_inputs(baseline).get("with-ratchet"))
-        else ["the publisher's generate-coverage must set with-ratchet: 'true'"]
-    )
-    pins = {pin_of(baseline), pin_of(upload_step(publisher))}
-    for name, document in sorted(closure.items()):
-        for step in action_steps(document, COVERAGE_ACTION):
-            pins.add(pin_of(step))
-            if _selection(document, step) != _selection(publisher, baseline):
-                found.append(f"{name}: coverage selection differs from the publisher's")
-    if len(pins) != 1 or not all(PINNED_COMMIT.match(pin) for pin in pins):
-        found.append(
-            f"{COVERAGE_ACTION} and {UPLOAD_ACTION} must share one commit pin: "
-            f"{sorted(pins)}"
-        )
-    return found

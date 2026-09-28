@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import typing as typ
 
-from .publisher import CHECK_STEP_ID, position, upload_job, upload_step
+from .publisher import check_step_id, position, upload_job, upload_step
 from .reach import unnamed_secret_references
 from .reading import jobs, steps, texts
 
@@ -34,6 +34,9 @@ CHECK_STEP_KEYS: typ.Final[frozenset[str]] = frozenset({"name", "id", "run"})
 def check_step(document: Document) -> dict[str, object] | None:
     """Return the upload job's one token check step, or None if it has not one.
 
+    The check step is the one whose id the upload guard reads, so a step
+    carrying the command under any other id is not it.
+
     Parameters
     ----------
     document : Document
@@ -45,9 +48,8 @@ def check_step(document: Document) -> dict[str, object] | None:
         The check step, or None if the upload job holds no such step.
 
     """
-    found = [
-        step for step in steps(upload_job(document)) if step.get("id") == CHECK_STEP_ID
-    ]
+    wanted = check_step_id(document)
+    found = [step for step in steps(upload_job(document)) if step.get("id") == wanted]
     return found[0] if len(found) == 1 else None
 
 
@@ -72,7 +74,7 @@ def check_step_violations(document: Document) -> list[str]:
     job_steps = steps(upload_job(document))
     check = check_step(document)
     if check is None:
-        return [f"the upload job must hold one `{CHECK_STEP_ID}` step"]
+        return [f"the upload job must hold one `{check_step_id(document)}` step"]
     extra = sorted(str(key) for key in check if key not in CHECK_STEP_KEYS)
     problems = [f"the check step may not declare {key!r}" for key in extra]
     problems.extend(_run_defaults_violations(document))

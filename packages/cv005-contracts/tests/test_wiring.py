@@ -13,8 +13,8 @@ from contract_fixtures import PUBLISHER, mutate
 from cv005_contracts.loading import Document, load_workflow
 from cv005_contracts.publisher_rules import (
     condition_violations,
-    wiring_violations,
 )
+from cv005_contracts.wiring import wiring_violations
 
 
 def _publisher(texts: dict[str, str]) -> Document:
@@ -43,8 +43,87 @@ def test_a_mutation_changes_exactly_one_place(old: str) -> None:
         mutate("coverage-main.yml", old, "other.xml")
 
 
+UPLOAD_PATH = "          path: coverage.xml\n"
+CHECK_NAME = "      - name: Check for the CodeScene token\n"
+WRITTEN = "          output-path: coverage.xml\n"
+
+
+@pytest.mark.parametrize(
+    ("replacements"),
+    [
+        # The uploader's `__auto__` path is coverage.xml for cobertura.
+        [(UPLOAD_PATH, "")],
+        [(UPLOAD_PATH, "          path: __auto__\n")],
+        # lading's shape: the generator's format left to its default.
+        [(UPLOAD_PATH, "          path: coverage.xml\n          format: cobertura\n")],
+        # For lcov the uploader's default path is lcov.info.
+        [
+            (UPLOAD_PATH, "          format: lcov\n"),
+            (WRITTEN, "          output-path: lcov.info\n          format: lcov\n"),
+        ],
+    ],
+)
+def test_the_actions_defaults_are_read(replacements: list[tuple[str, str]]) -> None:
+    """An omitted input reads as what the action does by default."""
+    text = PUBLISHER
+    for old, new in replacements:
+        assert text.count(old) == 1, old
+        text = text.replace(old, new)
+    found = wiring_violations(load_workflow(text))
+    assert not found, found
+
+
+@pytest.mark.parametrize("written", ["other.xml", "lcov.info"])
+def test_a_default_path_must_match_what_was_written(written: str) -> None:
+    """The resolved default is compared, not taken as a match."""
+    text = PUBLISHER.replace(UPLOAD_PATH, "").replace(
+        WRITTEN, f"          output-path: {written}\n"
+    )
+    found = wiring_violations(load_workflow(text))
+    assert found, found
+
+
+#: The fixture's upload input, pointed at a merged report.
+MERGED_PATH = "          path: merged.xml\n"
+
+
+GENERATOR_NAME = "      - name: Generate coverage\n"
+
+
+def _merged(merge_run: str, anchor: str = CHECK_NAME) -> str:
+    """Return the publisher uploading merged.xml from a merge step before `anchor`."""
+    merge = f"      - name: Merge coverage results\n        run: {merge_run}\n"
+    text = PUBLISHER.replace(anchor, merge + anchor).replace(UPLOAD_PATH, MERGED_PATH)
+    assert MERGED_PATH in text
+    assert merge in text
+    return text
+
+
+def test_a_merged_report_is_read() -> None:
+    """The mxd shape: legs merged into the uploaded file by a redirect."""
+    found = wiring_violations(load_workflow(_merged("merge 'cov-*.xml' > merged.xml")))
+    assert not found, found
+
+
+@pytest.mark.parametrize(
+    ("merge_run", "anchor"),
+    [
+        ("merge 'cov-*.xml' > merged.xml", GENERATOR_NAME),
+        ("merge 'cov-*.xml' > other.xml", CHECK_NAME),
+        ("cat merged.xml", CHECK_NAME),
+    ],
+)
+def test_a_merge_must_follow_a_leg_and_write_the_file(
+    merge_run: str, anchor: str
+) -> None:
+    """A merge before any leg, or not redirected to the file, writes nothing."""
+    text = _merged(merge_run, anchor)
+    found = wiring_violations(load_workflow(text))
+    assert found, found
+
+
 def test_an_unnamed_report_is_refused() -> None:
-    """Two absent inputs compare equal, so both ends must name the file."""
+    """A generator naming no file writes nothing the uploader's default reads."""
     text = PUBLISHER.replace("          path: coverage.xml\n", "").replace(
         "          output-path: coverage.xml\n", ""
     )

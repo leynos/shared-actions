@@ -17,11 +17,11 @@ from contract_fixtures import (
 )
 from cv005_contracts.lanes import (
     interpreter_violations,
-    publisher_lane_violations,
     pull_request_lane_violations,
     second_writer_violations,
 )
 from cv005_contracts.loading import Document, load_workflow
+from cv005_contracts.parity import publisher_lane_violations
 
 
 def _documents(texts: dict[str, str]) -> dict[str, Document]:

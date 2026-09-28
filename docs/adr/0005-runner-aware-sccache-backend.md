@@ -122,6 +122,25 @@ Ubicloud wrote, and this decision does not try to bridge the two.
 A job that relied on the old default of GitHub's service on a hosted runner now
 gets local disk. One that wants the service sets `SCCACHE_GHA_ENABLED`.
 
+The hosted arm owns the sccache directory only when `setup-rust` also owns the
+job's other caches (`cache-provider: github`). A hosted lane whose caller owns
+its Cargo caches (`cache-provider: external`) therefore keeps its own local
+sccache arm. The GitHub-hosted Windows lanes in netsuke, whitaker's
+`windows-compat` and rstest-bdd are in that position and repinned `setup-rust`
+without converging (programme ruling, 2026-09-27). Converging them is follow-up
+work, and it requires `setup-rust` to own those lanes' Cargo caches as well.
+
+The proxy is not free per object. On chutoro's `build-test` (Ubicloud
+`ubicloud-standard-2`, 2026-09-27) a warm proxy read hit averaged 0.270 s
+against 0.224 s to compile the unit, and a write 1.188 s. The job took 21.4
+minutes against 10.0 on its archived local directory, at 81.6 % hits against
+93.8 %. A repository whose compilation units are small and fast can therefore
+do better on an archived local directory than on the proxy. It keeps that
+directory by setting `SCCACHE_DIR`, which selects local disk and leaves the
+cache to the caller, and it measures before moving: record
+`Average cache read hit` against `Average compiler` from `sccache --show-stats`
+on a warm run.
+
 The metric's values change from `gha`, `local` and `caller` to `ubicloud`,
 `github` and `local`. A reader scraping the old values must follow. Who chose
 the backend now appears in the notice rather than in the metric value.

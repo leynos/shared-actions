@@ -86,30 +86,54 @@ def check_step_violations(document: Document) -> list[str]:
 
 
 def _run_defaults_violations(document: Document) -> list[str]:
-    """Refuse `defaults.run` on the workflow or the upload job.
+    """Refuse `defaults.run` that could reshape the check step.
 
-    A default shell or working directory reshapes the check step as a
-    step-level `shell` would: `bash -c 'exit 0; {0}'` skips its command, the
-    output is never written, and the upload skips for ever.
+    A default shell reshapes the check step as a step-level `shell` would:
+    `bash -c 'exit 0; {0}'` skips its command, the output is never
+    written, and the upload skips for ever. A plain `bash` or `sh`, and a
+    working directory, leave the one `echo` command as written.
 
     Returns
     -------
     list[str]
-        One violation for each scope that declares `defaults.run`.
+        One violation for each scope whose `defaults.run` could reshape it.
 
     """
     holders = (("workflow", document), ("upload job", upload_job(document)))
     return [
         f"the {scope} may not set `defaults.run`; it reshapes the check step"
         for scope, holder in holders
-        if _sets_run_defaults(holder)
+        if _reshaping_run_defaults(holder)
     ]
 
 
-def _sets_run_defaults(holder: dict[object, object] | dict[str, object]) -> bool:
-    """Return whether a workflow or job declares `defaults.run`."""
+#: `defaults.run` keys that cannot change what the check command does.
+PLAIN_RUN_DEFAULT_KEYS: typ.Final[frozenset[str]] = frozenset(
+    {"shell", "working-directory"}
+)
+#: Shells under which the check's `echo ... >> "$GITHUB_OUTPUT"` runs as written.
+PLAIN_SHELLS: typ.Final[frozenset[str]] = frozenset({"bash", "sh"})
+
+
+def _reshaping_run_defaults(holder: dict[object, object] | dict[str, object]) -> bool:
+    """Return whether a workflow or job declares `defaults.run` that is not plain.
+
+    Examples
+    --------
+    >>> _reshaping_run_defaults({"defaults": {"run": {"shell": "bash"}}})
+    False
+    >>> skipping = {"shell": "bash -c 'exit 0; {0}'"}
+    >>> _reshaping_run_defaults({"defaults": {"run": skipping}})
+    True
+
+    """
     defaults = holder.get("defaults")
-    return isinstance(defaults, dict) and "run" in defaults
+    if not isinstance(defaults, dict) or "run" not in defaults:
+        return False
+    run = defaults["run"]
+    if not isinstance(run, dict) or not set(run) <= PLAIN_RUN_DEFAULT_KEYS:
+        return True
+    return run.get("shell", "bash") not in PLAIN_SHELLS
 
 
 def _without_permitted_references(document: Document) -> list[object]:

@@ -7,6 +7,7 @@ directions: any id the guard reads is followed, and only that one.
 
 from __future__ import annotations
 
+import pytest
 from contract_fixtures import PUBLISHER, mutate
 from cv005_contracts.credential import check_step_violations, token_scope_violations
 from cv005_contracts.loading import load_workflow
@@ -60,4 +61,36 @@ def test_only_the_step_the_guard_reads_is_exempt_from_the_sweep() -> None:
     )
     assert text != PUBLISHER
     found = token_scope_violations(load_workflow(text))
+    assert found, found
+
+
+@pytest.mark.parametrize(
+    "run_defaults",
+    [
+        "      run:\n        shell: bash\n",
+        "      run:\n        shell: sh\n        working-directory: src\n",
+    ],
+)
+def test_plain_run_defaults_leave_the_check_as_written(run_defaults: str) -> None:
+    """The whitaker default, `shell: bash`, runs the one `echo` unchanged."""
+    anchor = "    runs-on: ubuntu-latest\n    environment: codescene\n"
+    text = PUBLISHER.replace(anchor, anchor + "    defaults:\n" + run_defaults)
+    assert text != PUBLISHER
+    found = check_step_violations(load_workflow(text))
+    assert not found, found
+
+
+@pytest.mark.parametrize(
+    "run_defaults",
+    [
+        "      run:\n        shell: pwsh\n",
+        "      run:\n        shell: bash\n        other: x\n",
+        "      run: bash\n",
+    ],
+)
+def test_other_run_defaults_are_refused(run_defaults: str) -> None:
+    """A shell the `echo` does not run under as written is refused."""
+    anchor = "    runs-on: ubuntu-latest\n    environment: codescene\n"
+    text = PUBLISHER.replace(anchor, anchor + "    defaults:\n" + run_defaults)
+    found = check_step_violations(load_workflow(text))
     assert found, found

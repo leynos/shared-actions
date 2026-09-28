@@ -888,3 +888,24 @@ file = "cv005_contracts/wiring.py"
 old = "        elif has_generated and target.search(str(step.get(\"run\", \"\"))):\n"
 new = "        elif has_generated and str(read[0]) in str(step.get(\"run\", \"\")):\n"
 expect = "test_a_merge_must_follow_a_leg_and_write_the_file"
+
+[[mutation]]
+id = "D1 plain run defaults refused"
+file = "cv005_contracts/credential.py"
+old = "    return run.get(\"shell\", \"bash\") not in PLAIN_SHELLS\n"
+new = "    return True\n"
+expect = "test_plain_run_defaults_leave_the_check_as_written"
+
+[[mutation]]
+id = "D2 any shell accepted"
+file = "cv005_contracts/credential.py"
+old = "    return run.get(\"shell\", \"bash\") not in PLAIN_SHELLS\n"
+new = "    return False\n"
+expect = "test_other_run_defaults_are_refused"
+
+[[mutation]]
+id = "D3 any run-default key accepted"
+file = "cv005_contracts/credential.py"
+old = "not set(run) <= PLAIN_RUN_DEFAULT_KEYS"
+new = "False"
+expect = "test_other_run_defaults_are_refused"

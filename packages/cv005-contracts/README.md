@@ -86,6 +86,9 @@ the retired checksum names.
   - The check step is the one whose `available` output the upload guard
     reads, under any id (`codescene-token` or `codescene-credential`). The
     guard reads exactly one such output.
+  - A `defaults.run` on the workflow or the upload job may name only a
+    `bash` or `sh` shell and a working directory, which leave the command as
+    written.
 - **Coverage lanes.**
   - Each job measuring coverage, in a lane or the publisher, ratchets
     exactly one of its legs. The action keys the baseline by job.

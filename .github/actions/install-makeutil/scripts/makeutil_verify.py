@@ -171,6 +171,64 @@ def _cached_digest_matches(target: Path, expected_sha256: str) -> bool:
     return sha256_hex(target.read_bytes()) == expected_sha256
 
 
+class _InstallStoppedError(Exception):
+    """Carry the bounded result that stops an install before it writes.
+
+    Each verification step raises this rather than returning a sentinel, so
+    `install_makeutil` reads as the ordered sequence of checks it performs.
+    """
+
+    def __init__(self, result: InstallResult) -> None:
+        super().__init__(result.message)
+        self.result = result
+
+
+def _download(downloader: Downloader, url: str) -> bytes:
+    """Fetch `url`, stopping the install as `download-failed` on error."""
+    try:
+        return downloader(url)
+    except MakeutilError as error:
+        raise _InstallStoppedError(
+            InstallResult(DOWNLOAD_FAILED, message=str(error))
+        ) from error
+
+
+def _require_table_digest(binary: bytes, expected_sha256: str) -> None:
+    """Stop the install as `digest-mismatch` unless `binary` matches the table."""
+    actual = sha256_hex(binary)
+    if actual != expected_sha256:
+        message = (
+            f"downloaded digest {actual} does not match the pinned table "
+            f"digest {expected_sha256}"
+        )
+        raise _InstallStoppedError(InstallResult(DIGEST_MISMATCH, message=message))
+
+
+def _sidecar_digest(sidecar_bytes: bytes, expected_name: str) -> str:
+    """Return the sidecar's digest, stopping as `sidecar-mismatch` if malformed."""
+    try:
+        return parse_sidecar(sidecar_bytes.decode("ascii"), expected_name)
+    except UnicodeDecodeError as error:
+        message = f"sidecar is not ASCII: {error}"
+        raise _InstallStoppedError(
+            InstallResult(SIDECAR_MISMATCH, message=message)
+        ) from error
+    except SidecarError as error:
+        raise _InstallStoppedError(
+            InstallResult(SIDECAR_MISMATCH, message=str(error))
+        ) from error
+
+
+def _require_sidecar_digest(sidecar_digest: str, expected_sha256: str) -> None:
+    """Stop the install as `sidecar-mismatch` unless the sidecar agrees."""
+    if sidecar_digest != expected_sha256:
+        message = (
+            f"sidecar digest {sidecar_digest} does not match the pinned "
+            f"table digest {expected_sha256}"
+        )
+        raise _InstallStoppedError(InstallResult(SIDECAR_MISMATCH, message=message))
+
+
 def _finish_install(binary: bytes, executable_path: Path) -> InstallResult:
     """Stage `binary` into place, or report a bounded `install-failed` result.
 
@@ -228,40 +286,15 @@ def install_makeutil(
         executable_path.chmod(0o755)
         return InstallResult(CACHED, path=executable_path)
 
-    try:
-        binary = downloader(asset_urls.binary)
-    except MakeutilError as error:
-        return InstallResult(DOWNLOAD_FAILED, message=str(error))
-
-    actual = sha256_hex(binary)
-    if actual != expected_sha256:
-        message = (
-            f"downloaded digest {actual} does not match the pinned table "
-            f"digest {expected_sha256}"
-        )
-        return InstallResult(DIGEST_MISMATCH, message=message)
-
-    try:
-        sidecar_bytes = downloader(asset_urls.sidecar)
-    except MakeutilError as error:
-        return InstallResult(DOWNLOAD_FAILED, message=str(error))
-
-    try:
-        sidecar_text = sidecar_bytes.decode("ascii")
-    except UnicodeDecodeError as error:
-        return InstallResult(SIDECAR_MISMATCH, message=f"sidecar is not ASCII: {error}")
-
     expected_name = asset_urls.binary.rsplit("/", 1)[-1]
     try:
-        sidecar_digest = parse_sidecar(sidecar_text, expected_name)
-    except SidecarError as error:
-        return InstallResult(SIDECAR_MISMATCH, message=str(error))
-
-    if sidecar_digest != expected_sha256:
-        message = (
-            f"sidecar digest {sidecar_digest} does not match the pinned "
-            f"table digest {expected_sha256}"
+        binary = _download(downloader, asset_urls.binary)
+        _require_table_digest(binary, expected_sha256)
+        sidecar_bytes = _download(downloader, asset_urls.sidecar)
+        _require_sidecar_digest(
+            _sidecar_digest(sidecar_bytes, expected_name), expected_sha256
         )
-        return InstallResult(SIDECAR_MISMATCH, message=message)
+    except _InstallStoppedError as stopped:
+        return stopped.result
 
     return _finish_install(binary, executable_path)

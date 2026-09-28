@@ -35,6 +35,7 @@ _NAME = "makeutil-x86_64-unknown-linux-musl"
 _BINARY_URL = f"https://github.com/leynos/makeutil/releases/download/v0.1.0/{_NAME}"
 _SIDECAR_URL = f"{_BINARY_URL}.sha256"
 _ASSET_URLS = AssetUrls(binary=_BINARY_URL, sidecar=_SIDECAR_URL)
+_DIGEST = sha256_hex(_BINARY)
 
 
 def _sidecar_for(data: bytes, name: str = _NAME) -> bytes:
@@ -59,20 +60,43 @@ def _fake_downloader(
     return _download
 
 
+def _install(
+    target: Path,
+    downloader: typ.Callable[[str], bytes],
+    expected_sha256: str = _DIGEST,
+) -> makeutil_verify.InstallResult:
+    """Run `install_makeutil` for the canned asset URLs."""
+    return install_makeutil(
+        executable_path=target,
+        expected_sha256=expected_sha256,
+        asset_urls=_ASSET_URLS,
+        downloader=downloader,
+    )
+
+
+def _unreachable_downloader(_url: str) -> bytes:
+    """Fail the test if a valid cache hit reaches the network."""
+    message = "a valid cache hit must never call the downloader"
+    raise AssertionError(message)
+
+
+def _seed_cache(tmp_path: Path, data: bytes, mode: int = 0o755) -> Path:
+    """Place `data` where a cache restore would, and return its path."""
+    target = tmp_path / "bin" / "makeutil"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(data)
+    target.chmod(mode)
+    return target
+
+
 class TestSuccess:
     """Both digests match: the binary is installed, executable, in place."""
 
     def test_a_verified_download_is_installed_executable(self, tmp_path: Path) -> None:
         """The staged file lands at `executable_path` with the exec bit set."""
         target = tmp_path / "bin" / "makeutil"
-        digest = sha256_hex(_BINARY)
 
-        result = install_makeutil(
-            executable_path=target,
-            expected_sha256=digest,
-            asset_urls=_ASSET_URLS,
-            downloader=_fake_downloader(),
-        )
+        result = _install(target, _fake_downloader())
 
         assert result.outcome == INSTALLED
         assert result.path == target
@@ -88,12 +112,7 @@ class TestFailureScenarios:
         target = tmp_path / "bin" / "makeutil"
         wrong_digest = "0" * 64
 
-        result = install_makeutil(
-            executable_path=target,
-            expected_sha256=wrong_digest,
-            asset_urls=_ASSET_URLS,
-            downloader=_fake_downloader(),
-        )
+        result = _install(target, _fake_downloader(), wrong_digest)
 
         assert result.outcome == DIGEST_MISMATCH
         assert not target.exists()
@@ -119,14 +138,8 @@ class TestFailureScenarios:
         and neither ever reaches the filesystem.
         """
         target = tmp_path / "bin" / "makeutil"
-        digest = sha256_hex(_BINARY)
 
-        result = install_makeutil(
-            executable_path=target,
-            expected_sha256=digest,
-            asset_urls=_ASSET_URLS,
-            downloader=_fake_downloader(sidecar=tampered_sidecar),
-        )
+        result = _install(target, _fake_downloader(sidecar=tampered_sidecar))
 
         assert result.outcome == SIDECAR_MISMATCH
         assert not target.exists()
@@ -139,12 +152,7 @@ class TestFailureScenarios:
             message = "connection refused"
             raise DownloadError(message)
 
-        result = install_makeutil(
-            executable_path=target,
-            expected_sha256=sha256_hex(_BINARY),
-            asset_urls=_ASSET_URLS,
-            downloader=_failing_downloader,
-        )
+        result = _install(target, _failing_downloader)
 
         assert result.outcome == DOWNLOAD_FAILED
         assert not target.exists()
@@ -158,7 +166,6 @@ class TestFailureScenarios:
         staged temporary file nor a partial target behind.
         """
         target = tmp_path / "bin" / "makeutil"
-        digest = sha256_hex(_BINARY)
 
         def _failing_replace(self: Path, _dest: object) -> typ.NoReturn:
             message = "simulated replace failure"
@@ -166,12 +173,7 @@ class TestFailureScenarios:
 
         monkeypatch.setattr(makeutil_verify.Path, "replace", _failing_replace)
 
-        result = install_makeutil(
-            executable_path=target,
-            expected_sha256=digest,
-            asset_urls=_ASSET_URLS,
-            downloader=_fake_downloader(),
-        )
+        result = _install(target, _fake_downloader())
 
         assert result.outcome == INSTALL_FAILED
         assert not target.exists()
@@ -182,7 +184,6 @@ class TestFailureScenarios:
         still fail and must still leave nothing installed.
         """
         target = tmp_path / "bin" / "makeutil"
-        digest = sha256_hex(_BINARY)
 
         def _download(url: str) -> bytes:
             if url == _BINARY_URL:
@@ -190,12 +191,7 @@ class TestFailureScenarios:
             message = "sidecar not found"
             raise DownloadError(message)
 
-        result = install_makeutil(
-            executable_path=target,
-            expected_sha256=digest,
-            asset_urls=_ASSET_URLS,
-            downloader=_download,
-        )
+        result = _install(target, _download)
 
         assert result.outcome == DOWNLOAD_FAILED
         assert not target.exists()
@@ -208,21 +204,9 @@ class TestCacheReverification:
         self, tmp_path: Path
     ) -> None:
         """No downloader call is needed when the cached bytes already match."""
-        target = tmp_path / "bin" / "makeutil"
-        target.parent.mkdir(parents=True)
-        target.write_bytes(_BINARY)
-        digest = sha256_hex(_BINARY)
+        target = _seed_cache(tmp_path, _BINARY)
 
-        def _unreachable_downloader(_url: str) -> bytes:
-            message = "a valid cache hit must never call the downloader"
-            raise AssertionError(message)
-
-        result = install_makeutil(
-            executable_path=target,
-            expected_sha256=digest,
-            asset_urls=_ASSET_URLS,
-            downloader=_unreachable_downloader,
-        )
+        result = _install(target, _unreachable_downloader)
 
         assert result.outcome == CACHED
         assert result.path == target
@@ -234,22 +218,9 @@ class TestCacheReverification:
         restored cache entry can land without the execute bit, and a
         `CACHED` result must always be usable.
         """
-        target = tmp_path / "bin" / "makeutil"
-        target.parent.mkdir(parents=True)
-        target.write_bytes(_BINARY)
-        target.chmod(0o644)
-        digest = sha256_hex(_BINARY)
+        target = _seed_cache(tmp_path, _BINARY, mode=0o644)
 
-        def _unreachable_downloader(_url: str) -> bytes:
-            message = "a valid cache hit must never call the downloader"
-            raise AssertionError(message)
-
-        result = install_makeutil(
-            executable_path=target,
-            expected_sha256=digest,
-            asset_urls=_ASSET_URLS,
-            downloader=_unreachable_downloader,
-        )
+        result = _install(target, _unreachable_downloader)
 
         assert result.outcome == CACHED
         assert os.access(target, os.X_OK)
@@ -258,17 +229,9 @@ class TestCacheReverification:
         self, tmp_path: Path
     ) -> None:
         """A stale or tampered cache entry self-heals rather than failing."""
-        target = tmp_path / "bin" / "makeutil"
-        target.parent.mkdir(parents=True)
-        target.write_bytes(b"stale bytes from a previous release")
-        digest = sha256_hex(_BINARY)
+        target = _seed_cache(tmp_path, b"stale bytes from a previous release")
 
-        result = install_makeutil(
-            executable_path=target,
-            expected_sha256=digest,
-            asset_urls=_ASSET_URLS,
-            downloader=_fake_downloader(),
-        )
+        result = _install(target, _fake_downloader())
 
         assert result.outcome == INSTALLED
         assert target.read_bytes() == _BINARY

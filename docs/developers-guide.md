@@ -27,7 +27,7 @@ repository-specific entries to the overlay instead.
 - [ADR 0003: sccache owns Rust compiler output](adr/0003-sccache-owns-rust-compiler-output.md)
 - [ADR 0004: main owns CodeScene coverage](adr/0004-main-owns-codescene-coverage.md)
 - [ADR 0005: setup-rust selects the sccache backend by runner](adr/0005-runner-aware-sccache-backend.md)
-- [ADR 0005: install-whitaker installs binaries only](adr/0005-binary-only-whitaker-install.md)
+- [ADR 0006: install-whitaker installs binaries only](adr/0006-binary-only-whitaker-install.md)
 
 ## Python Coverage Venv Architecture
 
@@ -827,7 +827,7 @@ a failing subshell.
 
 ### Binary-only installs
 
-[ADR 0005](adr/0005-binary-only-whitaker-install.md) records why the action
+[ADR 0006](adr/0006-binary-only-whitaker-install.md) records why the action
 installs published binaries only. The `Run Whitaker installer` step implements
 it:
 

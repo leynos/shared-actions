@@ -1,4 +1,4 @@
-# ADR 0005: install-whitaker installs binaries only
+# ADR 0006: install-whitaker installs binaries only
 
 **Status:** Accepted **Date:** 2026-09-24
 

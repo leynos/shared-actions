@@ -17,6 +17,7 @@ from install_makeutil import (
     lookup_digest,
     resolve_bin_dir,
     resolve_target,
+    validate_sha256_override,
     validate_version,
 )
 from makeutil_errors import (
@@ -133,6 +134,32 @@ class TestValidateVersion:
             validate_version(version)
 
 
+class TestValidateSha256Override:
+    """`sha256-override`: empty is allowed, otherwise 64 lowercase hex."""
+
+    def test_an_empty_override_is_accepted(self) -> None:
+        """An empty override means "use the pinned table digest"."""
+        validate_sha256_override("")
+
+    def test_a_valid_override_is_accepted(self) -> None:
+        """No exception is the whole assertion; validation is a pure check."""
+        validate_sha256_override("a" * 64)
+
+    def test_an_override_with_a_newline_is_refused(self) -> None:
+        """A newline could smuggle an extra `GITHUB_OUTPUT` record; refused
+        before any output is written.
+        """
+        with pytest.raises(InvalidInputError):
+            validate_sha256_override("a" * 63 + "\n")
+
+    def test_an_override_with_uppercase_hex_is_refused(self) -> None:
+        """Only lowercase hex is accepted, matching the pinned table's own
+        digests and `sha256sum`'s own output.
+        """
+        with pytest.raises(InvalidInputError):
+            validate_sha256_override("A" * 64)
+
+
 class TestResolveBinDir:
     """`bin-dir` validation: absolute or `~/`-relative, and creatable."""
 
@@ -173,3 +200,34 @@ class TestResolveBinDir:
         """A newline could smuggle a second GITHUB_PATH line; refused first."""
         with pytest.raises(InvalidInputError):
             resolve_bin_dir("/opt/tools/bin\n/etc")
+
+    def test_a_symlink_resolving_to_a_colon_in_its_path_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """A `bin-dir` that is itself clean can still resolve, via a
+        symlink, to a target whose path contains the PATH separator; the
+        resolved path - what is actually published to `GITHUB_PATH` - must
+        be checked too, not just the symlink's own spelling.
+        """
+        target = tmp_path / "with:colon"
+        target.mkdir()
+        link = tmp_path / "clean-link"
+        link.symlink_to(target)
+
+        with pytest.raises(InvalidInputError):
+            resolve_bin_dir(str(link))
+
+    def test_a_symlink_to_a_clean_directory_is_still_accepted(
+        self, tmp_path: Path
+    ) -> None:
+        """A symlink whose target is unproblematic resolves normally; the
+        revalidation must not reject a legitimate symlinked `bin-dir`.
+        """
+        target = tmp_path / "real-bin"
+        target.mkdir()
+        link = tmp_path / "link-to-bin"
+        link.symlink_to(target)
+
+        result = resolve_bin_dir(str(link))
+
+        assert result == target.resolve()

@@ -162,6 +162,36 @@ class TestResolveSubcommand:
         summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
         assert f"install-makeutil.result={refusal.expected_metric}" in summary
 
+    def test_a_malformed_sha256_override_is_refused_before_any_output(
+        self, tmp_path: Path
+    ) -> None:
+        """A non-hex, wrong-length, or newline-carrying override is refused
+        the same way a malformed version is, and no outputs are published.
+        """
+        env = _fake_env(tmp_path)
+
+        exit_code = cli.main(
+            [
+                "resolve",
+                "--version",
+                "0.1.0",
+                "--bin-dir",
+                str(tmp_path / "bin"),
+                "--sha256-override",
+                "A" * 64,
+                "--runner-os",
+                "Linux",
+                "--runner-arch",
+                "X64",
+            ],
+            env,
+        )
+
+        assert exit_code == 1
+        assert _outputs(env) == {}
+        summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
+        assert "install-makeutil.result=invalid-input" in summary
+
 
 class TestInstallSubcommand:
     """`install` runs the orchestrator and publishes its outputs."""

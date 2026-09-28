@@ -43,6 +43,11 @@ _MAX_BIN_DIR_LENGTH = 240
 
 _VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
+#: A pinned digest, and any valid override, is always 64 lowercase hex
+#: characters; anything else - including a newline that would smuggle an
+#: extra `GITHUB_OUTPUT` record - is refused before any output is written.
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
 #: Rust target triple keyed by (``runner.os``, ``runner.arch``). Linux only:
 #: makeutil publishes no other platform's static binary, and this action
 #: never falls back to a source build for one it does not.
@@ -68,6 +73,23 @@ def validate_version(version: str) -> None:
     """Validate that `version` is three numeric components, no leading zeros."""
     if not _VERSION_RE.match(version):
         msg = "version must be three numeric components without leading zeros"
+        raise InvalidInputError(msg)
+
+
+def validate_sha256_override(sha256_override: str) -> None:
+    """Validate a non-empty `sha256-override` is 64 lowercase hex characters.
+
+    An empty override is not validated here; it means "use the pinned table
+    digest" and is handled by the caller.
+
+    Raises
+    ------
+    InvalidInputError
+        If the override is non-empty and not exactly 64 lowercase hex
+        characters.
+    """
+    if sha256_override and not _SHA256_RE.match(sha256_override):
+        msg = "sha256-override must be 64 lowercase hexadecimal characters"
         raise InvalidInputError(msg)
 
 
@@ -124,6 +146,21 @@ def _create_bin_dir(bin_dir_input: str, expanded_bin_dir: str) -> Path:
     return path.resolve()
 
 
+def _revalidate_resolved_bin_dir(resolved_bin_dir: Path) -> None:
+    """Reapply the CR/LF, PATH-separator and parent-component checks to a
+    resolved `bin-dir`.
+
+    `bin_dir_input` is validated only in its given spelling; when it is a
+    symlink, the resolved target - what is actually published to
+    `GITHUB_PATH` - could still smuggle a rejected character or component.
+    Re-running the same checks against the resolved path closes that gap.
+    """
+    resolved_str = str(resolved_bin_dir)
+    _reject_crlf_in_bin_dir(resolved_str)
+    _reject_parent_components(resolved_str)
+    _reject_path_separator(resolved_str)
+
+
 def resolve_bin_dir(bin_dir_input: str) -> Path:
     """Validate `bin_dir_input` and return it as an absolute, existing path.
 
@@ -147,7 +184,9 @@ def resolve_bin_dir(bin_dir_input: str) -> Path:
     expanded_bin_dir = _expand_bin_dir(bin_dir_input)
     _reject_parent_components(expanded_bin_dir)
     _reject_path_separator(expanded_bin_dir)
-    return _create_bin_dir(bin_dir_input, expanded_bin_dir)
+    resolved_bin_dir = _create_bin_dir(bin_dir_input, expanded_bin_dir)
+    _revalidate_resolved_bin_dir(resolved_bin_dir)
+    return resolved_bin_dir
 
 
 def resolve_target(runner_os: str, runner_arch: str) -> str:
@@ -238,6 +277,7 @@ def _run_resolve(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
     """
     try:
         validate_version(args.version)
+        validate_sha256_override(args.sha256_override)
         bin_dir = resolve_bin_dir(args.bin_dir)
         target = resolve_target(args.runner_os, args.runner_arch)
         table_digest = lookup_digest(args.version, target)

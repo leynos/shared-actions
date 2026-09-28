@@ -42,6 +42,7 @@ METRIC_RESULTS = {
     "digest-mismatch",
     "sidecar-mismatch",
     "download-failed",
+    "install-failed",
 }
 
 

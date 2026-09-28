@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import dataclasses as dc
 import hashlib
+import http.client
 import os
 import re
 import tempfile
@@ -43,6 +44,7 @@ INSTALLED = "installed"
 DIGEST_MISMATCH = "digest-mismatch"
 SIDECAR_MISMATCH = "sidecar-mismatch"
 DOWNLOAD_FAILED = "download-failed"
+INSTALL_FAILED = "install-failed"
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing only
     Downloader = cabc.Callable[[str], bytes]
@@ -109,7 +111,7 @@ def default_downloader(url: str) -> bytes:
             request, timeout=DOWNLOAD_TIMEOUT_SECONDS
         ) as response:
             data = response.read(_MAX_ASSET_BYTES + 1)
-    except (urllib.error.URLError, OSError) as error:
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
         msg = f"could not download {url}: {error}"
         raise DownloadError(msg) from error
     if len(data) > _MAX_ASSET_BYTES:
@@ -169,6 +171,23 @@ def _cached_digest_matches(target: Path, expected_sha256: str) -> bool:
     return sha256_hex(target.read_bytes()) == expected_sha256
 
 
+def _finish_install(binary: bytes, executable_path: Path) -> InstallResult:
+    """Stage `binary` into place, or report a bounded `install-failed` result.
+
+    Writing, `chmod`-ing or moving the staged file can fail - a full disk, a
+    permission problem - after both digests already agreed; that must become
+    this module's own bounded outcome rather than an uncaught traceback, and
+    `stage_and_install` has already cleaned up any staged temporary file by
+    the time this returns.
+    """
+    try:
+        stage_and_install(binary, executable_path)
+    except OSError as error:
+        message = f"could not install to {executable_path}: {error}"
+        return InstallResult(INSTALL_FAILED, message=message)
+    return InstallResult(INSTALLED, path=executable_path)
+
+
 def install_makeutil(
     *,
     executable_path: Path,
@@ -203,6 +222,10 @@ def install_makeutil(
         `outcome` is one of the bounded metric values this module declares.
     """
     if _cached_digest_matches(executable_path, expected_sha256):
+        # A digest match proves the bytes are right, not that the mode
+        # survived whatever placed them there; a cache restore in
+        # particular does not preserve the executable bit.
+        executable_path.chmod(0o755)
         return InstallResult(CACHED, path=executable_path)
 
     try:
@@ -241,5 +264,4 @@ def install_makeutil(
         )
         return InstallResult(SIDECAR_MISMATCH, message=message)
 
-    stage_and_install(binary, executable_path)
-    return InstallResult(INSTALLED, path=executable_path)
+    return _finish_install(binary, executable_path)

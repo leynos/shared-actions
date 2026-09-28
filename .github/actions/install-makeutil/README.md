@@ -16,8 +16,8 @@ This action installs `x86_64-unknown-linux-musl` and
 
 | Runner            | Outcome                                     |
 | ----------------- | ------------------------------------------- |
-| `Linux` / `X64`   | Installed from the prebuilt archive         |
-| `Linux` / `ARM64` | Installed from the prebuilt archive         |
+| `Linux` / `X64`   | Installed from the prebuilt binary          |
+| `Linux` / `ARM64` | Installed from the prebuilt binary          |
 | anything else     | Fails closed, `result=unsupported-platform` |
 
 The platform is rejected before the digest table is consulted, and the version
@@ -69,16 +69,17 @@ file was tampered with - is replaced rather than trusted.
 Each run emits exactly one `install-makeutil.result` line, to the log and to
 the job summary, over a bounded vocabulary:
 
-| Metric                                         | Meaning                                        |
-| ---------------------------------------------- | ---------------------------------------------- |
-| `install-makeutil.result=invalid-input`        | An input was refused before anything ran       |
-| `install-makeutil.result=unsupported-platform` | No prebuilt binary for this runner             |
-| `install-makeutil.result=unknown-version`      | The digest table has no entry for this version |
-| `install-makeutil.result=cached`               | `bin-dir` already held the verified binary     |
-| `install-makeutil.result=installed`            | Downloaded, verified, and installed            |
-| `install-makeutil.result=digest-mismatch`      | The download did not match the pinned digest   |
-| `install-makeutil.result=sidecar-mismatch`     | The download did not match the sidecar         |
-| `install-makeutil.result=download-failed`      | The binary or the sidecar could not be fetched |
+| Metric                                         | Meaning                                              |
+| ---------------------------------------------- | ---------------------------------------------------- |
+| `install-makeutil.result=invalid-input`        | An input was refused before anything ran             |
+| `install-makeutil.result=unsupported-platform` | No prebuilt binary for this runner                   |
+| `install-makeutil.result=unknown-version`      | The digest table has no entry for this version       |
+| `install-makeutil.result=cached`               | `bin-dir` already held the verified binary           |
+| `install-makeutil.result=installed`            | Downloaded, verified, and installed                  |
+| `install-makeutil.result=digest-mismatch`      | The download did not match the pinned digest         |
+| `install-makeutil.result=sidecar-mismatch`     | The download did not match the sidecar               |
+| `install-makeutil.result=download-failed`      | The binary or the sidecar could not be fetched       |
+| `install-makeutil.result=install-failed`       | The verified binary could not be staged or installed |
 
 ## Inputs
 

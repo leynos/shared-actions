@@ -8,6 +8,7 @@ is the fail-closed guarantee the packet requires.
 
 from __future__ import annotations
 
+import http.client
 import os
 import typing as typ
 
@@ -18,6 +19,7 @@ from makeutil_verify import (
     CACHED,
     DIGEST_MISMATCH,
     DOWNLOAD_FAILED,
+    INSTALL_FAILED,
     INSTALLED,
     SIDECAR_MISMATCH,
     AssetUrls,
@@ -147,6 +149,34 @@ class TestFailureScenarios:
         assert result.outcome == DOWNLOAD_FAILED
         assert not target.exists()
 
+    def test_a_staging_failure_is_reported_as_install_failed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An `OSError` while moving the staged file into place - here
+        injected via `Path.replace` - becomes a bounded `install-failed`
+        result rather than an uncaught traceback, and leaves neither a
+        staged temporary file nor a partial target behind.
+        """
+        target = tmp_path / "bin" / "makeutil"
+        digest = sha256_hex(_BINARY)
+
+        def _failing_replace(self: Path, _dest: object) -> typ.NoReturn:
+            message = "simulated replace failure"
+            raise OSError(message)
+
+        monkeypatch.setattr(makeutil_verify.Path, "replace", _failing_replace)
+
+        result = install_makeutil(
+            executable_path=target,
+            expected_sha256=digest,
+            asset_urls=_ASSET_URLS,
+            downloader=_fake_downloader(),
+        )
+
+        assert result.outcome == INSTALL_FAILED
+        assert not target.exists()
+        assert list(target.parent.iterdir()) == []
+
     def test_a_sidecar_download_failure_installs_nothing(self, tmp_path: Path) -> None:
         """The binary alone verifying is not enough; the sidecar fetch can
         still fail and must still leave nothing installed.
@@ -197,6 +227,33 @@ class TestCacheReverification:
         assert result.outcome == CACHED
         assert result.path == target
 
+    def test_a_cached_file_without_the_execute_bit_is_made_executable(
+        self, tmp_path: Path
+    ) -> None:
+        """A digest match alone does not prove the file is runnable; a
+        restored cache entry can land without the execute bit, and a
+        `CACHED` result must always be usable.
+        """
+        target = tmp_path / "bin" / "makeutil"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(_BINARY)
+        target.chmod(0o644)
+        digest = sha256_hex(_BINARY)
+
+        def _unreachable_downloader(_url: str) -> bytes:
+            message = "a valid cache hit must never call the downloader"
+            raise AssertionError(message)
+
+        result = install_makeutil(
+            executable_path=target,
+            expected_sha256=digest,
+            asset_urls=_ASSET_URLS,
+            downloader=_unreachable_downloader,
+        )
+
+        assert result.outcome == CACHED
+        assert os.access(target, os.X_OK)
+
     def test_a_cached_file_with_a_wrong_digest_is_reinstalled(
         self, tmp_path: Path
     ) -> None:
@@ -238,4 +295,39 @@ class TestHttpsOnly:
         with pytest.raises(DownloadError, match="non-HTTPS"):
             makeutil_verify.default_downloader(
                 "http://github.com/leynos/makeutil/releases/download/x"
+            )
+
+
+class TestHttpClientExceptions:
+    """An `http.client.HTTPException` during the response body read must
+    become a `DownloadError`, not escape as a traceback.
+    """
+
+    def test_an_incomplete_read_becomes_a_download_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`http.client.IncompleteRead` is a `HTTPException` subclass that
+        `response.read()` can raise mid-body; it must be caught alongside
+        the URL and OS errors already handled.
+        """
+
+        class _RaisingResponse:
+            def __enter__(self) -> typ.Self:
+                return self
+
+            def __exit__(self, *_exc_info: object) -> None:
+                return None
+
+            def read(self, _size: int) -> bytes:
+                partial = b""
+                raise http.client.IncompleteRead(partial)
+
+        def _fake_urlopen(*_args: object, **_kwargs: object) -> _RaisingResponse:
+            return _RaisingResponse()
+
+        monkeypatch.setattr(makeutil_verify.urllib.request, "urlopen", _fake_urlopen)
+
+        with pytest.raises(DownloadError, match="could not download"):
+            makeutil_verify.default_downloader(
+                "https://github.com/leynos/makeutil/releases/download/x"
             )

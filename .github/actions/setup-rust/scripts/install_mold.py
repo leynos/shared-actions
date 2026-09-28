@@ -172,10 +172,26 @@ def reported_version(mold: Path) -> str | None:
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    fields = result.stdout.split()
-    if result.returncode != 0 or len(fields) < 2 or fields[0] != "mold":
+    if result.returncode != 0:
         return None
-    return fields[1]
+    return _version_from_banner(result.stdout)
+
+
+def _version_from_banner(banner: str) -> str | None:
+    """Return the version from a ``mold --version`` banner, or ``None``.
+
+    Examples
+    --------
+    >>> _version_from_banner("mold 2.41.0 (compatible with GNU ld)")
+    '2.41.0'
+    >>> _version_from_banner("GNU ld 2.42") is None
+    True
+    """
+    match banner.split()[:2]:
+        case ["mold", version]:
+            return version
+        case _:
+            return None
 
 
 def is_installed(tree: Path, release: Release) -> bool:

@@ -298,3 +298,17 @@ def test_main_fails_closed_without_touching_path(
     assert "::error title=setup-rust mold::" in captured.err
     assert "metric setup-rust.mold=failed" in captured.out
     assert not github_path.exists()
+
+
+@pytest.mark.parametrize(
+    ("banner", "version"),
+    [
+        pytest.param("mold 2.41.0 (compatible with GNU ld)", "2.41.0", id="mold"),
+        pytest.param("GNU ld (GNU Binutils) 2.42", None, id="another-linker"),
+        pytest.param("mold", None, id="no-version"),
+        pytest.param("", None, id="silent"),
+    ],
+)
+def test_only_a_mold_banner_yields_a_version(banner: str, version: str | None) -> None:
+    """A binary that is not mold never passes the version probe."""
+    assert install_mold._version_from_banner(banner) == version

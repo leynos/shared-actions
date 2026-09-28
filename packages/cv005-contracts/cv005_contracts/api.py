@@ -270,21 +270,11 @@ def assert_publisher_contract(repo_root: Path, config: Config | None = None) -> 
 
 
 def assert_environment_contract(repo_root: Path, config: Config | None = None) -> None:
-    """Raise unless the `codescene` environment placement holds.
+    """Raise `ContractError` unless the `codescene` environment placement holds.
 
-    Parameters
-    ----------
-    repo_root : Path
-        The repository root.
-    config : Config | None, optional
-        The repository's parameters; read from `.github/cv005.toml` when
-        omitted.
-
-    Raises
-    ------
-    ContractError
-        With every violation found.
-
+    It takes the arguments `assert_publisher_contract` takes, and runs only
+    the `environment` family, which a repository's configuration may turn
+    off; kept apart so a caller can hold the placement on its own.
     """
     _raise_unless_clean(violations(repo_root, config, frozenset({"environment"})))
 

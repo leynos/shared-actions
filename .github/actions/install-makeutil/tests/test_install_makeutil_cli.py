@@ -14,6 +14,7 @@ never downloads - is tested here.
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import install_makeutil as cli
@@ -31,6 +32,16 @@ def _fake_env(tmp_path: Path) -> dict[str, str]:
         "GITHUB_OUTPUT": str(output_path),
         "GITHUB_STEP_SUMMARY": str(summary_path),
     }
+
+
+@dataclasses.dataclass(frozen=True)
+class RefusedResolve:
+    """One refused `resolve` invocation and the metric it must report."""
+
+    version: str
+    runner_os: str
+    runner_arch: str
+    expected_metric: str
 
 
 def _outputs(env: dict[str, str]) -> dict[str, str]:
@@ -105,34 +116,24 @@ class TestResolveSubcommand:
         assert "99dd28a1" in outputs["cache-key"]
 
     @pytest.mark.parametrize(
-        ("version", "runner_os", "runner_arch", "expected_metric"),
+        "refusal",
         [
             pytest.param(
-                "0.1.0",
-                "Windows",
-                "X64",
-                "unsupported-platform",
+                RefusedResolve("0.1.0", "Windows", "X64", "unsupported-platform"),
                 id="unsupported-platform",
             ),
             pytest.param(
-                "0.0.1", "Linux", "X64", "unknown-version", id="unknown-version"
+                RefusedResolve("0.0.1", "Linux", "X64", "unknown-version"),
+                id="unknown-version",
             ),
             pytest.param(
-                "not-a-version",
-                "Linux",
-                "X64",
-                "invalid-input",
+                RefusedResolve("not-a-version", "Linux", "X64", "invalid-input"),
                 id="malformed-version",
             ),
         ],
     )
     def test_a_refused_resolve_reports_its_bounded_metric(
-        self,
-        tmp_path: Path,
-        version: str,
-        runner_os: str,
-        runner_arch: str,
-        expected_metric: str,
+        self, tmp_path: Path, refusal: RefusedResolve
     ) -> None:
         """Each refusal stage - input, version, platform - exits 1 and
         reports exactly its own documented result value, never a traceback.
@@ -146,20 +147,20 @@ class TestResolveSubcommand:
             [
                 "resolve",
                 "--version",
-                version,
+                refusal.version,
                 "--bin-dir",
                 str(tmp_path / "bin"),
                 "--runner-os",
-                runner_os,
+                refusal.runner_os,
                 "--runner-arch",
-                runner_arch,
+                refusal.runner_arch,
             ],
             env,
         )
 
         assert exit_code == 1
         summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
-        assert f"install-makeutil.result={expected_metric}" in summary
+        assert f"install-makeutil.result={refusal.expected_metric}" in summary
 
 
 class TestInstallSubcommand:

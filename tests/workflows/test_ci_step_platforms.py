@@ -55,11 +55,14 @@ def platform_of(condition: str) -> str | None:
 
     The condition must be a conjunction whose conjuncts include exactly
     one `runner.os == '<platform>'`. A disjunction or a negation can
-    admit another runner, and a second `runner.os` comparison can
-    contradict the first, so any of them yields None.
+    admit another runner, a second `runner.os` comparison can contradict
+    the first, and a literal `false` conjunct disables the step on every
+    runner, so any of them yields None.
     """
     text = " ".join(condition.removeprefix("${{").removesuffix("}}").split())
     if "||" in text or "!" in text.replace("!=", ""):
+        return None
+    if any(part.strip().lower() == "false" for part in text.split("&&")):
         return None
     comparisons = [
         _RUNNER_OS_COMPARISON.fullmatch(part.strip())
@@ -121,6 +124,12 @@ def test_no_other_step_selects_a_platform() -> None:
         ),
         pytest.param("runner.os == 'Windows'", "Windows", id="another-platform"),
         pytest.param("false", None, id="literal-false"),
+        pytest.param(
+            "runner.os == 'Linux' && false", None, id="false-conjunct-disables"
+        ),
+        pytest.param(
+            "${{ runner.os == 'Linux' && FALSE }}", None, id="false-conjunct-wrapped"
+        ),
         pytest.param("", None, id="absent"),
         pytest.param("runner.os != 'macOS'", None, id="negated-comparison"),
         pytest.param("runner.os == 'Linux' || true", None, id="disjunction"),

@@ -29,15 +29,19 @@ MAIN_REF_GUARD: typ.Final[str] = "github.ref == 'refs/heads/main'"
 AVAILABLE_GUARD: typ.Final[str] = f"steps.{CHECK_STEP_ID}.outputs.available == 'true'"
 UPLOAD_GUARD: typ.Final[frozenset[str]] = frozenset({MAIN_REF_GUARD, AVAILABLE_GUARD})
 
-#: The publisher's one concurrency declaration, held exactly. Keyed on the
-#: ref alone, so every run for main shares one group: runs never overlap,
-#: and a newer trigger replaces an older pending run. Adding the event name
-#: would split main into two groups, letting an earlier dispatch overlap or
-#: finish after a newer push and upload older coverage last.
-PUBLISHER_CONCURRENCY: typ.Final[dict[str, object]] = {
-    "group": "coverage-main-${{ github.ref }}",
-    "cancel-in-progress": False,
-}
+#: The publisher's concurrency groups, held exactly after the spacing inside
+#: `${{ }}` is normalized. Keyed on the ref alone, so every run for main
+#: shares one group: runs never overlap, and a newer trigger replaces an
+#: older pending run. Adding the event name would split main into two
+#: groups, letting an earlier dispatch overlap or finish after a newer push
+#: and upload older coverage last. The estate spells the workflow part two
+#: ways: the file's stem, or `github.workflow`.
+PUBLISHER_GROUPS: typ.Final[frozenset[str]] = frozenset(
+    {
+        "coverage-main-${{ github.ref }}",
+        "${{ github.workflow }}-${{ github.ref }}",
+    }
+)
 PERMITTED_TRIGGERS: typ.Final[frozenset[str]] = frozenset({"push", "workflow_dispatch"})
 
 

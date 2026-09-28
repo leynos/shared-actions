@@ -274,6 +274,69 @@ def test_the_publisher_holds_its_one_ref_keyed_group(old: str, new: str) -> None
     assert found, found
 
 
+def test_another_job_may_not_declare_concurrency() -> None:
+    """Only the workflow's or the upload job's group governs the upload."""
+    other = (
+        "  other:\n    runs-on: ubuntu-latest\n    concurrency: other\n"
+        "    steps:\n      - run: 'true'\n"
+    )
+    text = PUBLISHER.replace("jobs:\n", "jobs:\n" + other)
+    found = concurrency_violations(load_workflow(text))
+    assert found == ["job other declares its own concurrency"], found
+
+
+#: The fixture's workflow-level declaration, and the same moved to the job.
+WORKFLOW_GROUP = f"concurrency:\n  {GROUP}\n  cancel-in-progress: false\n"
+JOB_GROUP = (
+    "    runs-on: ubuntu-latest\n    concurrency:\n"
+    "      group: coverage-main-${{ github.ref }}\n      cancel-in-progress: false\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (GROUP, "group: ${{ github.workflow }}-${{ github.ref }}"),
+        (GROUP, "group: coverage-main-${{github.ref}}"),
+        (GROUP, "group: ${{github.workflow}}-${{  github.ref  }}"),
+    ],
+)
+def test_either_estate_spelling_of_the_group_is_accepted(old: str, new: str) -> None:
+    """The stem or `github.workflow`, with any spacing inside the braces."""
+    texts = mutate("coverage-main.yml", old, new)
+    found = concurrency_violations(_publisher(texts))
+    assert found == [], found
+
+
+def test_the_group_may_sit_on_the_upload_job() -> None:
+    """The upload job's own group governs the upload as well as the workflow's."""
+    text = PUBLISHER.replace(WORKFLOW_GROUP, "").replace(
+        "    runs-on: ubuntu-latest\n", JOB_GROUP
+    )
+    found = concurrency_violations(load_workflow(text))
+    assert found == [], found
+
+
+def test_the_group_is_declared_at_one_scope_only() -> None:
+    """GitHub deadlocks on one group at both scopes and cancels the job."""
+    text = PUBLISHER.replace("    runs-on: ubuntu-latest\n", JOB_GROUP)
+    found = concurrency_violations(load_workflow(text))
+    assert any("one scope" in item for item in found), found
+
+
+def test_an_unrelated_job_group_does_not_govern() -> None:
+    """A group on another job leaves the upload ungoverned."""
+    other = (
+        "  other:\n    runs-on: ubuntu-latest\n    concurrency:\n"
+        "      group: coverage-main-${{ github.ref }}\n"
+        "      cancel-in-progress: false\n"
+        "    steps:\n      - run: 'true'\n"
+    )
+    text = PUBLISHER.replace(WORKFLOW_GROUP, "").replace("jobs:\n", "jobs:\n" + other)
+    found = concurrency_violations(load_workflow(text))
+    assert found, found
+
+
 @pytest.mark.parametrize(
     ("old", "new"),
     [

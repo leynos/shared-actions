@@ -65,27 +65,6 @@ new = "marker.search(text)"
 expect = "test_a_pull_request_step_cannot_reach_codescene"
 
 [[mutation]]
-id = "R11 cancel-in-progress not asserted (item 6)"
-file = "cv005_contracts/publisher_rules.py"
-old = "        if declared == PUBLISHER_CONCURRENCY\n"
-new = "        if isinstance(declared, dict) and declared.get(\"group\") == PUBLISHER_CONCURRENCY[\"group\"]\n"
-expect = "test_the_publisher_holds_its_one_ref_keyed_group"
-
-[[mutation]]
-id = "R12 group not held exactly (item 6)"
-file = "cv005_contracts/publisher_rules.py"
-old = "        if declared == PUBLISHER_CONCURRENCY\n"
-new = "        if isinstance(declared, dict) and declared.get(\"cancel-in-progress\") is False\n"
-expect = "test_the_publisher_holds_its_one_ref_keyed_group"
-
-[[mutation]]
-id = "R13 job group allowed (item 6)"
-file = "cv005_contracts/publisher_rules.py"
-old = "        if \"concurrency\" in job\n"
-new = "        if False\n"
-expect = "test_the_publisher_holds_its_one_ref_keyed_group"
-
-[[mutation]]
 id = "R14 check step not required (item 8)"
 file = "cv005_contracts/credential.py"
 old = "        return [f\"the upload job must hold one `{CHECK_STEP_ID}` step\"]"
@@ -587,3 +566,45 @@ file = "cv005_contracts/environment.py"
 old = "        for where, job in _placed(reachable, reachable)\n        if declares_codescene(job)\n"
 new = "        for where, job in _placed(reachable, reachable)\n        if False\n"
 expect = "test_no_pull_request_job_may_declare_it"
+
+[[mutation]]
+id = "K1 two scopes accepted"
+file = "cv005_contracts/publisher_rules.py"
+old = "    if len(scopes) != 1:\n"
+new = "    if not scopes:\n"
+expect = "test_the_group_is_declared_at_one_scope_only"
+
+[[mutation]]
+id = "K2 any group accepted"
+file = "cv005_contracts/publisher_rules.py"
+old = "    found = [] if group in PUBLISHER_GROUPS else [message]\n"
+new = "    found = []\n"
+expect = "test_the_publisher_holds_its_one_ref_keyed_group"
+
+[[mutation]]
+id = "K3 only a literal true cancel refused"
+file = "cv005_contracts/publisher_rules.py"
+old = "    if value.get(\"cancel-in-progress\") is not False:\n"
+new = "    if value.get(\"cancel-in-progress\") is True:\n"
+expect = "test_the_publisher_holds_its_one_ref_keyed_group"
+
+[[mutation]]
+id = "K4 group spacing not normalized"
+file = "cv005_contracts/publisher_rules.py"
+old = "    group = _normalized(value.get(\"group\"))\n"
+new = "    group = str(value.get(\"group\"))\n"
+expect = "test_either_estate_spelling_of_the_group_is_accepted"
+
+[[mutation]]
+id = "K5 other jobs may declare concurrency"
+file = "cv005_contracts/publisher_rules.py"
+old = "        if job is not held and \"concurrency\" in job\n"
+new = "        if False\n"
+expect = "test_another_job_may_not_declare_concurrency"
+
+[[mutation]]
+id = "K6 the upload job's group not read"
+file = "cv005_contracts/publisher_rules.py"
+old = "            (\"the upload job\", held.get(\"concurrency\")),\n"
+new = ""
+expect = "test_the_group_may_sit_on_the_upload_job"

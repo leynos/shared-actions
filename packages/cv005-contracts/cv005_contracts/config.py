@@ -104,25 +104,45 @@ def config_from_mapping(raw: dict[str, object]) -> Config:
     'coverage-main.yml'
 
     """
+    _refuse_unknown_keys(raw)
+    _require_repository(raw)
+    for key, kind in OPTIONAL_KEY_TYPES.items():
+        _require(raw, key, kind)
+    _require_string_selection(raw)
+    return Config(**typ.cast("dict[str, typ.Any]", raw))
+
+
+#: The optional keys and the type each value must have.
+OPTIONAL_KEY_TYPES: typ.Final[dict[str, type]] = {
+    "publisher": str,
+    "interpreter": str,
+    "environment": bool,
+    "selection": dict,
+}
+
+
+def _refuse_unknown_keys(raw: dict[str, object]) -> None:
+    """Refuse a key `Config` does not define, so a misspelling cannot pass."""
     known = {field.name for field in dc.fields(Config)}
     if unknown := sorted(set(raw) - known):
         message = f"{CONFIG_PATH} names unknown keys: {unknown}"
         raise ConfigError(message)
+
+
+def _require_repository(raw: dict[str, object]) -> None:
+    """Require `repository` as one `owner/name` string."""
     repository = raw.get("repository")
     if not isinstance(repository, str) or repository.count("/") != 1:
         message = f"{CONFIG_PATH} must set repository = 'owner/name'"
         raise ConfigError(message)
-    _require(raw, "publisher", str)
-    _require(raw, "interpreter", str)
-    _require(raw, "environment", bool)
-    _require(raw, "selection", dict)
-    selection = raw.get("selection", {})
-    if not all(
-        isinstance(value, str) for value in typ.cast("dict", selection).values()
-    ):
+
+
+def _require_string_selection(raw: dict[str, object]) -> None:
+    """Refuse a `selection` value that is not a string."""
+    selection = typ.cast("dict[str, object]", raw.get("selection", {}))
+    if not all(isinstance(value, str) for value in selection.values()):
         message = f"{CONFIG_PATH} selection values must be strings"
         raise ConfigError(message)
-    return Config(**typ.cast("dict[str, typ.Any]", raw))
 
 
 def _require(raw: dict[str, object], key: str, kind: type) -> None:

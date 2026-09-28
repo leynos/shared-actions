@@ -11,6 +11,7 @@ import textwrap
 import typing as typ
 
 from cv005_contracts.actions import load_action
+from cv005_contracts.concurrency import concurrency_violations
 from cv005_contracts.credential import check_step_violations, token_scope_violations
 from cv005_contracts.lanes import (
     pull_request_lane_violations,
@@ -18,11 +19,10 @@ from cv005_contracts.lanes import (
 )
 from cv005_contracts.loading import Document, load_workflow
 from cv005_contracts.parity import publisher_lane_violations
+from cv005_contracts.permissions import permissions_violations
 from cv005_contracts.publisher import find_publisher
 from cv005_contracts.publisher_rules import (
-    concurrency_violations,
     condition_violations,
-    permissions_violations,
     retired_checksum_violations,
     trigger_violations,
     upload_step_violations,

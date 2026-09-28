@@ -94,15 +94,23 @@ def lane_hardening_violations(closure: dict[str, Document]) -> list[str]:
         write access, or publish its report through `upload-artifact`.
 
     """
-    found: list[str] = []
-    reports: set[str] = set()
-    for name, document in sorted(closure.items()):
-        for job in jobs(document).values():
-            for step in steps(job):
-                if invokes(step, COVERAGE_ACTION):
-                    found += _lane_violations(name, document, job, step)
-                    reports.add(str(_input(step, "output-path")))
+    located = _coverage_steps(closure)
+    found = [problem for place in located for problem in _lane_violations(*place)]
+    reports = {str(_input(step, "output-path")) for *_, step in located}
     return found + _artefact_uploads(closure, reports)
+
+
+def _coverage_steps(
+    closure: dict[str, Document],
+) -> list[tuple[str, Document, dict[str, object], dict[str, object]]]:
+    """Return each lane coverage step with its workflow name, document and job."""
+    return [
+        (name, document, job, step)
+        for name, document in sorted(closure.items())
+        for job in jobs(document).values()
+        for step in steps(job)
+        if invokes(step, COVERAGE_ACTION)
+    ]
 
 
 def _lane_violations(

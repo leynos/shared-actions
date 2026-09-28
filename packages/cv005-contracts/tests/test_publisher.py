@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 from contract_fixtures import PUBLISHER, mutate, parse_tree, tree
+from cv005_contracts.concurrency import concurrency_violations
 from cv005_contracts.credential import (
     check_step_violations,
     token_scope_violations,
@@ -20,7 +21,6 @@ from cv005_contracts.loading import (
 )
 from cv005_contracts.publisher import find_publisher
 from cv005_contracts.publisher_rules import (
-    concurrency_violations,
     retired_checksum_violations,
     trigger_violations,
     upload_step_violations,

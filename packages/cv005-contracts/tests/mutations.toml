@@ -144,8 +144,8 @@ expect = "test_a_push_lane_cannot_write_a_second_baseline"
 [[mutation]]
 id = "R25 selection not compared"
 file = "cv005_contracts/parity.py"
-old = "            if selection(document, step) not in measured:"
-new = "            if False:"
+old = "    return lane not in measured\n"
+new = "    return False\n"
 expect = "test_the_publisher_measures_what_each_lane_measures"
 
 [[mutation]]
@@ -339,28 +339,28 @@ expect = "test_a_local_action_the_tree_lacks_is_refused"
 
 [[mutation]]
 id = "R37 a job left to the default token accepted"
-file = "cv005_contracts/publisher_rules.py"
+file = "cv005_contracts/permissions.py"
 old = "    if declared is None:\n"
 new = "    if False:\n"
 expect = "test_a_job_under_no_workflow_grant_is_named_as_holding_the_default"
 
 [[mutation]]
 id = "R37b a job left to a workflow write grant accepted"
-file = "cv005_contracts/publisher_rules.py"
+file = "cv005_contracts/permissions.py"
 old = "    if _grants_write(declared):\n"
 new = "    if False:\n"
 expect = "test_a_job_left_to_the_default_or_a_write_grant_is_refused"
 
 [[mutation]]
 id = "R37c a read-only workflow grant refused"
-file = "cv005_contracts/publisher_rules.py"
+file = "cv005_contracts/permissions.py"
 old = "        return any(value != \"read\" and value != \"none\" for value in declared.values())\n"
 new = "        return True\n"
 expect = "test_a_job_under_a_read_only_workflow_grant_is_accepted"
 
 [[mutation]]
 id = "R37d a job's own scope not honoured"
-file = "cv005_contracts/publisher_rules.py"
+file = "cv005_contracts/permissions.py"
 old = " if \"permissions\" not in job\n"
 new = "\n"
 expect = "test_every_job_declaring_its_own_scope_is_accepted"
@@ -542,8 +542,8 @@ expect = "test_a_malformed_configuration_is_refused"
 [[mutation]]
 id = "C3 selection values not typed"
 file = "cv005_contracts/config.py"
-old = "    if not all(\n"
-new = "    if False and not all(\n"
+old = "    if not all(isinstance(value, str) for value in selection.values()):\n"
+new = "    if False:\n"
 expect = "test_a_malformed_configuration_is_refused"
 
 [[mutation]]
@@ -604,43 +604,43 @@ expect = "test_no_pull_request_job_may_declare_it"
 
 [[mutation]]
 id = "K1 two scopes accepted"
-file = "cv005_contracts/publisher_rules.py"
-old = "    if len(scopes) != 1:\n"
-new = "    if not scopes:\n"
+file = "cv005_contracts/concurrency.py"
+old = "        case [(scope, value)]:\n"
+new = "        case [(scope, value), *_]:\n"
 expect = "test_the_group_is_declared_at_one_scope_only"
 
 [[mutation]]
 id = "K2 any group accepted"
-file = "cv005_contracts/publisher_rules.py"
+file = "cv005_contracts/concurrency.py"
 old = "    found = [] if group in PUBLISHER_GROUPS else [message]\n"
 new = "    found = []\n"
 expect = "test_the_publisher_holds_its_one_ref_keyed_group"
 
 [[mutation]]
 id = "K3 only a literal true cancel refused"
-file = "cv005_contracts/publisher_rules.py"
+file = "cv005_contracts/concurrency.py"
 old = "    if value.get(\"cancel-in-progress\") is not False:\n"
 new = "    if value.get(\"cancel-in-progress\") is True:\n"
 expect = "test_the_publisher_holds_its_one_ref_keyed_group"
 
 [[mutation]]
 id = "K4 group spacing not normalized"
-file = "cv005_contracts/publisher_rules.py"
+file = "cv005_contracts/concurrency.py"
 old = "    group = _normalized(value.get(\"group\"))\n"
 new = "    group = str(value.get(\"group\"))\n"
 expect = "test_either_estate_spelling_of_the_group_is_accepted"
 
 [[mutation]]
 id = "K5 other jobs may declare concurrency"
-file = "cv005_contracts/publisher_rules.py"
+file = "cv005_contracts/concurrency.py"
 old = "        if job is not held and \"concurrency\" in job\n"
 new = "        if False\n"
 expect = "test_another_job_may_not_declare_concurrency"
 
 [[mutation]]
 id = "K6 the upload job's group not read"
-file = "cv005_contracts/publisher_rules.py"
-old = "            (\"the upload job\", held.get(\"concurrency\")),\n"
+file = "cv005_contracts/concurrency.py"
+old = "        (\"the upload job\", held.get(\"concurrency\")),\n"
 new = ""
 expect = "test_the_group_may_sit_on_the_upload_job"
 
@@ -778,21 +778,21 @@ new = "    return True\n"
 expect = "test_a_push_to_main_or_tags_is_outside_the_closure"
 
 [[mutation]]
-id = "C1 check step id not followed through the guard"
+id = "G1 check step id not followed through the guard"
 file = "cv005_contracts/publisher.py"
 old = "        case [found]:\n            return found\n"
 new = "        case [_]:\n            return CHECK_STEP_ID\n"
 expect = "test_a_check_step_the_guard_names_is_followed_under_any_id"
 
 [[mutation]]
-id = "C2 a second availability term accepted"
+id = "G2 a second availability term accepted"
 file = "cv005_contracts/publisher_rules.py"
 old = "    if len(ids) > 1:"
 new = "    if False:"
 expect = "test_the_guard_may_read_only_one_availability_output"
 
 [[mutation]]
-id = "C3 any step running the command is exempt from the sweep"
+id = "G3 any step running the command is exempt from the sweep"
 file = "cv005_contracts/credential.py"
 old = "    if step is check:"
 new = "    if step is check or str(step.get(\"run\", \"\")).strip() == CHECK_COMMAND:"
@@ -836,8 +836,8 @@ expect = "test_a_lane_may_not_set_publish_baseline"
 [[mutation]]
 id = "P6 lane legs compared with the first publisher leg only"
 file = "cv005_contracts/parity.py"
-old = "            if selection(document, step) not in measured:"
-new = "            if selection(document, step) != measured[0]:"
+old = "    return lane not in measured\n"
+new = "    return lane != measured[0]\n"
 expect = "test_each_lane_leg_pairs_with_a_publisher_leg"
 
 [[mutation]]

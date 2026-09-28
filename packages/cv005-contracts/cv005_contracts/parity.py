@@ -215,17 +215,43 @@ def publisher_lane_violations(
     generators = action_steps(publisher, COVERAGE_ACTION)
     if not generators:
         return ["the publisher must generate coverage; found no generate-coverage step"]
-    found = ratchet_violations(publisher, "the publisher")
     measured = [selection(publisher, step) for step in generators]
-    pins = {pin_of(step) for step in generators} | {pin_of(upload_step(publisher))}
-    for name, document in sorted(closure.items()):
-        for step in action_steps(document, COVERAGE_ACTION):
-            pins.add(pin_of(step))
-            if selection(document, step) not in measured:
-                found.append(f"{name}: coverage selection differs from the publisher's")
-    if len(pins) != 1 or not all(PINNED_COMMIT.match(pin) for pin in pins):
-        found.append(
-            f"{COVERAGE_ACTION} and {UPLOAD_ACTION} must share one commit pin: "
-            f"{sorted(pins)}"
-        )
-    return found
+    lane_steps = _lane_steps(closure)
+    pinned = [*generators, upload_step(publisher), *(step for *_, step in lane_steps)]
+    pins = {pin_of(step) for step in pinned}
+    return (
+        ratchet_violations(publisher, "the publisher")
+        + [
+            f"{name}: coverage selection differs from the publisher's"
+            for name, document, step in lane_steps
+            if _unpaired(selection(document, step), measured)
+        ]
+        + _pin_violations(pins)
+    )
+
+
+def _lane_steps(
+    closure: dict[str, Document],
+) -> list[tuple[str, Document, dict[str, object]]]:
+    """Return each pull-request coverage step with its workflow's name and document."""
+    return [
+        (name, document, step)
+        for name, document in sorted(closure.items())
+        for step in action_steps(document, COVERAGE_ACTION)
+    ]
+
+
+def _unpaired(lane: dict[str, object], measured: list[dict[str, object]]) -> bool:
+    """Return whether a lane leg's selection matches no publisher leg."""
+    return lane not in measured
+
+
+def _pin_violations(pins: set[str]) -> list[str]:
+    """Require one commit pin across every generator and the uploader."""
+    if len(pins) == 1 and all(PINNED_COMMIT.match(pin) for pin in pins):
+        return []
+    message = (
+        f"{COVERAGE_ACTION} and {UPLOAD_ACTION} must share one commit pin: "
+        f"{sorted(pins)}"
+    )
+    return [message]

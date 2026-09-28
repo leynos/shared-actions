@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from contract_fixtures import mutate
 from cv005_contracts.loading import load_workflow
-from cv005_contracts.publisher_rules import permissions_violations
+from cv005_contracts.permissions import permissions_violations
 
 #: The fixture publisher's one job-level declaration.
 JOB_GRANT = "    permissions:\n      contents: read\n"

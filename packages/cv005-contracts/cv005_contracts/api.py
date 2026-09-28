@@ -8,9 +8,11 @@ and reading failures stay distinct from violations.
 from __future__ import annotations
 
 import dataclasses as dc
+import functools
 import typing as typ
 
 from .actions import read_actions
+from .concurrency import concurrency_violations
 from .config import Config, load_config
 from .credential import check_step_violations, token_scope_violations
 from .environment import environment_violations
@@ -22,11 +24,10 @@ from .lanes import (
 )
 from .loading import Document, read_workflows
 from .parity import inputs_of, is_true, publisher_lane_violations
+from .permissions import permissions_violations
 from .publisher import COVERAGE_ACTION, action_steps, find_publisher
 from .publisher_rules import (
-    concurrency_violations,
     condition_violations,
-    permissions_violations,
     retired_checksum_violations,
     trigger_violations,
     upload_step_violations,
@@ -130,9 +131,11 @@ def violations(
     return found
 
 
-def _clauses(
-    documents: dict[str, Document], config: Config
-) -> cabc.Iterator[tuple[str, str, cabc.Callable[[], list[str]]]]:
+#: One clause: its family, its identifier and its deferred reading.
+type Clause = tuple[str, str, cabc.Callable[[], list[str]]]
+
+
+def _clauses(documents: dict[str, Document], config: Config) -> cabc.Iterator[Clause]:
     """Yield each clause's family, identifier and deferred reading."""
     repository = config.repository
     yield (
@@ -141,21 +144,31 @@ def _clauses(
         lambda: pull_request_violations(documents, repository),
     )
     name, publisher = find_publisher(documents)
+    yield from _publisher_clauses(documents, config, name, publisher)
+    closure = pull_request_closure(documents, repository)
+    yield from _coverage_clauses(documents, config, (name, publisher), closure)
+    if config.environment:
+        yield (
+            "environment",
+            "environment.placement",
+            lambda: environment_violations(documents, repository),
+        )
+
+
+def _publisher_clauses(
+    documents: dict[str, Document], config: Config, name: str, publisher: Document
+) -> cabc.Iterator[Clause]:
+    """Yield the publisher's and its token's clauses."""
     yield ("publisher", "publisher.name", lambda: _named(name, config.publisher))
-    yield ("publisher", "publisher.triggers", lambda: trigger_violations(publisher))
-    yield (
-        "publisher",
-        "publisher.concurrency",
-        lambda: concurrency_violations(publisher),
-    )
-    yield (
-        "publisher",
-        "publisher.permissions",
-        lambda: permissions_violations(publisher),
-    )
-    yield ("publisher", "publisher.upload", lambda: upload_step_violations(publisher))
-    yield ("publisher", "publisher.wiring", lambda: wiring_violations(publisher))
-    yield ("publisher", "publisher.conditions", lambda: condition_violations(publisher))
+    for clause, rule in (
+        ("triggers", trigger_violations),
+        ("concurrency", concurrency_violations),
+        ("permissions", permissions_violations),
+        ("upload", upload_step_violations),
+        ("wiring", wiring_violations),
+        ("conditions", condition_violations),
+    ):
+        yield ("publisher", f"publisher.{clause}", functools.partial(rule, publisher))
     yield (
         "publisher",
         "publisher.retired-checksum",
@@ -168,7 +181,16 @@ def _clauses(
     )
     yield ("token", "token.check-step", lambda: check_step_violations(publisher))
     yield ("token", "token.scope", lambda: token_scope_violations(publisher))
-    closure = pull_request_closure(documents, repository)
+
+
+def _coverage_clauses(
+    documents: dict[str, Document],
+    config: Config,
+    found_publisher: tuple[str, Document],
+    closure: dict[str, Document],
+) -> cabc.Iterator[Clause]:
+    """Yield the coverage lanes' clauses."""
+    name, publisher = found_publisher
     yield (
         "coverage",
         "coverage.pull-request-lane",
@@ -182,7 +204,7 @@ def _clauses(
     yield (
         "coverage",
         "coverage.second-writer",
-        lambda: second_writer_violations(documents, name, repository),
+        lambda: second_writer_violations(documents, name, config.repository),
     )
     yield (
         "coverage",
@@ -200,12 +222,6 @@ def _clauses(
             "coverage",
             "coverage.interpreter",
             lambda: interpreter_violations(publisher, interpreter),
-        )
-    if config.environment:
-        yield (
-            "environment",
-            "environment.placement",
-            lambda: environment_violations(documents, repository),
         )
 
 
@@ -250,9 +266,7 @@ def assert_publisher_contract(repo_root: Path, config: Config | None = None) -> 
         With every violation found.
 
     """
-    found = violations(repo_root, config, FAMILIES - {"environment"})
-    if found:
-        raise ContractError(found)
+    _raise_unless_clean(violations(repo_root, config, FAMILIES - {"environment"}))
 
 
 def assert_environment_contract(repo_root: Path, config: Config | None = None) -> None:
@@ -272,6 +286,10 @@ def assert_environment_contract(repo_root: Path, config: Config | None = None) -
         With every violation found.
 
     """
-    found = violations(repo_root, config, frozenset({"environment"}))
+    _raise_unless_clean(violations(repo_root, config, frozenset({"environment"})))
+
+
+def _raise_unless_clean(found: list[Violation]) -> None:
+    """Raise `ContractError` carrying every violation, if there are any."""
     if found:
         raise ContractError(found)

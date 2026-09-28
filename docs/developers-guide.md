@@ -2440,19 +2440,25 @@ Five modules under `tests/workflows/` hold the answers and fail when a workflow
 drifts from them, one per responsibility:
 
 <!-- markdownlint-disable MD013 -->
-| Module                        | What it holds                                                                                                 |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `test_runner_placement.py`    | Which runner each Linux lane takes, the exemptions that name a reason, and the lanes that must stay on Linux. |
-| `test_job_ceilings.py`        | The tier each job belongs to, and the ceiling that tier carries.                                              |
-| `test_fork_fallback_guard.py` | The fork fallback, and which lanes are excused it because they skip forks instead.                            |
-| `test_check_names.py`         | That a matrix job's reported name is stable across both arms of the fallback.                                 |
-| `test_runner_declarations.py` | That `runs-on`, and each matrix dimension it references, parses to one line.                                  |
+| Module                        | What it holds                                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `test_runner_placement.py`    | Which runner each Linux lane takes, the exemptions that name a reason, and the lanes that must stay on Linux.    |
+| `test_job_ceilings.py`        | The tier each job belongs to, and the ceiling that tier carries.                                                 |
+| `test_fork_fallback_guard.py` | The fork fallback, and which lanes are excused it because they skip forks instead.                               |
+| `test_check_names.py`         | That a matrix job's reported name is stable across both arms of the fallback.                                    |
+| `test_runner_declarations.py` | That `runs-on`, and each matrix dimension it references, parses to one line.                                     |
+| `test_ci_step_platforms.py`   | That each platform-specific step in `ci.yml`'s matrix leg is confined to its platform by a `runner.os` conjunct. |
 <!-- markdownlint-enable MD013 -->
 
 They share `_workflow_reading.py`, which is not collected: it holds the
-constants, the validated YAML readers and the exemption mappings, so a workflow
-whose shape has drifted fails at the boundary with the file named rather than
-reaching an assertion as something unchecked. It lists and loads through
+validated YAML readers, so a workflow whose shape has drifted fails at the
+boundary with the file named rather than reaching an assertion as something
+unchecked. The placement policy (the label vocabulary, the exemption mappings
+and the caller jobs) lives beside it in `_workflow_policy.py`, which reads no
+file, and `_workflow_reading.py` re-exports it so each contract reads one
+module. A change of policy therefore never touches the reading boundary. Every
+job entry is checked to be a mapping as well, so a scalar job fails at the
+boundary rather than at a reader's `.get()`. It lists and loads through
 `workflow_yaml`, the boundary the other workflow contracts use: the listing
 matches suffixes in any case and raises on a directory it cannot read, and the
 loader refuses a duplicate key. A workflow whose `jobs` is absent, null or

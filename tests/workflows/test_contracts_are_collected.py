@@ -37,17 +37,58 @@ PYTEST_CONFIGURATION: typ.Final[Path] = REPOSITORY_ROOT / "pytest.ini"
 CONTRACT_DIRECTORY: typ.Final[Path] = Path(__file__).resolve().parent
 
 
-def _configured_testpaths() -> list[Path]:
-    """Return every `testpaths` entry, resolved against the repository."""
+def _configured_testpaths(
+    configuration: Path = PYTEST_CONFIGURATION,
+) -> list[Path]:
+    """Return every `testpaths` entry, resolved against the repository.
+
+    `ConfigParser.read` skips a file it cannot open and says so only in
+    its return value, so an unreadable `pytest.ini` would read as one
+    with no entries. That, and a file without a `[pytest]` section, is
+    refused here with the path named.
+
+    Raises
+    ------
+    ValueError
+        If *configuration* cannot be read or has no `[pytest]` section.
+    """
     parser = configparser.ConfigParser()
-    parser.read(PYTEST_CONFIGURATION, encoding="utf-8")
+    if not parser.read(configuration, encoding="utf-8"):
+        msg = f"cannot read pytest configuration {configuration}"
+        raise ValueError(msg)
+    if not parser.has_section("pytest"):
+        msg = f"{configuration} has no [pytest] section"
+        raise ValueError(msg)
     raw = parser.get("pytest", "testpaths", fallback="")
     return [(REPOSITORY_ROOT / entry).resolve() for entry in raw.split() if entry]
 
 
-def _contract_modules() -> list[Path]:
-    """Return every test module in this directory, sorted."""
-    return sorted(CONTRACT_DIRECTORY.glob("test_*.py"))
+def _contract_modules(directory: Path = CONTRACT_DIRECTORY) -> list[Path]:
+    """Return every test module in *directory*, sorted.
+
+    Listed with `iterdir` rather than `glob`, which returns nothing for a
+    directory it cannot read, and an empty result is refused: the rule
+    parametrised over it would otherwise pass by checking no module.
+
+    Raises
+    ------
+    ValueError
+        If *directory* cannot be listed or holds no test module.
+    """
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError as error:
+        msg = f"cannot list contract modules in {directory}: {error}"
+        raise ValueError(msg) from error
+    modules = [
+        path
+        for path in entries
+        if path.name.startswith("test_") and path.suffix == ".py"
+    ]
+    if not modules:
+        msg = f"{directory} holds no test module to check"
+        raise ValueError(msg)
+    return modules
 
 
 def _covering_entry(module: Path, entries: cabc.Iterable[Path]) -> Path | None:
@@ -88,3 +129,37 @@ def test_every_contract_module_is_collected(module: Path) -> None:
         f"{module.relative_to(REPOSITORY_ROOT)} is collected by no testpaths "
         "entry, so it runs nowhere and passes by never running"
     )
+
+
+class TestTheReadBoundary:
+    """What the two readers refuse, so the rules above cannot pass on nothing."""
+
+    @pytest.mark.parametrize(
+        ("text", "match"),
+        [
+            pytest.param(None, "cannot read", id="missing-file"),
+            pytest.param("[tool]\nx = 1\n", "no \\[pytest\\] section", id="no-section"),
+        ],
+    )
+    def test_an_unusable_configuration_is_refused(
+        self, tmp_path: Path, text: str | None, match: str
+    ) -> None:
+        """An unreadable or sectionless `pytest.ini` is not an empty one."""
+        configuration = tmp_path / "pytest.ini"
+        if text is not None:
+            configuration.write_text(text, encoding="utf-8")
+
+        with pytest.raises(ValueError, match=match):
+            _configured_testpaths(configuration)
+
+    def test_a_directory_with_no_module_is_refused(self, tmp_path: Path) -> None:
+        """No modules to check is an error, not a pass over zero cases."""
+        (tmp_path / "helper.py").write_text("", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="holds no test module"):
+            _contract_modules(tmp_path)
+
+    def test_a_directory_that_cannot_be_listed_is_refused(self, tmp_path: Path) -> None:
+        """A missing directory raises rather than listing as empty."""
+        with pytest.raises(ValueError, match="cannot list contract modules"):
+            _contract_modules(tmp_path / "absent")

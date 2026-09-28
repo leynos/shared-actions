@@ -1,9 +1,10 @@
 """Shared reading boundary for the runner-placement and ceiling contracts.
 
 This module holds the pieces several `test_runner_placement.py` siblings
-need in common: the workflow directory and label vocabulary, the
-exemption mappings that name a deliberate exception to a rule, and the
-validated YAML boundary that turns a workflow file into typed data. It
+need in common: the workflow directory and the validated YAML boundary
+that turns a workflow file into typed data. The label vocabulary and the
+exemption mappings live in `_workflow_policy.py` and are re-exported
+here, so a contract reads one module. It
 is deliberately not a test module — its name does not start with
 `test_` — so pytest does not collect it and a change here cannot itself
 become a passing or failing test.
@@ -19,6 +20,44 @@ import re
 import typing as typ
 from pathlib import Path
 
+from ._workflow_policy import (
+    CALLER_JOBS as CALLER_JOBS,
+)
+from ._workflow_policy import (
+    FORK_FALLBACK_EXEMPTIONS as FORK_FALLBACK_EXEMPTIONS,
+)
+from ._workflow_policy import (
+    FORK_GUARD_DISPATCH_ESCAPE as FORK_GUARD_DISPATCH_ESCAPE,
+)
+from ._workflow_policy import (
+    FORK_GUARD_ESCAPES as FORK_GUARD_ESCAPES,
+)
+from ._workflow_policy import (
+    FORK_GUARD_EVENT_ESCAPE as FORK_GUARD_EVENT_ESCAPE,
+)
+from ._workflow_policy import (
+    FORK_SKIP_GUARD as FORK_SKIP_GUARD,
+)
+from ._workflow_policy import (
+    HOSTED_LINUX as HOSTED_LINUX,
+)
+from ._workflow_policy import (
+    HOSTED_LINUX_EXEMPTIONS as HOSTED_LINUX_EXEMPTIONS,
+)
+from ._workflow_policy import (
+    LINUX_ONLY_JOBS as LINUX_ONLY_JOBS,
+)
+from ._workflow_policy import (
+    RECOGNIZED_LINUX_LABELS as RECOGNIZED_LINUX_LABELS,
+)
+from ._workflow_policy import (
+    RECOGNIZED_OTHER_LABELS as RECOGNIZED_OTHER_LABELS,
+)
+
+# Re-exported so a contract reads one module; see `_workflow_policy.py`.
+from ._workflow_policy import (
+    UBICLOUD_LINUX as UBICLOUD_LINUX,
+)
 from .workflow_yaml import load_workflow as load_strict_yaml
 from .workflow_yaml import workflow_paths
 
@@ -27,145 +66,6 @@ if typ.TYPE_CHECKING:
 
 REPOSITORY_ROOT: typ.Final[Path] = Path(__file__).resolve().parents[2]
 WORKFLOWS_DIRECTORY: typ.Final[Path] = REPOSITORY_ROOT / ".github" / "workflows"
-
-#: The Ubicloud shape every migrated Linux lane starts on. The recipe
-#: allows a larger shape only on measured disk or wall-time evidence, and
-#: this repository has produced none, so the larger labels are absent
-#: from the recognized set below and a move to one would fail here.
-UBICLOUD_LINUX: typ.Final[str] = "ubicloud-standard-2"
-
-#: The GitHub-hosted Linux label. Present only where an exemption below
-#: says why.
-HOSTED_LINUX: typ.Final[str] = "ubuntu-latest"
-
-#: Every runner label this repository is allowed to name, as exact
-#: tokens. An unrecognized label fails rather than being classified by
-#: the shape of its name, because "starts with ubicloud" would accept a
-#: shape nobody measured and "contains ubuntu" would accept
-#: `ubicloud-standard-2-ubuntu-2404` as a GitHub-hosted runner.
-RECOGNIZED_LINUX_LABELS: typ.Final[frozenset[str]] = frozenset(
-    {UBICLOUD_LINUX, HOSTED_LINUX}
-)
-RECOGNIZED_OTHER_LABELS: typ.Final[frozenset[str]] = frozenset(
-    {"macos-15", "windows-latest", "windows-11-arm"}
-)
-
-_MUTATION_REASON: typ.Final[str] = (
-    "Mutation lanes stay GitHub-hosted: they are scheduled, they never "
-    "block a developer, and public-repository minutes are free there."
-)
-
-#: Linux jobs that must stay on a GitHub-hosted runner, each with the
-#: reason. A job absent from this mapping must run on Ubicloud.
-HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
-    (
-        "test-export-ubicloud-cache-credentials.yml",
-        "refuses-a-github-hosted-runner",
-    ): (
-        "The job exists to prove the action fails closed against a real "
-        "GitHub-hosted cache endpoint. On Ubicloud the endpoint is the one "
-        "the action accepts, so the job would pass without testing anything."
-    ),
-    ("test-setup-rust-sccache.yml", "exports-the-wrapper"): (
-        "The job proves setup-rust's GitHub-hosted arm: a local sccache "
-        "directory the action caches. On Ubicloud the action selects the "
-        "proxy instead, so the job would test the other arm."
-    ),
-    ("test-setup-rust-sccache.yml", "refuses_a_missing_ubicloud_proxy"): (
-        "The job proves expect-cache: ubicloud fails closed where there is "
-        "no proxy. On Ubicloud the proxy is present and the job would pass "
-        "without testing anything."
-    ),
-    ("mutation-cargo.yml", "detect"): _MUTATION_REASON,
-    ("mutation-cargo.yml", "mutants"): _MUTATION_REASON,
-    ("mutation-cargo.yml", "summarize"): _MUTATION_REASON,
-    ("mutation-mutmut.yml", "mutants"): _MUTATION_REASON,
-    ("dependabot-automerge.yml", "automerge"): (
-        "A delayed-comment lane that waits on other checks rather than "
-        "computing anything, and never blocks a developer."
-    ),
-}
-
-#: Jobs that must run on Linux on every arm, each with the reason. The
-#: placement rule skips a job with no Linux arm, which is right for a
-#: macOS or Windows lane and wrong for one of these: moved to
-#: `macos-15`, it would stop being checked at all while the only run of
-#: its work left Linux.
-LINUX_ONLY_JOBS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
-    ("ci.yml", "coverage"): (
-        "The only lane that measures coverage, and the one the CodeScene "
-        "upload and the ratchet read. The baseline is keyed by runner.os, so "
-        "moving it off Linux would compare against a baseline nothing writes."
-    ),
-}
-
-#: Lanes that answer the fork problem by skipping rather than falling
-#: back, with the reason and the guard that has to be there.
-#:
-#: Falling back is the default because a skip leaves an external
-#: contribution with no Linux CI. It is the wrong answer only where the
-#: hosted runner cannot prove what the job exists to prove, in which
-#: case a fallback would make the job pass while testing nothing.
-FORK_FALLBACK_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
-    ("test-ubicloud-sccache-proxy.yml", "reaches-the-proxy"): (
-        "The job exists to prove sccache reaches Ubicloud's cache proxy, "
-        "which is observable on an Ubicloud runner and nowhere else. A "
-        "fallback to a GitHub-hosted runner would leave it green and "
-        "proving nothing, so it skips a fork's pull request instead."
-    ),
-    ("test-ubicloud-sccache-proxy.yml", "selects-the-proxy-by-itself"): (
-        "The job proves setup-rust selects Ubicloud's proxy on its own, "
-        "which is observable on an Ubicloud runner and nowhere else, so "
-        "it skips a fork's pull request rather than falling back."
-    ),
-    ("test-upload-codescene-coverage.yml", "cold-runner-contract"): (
-        "The job installs the pinned CLI through the repository's own "
-        "action tree, which a fork's pull request cannot reach in the shape "
-        "the proof needs, so the job's own guard skips a fork's pull "
-        "request rather than falling back."
-    ),
-}
-
-#: The head-repository comparison an exempt lane must guard itself with.
-#: Keyed on the head repository rather than on `github.repository`,
-#: which is the base repository and matches a fork's pull request too.
-FORK_SKIP_GUARD: typ.Final[str] = (
-    "github.event.pull_request.head.repo.full_name == github.repository"
-)
-
-#: The one disjunct that may sit beside the guard. A workflow serving a
-#: dispatch as well as a pull request has to let the dispatch through,
-#: and a dispatch runs on the base repository, so there is no fork to
-#: keep out on that arm. Written out exactly rather than matched loosely,
-#: because this is the single escape the rule allows and a near miss
-#: should fail rather than be accepted as close enough.
-FORK_GUARD_EVENT_ESCAPE: typ.Final[str] = "github.event_name != 'pull_request'"
-
-#: The other way the same arm is written: naming the one event the lane
-#: also serves rather than excluding pull requests. A fork reaches this
-#: repository through a pull request and through nothing else, so an arm
-#: that requires a dispatch admits no fork either. Both spellings are
-#: written out in full, and an arm naming any other event is refused,
-#: because `github.event_name == 'pull_request'` has the same shape and
-#: the opposite meaning.
-FORK_GUARD_DISPATCH_ESCAPE: typ.Final[str] = "github.event_name == 'workflow_dispatch'"
-
-#: The complete set of arms that keep a fork out without the comparison.
-FORK_GUARD_ESCAPES: typ.Final[frozenset[str]] = frozenset(
-    {FORK_GUARD_EVENT_ESCAPE, FORK_GUARD_DISPATCH_ESCAPE}
-)
-
-#: Jobs that only call another workflow. They occupy no runner and can
-#: carry neither a label nor a ceiling.
-CALLER_JOBS: typ.Final[frozenset[tuple[str, str]]] = frozenset(
-    {
-        ("dependabot-automerge-caller.yml", "automerge"),
-        ("mutation-testing-caller.yml", "mutation"),
-        ("test-dependabot-automerge.yml", "automerge"),
-        ("test-mutation-cargo.yml", "mutation"),
-        ("test-mutation-mutmut.yml", "mutation"),
-    }
-)
 
 #: A `runs-on` that defers to the job's matrix, captured exactly. A
 #: looser pattern would read `${{ matrix.os }}-latest` as a bare matrix
@@ -238,8 +138,9 @@ def load_workflow(
         If the file cannot be read, is not valid YAML, or declares a key
         twice. The message names the file.
     TypeError
-        If the document is not a mapping, or its `jobs` entry is absent,
-        null, empty or not a mapping.
+        If the document is not a mapping, its `jobs` entry is absent,
+        null, empty or not a mapping, or any job is not a mapping under a
+        string id.
     """
     document = load_strict_yaml(directory / name)
     match document:
@@ -260,6 +161,12 @@ def load_workflow(
             # `jobs` would give every rule here nothing to inspect, and
             # each would pass by inspecting nothing.
             msg = f"{name}: 'jobs' is not a non-empty mapping: {jobs!r}"
+            raise TypeError(msg)
+    # Every entry is checked here too, so a scalar job fails at the
+    # boundary naming the file, not later at some reader's `.get()`.
+    for job_id, body in jobs.items():
+        if not isinstance(job_id, str) or not isinstance(body, dict):
+            msg = f"{name}: job {job_id!r} is not a mapping: {body!r}"
             raise TypeError(msg)
     return typ.cast("WorkflowDocument", document)
 

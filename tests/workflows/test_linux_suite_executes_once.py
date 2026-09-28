@@ -56,7 +56,8 @@ COVERAGE_ACTION: typ.Final[str] = "./.github/actions/generate-coverage"
 #: requiring `pytest` immediately after the line start let every indented
 #: one through.
 _PYTEST_INVOCATION: typ.Final[re.Pattern[str]] = re.compile(
-    r"(?:^[ \t]*|[;&|]\s*|\buv run\s+(?:--[^\s]+\s+)*)pytest(?:\s|$)",
+    r"(?:^[ \t]*|[;&|]\s*|\buv run\s+(?:--[^\s]+\s+)*)"
+    r"(?:python[0-9.]*\s+-m\s+)?pytest(?:\s|$)",
     re.MULTILINE,
 )
 
@@ -118,7 +119,7 @@ def _make_runs_the_suite(script: str) -> bool:
 
 
 @pytest.fixture(scope="module")
-def ci_jobs() -> cabc.Mapping[str, dict[str, typ.Any]]:
+def ci_jobs() -> cabc.Mapping[str, reading.JobBody]:
     """Return the jobs of `ci.yml`, read through the shared boundary.
 
     The duplicate-refusing loader, so a second `run:` or `runs-on` is a
@@ -127,7 +128,7 @@ def ci_jobs() -> cabc.Mapping[str, dict[str, typ.Any]]:
     return reading.load_workflow(CI_WORKFLOW.name)["jobs"]
 
 
-def _suite_steps(job: cabc.Mapping[str, typ.Any]) -> list[dict[str, typ.Any]]:
+def _suite_steps(job: reading.JobBody) -> list[cabc.Mapping[str, object]]:
     """Return the steps of *job* that run the suite.
 
     Directly, through `pytest`, or through a make target that wraps it.
@@ -141,7 +142,7 @@ def _suite_steps(job: cabc.Mapping[str, typ.Any]) -> list[dict[str, typ.Any]]:
 
 
 def test_the_matrix_leg_runs_the_suite_somewhere(
-    ci_jobs: cabc.Mapping[str, dict[str, typ.Any]],
+    ci_jobs: cabc.Mapping[str, reading.JobBody],
 ) -> None:
     """The matrix leg still has a suite step to constrain.
 
@@ -156,7 +157,7 @@ def test_the_matrix_leg_runs_the_suite_somewhere(
 
 
 def test_the_matrix_leg_cannot_run_the_suite_on_linux(
-    ci_jobs: cabc.Mapping[str, dict[str, typ.Any]],
+    ci_jobs: cabc.Mapping[str, reading.JobBody],
 ) -> None:
     """Every suite step in the matrix leg is confined to macOS.
 
@@ -177,20 +178,46 @@ def test_the_matrix_leg_cannot_run_the_suite_on_linux(
 
 
 def test_the_coverage_job_executes_the_suite(
-    ci_jobs: cabc.Mapping[str, dict[str, typ.Any]],
+    ci_jobs: cabc.Mapping[str, reading.JobBody],
 ) -> None:
-    """The coverage job delegates to the coverage action.
+    """The coverage job delegates to the coverage action, and is not disabled.
 
     This is the other half of the rule. The Linux leg gives up its own
     run of the suite on the understanding that this job makes it, so
     the moment this step goes the repository has no Linux test
-    execution at all.
+    execution at all. A step GitHub skips is still listed, so presence
+    alone is not enough: neither the job nor the step may carry an
+    unconditional false guard. Any other condition is allowed, since a
+    condition such as `runner.os == 'Linux'` admits the run.
     """
-    uses = [step.get("uses") for step in ci_jobs["coverage"].get("steps") or []]
-    assert COVERAGE_ACTION in uses, (
+    job = ci_jobs["coverage"]
+    steps = [
+        step for step in job.get("steps") or [] if step.get("uses") == COVERAGE_ACTION
+    ]
+    assert steps, (
         f"ci.yml::coverage no longer uses {COVERAGE_ACTION}; nothing runs the "
         "Python suite on Linux"
     )
+    disabled = [
+        where
+        for where, guard in (("job", job.get("if")), ("step", steps[0].get("if")))
+        if _is_unconditionally_false(guard)
+    ]
+    assert not disabled, (
+        f"ci.yml::coverage's {disabled} carry an unconditional false guard, so "
+        "the suite never runs on Linux"
+    )
+
+
+def _is_unconditionally_false(guard: object) -> bool:
+    """Return whether *guard* is a literal false, in any spelling GitHub reads.
+
+    `false`, `${{ false }}` and the YAML boolean all skip unconditionally.
+    """
+    if guard is False:
+        return True
+    text = " ".join(str(guard).split()).lower()
+    return text in {"false", "${{ false }}"}
 
 
 @pytest.mark.parametrize(
@@ -245,6 +272,10 @@ def test_an_indented_make_still_runs_the_suite(
             True,
             id="indented-behind-uv-run",
         ),
+        pytest.param("python -m pytest -q", True, id="module-form"),
+        pytest.param("uv run python -m pytest", True, id="module-form-behind-uv-run"),
+        pytest.param("python3.13 -m pytest", True, id="versioned-module-form"),
+        pytest.param("python -m pytest_cov", False, id="another-module"),
         pytest.param("    cat .pytest_cache", False, id="indented-path-fragment"),
         pytest.param("    ruff check --pytest-style", False, id="indented-option"),
         pytest.param("    mypytest", False, id="indented-longer-word"),
@@ -266,4 +297,30 @@ def test_an_indented_pytest_still_runs_the_suite(
     assert bool(_PYTEST_INVOCATION.search(script)) is expected, (
         f"{script!r} should {'' if expected else 'not '}be read as invoking "
         "pytest directly"
+    )
+
+
+@pytest.mark.parametrize(
+    ("guard", "expected"),
+    [
+        pytest.param(False, True, id="yaml-boolean"),
+        pytest.param("false", True, id="bare"),
+        pytest.param("${{ false }}", True, id="expression"),
+        pytest.param("${{  FALSE }}", True, id="expression-spaced-upper"),
+        pytest.param(None, False, id="absent"),
+        pytest.param("runner.os == 'Linux'", False, id="a-real-condition"),
+        pytest.param("false || true", False, id="compound"),
+    ],
+)
+def test_only_a_literal_false_disables_the_coverage_run(
+    guard: object,
+    expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+) -> None:
+    """A literal false in any spelling disables; a real condition does not.
+
+    Refusing every `if` would reject a condition that admits the Linux
+    run, so the rule refuses only the guards that can never be true.
+    """
+    assert _is_unconditionally_false(guard) is expected, (
+        f"{guard!r} should {'' if expected else 'not '}read as unconditionally false"
     )

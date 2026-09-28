@@ -82,9 +82,22 @@ def _marker_state(line: str, *, pending: bool) -> bool:
     return pending if not line.strip() else False
 
 
-def _guide_runner_snippets() -> list[tuple[int, bool, str]]:
-    """Return each guide YAML block declaring a runner, with its marker state."""
-    lines = DEVELOPERS_GUIDE.read_text(encoding="utf-8").splitlines()
+def _guide_runner_snippets(
+    guide: Path = DEVELOPERS_GUIDE,
+) -> list[tuple[int, bool, str]]:
+    """Return each guide YAML block declaring a runner, with its marker state.
+
+    Raises
+    ------
+    ValueError
+        If *guide* cannot be read. It is read at collection, so the
+        error names the file rather than surfacing as a bare `OSError`.
+    """
+    try:
+        lines = guide.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        msg = f"cannot read the developers' guide at {guide}: {error}"
+        raise ValueError(msg) from error
     marked = _marked_fence_lines(lines)
     return [
         (number, number in marked, body)
@@ -131,3 +144,9 @@ def test_the_guide_prescribes_a_runner_snippet_that_folds(
         "inside the expression; keep the continuation at the same indent as "
         "its first line"
     )
+
+
+def test_an_unreadable_guide_is_refused(tmp_path: Path) -> None:
+    """A guide that cannot be read fails naming it, not as zero snippets."""
+    with pytest.raises(ValueError, match="cannot read the developers' guide"):
+        _guide_runner_snippets(tmp_path / "absent.md")

@@ -57,7 +57,19 @@ _PATHEXT_SEPARATOR = ";"
 #: about the file rather than about the probe. Refusing them keeps the
 #: check's answer and the caller's behaviour the same thing.
 _INTERPRETED_SUFFIXES: typ.Final[frozenset[str]] = frozenset(
-    {".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc", ".cpl", ".py"}
+    {
+        ".ps1",
+        ".vbs",
+        ".vbe",
+        ".js",
+        ".jse",
+        ".wsf",
+        ".wsh",
+        ".msc",
+        ".cpl",
+        ".py",
+        ".pyw",
+    }
 )
 
 

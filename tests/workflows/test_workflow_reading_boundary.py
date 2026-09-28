@@ -39,6 +39,7 @@ class TestTheSharedReader:
             pytest.param("on: push\n", TypeError, id="jobs-absent"),
             pytest.param("jobs:\n", TypeError, id="jobs-null"),
             pytest.param("jobs: {}\n", TypeError, id="jobs-empty"),
+            pytest.param("jobs:\n  a: ubuntu-latest\n", TypeError, id="scalar-job"),
         ],
     )
     def test_a_workflow_github_would_reject_is_refused(

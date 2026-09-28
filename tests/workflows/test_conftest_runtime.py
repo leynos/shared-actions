@@ -146,7 +146,7 @@ class TestExecutableDetection:
         )
 
     @pytest.mark.parametrize(
-        "suffix", [".PS1", ".VBS", ".JS", ".WSF", ".MSC", ".PY"], ids=str.lower
+        "suffix", [".PS1", ".VBS", ".JS", ".WSF", ".MSC", ".PY", ".PYW"], ids=str.lower
     )
     def test_an_interpreted_suffix_is_refused(self, suffix: str) -> None:
         """A PATHEXT entry Windows runs through an interpreter is not spawnable.

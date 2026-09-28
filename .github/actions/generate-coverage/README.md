@@ -638,6 +638,10 @@ major.minor is part of the Python ratchet baseline key, so moving to a new
 Python starts a fresh baseline rather than failing pull requests against a
 figure measured on the old one.
 
+The chosen interpreter must satisfy the project's `requires-python`: the
+resolver does not read it, and `uv sync` refuses an interpreter outside it. Set
+up a Python the project accepts.
+
 ```yaml
 - uses: actions/setup-python@v5
   with:

@@ -9,8 +9,6 @@ from __future__ import annotations
 import textwrap
 
 import pytest
-
-from cv005_contracts.closure import local_action, local_callee
 from contract_fixtures import (
     REPOSITORY,
     mutate,
@@ -18,6 +16,7 @@ from contract_fixtures import (
     tree,
     violations,
 )
+from cv005_contracts.closure import local_action, local_callee
 from cv005_contracts.loading import (
     WorkflowReadingError,
 )
@@ -166,8 +165,7 @@ def test_workflow_defaults_and_secret_declarations_are_read() -> None:
     """`defaults.run.shell` and a `workflow_call` secret key are both scanned."""
     shell = "defaults:\n  run:\n    shell: bash -c 'curl codescene.io; bash {0}'\njobs:"
     declared = (
-        CALLEE
-        .replace(
+        CALLEE.replace(
             "  workflow_call:\n",
             "  workflow_call:\n    secrets:\n      CS_ACCESS_TOKEN:\n",
         )

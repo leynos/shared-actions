@@ -11,7 +11,6 @@ import typing as typ
 
 import pytest
 import yaml
-
 from cv005_contracts.expressions import ConditionError, conjuncts
 from cv005_contracts.loading import (
     WorkflowReadingError,

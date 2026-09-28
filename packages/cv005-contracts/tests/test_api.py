@@ -11,7 +11,6 @@ import typing as typ
 
 import pytest
 from contract_fixtures import tree
-
 from cv005_contracts import (
     Config,
     ConfigError,
@@ -99,7 +98,9 @@ def test_the_interpreter_clause_runs_only_when_configured(tmp_path: Path) -> Non
         name: text.replace("        env:\n          UV_PYTHON: '3.13'\n", "")
         for name, text in tree().items()
     }
-    unpinned = _write_tree(tmp_path / "unpinned", texts, 'repository = "leynos/example"\n')
+    unpinned = _write_tree(
+        tmp_path / "unpinned", texts, 'repository = "leynos/example"\n'
+    )
     assert violations(unpinned) == []
     pinned = _write_tree(tmp_path / "pinned", texts)
     clauses = [item.clause for item in violations(pinned)]
@@ -144,7 +145,9 @@ def test_an_unknown_family_is_refused(tmp_path: Path) -> None:
         violations(root, only=frozenset({"publsher"}))
 
 
-def test_the_cli_exits_clean(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_cli_exits_clean(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A compliant tree exits 0 and prints nothing."""
     root = _write_tree(tmp_path, tree())
     assert check(repository=root) == EXIT_CLEAN

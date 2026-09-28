@@ -30,13 +30,17 @@ if typ.TYPE_CHECKING:
 
 #: Inputs that may differ between a pull-request lane and the publisher,
 #: because they name or ship the report rather than select what runs.
-LANE_LOCAL_INPUTS: typ.Final[frozenset[str]] = frozenset({
-    "artefact-name-suffix",
-    "publish-artefact",
-})
-PULL_REQUEST_GUARD: typ.Final[frozenset[str]] = frozenset({
-    "github.event_name == 'pull_request'",
-})
+LANE_LOCAL_INPUTS: typ.Final[frozenset[str]] = frozenset(
+    {
+        "artefact-name-suffix",
+        "publish-artefact",
+    }
+)
+PULL_REQUEST_GUARD: typ.Final[frozenset[str]] = frozenset(
+    {
+        "github.event_name == 'pull_request'",
+    }
+)
 
 
 def _inputs(step: dict[str, object]) -> dict[str, object]:
@@ -223,20 +227,20 @@ def interpreter_violations(publisher: Document, interpreter: str) -> list[str]:
 
     """
     if _BOUNDED_PYTHON.fullmatch(interpreter) is None:
-        return [
+        message = (
             f"the configured interpreter {interpreter!r} is not an explicit "
             "version such as 3.13"
-        ]
+        )
+        return [message]
     generators = action_steps(publisher, COVERAGE_ACTION)
-    if generators and all(
-        _pins_interpreter(step, interpreter) for step in generators
-    ):
+    if generators and all(_pins_interpreter(step, interpreter) for step in generators):
         return []
-    return [
+    message = (
         f"the publisher's generate-coverage must set env UV_PYTHON: "
         f"'{interpreter}'; the action's venv otherwise takes the newest Python "
         "on the runner"
-    ]
+    )
+    return [message]
 
 
 def publisher_lane_violations(

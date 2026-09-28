@@ -32,6 +32,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "hypothesis" },
+    { name = "plumbum" },
     { name = "pytest" },
     { name = "pytest-xdist" },
 ]
@@ -45,6 +46,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "hypothesis", specifier = ">=6,<7" },
+    { name = "plumbum", specifier = ">=1.8,<3" },
     { name = "pytest", specifier = ">=8,<10" },
     { name = "pytest-xdist", specifier = ">=3,<4" },
 ]
@@ -207,6 +209,18 @@ wheels = [
 ]
 
 [[package]]
+name = "plumbum"
+version = "2.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6c/d2/578712a979a50e9aba08ea173a38e7598461130d3c9899f176373bc03280/plumbum-2.0.2.tar.gz", hash = "sha256:233751d7819c9e6743ec1c2405927eb4fa52a284c7b894bd10e28106a9309a92", size = 390799, upload-time = "2026-07-22T04:13:12.157Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b5/55/fdd01894807d20fb6181f13590ae247585b10e909b42e6ada833379fe520/plumbum-2.0.2-py3-none-any.whl", hash = "sha256:a865771826c1d2cce0ca8b2a2c48aa0447ed7a518859e389a95f158e9c369547", size = 168804, upload-time = "2026-07-22T04:13:10.76Z" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.21.0"
 source = { registry = "https://pypi.org/simple" }
@@ -323,4 +337,13 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e8/c4/ba2f8066cceb6f23394729afe52f3bf7adec04bf9ed2c820b39e19299111/sortedcontainers-2.4.0.tar.gz", hash = "sha256:25caa5a06cc30b6b83d11423433f65d1f9d76c4c6a0c90e3379eaa43b9bfdb88", size = 30594, upload-time = "2021-05-16T22:03:42.897Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/46/9cb0e58b2deb7f82b84065f37f3bffeb12413f947f9388e4cac22c4621ce/sortedcontainers-2.4.0-py2.py3-none-any.whl", hash = "sha256:a163dcaede0f1c021485e957a39245190e74249897e2ae4b2aa38595db237ee0", size = 29575, upload-time = "2021-05-16T22:03:41.177Z" },
+]
+
+[[package]]
+name = "typing-extensions"
+version = "4.16.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f6/cc/6253133b5bb138fc3306cebfbda2c520f545d36b5be2c7255cc528bb45d6/typing_extensions-4.16.0.tar.gz", hash = "sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5", size = 113555, upload-time = "2026-07-02T08:40:05.92Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl", hash = "sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8", size = 45571, upload-time = "2026-07-02T08:40:04.659Z" },
 ]

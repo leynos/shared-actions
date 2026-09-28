@@ -54,10 +54,10 @@ def check(
         config = load_config(repository)
         found = violations(repository, config, frozenset(only) or FAMILIES)
     except (ConfigError, WorkflowReadingError, ValueError) as error:
-        print(f"cv005-contracts: {error}", file=sys.stderr)  # noqa: T201 - the CLI's report channel.
+        print(f"cv005-contracts: {error}", file=sys.stderr)
         return EXIT_UNREADABLE
     for item in found:
-        print(item)  # noqa: T201 - the CLI's report channel.
+        print(item)
     return EXIT_VIOLATIONS if found else EXIT_CLEAN
 
 

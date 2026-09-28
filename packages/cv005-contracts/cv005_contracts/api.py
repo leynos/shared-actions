@@ -134,38 +134,68 @@ def _clauses(
 ) -> cabc.Iterator[tuple[str, str, cabc.Callable[[], list[str]]]]:
     """Yield each clause's family, identifier and deferred reading."""
     repository = config.repository
-    yield ("pull-request", "pull-request.surface",
-           lambda: pull_request_violations(documents, repository))
+    yield (
+        "pull-request",
+        "pull-request.surface",
+        lambda: pull_request_violations(documents, repository),
+    )
     name, publisher = find_publisher(documents)
     yield ("publisher", "publisher.name", lambda: _named(name, config.publisher))
     yield ("publisher", "publisher.triggers", lambda: trigger_violations(publisher))
-    yield ("publisher", "publisher.concurrency",
-           lambda: concurrency_violations(publisher))
-    yield ("publisher", "publisher.permissions",
-           lambda: permissions_violations(publisher))
+    yield (
+        "publisher",
+        "publisher.concurrency",
+        lambda: concurrency_violations(publisher),
+    )
+    yield (
+        "publisher",
+        "publisher.permissions",
+        lambda: permissions_violations(publisher),
+    )
     yield ("publisher", "publisher.upload", lambda: upload_step_violations(publisher))
     yield ("publisher", "publisher.wiring", lambda: wiring_violations(publisher))
     yield ("publisher", "publisher.conditions", lambda: condition_violations(publisher))
-    yield ("publisher", "publisher.retired-checksum",
-           lambda: retired_checksum_violations(documents))
+    yield (
+        "publisher",
+        "publisher.retired-checksum",
+        lambda: retired_checksum_violations(documents),
+    )
     yield ("token", "token.check-step", lambda: check_step_violations(publisher))
     yield ("token", "token.scope", lambda: token_scope_violations(publisher))
     closure = pull_request_closure(documents, repository)
-    yield ("coverage", "coverage.pull-request-lane",
-           lambda: pull_request_lane_violations(closure))
-    yield ("coverage", "coverage.second-writer",
-           lambda: second_writer_violations(documents, name, repository))
-    yield ("coverage", "coverage.selection-parity",
-           lambda: publisher_lane_violations(publisher, closure))
-    yield ("coverage", "coverage.selection",
-           lambda: _selection_violations(publisher, config.selection))
+    yield (
+        "coverage",
+        "coverage.pull-request-lane",
+        lambda: pull_request_lane_violations(closure),
+    )
+    yield (
+        "coverage",
+        "coverage.second-writer",
+        lambda: second_writer_violations(documents, name, repository),
+    )
+    yield (
+        "coverage",
+        "coverage.selection-parity",
+        lambda: publisher_lane_violations(publisher, closure),
+    )
+    yield (
+        "coverage",
+        "coverage.selection",
+        lambda: _selection_violations(publisher, config.selection),
+    )
     if config.interpreter is not None:
         interpreter = config.interpreter
-        yield ("coverage", "coverage.interpreter",
-               lambda: interpreter_violations(publisher, interpreter))
+        yield (
+            "coverage",
+            "coverage.interpreter",
+            lambda: interpreter_violations(publisher, interpreter),
+        )
     if config.environment:
-        yield ("environment", "environment.placement",
-               lambda: environment_violations(documents, repository))
+        yield (
+            "environment",
+            "environment.placement",
+            lambda: environment_violations(documents, repository),
+        )
 
 
 def _named(found: str, expected: str) -> list[str]:
@@ -179,8 +209,7 @@ def _selection_violations(publisher: Document, selection: dict[str, str]) -> lis
     inputs = generators[0].get("with") if len(generators) == 1 else None
     held = inputs if isinstance(inputs, dict) else {}
     return [
-        f"the publisher's generate-coverage sets {key}={held.get(key)!r}, "
-        f"not {value!r}"
+        f"the publisher's generate-coverage sets {key}={held.get(key)!r}, not {value!r}"
         for key, value in sorted(selection.items())
         if str(held.get(key)) != value
     ]

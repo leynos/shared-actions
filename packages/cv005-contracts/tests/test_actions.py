@@ -10,7 +10,6 @@ import os
 import typing as typ
 
 import pytest
-
 from cv005_contracts.actions import read_actions
 from cv005_contracts.loading import WorkflowReadingError
 

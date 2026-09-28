@@ -117,7 +117,9 @@ def config_from_mapping(raw: dict[str, object]) -> Config:
     _require(raw, "environment", bool)
     _require(raw, "selection", dict)
     selection = raw.get("selection", {})
-    if not all(isinstance(value, str) for value in typ.cast("dict", selection).values()):
+    if not all(
+        isinstance(value, str) for value in typ.cast("dict", selection).values()
+    ):
         message = f"{CONFIG_PATH} selection values must be strings"
         raise ConfigError(message)
     return Config(**typ.cast("dict[str, typ.Any]", raw))

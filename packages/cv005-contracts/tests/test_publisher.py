@@ -8,12 +8,11 @@ the case.
 from __future__ import annotations
 
 import pytest
-
+from contract_fixtures import PUBLISHER, mutate, parse_tree, tree
 from cv005_contracts.credential import (
     check_step_violations,
     token_scope_violations,
 )
-from contract_fixtures import PUBLISHER, mutate, parse_tree, tree
 from cv005_contracts.loading import (
     Document,
     WorkflowReadingError,
@@ -304,7 +303,8 @@ def test_a_local_action_is_not_a_second_publisher() -> None:
     """Only workflows are candidates; an action is judged where it runs."""
     action = (
         "runs:\n  using: composite\n  steps:\n"
-        "    - uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@abc\n"
+        "    - uses: leynos/shared-actions/.github/actions/"
+        "upload-codescene-coverage@abc\n"
     )
     texts = tree(extra={".github/actions/upload": action})
     name, _ = find_publisher(parse_tree(texts))

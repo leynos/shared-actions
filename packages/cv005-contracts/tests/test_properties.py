@@ -16,13 +16,12 @@ import itertools
 import typing as typ
 
 import pytest
-
+from contract_fixtures import REPOSITORY
 from cv005_contracts.expressions import (
     ConditionError,
     conjuncts,
     missing_terms,
 )
-from contract_fixtures import REPOSITORY
 from cv005_contracts.loading import WorkflowReadingError
 from cv005_contracts.reach import pull_request_closure
 from cv005_contracts.reading import texts

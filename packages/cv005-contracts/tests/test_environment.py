@@ -10,7 +10,7 @@ from __future__ import annotations
 import typing as typ
 
 import pytest
-
+from contract_fixtures import REPOSITORY, parse_tree, tree
 from cv005_contracts.environment import (
     MISSING,
     REACHABLE,
@@ -18,7 +18,6 @@ from cv005_contracts.environment import (
     UNRESOLVED,
     environment_violations,
 )
-from contract_fixtures import REPOSITORY, parse_tree, tree
 from cv005_contracts.loading import Document, load_workflow
 from cv005_contracts.publisher import UPLOAD_ACTION
 from cv005_contracts.reading import jobs
@@ -165,6 +164,8 @@ def test_a_workflow_run_chain_may_not_declare_it(
     documents: dict[str, Document],
 ) -> None:
     """A `workflow_run` workflow runs with secrets after a pull request's run."""
-    chained = DEPLOY.replace("on: workflow_call", "on:\n  workflow_run:\n    workflows: [CI]")
+    chained = DEPLOY.replace(
+        "on: workflow_call", "on:\n  workflow_run:\n    workflows: [CI]"
+    )
     documents["chained.yml"] = load_workflow(chained)
     _reports(documents, REACHABLE)

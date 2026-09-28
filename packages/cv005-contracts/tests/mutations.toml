@@ -1,0 +1,589 @@
+# Every clause's proof: applying `new` in place of `old` in `file` must make
+# the test named by `expect` fail. Run with `make mutation-ledger`.
+
+[[mutation]]
+id = "R1 || refusal removed (item 3)"
+file = "cv005_contracts/expressions.py"
+old = "    if len(_split_top_level(body, \"||\")) > 1:"
+new = "    if False:"
+expect = "test_the_upload_guard_needs_both_terms_and_no_disjunction"
+
+[[mutation]]
+id = "R2 duplicate keys accepted (item 4)"
+file = "cv005_contracts/loading.py"
+old = "            if key in seen:"
+new = "            if False:"
+expect = "test_a_duplicate_key_is_refused"
+
+[[mutation]]
+id = "R3 only the string on key read (item 5)"
+file = "cv005_contracts/reading.py"
+old = "for key in (\"on\", True) if key in document"
+new = "for key in (\"on\",) if key in document"
+expect = "test_every_trigger_form_is_read"
+
+[[mutation]]
+id = "R4 both trigger keys accepted (item 5)"
+file = "cv005_contracts/reading.py"
+old = "    if len(keys) != 1:"
+new = "    if not keys:"
+expect = "test_a_workflow_declaring_both_trigger_keys_is_refused"
+
+[[mutation]]
+id = "R5 closure not transitive (item 1)"
+file = "cv005_contracts/closure.py"
+old = "        pending.extend(called_workflows(documents[name], repository, skip))"
+new = "        pass"
+expect = "test_a_called_workflow_is_inside_the_closure"
+
+[[mutation]]
+id = "R7 local @ref followed (item 1)"
+file = "cv005_contracts/closure.py"
+old = "    if \"@\" in str(path):"
+new = "    if False:"
+expect = "test_a_call_this_checkout_cannot_read_is_refused"
+
+[[mutation]]
+id = "R8 secrets: inherit ignored (item 2)"
+file = "cv005_contracts/reach.py"
+old = "== \"inherit\""
+new = "== \"never\""
+expect = "test_a_called_workflow_is_inside_the_closure"
+
+[[mutation]]
+id = "R9 keys not read (item 7)"
+file = "cv005_contracts/reading.py"
+old = "                yield str(key)\n"
+new = ""
+expect = "test_workflow_defaults_and_secret_declarations_are_read"
+
+[[mutation]]
+id = "R10 host not case-folded (item 7)"
+file = "cv005_contracts/reach.py"
+old = "marker.search(text.casefold())"
+new = "marker.search(text)"
+expect = "test_a_pull_request_step_cannot_reach_codescene"
+
+[[mutation]]
+id = "R11 cancel-in-progress not asserted (item 6)"
+file = "cv005_contracts/publisher_rules.py"
+old = "        if declared == PUBLISHER_CONCURRENCY\n"
+new = "        if isinstance(declared, dict) and declared.get(\"group\") == PUBLISHER_CONCURRENCY[\"group\"]\n"
+expect = "test_the_publisher_holds_its_one_ref_keyed_group"
+
+[[mutation]]
+id = "R12 group not held exactly (item 6)"
+file = "cv005_contracts/publisher_rules.py"
+old = "        if declared == PUBLISHER_CONCURRENCY\n"
+new = "        if isinstance(declared, dict) and declared.get(\"cancel-in-progress\") is False\n"
+expect = "test_the_publisher_holds_its_one_ref_keyed_group"
+
+[[mutation]]
+id = "R13 job group allowed (item 6)"
+file = "cv005_contracts/publisher_rules.py"
+old = "        if \"concurrency\" in job\n"
+new = "        if False\n"
+expect = "test_the_publisher_holds_its_one_ref_keyed_group"
+
+[[mutation]]
+id = "R14 check step not required (item 8)"
+file = "cv005_contracts/credential.py"
+old = "        return [f\"the upload job must hold one `{CHECK_STEP_ID}` step\"]"
+new = "        return []"
+expect = "test_the_check_step_runs_its_one_command"
+
+[[mutation]]
+id = "R15 check keys not restricted (item 8)"
+file = "cv005_contracts/credential.py"
+old = "if key not in CHECK_STEP_KEYS)"
+new = "if False)"
+expect = "test_the_check_step_runs_its_one_command"
+
+[[mutation]]
+id = "R16 check command not compared (item 8)"
+file = "cv005_contracts/credential.py"
+old = "    if str(check.get(\"run\", \"\")).strip() != CHECK_COMMAND:"
+new = "    if False:"
+expect = "test_the_check_step_runs_its_one_command"
+
+[[mutation]]
+id = "R17 check order not asserted (item 8)"
+file = "cv005_contracts/credential.py"
+old = "    if position(job_steps, check) > position(job_steps, upload_step(document)):"
+new = "    if False:"
+expect = "test_the_check_step_must_precede_the_upload"
+
+[[mutation]]
+id = "R18 access-token not asserted (item 8)"
+file = "cv005_contracts/publisher_rules.py"
+old = "        \"access-token\": TOKEN_INPUT,\n"
+new = ""
+expect = "test_the_upload_step_passes_the_token_directly"
+
+[[mutation]]
+id = "R19 whole check step exempt from sweep (item 8)"
+file = "cv005_contracts/credential.py"
+old = "        return {key: value for key, value in step.items() if key != \"run\"}"
+new = "        return {}"
+expect = "test_the_token_is_refused_outside_its_two_uses"
+
+[[mutation]]
+id = "R20 whole upload step exempt from sweep (item 8)"
+file = "cv005_contracts/credential.py"
+old = "        return _upload_without_token_input(step)"
+new = "        return {}"
+expect = "test_the_token_is_refused_outside_its_two_uses"
+
+[[mutation]]
+id = "R21 check exemption by id not identity (item 8)"
+file = "cv005_contracts/credential.py"
+old = "    if step is check:"
+new = "    if step.get(\"id\") == CHECK_STEP_ID:"
+expect = "test_the_token_sweep_excludes_only_the_upload_job_check"
+
+[[mutation]]
+id = "R22 guard terms not required (item 3)"
+file = "cv005_contracts/publisher_rules.py"
+old = "    return [f\"the upload guard lacks {term!r}\" for term in missing]"
+new = "    return []"
+expect = "test_the_upload_guard_needs_both_terms_and_no_disjunction"
+
+[[mutation]]
+id = "R23 push beyond main not a seed"
+file = "cv005_contracts/reach.py"
+old = "        or _pushes_other_branches(document)\n"
+new = ""
+expect = "test_a_push_beyond_main_is_inside_the_closure"
+
+[[mutation]]
+id = "R24 second writer rule off"
+file = "cv005_contracts/lanes.py"
+old = "        if invokes(step, COVERAGE_ACTION) and not _guarded_to_pull_requests(step)\n"
+new = "        if False\n"
+expect = "test_a_push_lane_cannot_write_a_second_baseline"
+
+[[mutation]]
+id = "R25 selection not compared"
+file = "cv005_contracts/lanes.py"
+old = "            if _selection(step) != _selection(baseline):"
+new = "            if False:"
+expect = "test_the_publisher_measures_what_each_lane_measures"
+
+[[mutation]]
+id = "R26 upload mode not asserted"
+file = "cv005_contracts/publisher_rules.py"
+old = "        \"mode\": \"upload\",\n"
+new = ""
+expect = "test_the_upload_step_passes_the_token_directly"
+
+[[mutation]]
+id = "R27 trigger filter not asserted"
+file = "cv005_contracts/publisher_rules.py"
+old = "        found.append(\"the push trigger must filter on exactly `branches: [main]`\")"
+new = "        pass"
+expect = "test_the_publisher_runs_only_on_a_push_to_main"
+
+[[mutation]]
+id = "R28 review events not seeds"
+file = "cv005_contracts/reading.py"
+old = "    \"pull_request_review\",\n"
+new = ""
+expect = "test_every_pull_request_event_seeds_the_closure"
+
+[[mutation]]
+id = "R29 checksum refresher allowed"
+file = "cv005_contracts/publisher_rules.py"
+old = "        if name.startswith(\"get-codescene-sha.\")"
+new = "        if False"
+expect = "test_the_checksum_refresher_is_refused"
+
+[[mutation]]
+id = "R30 ratchet not required on PR lanes"
+file = "cv005_contracts/lanes.py"
+old = "            (\"with-ratchet\", \"true\", _is_true),\n"
+new = ""
+expect = "test_a_pull_request_lane_ratchets_and_publishes_nothing"
+
+[[mutation]]
+id = "R31 YAML 1.1 booleans restored"
+file = "cv005_contracts/loading.py"
+old = "_UniqueKeyLoader.add_implicit_resolver(_BOOL_TAG, _GITHUB_BOOL, list(\"tTfF\"))"
+new = "_UniqueKeyLoader.yaml_implicit_resolvers = yaml.SafeLoader.yaml_implicit_resolvers"
+expect = "test_only_true_and_false_are_booleans"
+
+[[mutation]]
+id = "R32 unhashable key reaches the set"
+file = "cv005_contracts/loading.py"
+old = "            if not isinstance(key, cabc.Hashable):"
+new = "            if False:"
+expect = "test_an_unhashable_key_is_refused"
+
+[[mutation]]
+id = "R33 action reference compared with case"
+file = "cv005_contracts/publisher.py"
+old = "    return str(step.get(\"uses\", \"\")).split(\"@\", 1)[0].casefold()"
+new = "    return str(step.get(\"uses\", \"\")).split(\"@\", 1)[0]"
+expect = "test_a_differently_cased_action_is_still_a_second_writer"
+
+[[mutation]]
+id = "R34 run defaults not refused (item 8)"
+file = "cv005_contracts/credential.py"
+old = "    problems.extend(_run_defaults_violations(document))\n"
+new = ""
+expect = "test_run_defaults_cannot_reshape_the_check"
+
+[[mutation]]
+id = "R35 unnamed secrets not read in PR lanes (item 2)"
+file = "cv005_contracts/reach.py"
+old = "                for text in unnamed_secret_references(document)\n            ),"
+new = "                for text in unnamed_secret_references(document)\n                if False\n            ),"
+expect = "test_a_pull_request_step_cannot_reach_codescene"
+
+[[mutation]]
+id = "R36 unnamed secrets not read in the publisher (item 8)"
+file = "cv005_contracts/credential.py"
+old = "        for text in unnamed_secret_references(document)\n    ]"
+new = "        for text in unnamed_secret_references(document)\n        if False\n    ]"
+expect = "test_an_unnamed_secret_read_is_refused_in_the_publisher"
+
+[[mutation]]
+id = "R38 upload wiring not compared"
+file = "cv005_contracts/publisher_rules.py"
+old = "        if read in written\n"
+new = "        if True\n"
+expect = "test_the_upload_reads_what_the_publisher_writes"
+
+[[mutation]]
+id = "R40 embedded expression accepted in a condition (item 3)"
+file = "cv005_contracts/expressions.py"
+old = "    if \"${{\" in body:"
+new = "    if False:"
+expect = "test_an_embedded_expression_is_refused"
+
+[[mutation]]
+id = "R41 job-level guard ignored"
+file = "cv005_contracts/lanes.py"
+old = "        if not _guarded_to_pull_requests(job)\n"
+new = "        if True\n"
+expect = "test_a_job_level_pull_request_guard_is_accepted"
+
+[[mutation]]
+id = "R42 calls from pull-request jobs followed on a push"
+file = "cv005_contracts/lanes.py"
+old = "reachable(documents, seeds, repository, _guarded_to_pull_requests)"
+new = "reachable(documents, seeds, repository)"
+expect = "test_a_call_from_a_guarded_job_is_not_a_push_writer"
+
+[[mutation]]
+id = "R43 publisher conditions not refused"
+file = "cv005_contracts/publisher_rules.py"
+old = "SKIPPING_KEYS: typ.Final[tuple[str, ...]] = (\"if\", \"continue-on-error\")"
+new = "SKIPPING_KEYS: typ.Final[tuple[str, ...]] = (\"continue-on-error\",)"
+expect = "test_nothing_can_skip_the_publisher_on_a_push"
+
+[[mutation]]
+id = "R44 report order not asserted"
+file = "cv005_contracts/publisher_rules.py"
+old = "    earlier = job_steps[: position(job_steps, upload)]"
+new = "    earlier = job_steps"
+expect = "test_the_report_is_written_before_the_upload"
+
+[[mutation]]
+id = "R39 named-secret exemption widened to any index"
+file = "cv005_contracts/reach.py"
+old = "    r\"(?!\\s*\\[\\s*'[^']*'\\s*\\])\""
+new = "    r\"(?!\\s*\\[)\""
+expect = "test_a_pull_request_step_cannot_reach_codescene"
+
+[[mutation]]
+id = "R45 mutate accepts a repeated match"
+file = "tests/contract_fixtures.py"
+old = "    if count != 1:"
+new = "    if count == 0:"
+expect = "test_a_mutation_changes_exactly_one_place"
+
+[[mutation]]
+id = "R47 unnamed report accepted"
+file = "cv005_contracts/publisher_rules.py"
+old = "    if not _names_a_file(read[0]):"
+new = "    if False:"
+expect = "test_an_unnamed_report_is_refused"
+
+[[mutation]]
+id = "A1 local actions not followed"
+file = "cv005_contracts/closure.py"
+old = "        pending.extend(called_actions(documents[name], repository, skip))\n"
+new = ""
+expect = "test_a_local_action_is_inside_the_closure"
+
+[[mutation]]
+id = "A2 $/ action spelling not recognized"
+file = "cv005_contracts/closure.py"
+old = "    if not reference.startswith((\"./\", \"$/\")):"
+new = "    if not reference.startswith(\"./\"):"
+expect = "test_a_local_action_is_inside_the_closure[$/]"
+
+[[mutation]]
+id = "A3 local action at a ref followed"
+file = "cv005_contracts/closure.py"
+old = "    if \"@\" in reference:\n        message = f\"{reference!r} is a local action"
+new = "    if False:\n        message = f\"{reference!r} is a local action"
+expect = "test_a_local_action_at_a_ref_is_refused"
+
+[[mutation]]
+id = "A4 action steps dropped by the loader"
+file = "cv005_contracts/actions.py"
+old = "\"jobs\": {\"action\": {\"steps\": action_steps}},"
+new = "\"jobs\": {\"action\": {\"steps\": []}},"
+expect = "test_a_local_action_is_inside_the_closure"
+
+[[mutation]]
+id = "A5 missing action not refused"
+file = "cv005_contracts/closure.py"
+old = "        if name not in documents:\n"
+new = "        if name not in documents:\n            continue\n"
+expect = "test_a_local_action_the_tree_lacks_is_refused"
+
+[[mutation]]
+id = "R37 workflow permissions not held (re-anchored after ruff format)"
+file = "cv005_contracts/publisher_rules.py"
+old = "[] if declared == {} else"
+new = "[] if True else"
+expect = "test_the_publisher_grants_no_workflow_scope"
+
+[[mutation]]
+id = "N1 action failures named by file name"
+file = "cv005_contracts/loading.py"
+old = "    name = label or path.name\n"
+new = "    name = path.name\n"
+expect = "test_a_malformed_action_is_named_by_its_path"
+
+[[mutation]]
+id = "N2 unlistable directory skipped"
+file = "cv005_contracts/actions.py"
+old = "        listed = entries(pending.pop())\n"
+new = "        listed = sorted(pending.pop().glob(\"*\"))\n"
+expect = "test_a_directory_that_cannot_be_listed_is_refused"
+
+[[mutation]]
+id = "N3 nested directories not walked"
+file = "cv005_contracts/actions.py"
+old = "        pending.extend(path for path in listed if path.is_dir())\n"
+new = ""
+expect = "test_actions_are_read_at_any_depth_by_their_uses_path"
+
+[[mutation]]
+id = "N5 step guard ignored when following actions"
+file = "cv005_contracts/closure.py"
+old = "        if not skip(step)\n"
+new = ""
+expect = "test_a_guarded_step_running_a_local_action_is_not_a_push_writer"
+
+[[mutation]]
+id = "N6 qualified self action followed"
+file = "cv005_contracts/closure.py"
+old = "    if _names_this_repository(reference, repository):\n        message = f\"{reference!r} runs this repository's action"
+new = "    if False:\n        message = f\"{reference!r} runs this repository's action"
+expect = "test_a_local_action_at_a_ref_is_refused"
+
+[[mutation]]
+id = "N7 actions counted as publishers"
+file = "cv005_contracts/publisher.py"
+old = "        if not is_action(name) and codescene_contacts(doc)\n"
+new = "        if codescene_contacts(doc)\n"
+expect = "test_a_local_action_is_not_a_second_publisher"
+
+[[mutation]]
+id = "N8 continue-on-error allowed on jobs and coverage"
+file = "cv005_contracts/publisher_rules.py"
+old = "SKIPPING_KEYS: typ.Final[tuple[str, ...]] = (\"if\", \"continue-on-error\")"
+new = "SKIPPING_KEYS: typ.Final[tuple[str, ...]] = (\"if\",)"
+expect = "test_nothing_in_the_publisher_may_fail_quietly"
+
+[[mutation]]
+id = "N9 continue-on-error allowed on upload"
+file = "cv005_contracts/publisher_rules.py"
+old = "        if \"continue-on-error\" in step\n"
+new = "        if False\n"
+expect = "test_nothing_in_the_publisher_may_fail_quietly"
+
+[[mutation]]
+id = "N10 qualified self workflow call followed"
+file = "cv005_contracts/closure.py"
+old = "    if _names_this_repository(reference, repository):\n        message = f\"{reference!r} calls this repository at a ref"
+new = "    if False:\n        message = f\"{reference!r} calls this repository at a ref"
+expect = "test_a_call_this_checkout_cannot_read_is_refused"
+
+[[mutation]]
+id = "E1 quote-unaware scanner"
+file = "cv005_contracts/expressions.py"
+old = "            is_quoted = not is_quoted\n"
+new = "            is_quoted = False\n"
+expect = "literal closer"
+
+[[mutation]]
+id = "E2 unterminated expression read as empty"
+file = "cv005_contracts/expressions.py"
+old = "    return len(text)\n"
+new = "    return start\n"
+expect = "unterminated"
+
+[[mutation]]
+id = "P1 unreadable parent reads as absent"
+file = "cv005_contracts/actions.py"
+old = "    except OSError as error:\n        message = f\"{directory} could not be checked: {error}\""
+new = "    except OSError as error:\n        return False\n        message = f\"{directory} could not be checked: {error}\""
+expect = "test_an_actions_directory_that_cannot_be_checked_is_refused"
+
+[[mutation]]
+id = "P2 absence refused"
+file = "cv005_contracts/actions.py"
+old = "    except FileNotFoundError:\n        return False\n"
+new = ""
+expect = "test_a_tree_without_actions_reads_as_none"
+
+[[mutation]]
+id = "I1 env not compared"
+file = "cv005_contracts/lanes.py"
+old = "    return {\"with\": inputs, \"env\": step.get(\"env\")}\n"
+new = "    return {\"with\": inputs}\n"
+expect = "test_a_lane_measures_under_the_publishers_interpreter"
+[[mutation]]
+id = "R6 $/ spelling not stripped (item 1)"
+file = "cv005_contracts/closure.py"
+old = 'reference.removeprefix("./").removeprefix("$/")'
+new = 'reference.removeprefix("./")'
+expect = "test_a_called_workflow_is_inside_the_closure"
+
+[[mutation]]
+id = "J1 interpreter compared loosely"
+file = "cv005_contracts/lanes.py"
+old = "            return version == interpreter\n"
+new = "            return bool(version)\n"
+expect = "test_an_unpinned_or_other_interpreter_is_refused"
+
+[[mutation]]
+id = "J2 unbounded configured interpreter accepted"
+file = "cv005_contracts/lanes.py"
+old = "    if _BOUNDED_PYTHON.fullmatch(interpreter) is None:\n"
+new = "    if False:\n"
+expect = "test_an_unbounded_configured_interpreter_is_refused"
+
+[[mutation]]
+id = "V-env1 environment names compared with case"
+file = "cv005_contracts/environment.py"
+old = "name.casefold() == ENVIRONMENT"
+new = "name == ENVIRONMENT"
+expect = "test_no_other_job_may_declare_it[CodeScene]"
+
+[[mutation]]
+id = "V-env2 expression-named environments accepted"
+file = "cv005_contracts/environment.py"
+old = 'return name is not None and "${{" in name'
+new = "return False"
+expect = "test_an_expression_named_environment_is_refused"
+
+[[mutation]]
+id = "V-env3 uploader matched by substring"
+file = "cv005_contracts/environment.py"
+old = 'str(step.get("uses", "")).split("@", 1)[0] == UPLOAD_ACTION'
+new = 'str(step.get("uses", "")).startswith(UPLOAD_ACTION)'
+expect = "test_a_look_alike_action_is_not_the_uploader"
+
+[[mutation]]
+id = "V-env4 mapping form ignored"
+file = "cv005_contracts/environment.py"
+old = "        case {\"name\": str() as name}:\n            return name\n"
+new = ""
+expect = "test_mapping_form_is_accepted"
+
+[[mutation]]
+id = "V-env5 stray declarations allowed"
+file = "cv005_contracts/environment.py"
+old = "        if not uploads(job) and declares_codescene(job)\n"
+new = "        if False\n"
+expect = "test_no_other_job_may_declare_it"
+
+[[mutation]]
+id = "V-env6 empty reading passes"
+file = "cv005_contracts/environment.py"
+old = "    if not uploading:\n"
+new = "    if False:\n"
+expect = "test_an_empty_reading_is_refused"
+
+[[mutation]]
+id = "C1 unknown configuration keys accepted"
+file = "cv005_contracts/config.py"
+old = "    if unknown := sorted(set(raw) - known):\n"
+new = "    if unknown := []:\n"
+expect = "test_a_malformed_configuration_is_refused"
+
+[[mutation]]
+id = "C2 repository shape not checked"
+file = "cv005_contracts/config.py"
+old = 'repository.count("/") != 1'
+new = "False"
+expect = "test_a_malformed_configuration_is_refused"
+
+[[mutation]]
+id = "C3 selection values not typed"
+file = "cv005_contracts/config.py"
+old = "    if not all(\n"
+new = "    if False and not all(\n"
+expect = "test_a_malformed_configuration_is_refused"
+
+[[mutation]]
+id = "C4 unknown family runs nothing"
+file = "cv005_contracts/api.py"
+old = "    if unknown := sorted(set(only) - FAMILIES):\n"
+new = "    if unknown := []:\n"
+expect = "test_an_unknown_family_is_refused"
+
+[[mutation]]
+id = "C5 configured publisher name ignored"
+file = "cv005_contracts/api.py"
+old = "return [] if found == expected else"
+new = "return [] if True else"
+expect = "test_the_publisher_must_carry_its_configured_name"
+
+[[mutation]]
+id = "C6 configured selection ignored"
+file = "cv005_contracts/api.py"
+old = "        if str(held.get(key)) != value\n"
+new = "        if False\n"
+expect = "test_a_configured_selection_is_held"
+
+[[mutation]]
+id = "C7 interpreter clause never runs"
+file = "cv005_contracts/api.py"
+old = "    if config.interpreter is not None:\n"
+new = "    if False:\n"
+expect = "test_the_interpreter_clause_runs_only_when_configured"
+
+[[mutation]]
+id = "C8 environment clause never runs"
+file = "cv005_contracts/api.py"
+old = "    if config.environment:\n"
+new = "    if False:\n"
+expect = "test_the_environment_family_is_separate"
+
+[[mutation]]
+id = "C9 reading failure reported as clean"
+file = "cv005_contracts/cli.py"
+old = "        return EXIT_UNREADABLE\n"
+new = "        return EXIT_CLEAN\n"
+expect = "test_the_cli_refuses_what_it_cannot_read"
+
+[[mutation]]
+id = "C10 violations reported as clean"
+file = "cv005_contracts/cli.py"
+old = "    return EXIT_VIOLATIONS if found else EXIT_CLEAN\n"
+new = "    return EXIT_CLEAN\n"
+expect = "test_the_cli_reports_violations"
+
+[[mutation]]
+id = "V-env7 pull-request declarations allowed"
+file = "cv005_contracts/environment.py"
+old = "        for where, job in _placed(reachable, reachable)\n        if declares_codescene(job)\n"
+new = "        for where, job in _placed(reachable, reachable)\n        if False\n"
+expect = "test_no_pull_request_job_may_declare_it"

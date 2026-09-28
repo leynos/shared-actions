@@ -9,7 +9,6 @@ rule that must refuse it.
 from __future__ import annotations
 
 import pytest
-
 from contract_fixtures import PUBLISHER, mutate
 from cv005_contracts.loading import Document, load_workflow
 from cv005_contracts.publisher_rules import (
@@ -119,4 +118,3 @@ def test_nothing_in_the_publisher_may_fail_quietly(anchor: str, addition: str) -
     texts = mutate("coverage-main.yml", anchor, anchor + addition)
     found = condition_violations(_publisher(texts))
     assert any("continue-on-error" in item for item in found), found
-

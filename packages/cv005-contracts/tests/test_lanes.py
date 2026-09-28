@@ -8,7 +8,6 @@ the case.
 from __future__ import annotations
 
 import pytest
-
 from contract_fixtures import (
     PULL_REQUEST_LANE,
     REPOSITORY,
@@ -225,4 +224,5 @@ def test_an_unbounded_configured_interpreter_is_refused(interpreter: str) -> Non
     """A configured request uv would widen cannot be the pin."""
     documents = _documents(tree())
     found = interpreter_violations(documents["coverage-main.yml"], interpreter)
-    assert found and "explicit version" in found[0], found
+    assert found, found
+    assert "explicit version" in found[0], found

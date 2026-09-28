@@ -21,7 +21,7 @@ if typ.TYPE_CHECKING:
 #: A parsed workflow. The key type is `object` because a key need not be a
 #: string: `true:` parses to the boolean `True`, and a reader handed a
 #: document from a YAML 1.1 loader sees an unquoted `on:` that way too.
-Document: typ.TypeAlias = dict[object, object]
+type Document = dict[object, object]
 
 #: The YAML tag PyYAML gives a resolved boolean.
 _BOOL_TAG: typ.Final[str] = "tag:yaml.org,2002:bool"

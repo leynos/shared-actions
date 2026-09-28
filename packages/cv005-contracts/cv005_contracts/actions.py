@@ -137,6 +137,7 @@ def _action_files(directory: Path) -> list[Path]:
         found.extend(path for path in listed if path.name in ACTION_FILES)
     return sorted(found)
 
+
 def is_action(name: str) -> bool:
     """Return whether a document key names a local action, not a workflow.
 

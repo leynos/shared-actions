@@ -163,10 +163,15 @@ with-default-features = "false"
 The library checks that both legs exist; that the matrix cell exists in the
 job's matrix and every value given is read; that the two legs differ on exactly
 the keys in `differs` once the cell's values are read in; and that the leg's
-`if:` is the pull-request guard plus exactly `guards`. Legs of one job that
-carry different, non-empty `guards` count as one ratchet, since only one runs
-in any cell. A lane leg no pairing names falls back to the estate rule, which
-refuses it unless its selection equals a publisher leg's.
+`if:` is the pull-request guard plus exactly `guards`. Legs of one job count as
+one ratchet only when their `guards` contradict pairwise, that is, compare one
+operand with two different literals or with `==` in one and `!=` in the other,
+since only then can at most one run in any cell. A pairing with matrix values
+must declare `guards`, or nothing would restrict the leg to its cell. The cell
+must survive the matrix's `exclude`, which applies before `include`. A
+report-merging `run` step counts only when it carries no `if` and no
+`continue-on-error`. A lane leg no pairing names falls back to the estate rule,
+which refuses it unless its selection equals a publisher leg's.
 
 ## Developing the library
 

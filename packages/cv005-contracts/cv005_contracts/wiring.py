@@ -71,8 +71,9 @@ def _merged_into(earlier: list[dict[str, object]], read: tuple[object, object]) 
     A publisher measuring several legs merges their reports with a command
     redirected to the file the upload reads, as
     `bun x lcov-result-merger 'lcov-*.info' > lcov.info` does. The merge
-    counts only after a generator writing the upload's format, and only as
-    the redirect target, not wherever the name appears.
+    counts only after a generator writing the upload's format, only as the
+    redirect target, not wherever the name appears, and only when the step
+    always runs and cannot fail green.
 
     Examples
     --------
@@ -90,9 +91,23 @@ def _merged_into(earlier: list[dict[str, object]], read: tuple[object, object]) 
     for step in earlier:
         if invokes(step, COVERAGE_ACTION):
             has_generated = has_generated or _format(step) == wanted
-        elif has_generated and target.search(str(step.get("run", ""))):
+        elif has_generated and _is_reliable_merge(step, target):
             return True
     return False
+
+
+def _is_reliable_merge(step: dict[str, object], target: re.Pattern[str]) -> bool:
+    """Return whether a step redirects to the uploaded file and always runs.
+
+    A merge under `if:` may be skipped, and one with `continue-on-error` may
+    fail green, either leaving the uploader a stale or missing report while
+    the clause passes.
+    """
+    return (
+        "if" not in step
+        and "continue-on-error" not in step
+        and target.search(str(step.get("run", ""))) is not None
+    )
 
 
 #: Both actions' `format` default.

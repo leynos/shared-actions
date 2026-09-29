@@ -11,10 +11,11 @@ from __future__ import annotations
 import pytest
 from contract_fixtures import PUBLISHER, mutate
 from cv005_contracts.loading import Document, load_workflow
+from cv005_contracts.publisher import COVERAGE_ACTION
 from cv005_contracts.publisher_rules import (
     condition_violations,
 )
-from cv005_contracts.wiring import wiring_violations
+from cv005_contracts.wiring import _merged_into, wiring_violations
 
 
 def _publisher(texts: dict[str, str]) -> Document:
@@ -197,3 +198,27 @@ def test_nothing_in_the_publisher_may_fail_quietly(anchor: str, addition: str) -
     texts = mutate("coverage-main.yml", anchor, anchor + addition)
     found = condition_violations(_publisher(texts))
     assert any("continue-on-error" in item for item in found), found
+
+
+@pytest.mark.parametrize(
+    "extra", ["            if: false\n", "            continue-on-error: true\n"]
+)
+def test_a_merge_that_may_be_skipped_or_fail_green_is_not_a_merge(extra: str) -> None:
+    """The upload would read a stale or missing report, and the clause must say so."""
+    generator: dict[str, object] = {
+        "uses": f"{COVERAGE_ACTION}@x",
+        "with": {"format": "lcov"},
+    }
+    merge: dict[str, object] = {"run": "merge 'lcov-*.info' > lcov.info"}
+    merge |= {"continue-on-error": True} if "continue" in extra else {"if": "false"}
+    assert _merged_into([generator, merge], ("lcov.info", "lcov")) is False
+
+
+def test_an_unconditional_merge_still_counts() -> None:
+    """The narrow case: the same merge with no condition is accepted."""
+    generator: dict[str, object] = {
+        "uses": f"{COVERAGE_ACTION}@x",
+        "with": {"format": "lcov"},
+    }
+    merge: dict[str, object] = {"run": "merge 'lcov-*.info' > lcov.info"}
+    assert _merged_into([generator, merge], ("lcov.info", "lcov")) is True

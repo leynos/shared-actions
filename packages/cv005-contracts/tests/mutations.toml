@@ -885,7 +885,7 @@ expect = "test_a_merge_must_follow_a_leg_and_write_the_file"
 [[mutation]]
 id = "W7 the merged file read wherever it is named"
 file = "cv005_contracts/wiring.py"
-old = "        elif has_generated and target.search(str(step.get(\"run\", \"\"))):\n"
+old = "        elif has_generated and _is_reliable_merge(step, target):\n"
 new = "        elif has_generated and str(read[0]) in str(step.get(\"run\", \"\")):\n"
 expect = "test_a_merge_must_follow_a_leg_and_write_the_file"
 
@@ -1172,7 +1172,7 @@ expect = "test_the_declared_conditions_are_held_exactly"
 [[mutation]]
 id = "PM9 alternatives always exclusive"
 file = "cv005_contracts/parity.py"
-old = "    is_exclusive = all(selectors) and len(set(selectors)) == len(selectors)\n"
+old = "    is_exclusive = all(selectors) and are_exclusive(selectors)\n"
 new = "    is_exclusive = True\n"
 expect = "test_legs_sharing_their_selecting_conditions_do_not_stand_in_for_each_other"
 
@@ -1329,3 +1329,73 @@ file = "cv005_contracts/parity.py"
 old = "    return name in TOOL_PLACEMENT_KEYS or TOOL_PIN_KEY.fullmatch(name) is not None"
 new = "    return TOOL_PIN_KEY.fullmatch(name) is not None"
 expect = "test_every_kind_of_excluded_key_is_found"
+
+[[mutation]]
+id = "CX1 a skippable merge counts"
+file = "cv005_contracts/wiring.py"
+old = "        \"if\" not in step\n"
+new = "        True\n"
+expect = "test_a_merge_that_may_be_skipped_or_fail_green_is_not_a_merge"
+
+[[mutation]]
+id = "CX2 a merge that may fail green counts"
+file = "cv005_contracts/wiring.py"
+old = "        and \"continue-on-error\" not in step\n"
+new = "        and True\n"
+expect = "test_a_merge_that_may_be_skipped_or_fail_green_is_not_a_merge"
+
+[[mutation]]
+id = "CX3 a conditional merge never counts"
+file = "cv005_contracts/wiring.py"
+old = "        \"if\" not in step\n"
+new = "        False\n"
+expect = "test_an_unconditional_merge_still_counts"
+
+[[mutation]]
+id = "CX4 a guardless matrix pairing accepted"
+file = "cv005_contracts/pairing.py"
+old = "        return [_UNGUARDED_CELL] if pairing.matrix else []\n"
+new = "        return []\n"
+expect = "test_a_matrix_pairing_without_guards_is_refused"
+
+[[mutation]]
+id = "CX5 every guardless pairing refused"
+file = "cv005_contracts/pairing.py"
+old = "        return [_UNGUARDED_CELL] if pairing.matrix else []\n"
+new = "        return [_UNGUARDED_CELL]\n"
+expect = "test_a_guardless_pairing_without_matrix_values_is_not_refused_for_it"
+
+[[mutation]]
+id = "CX6 distinct guard sets taken as exclusive"
+file = "cv005_contracts/parity.py"
+old = "    is_exclusive = all(selectors) and are_exclusive(selectors)\n"
+new = "    is_exclusive = all(selectors) and len(set(selectors)) == len(selectors)\n"
+expect = "test_legs_whose_guards_can_hold_together_do_not_count_as_one_ratchet"
+
+[[mutation]]
+id = "CX7 same operand always contradicts"
+file = "cv005_contracts/exclusive.py"
+old = "        return not same_literal\n"
+new = "        return True\n"
+expect = "test_two_terms_contradict_only_on_one_operand"
+
+[[mutation]]
+id = "CX8 equality against inequality never contradicts"
+file = "cv005_contracts/exclusive.py"
+old = "    return a.group(2) != b.group(2) and same_literal\n"
+new = "    return False\n"
+expect = "test_two_terms_contradict_only_on_one_operand"
+
+[[mutation]]
+id = "CX9 exclude ignored"
+file = "cv005_contracts/pairing.py"
+old = "        cell for cell in _product(axes) if not _is_excluded(cell, matrix.get(\"exclude\"))\n"
+new = "        cell for cell in _product(axes) if True\n"
+expect = "test_an_excluded_combination_is_not_a_cell"
+
+[[mutation]]
+id = "CX10 exclude matches on any value"
+file = "cv005_contracts/pairing.py"
+old = "        and all(cell.get(key) == value for key, value in entry.items())\n"
+new = "        and any(cell.get(key) == value for key, value in entry.items())\n"
+expect = "test_an_excluded_combination_is_not_a_cell"

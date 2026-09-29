@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 import typing as typ
 
+from .exclusive import are_exclusive
 from .legs import Leg, generator_legs, leg_id
 from .publisher import (
     COVERAGE_ACTION,
@@ -268,7 +269,7 @@ def _ratchets(
     """Count a job's ratchets, taking declared alternatives as one."""
     paired = [ident for ident in ratcheting if ident in alternatives]
     selectors = [alternatives[ident] for ident in paired]
-    is_exclusive = all(selectors) and len(set(selectors)) == len(selectors)
+    is_exclusive = all(selectors) and are_exclusive(selectors)
     alone = len(ratcheting) - len(paired)
     return alone + (1 if paired and is_exclusive else len(paired))
 

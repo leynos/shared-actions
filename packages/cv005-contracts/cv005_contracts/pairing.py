@@ -218,7 +218,9 @@ def _matrix_cells(job: dict[str, object]) -> list[dict[str, object]] | None:
     if not isinstance(matrix, dict):
         return None
     axes = _axes(matrix)
-    base = _product(axes)
+    base = [
+        cell for cell in _product(axes) if not _is_excluded(cell, matrix.get("exclude"))
+    ]
     includes = [item for item in matrix.get("include", []) if isinstance(item, dict)]
     extended = [
         {**cell, **item}
@@ -248,6 +250,20 @@ def _product(axes: dict[str, list[object]]) -> list[dict[str, object]]:
     ]
 
 
+def _is_excluded(cell: dict[str, object], excluded: object) -> bool:
+    """Return whether an `exclude` entry names every value it holds of the cell.
+
+    GitHub applies `exclude` to the axes' product before adding `include`, so
+    an excluded combination is never created unless an `include` restores it.
+    """
+    entries = excluded if isinstance(excluded, list) else []
+    return any(
+        isinstance(entry, dict)
+        and all(cell.get(key) == value for key, value in entry.items())
+        for entry in entries
+    )
+
+
 def _extends(
     cell: dict[str, object], item: dict[str, object], axes: dict[str, list[object]]
 ) -> bool:
@@ -257,10 +273,16 @@ def _extends(
     )
 
 
+_UNGUARDED_CELL: typ.Final[str] = (
+    "declares matrix values but no guards, so nothing restricts the leg to "
+    "that cell and every other cell would run it unchecked"
+)
+
+
 def _guard_violations(pairing: Pairing, lane: Leg) -> list[str]:
     """Require the leg's `if:` to be the pull-request guard and the declared guards."""
     if not pairing.guards:
-        return []
+        return [_UNGUARDED_CELL] if pairing.matrix else []
     try:
         held = (
             frozenset(conjuncts(lane.step["if"])) if "if" in lane.step else frozenset()

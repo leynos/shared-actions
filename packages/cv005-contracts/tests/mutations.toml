@@ -172,7 +172,7 @@ expect = "test_the_checksum_refresher_is_refused"
 [[mutation]]
 id = "R30 ratchet not required on PR lanes"
 file = "cv005_contracts/lanes.py"
-old = "        for problem in ratchet_violations(document, name)\n"
+old = "        for problem in ratchet_violations(document, name, declared)\n"
 new = "        for problem in []\n"
 expect = "test_a_pull_request_lane_ratchets_and_publishes_nothing"
 
@@ -591,7 +591,7 @@ expect = "test_the_cli_refuses_what_it_cannot_read"
 [[mutation]]
 id = "C10 violations reported as clean"
 file = "cv005_contracts/cli.py"
-old = "    return EXIT_VIOLATIONS if found else EXIT_CLEAN\n"
+old = "    return EXIT_VIOLATIONS if result.violations else EXIT_CLEAN\n"
 new = "    return EXIT_CLEAN\n"
 expect = "test_the_cli_reports_violations"
 
@@ -668,21 +668,21 @@ expect = "test_the_upload_job_holds_least_privilege"
 [[mutation]]
 id = "H4 lane may continue on error"
 file = "cv005_contracts/hardening.py"
-old = "            _continues_on_error(step) or _continues_on_error(job),\n"
+old = "            _continues_on_error(leg.step) or _continues_on_error(leg.job),\n"
 new = "            False,\n"
 expect = "test_lane_coverage_cannot_fail_green_or_write"
 
 [[mutation]]
 id = "H5 lane conditions not read"
 file = "cv005_contracts/hardening.py"
-old = "            not (_only_guarded(step) and _only_guarded(job)),\n"
+old = "            not (_only_guarded(leg.step, extra_terms) and _only_guarded(leg.job)),\n"
 new = "            False,\n"
 expect = "test_lane_coverage_cannot_fail_green_or_write"
 
 [[mutation]]
 id = "H6 lane may write"
 file = "cv005_contracts/hardening.py"
-old = "            _effective_permissions(document, job) != READ_ONLY,\n"
+old = "            _effective_permissions(leg.document, leg.job) != READ_ONLY,\n"
 new = "            False,\n"
 expect = "test_lane_coverage_cannot_fail_green_or_write"
 
@@ -710,7 +710,7 @@ expect = "test_an_unrelated_artefact_is_allowed"
 [[mutation]]
 id = "H10 the pull-request guard refused"
 file = "cv005_contracts/hardening.py"
-old = "        return frozenset(conjuncts(holder[\"if\"])) == PULL_REQUEST_GUARD\n"
+old = "        return frozenset(conjuncts(holder[\"if\"])) == PULL_REQUEST_GUARD | extra_terms\n"
 new = "        return False\n"
 expect = "test_the_compliant_tree_is_hardened"
 
@@ -801,22 +801,22 @@ expect = "test_only_the_step_the_guard_reads_is_exempt_from_the_sweep"
 [[mutation]]
 id = "P1 every environment key compared"
 file = "cv005_contracts/parity.py"
-old = "    return name not in TOOL_PLACEMENT_KEYS and TOOL_PIN_KEY.fullmatch(name) is None\n"
+old = "    return str(key) in ACTION_READ_KEYS or not matches_exclusion(key)"
 new = "    return True\n"
 expect = "test_a_tool_pin_the_generator_never_reads_is_ignored"
 
 [[mutation]]
 id = "P2 no environment key compared"
 file = "cv005_contracts/parity.py"
-old = "    return name not in TOOL_PLACEMENT_KEYS and TOOL_PIN_KEY.fullmatch(name) is None\n"
+old = "    return str(key) in ACTION_READ_KEYS or not matches_exclusion(key)"
 new = "    return False\n"
 expect = "test_an_environment_key_that_may_measure_is_compared"
 
 [[mutation]]
 id = "P3 a tool pin read by prefix, not whole name"
 file = "cv005_contracts/parity.py"
-old = "TOOL_PIN_KEY.fullmatch(name) is None"
-new = "TOOL_PIN_KEY.match(name) is None"
+old = "TOOL_PIN_KEY.fullmatch(name) is not None"
+new = "TOOL_PIN_KEY.match(name) is not None"
 expect = "test_an_environment_key_that_may_measure_is_compared"
 
 [[mutation]]
@@ -843,8 +843,8 @@ expect = "test_each_lane_leg_pairs_with_a_publisher_leg"
 [[mutation]]
 id = "P7 a second ratchet in one job accepted"
 file = "cv005_contracts/parity.py"
-old = "        if legs and sum(legs) != 1\n"
-new = "        if legs and sum(legs) < 1\n"
+old = "        if count != 1\n"
+new = "        if count < 1\n"
 expect = "test_a_job_ratchets_exactly_one_leg"
 
 [[mutation]]
@@ -857,8 +857,8 @@ expect = "test_each_lane_leg_pairs_with_a_publisher_leg"
 [[mutation]]
 id = "P9 a job measuring nothing must still ratchet"
 file = "cv005_contracts/parity.py"
-old = "        if legs and sum(legs) != 1\n"
-new = "        if sum(legs) != 1\n"
+old = "        if any(invokes(step, COVERAGE_ACTION) for step in steps(job))\n"
+new = "        if True\n"
 expect = "test_a_second_publisher_job_ratchets_its_own_platform"
 
 [[mutation]]

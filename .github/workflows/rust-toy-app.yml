@@ -5,35 +5,60 @@ on:
   workflow_dispatch:
 jobs:
   build-release:
+    # `matrix.platform` is the runner's platform word, not the target's.
+    # It names the lane in a way that survives the fork fallback, where
+    # `matrix.runner` resolves to `ubuntu-latest` for a fork and
+    # `ubicloud-standard-2` otherwise, giving one lane two check names.
+    name: build-release (${{ matrix.platform }}, ${{ matrix.target }})
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
+          - platform: linux
+            runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
             target: x86_64-unknown-linux-gnu
-          - runner: ubuntu-latest
+          - platform: linux
+            runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
             target: aarch64-unknown-linux-gnu
-          - runner: ubuntu-latest
+          - platform: linux
+            runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
             target: x86_64-unknown-illumos
-          - runner: macos-15
+          - platform: macos
+            runner: macos-15
             target: x86_64-apple-darwin
-          - runner: macos-15
+          - platform: macos
+            runner: macos-15
             target: aarch64-apple-darwin
-          - runner: ubuntu-latest
+          - platform: linux
+            runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
             target: x86_64-unknown-freebsd
-          # - runner: ubuntu-latest
+          # - platform: linux
+          #   runner: ubicloud-standard-2
           #   target: aarch64-unknown-freebsd # TODO: re-introduce when implemented
-          # - runner: ubuntu-latest
+          # - platform: linux
+          #   runner: ubicloud-standard-2
           #   target: x86_64-unknown-openbsd # TODO: re-introduce when implemented
-          # - runner: ubuntu-latest
+          # - platform: linux
+          #   runner: ubicloud-standard-2
           #   target: aarch64-unknown-openbsd # TODO: re-introduce when implemented
-          - runner: windows-latest
+          - platform: windows
+            runner: windows-latest
             target: x86_64-pc-windows-gnullvm
-          - runner: windows-latest
+          - platform: windows
+            runner: windows-latest
             target: aarch64-pc-windows-gnullvm
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

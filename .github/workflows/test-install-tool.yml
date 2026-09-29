@@ -22,24 +22,34 @@ permissions:
 
 jobs:
   installs-and-caches:
+    # Without a name GitHub composes one from every matrix value, runner
+    # label included, and the Linux label is an expression that differs
+    # between a fork's pull request and an internal one. The platform word
+    # and the tool say which leg this is and stay put.
+    name: installs-and-caches (${{ matrix.platform }}, ${{ matrix.tool }})
     strategy:
       fail-fast: false
       matrix:
         include:
           # A tarball with the binary under one directory, GNU tar.
-          - runner: ubuntu-latest
+          - platform: linux
+            runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
             tool: sccache
             version: 0.17.0
             expected: sccache 0.17.0
           # A tarball with the binary at the root, bsdtar.
-          - runner: macos-15
+          - platform: macos
+            runner: macos-15
             tool: cargo-nextest
             version: 0.9.143
             expected: cargo-nextest 0.9.143
           # A zip, which Git Bash's GNU tar cannot read, so this leg is the
           # one that would catch the extractor being chosen by probing `tar`
           # rather than by the asset's extension.
-          - runner: windows-latest
+          - platform: windows
+            runner: windows-latest
             tool: cargo-audit
             version: 0.22.2
             expected: cargo-audit 0.22.2
@@ -117,7 +127,9 @@ jobs:
   refuses-an-unpinned-version:
     # A version outside the manifest must fail closed rather than reach for
     # whatever is newest, which is the failure mode this action exists to end.
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

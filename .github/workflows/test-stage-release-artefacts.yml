@@ -5,7 +5,10 @@ on:
 
 jobs:
   test-stage-artefacts:
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -56,7 +59,10 @@ jobs:
           [[ -f "${{ steps.stage.outputs.binary-path }}.sha256" ]]
 
   test-stage-artefacts-env-overrides:
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -112,7 +118,10 @@ jobs:
           [[ -f "${{ steps.stage.outputs.binary-path }}.sha256" ]]
 
   test-stage-artefacts-powershell-help:
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -182,7 +191,10 @@ jobs:
           [[ -f "${{ steps.stage.outputs.powershell_help_dir }}/en-US/MyTool-help.xml" ]]
 
   test-stage-artefacts-binstall:
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

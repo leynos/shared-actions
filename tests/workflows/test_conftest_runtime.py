@@ -14,29 +14,184 @@ if typ.TYPE_CHECKING:
 from . import conftest
 
 
-def test_command_available_accepts_absolute_executable() -> None:
-    """Absolute executable paths are reported as available."""
-    assert conftest._command_available(sys.executable)
+class TestExecutableDetection:
+    """How the harness decides a path names a runnable command.
 
-
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason=(
-        "Windows has no execute bit: os.access(..., X_OK) is true for any "
-        "existing file, so the property this asserts does not exist there. "
-        "The reading gates act, which these tests skip on Windows anyway."
-    ),
-)
-def test_command_available_rejects_non_executable_file(tmp_path: Path) -> None:
-    """Absolute non-executable files are not reported as available.
-
-    POSIX only. See the skip reason: the execute bit this depends on has no
-    Windows equivalent, and the reading's only caller gates act.
+    Grouped because they answer one question between them, and
+    because the POSIX and Windows rules are different answers to it:
+    a permission bit on one, a PATHEXT suffix on the other.
     """
-    path = tmp_path / "not-executable"
-    path.write_text("#!/bin/sh\n", encoding="utf-8")
 
-    assert not conftest._command_available(str(path))
+    def test_command_available_accepts_absolute_executable(self) -> None:
+        """Absolute executable paths are reported as available."""
+        assert conftest._command_available(sys.executable), (
+            f"the running interpreter {sys.executable!r} is an absolute path to "
+            "an executable file and must be reported as available"
+        )
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason=(
+            "Windows has no execute bit: os.access(..., X_OK) is true for any "
+            "existing file, so the property this asserts does not exist there. "
+            "The reading gates act, which these tests skip on Windows anyway."
+        ),
+    )
+    def test_command_available_rejects_non_executable_file(
+        self, tmp_path: Path
+    ) -> None:
+        """Absolute non-executable files are not reported as available.
+
+        POSIX only. See the skip reason: the execute bit this depends on has
+        no Windows equivalent, and the reading's only caller gates act.
+        """
+        path = tmp_path / "not-executable"
+        path.write_text("#!/bin/sh\n", encoding="utf-8")
+
+        assert not conftest._command_available(str(path)), (
+            f"{path} has no execute permission, so it must not be reported as "
+            "a runnable command"
+        )
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            pytest.param("tool.exe", True, id="pathext-suffix"),
+            pytest.param("tool.EXE", True, id="pathext-suffix-upper-case"),
+            pytest.param("tool.com", True, id="pathext-com"),
+            pytest.param("tool.bat", True, id="pathext-bat"),
+            pytest.param("tool.cmd", True, id="pathext-cmd"),
+            pytest.param("tool", False, id="no-suffix"),
+            pytest.param("tool.sh", False, id="suffix-outside-pathext"),
+        ],
+    )
+    def test_is_executable_file_uses_pathext_on_windows(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        name: str,
+        expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+    ) -> None:
+        """Windows executability follows PATHEXT, not a permission bit.
+
+        The file is given no execute permission on any platform, so a
+        permission-bit probe would reject every case. Only the suffix rule
+        accepts the two PATHEXT names, which is what Windows itself does.
+
+        PATHEXT is pinned rather than inherited. `_is_executable_file` reads
+        the live environment, and a Windows runner whose PATHEXT carried `.SH`
+        would make the `tool.sh` case genuinely executable and fail this test
+        for behaving correctly.
+        """
+        monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+        path = tmp_path / name
+        path.write_text("#!/bin/sh\n", encoding="utf-8")
+        path.chmod(0o600)
+
+        assert conftest._is_executable_file(path, on_windows=True) is expected, (
+            f"on Windows, {name!r} carries the suffix "
+            f"{path.suffix.lower()!r}, so it should "
+            f"{'be' if expected else 'not be'} treated as executable; PATHEXT "
+            f"here is {sorted(conftest._windows_executable_suffixes())}"
+        )
+
+    def test_is_executable_file_rejects_a_directory_on_windows(
+        self, tmp_path: Path
+    ) -> None:
+        """A directory whose name carries a PATHEXT suffix is not a command."""
+        directory = tmp_path / "tool.exe"
+        directory.mkdir()
+
+        assert not conftest._is_executable_file(directory, on_windows=True), (
+            f"{directory} is a directory, not a file, so its .exe suffix must "
+            "not make it a command"
+        )
+
+    @pytest.mark.parametrize(
+        ("pathext", "expected"),
+        [
+            pytest.param(".EXE;.CMD", True, id="suffix-listed"),
+            pytest.param(".COM", False, id="suffix-not-listed"),
+        ],
+    )
+    def test_is_executable_file_reads_pathext_from_the_mapping_given(
+        self,
+        tmp_path: Path,
+        pathext: str,
+        expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+    ) -> None:
+        """PATHEXT comes from the caller's mapping, not the process.
+
+        The same file is accepted or refused by the mapping alone, which is
+        only true if the mapping reaches the Windows suffix rule.
+        """
+        path = tmp_path / "tool.exe"
+        path.write_text("#!/bin/sh\n", encoding="utf-8")
+
+        found = conftest._is_executable_file(
+            path, on_windows=True, environ={"PATHEXT": pathext}
+        )
+
+        assert found is expected, f"PATHEXT={pathext!r} gave {found!r}"
+
+    def test_windows_executable_suffixes_reads_the_environment(self) -> None:
+        """PATHEXT is split on the path separator and lower-cased."""
+        suffixes = conftest._windows_executable_suffixes(
+            {"PATHEXT": ".EXE;.Cmd;; "},
+        )
+
+        assert suffixes == frozenset({".exe", ".cmd"}), (
+            f"PATHEXT '.EXE;.Cmd;; ' should lower-case, drop the empty entry "
+            f"and drop the blank one, giving {{'.exe', '.cmd'}}, got {suffixes}"
+        )
+
+    @pytest.mark.parametrize(
+        "suffix", [".PS1", ".VBS", ".JS", ".WSF", ".MSC", ".PY", ".PYW"], ids=str.lower
+    )
+    def test_an_interpreted_suffix_is_refused(self, suffix: str) -> None:
+        """A PATHEXT entry Windows runs through an interpreter is not spawnable.
+
+        The probe's answer feeds `_run_act`, which passes the resolved
+        path straight to plumbum and spawns it as a process. Plumbum
+        selects no interpreter, so a `.PS1` accepted here would fail at
+        process creation with a message about the file rather than about
+        the probe, which is the failure this filter removes.
+        """
+        suffixes = conftest._windows_executable_suffixes(
+            {"PATHEXT": f".COM;.EXE;{suffix}"}
+        )
+
+        assert suffix.lower() not in suffixes, (
+            f"{suffix} names a script Windows hands to an interpreter; the "
+            f"caller spawns the path itself, so it must not be reported "
+            f"runnable. Got {sorted(suffixes)}"
+        )
+        assert ".exe" in suffixes, (
+            "filtering the interpreted suffixes must not drop the spawnable "
+            f"ones beside them; got {sorted(suffixes)}"
+        )
+
+    def test_windows_executable_suffixes_falls_back_when_pathext_is_empty(
+        self,
+    ) -> None:
+        """An absent or empty PATHEXT falls back to exactly the documented defaults.
+
+        Asserted as the whole set, not one member. A fallback that lost
+        `.cmd` would still contain `.exe`, and a `.cmd` shim would then
+        read as unavailable on a runner with no PATHEXT.
+        """
+        expected = frozenset({".com", ".exe", ".bat", ".cmd"})
+        absent = conftest._windows_executable_suffixes({})
+        empty = conftest._windows_executable_suffixes({"PATHEXT": ""})
+
+        assert absent == expected, (
+            f"an absent PATHEXT should fall back to {sorted(expected)}, got "
+            f"{sorted(absent)}"
+        )
+        assert empty == expected, (
+            f"an empty PATHEXT should fall back to {sorted(expected)}, got "
+            f"{sorted(empty)}"
+        )
 
 
 @pytest.mark.parametrize(
@@ -76,7 +231,7 @@ def test_probe_reports_unhealthy_podman_docker_api(
     socket_path = tmp_path / "podman.sock"
     socket_path.touch()
 
-    monkeypatch.setattr(conftest, "_command_available", lambda _command: True)
+    monkeypatch.setattr(conftest, "_command_available", lambda _command, **_kw: True)
     monkeypatch.setattr(conftest.shutil, "which", lambda command: command)
     monkeypatch.setattr(conftest, "_command_succeeds", lambda *_args: False)
     monkeypatch.setattr(
@@ -102,7 +257,7 @@ def test_probe_exports_podman_docker_host_when_socket_is_healthy(
     socket_path = podman_dir / "podman.sock"
     socket_path.touch()
 
-    monkeypatch.setattr(conftest, "_command_available", lambda _command: True)
+    monkeypatch.setattr(conftest, "_command_available", lambda _command, **_kw: True)
     monkeypatch.setattr(
         conftest.shutil,
         "which",
@@ -121,16 +276,23 @@ def test_probe_honours_configured_act_command(monkeypatch: pytest.MonkeyPatch) -
     """The Makefile-provided ACT path should be used for discovery."""
     seen: list[str] = []
 
-    def command_available(command: str) -> bool:
+    seen_environ: list[object] = []
+
+    def command_available(command: str, *, environ: object = None) -> bool:
         seen.append(command)
+        seen_environ.append(environ)
         return False
 
     monkeypatch.setattr(conftest, "_command_available", command_available)
+    supplied = {"ACT": "/custom/bin/act", "PATHEXT": ".EXE"}
 
-    status = conftest._probe_act_runtime({"ACT": "/custom/bin/act"})
+    status = conftest._probe_act_runtime(supplied)
 
     assert not status.available
     assert seen == ["/custom/bin/act"]
+    # The mapping the probe was given is the one the availability check
+    # reads, so PATHEXT comes from it and not from the process.
+    assert seen_environ == [supplied], seen_environ
     assert status.reason == "act executable not found: /custom/bin/act"
 
 
@@ -166,7 +328,7 @@ def test_docker_host_failure_paths(
         monkeypatch.setattr(conftest, "_read_unix_http", _raise_oserror)
 
     monkeypatch.setenv("DOCKER_HOST", docker_host)
-    monkeypatch.setattr(conftest, "_command_available", lambda _command: True)
+    monkeypatch.setattr(conftest, "_command_available", lambda _command, **_kw: True)
 
     usable, reason = conftest._docker_host_usable(os.environ["DOCKER_HOST"])
     status = conftest._probe_act_runtime({"DOCKER_HOST": docker_host})

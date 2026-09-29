@@ -303,6 +303,46 @@ class TestHostedExemptions:
         )
 
 
+class TestHostedArmLinuxLanes:
+    """Only the named jobs may take the GitHub-hosted Linux Arm runner."""
+
+    @pytest.mark.parametrize(("workflow", "job_id"), reading.runner_job_ids())
+    def test_a_job_on_the_arm_label_is_named(self, workflow: str, job_id: str) -> None:
+        """A job that can reach the Arm label appears in the allow-list.
+
+        The label is recognized outside the Linux placement rule, so that
+        rule cannot see a Linux job that moves onto it. Without this test
+        any lane could take the label and escape the Ubicloud and
+        fork-fallback contracts unseen.
+        """
+        job = dict(reading.jobs(workflow))[job_id]
+        if reading.HOSTED_ARM_LINUX not in _runner_labels(job):
+            pytest.skip("does not reach the hosted Arm label")
+        assert (workflow, job_id) in reading.HOSTED_ARM_LINUX_JOBS, (
+            f"{reading.identifier(workflow, job_id)} can run on "
+            f"{reading.HOSTED_ARM_LINUX!r} but is not named in "
+            "HOSTED_ARM_LINUX_JOBS; name it with a reason, or use the "
+            "placement its triggers require"
+        )
+
+    @pytest.mark.parametrize(
+        ("workflow", "job_id"),
+        sorted(reading.HOSTED_ARM_LINUX_JOBS),
+        ids=reading.identifier,
+    )
+    def test_every_allowance_names_a_live_arm_job(
+        self, workflow: str, job_id: str
+    ) -> None:
+        """An allowance whose job has gone, or left the label, goes too."""
+        jobs = dict(reading.jobs(workflow))
+        identifier = reading.identifier(workflow, job_id)
+        assert job_id in jobs, f"{identifier} no longer exists; delete the allowance"
+        assert reading.HOSTED_ARM_LINUX in _runner_labels(jobs[job_id]), (
+            f"{identifier} is allowed the hosted Arm label but no arm uses "
+            f"{reading.HOSTED_ARM_LINUX!r}; delete the allowance"
+        )
+
+
 class TestStepConditionsAvoidRunnerLabels:
     """A step selects a platform by `runner.os`, never by a runner label."""
 

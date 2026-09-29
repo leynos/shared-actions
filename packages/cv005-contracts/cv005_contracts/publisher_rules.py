@@ -72,6 +72,12 @@ def _guard_violations(document: Document) -> list[str]:
     return found
 
 
+#: The upload action's own defaults for the inputs the rule pins. An absent
+#: `mode` runs the action's default, which is `upload`, so leaving it out is
+#: as safe as spelling it; any other value, `check` or an expression, is not.
+ACTION_DEFAULTS: typ.Final[dict[str, str]] = {"mode": "upload"}
+
+
 def upload_step_violations(document: Document) -> list[str]:
     """Require the upload step's mode, pin, guard and direct token input.
 
@@ -95,9 +101,9 @@ def upload_step_violations(document: Document) -> list[str]:
         "access-token": TOKEN_INPUT,
     }
     found = [
-        f"{name} is {inputs.get(name)!r}, not {wanted!r}"
+        f"{name} is {inputs.get(name, ACTION_DEFAULTS.get(name))!r}, not {wanted!r}"
         for name, wanted in expected.items()
-        if inputs.get(name) != wanted
+        if inputs.get(name, ACTION_DEFAULTS.get(name)) != wanted
     ]
     if not PINNED_COMMIT.match(pin_of(step)):
         found.append(f"the uploader is not pinned to a commit: {step.get('uses')!r}")

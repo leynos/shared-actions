@@ -909,3 +909,17 @@ file = "cv005_contracts/credential.py"
 old = "not set(run) <= PLAIN_RUN_DEFAULT_KEYS"
 new = "False"
 expect = "test_other_run_defaults_are_refused"
+
+[[mutation]]
+id = "R26b absent mode refused"
+file = "cv005_contracts/publisher_rules.py"
+old = "        f\"{name} is {inputs.get(name, ACTION_DEFAULTS.get(name))!r}, not {wanted!r}\"\n        for name, wanted in expected.items()\n        if inputs.get(name, ACTION_DEFAULTS.get(name)) != wanted"
+new = "        f\"{name} is {inputs.get(name)!r}, not {wanted!r}\"\n        for name, wanted in expected.items()\n        if inputs.get(name) != wanted"
+expect = "test_an_absent_or_explicit_upload_mode_is_accepted"
+
+[[mutation]]
+id = "R26c a non-upload mode defaulted through"
+file = "cv005_contracts/publisher_rules.py"
+old = "ACTION_DEFAULTS: typ.Final[dict[str, str]] = {\"mode\": \"upload\"}"
+new = "ACTION_DEFAULTS: typ.Final[dict[str, str]] = {\"mode\": \"check\"}"
+expect = "test_an_absent_or_explicit_upload_mode_is_accepted"

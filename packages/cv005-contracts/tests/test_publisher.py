@@ -97,6 +97,8 @@ def test_a_narrower_upload_guard_is_accepted(guard: str) -> None:
         (TOKEN_INPUT, ""),
         (TOKEN_INPUT, "          access-token: ${{ env.CS_ACCESS_TOKEN }}\n"),
         ("          mode: upload\n", "          mode: check\n"),
+        ("          mode: upload\n", "          mode: ${{ inputs.mode }}\n"),
+        ("          mode: upload\n", "          mode: ''\n"),
         ("upload-codescene-coverage@" + "a" * 40, "upload-codescene-coverage@main"),
     ],
 )
@@ -105,6 +107,18 @@ def test_the_upload_step_passes_the_token_directly(old: str, new: str) -> None:
     texts = mutate("coverage-main.yml", old, new)
     found = upload_step_violations(_publisher(texts))
     assert found, found
+
+
+@pytest.mark.parametrize("mode", ["", "          mode: upload\n"])
+def test_an_absent_or_explicit_upload_mode_is_accepted(mode: str) -> None:
+    """The action's default mode is `upload`, so omitting `mode` is compliant.
+
+    Only a value other than `upload` changes what the step does; the
+    refusal cases above pin that half.
+    """
+    texts = mutate("coverage-main.yml", "          mode: upload\n", mode)
+    found = upload_step_violations(_publisher(texts))
+    assert not found, found
 
 
 @pytest.mark.parametrize(

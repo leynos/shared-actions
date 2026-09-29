@@ -14,6 +14,7 @@ this action ran.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import subprocess
 import typing as typ
@@ -69,20 +70,26 @@ def fake_sccache(tmp_path: Path) -> Path:
     return binary
 
 
-def _run_server(
-    *,
-    workdir: Path,
-    sccache_path: str | None,
-    wrapper_state: str = "exported",
-    start_exit: int | None = None,
-    other_exit: int | None = None,
-    caller_conf: str | None = None,
-) -> subprocess.CompletedProcess[str]:
+@dataclasses.dataclass(frozen=True)
+class Scenario:
+    """The inputs of one run of the start fragment."""
+
+    workdir: Path
+    sccache_path: str | None
+    wrapper_state: str = "exported"
+    start_exit: int | None = None
+    other_exit: int | None = None
+    caller_conf: str | None = None
+
+
+def _run_server(scenario: Scenario) -> subprocess.CompletedProcess[str]:
     """Run the start fragment under a controlled environment.
 
-    `GITHUB_ENV` and `RUNNER_TEMP` live under `workdir`, so a run can be read
-    back through `_env_file` and `_written_conf`.
+    `GITHUB_ENV` and `RUNNER_TEMP` live under the scenario's `workdir`, so a
+    run can be read back through `_env_file` and `_written_conf`.
     """
+    workdir = scenario.workdir
+    sccache_path = scenario.sccache_path
     environment = {**os.environ}
     for name in (
         "SCCACHE_CONF",
@@ -92,19 +99,19 @@ def _run_server(
         "FAKE_SCCACHE_EXIT",
     ):
         environment.pop(name, None)
-    environment["WRAPPER_STATE"] = wrapper_state
+    environment["WRAPPER_STATE"] = scenario.wrapper_state
     (workdir / "temp").mkdir(exist_ok=True)
     environment["RUNNER_TEMP"] = str(workdir / "temp")
     environment["GITHUB_ENV"] = str(workdir / "github_env")
-    if caller_conf is not None:
-        environment["SCCACHE_CONF"] = caller_conf
+    if scenario.caller_conf is not None:
+        environment["SCCACHE_CONF"] = scenario.caller_conf
     if sccache_path is not None:
         environment["SCCACHE_PATH"] = sccache_path
         environment["RUSTC_WRAPPER"] = sccache_path
-    if start_exit is not None:
-        environment["FAKE_START_EXIT"] = str(start_exit)
-    if other_exit is not None:
-        environment["FAKE_SCCACHE_EXIT"] = str(other_exit)
+    if scenario.start_exit is not None:
+        environment["FAKE_START_EXIT"] = str(scenario.start_exit)
+    if scenario.other_exit is not None:
+        environment["FAKE_SCCACHE_EXIT"] = str(scenario.other_exit)
     return subprocess.run(  # noqa: S603,TID251 - exercise the action fragment.
         [requires_bash(), "-c", _server_script()],
         capture_output=True,
@@ -221,7 +228,7 @@ class TestBehaviour:
     def test_starts_a_server(self, fake_sccache: Path) -> None:
         """The ordinary case: the binding happens here and is reported."""
         completed = _run_server(
-            workdir=fake_sccache.parent, sccache_path=str(fake_sccache)
+            Scenario(workdir=fake_sccache.parent, sccache_path=str(fake_sccache))
         )
 
         assert completed.returncode == 0, completed.stderr
@@ -237,7 +244,7 @@ class TestBehaviour:
         replace.
         """
         completed = _run_server(
-            workdir=fake_sccache.parent, sccache_path=str(fake_sccache)
+            Scenario(workdir=fake_sccache.parent, sccache_path=str(fake_sccache))
         )
 
         assert completed.returncode == 0, completed.stderr
@@ -256,9 +263,11 @@ class TestBehaviour:
         like.
         """
         completed = _run_server(
-            workdir=fake_sccache.parent,
-            sccache_path=str(fake_sccache),
-            wrapper_state="caller-set",
+            Scenario(
+                workdir=fake_sccache.parent,
+                sccache_path=str(fake_sccache),
+                wrapper_state="caller-set",
+            )
         )
 
         assert completed.returncode == 0, completed.stderr
@@ -270,9 +279,11 @@ class TestBehaviour:
     ) -> None:
         """The nested case, where the value alone would have said `ours`."""
         _run_server(
-            workdir=fake_sccache.parent,
-            sccache_path=str(fake_sccache),
-            wrapper_state="caller-set",
+            Scenario(
+                workdir=fake_sccache.parent,
+                sccache_path=str(fake_sccache),
+                wrapper_state="caller-set",
+            )
         )
 
         assert not (fake_sccache.parent / "args.log").exists()
@@ -280,7 +291,7 @@ class TestBehaviour:
     def test_fails_when_sccache_path_is_absent(self, tmp_path: Path) -> None:
         """Continuing would leave the caller compiling uncached and unaware."""
         completed = _run_server(
-            workdir=tmp_path, sccache_path=None, wrapper_state="exported"
+            Scenario(workdir=tmp_path, sccache_path=None, wrapper_state="exported")
         )
 
         assert completed.returncode != 0
@@ -294,7 +305,7 @@ class TestBehaviour:
         later `--show-stats` must measure their build whichever happened.
         """
         completed = _run_server(
-            workdir=fake_sccache.parent, sccache_path=str(fake_sccache)
+            Scenario(workdir=fake_sccache.parent, sccache_path=str(fake_sccache))
         )
 
         assert completed.returncode == 0, completed.stderr
@@ -304,7 +315,11 @@ class TestBehaviour:
     def test_a_failure_to_zero_keeps_the_server(self, fake_sccache: Path) -> None:
         """Losing a baseline is a warning; losing the cache would not be."""
         completed = _run_server(
-            workdir=fake_sccache.parent, sccache_path=str(fake_sccache), other_exit=1
+            Scenario(
+                workdir=fake_sccache.parent,
+                sccache_path=str(fake_sccache),
+                other_exit=1,
+            )
         )
 
         assert completed.returncode == 0, completed.stderr
@@ -322,7 +337,7 @@ class TestBehaviour:
         """
         workdir = fake_sccache.parent
         completed = _run_server(
-            workdir=workdir, sccache_path=str(fake_sccache), start_exit=1
+            Scenario(workdir=workdir, sccache_path=str(fake_sccache), start_exit=1)
         )
 
         assert completed.returncode == 0, completed.stderr
@@ -338,7 +353,7 @@ class TestBehaviour:
     ) -> None:
         """Only the failure path may clear the wrapper."""
         workdir = fake_sccache.parent
-        _run_server(workdir=workdir, sccache_path=str(fake_sccache))
+        _run_server(Scenario(workdir=workdir, sccache_path=str(fake_sccache)))
 
         assert "RUSTC_WRAPPER=" not in _env_file(workdir)
 
@@ -349,7 +364,9 @@ class TestStartupTimeout:
     def test_writes_a_config_with_the_longer_timeout(self, fake_sccache: Path) -> None:
         """Ubicloud's cache proxy intermittently outlasts the default."""
         workdir = fake_sccache.parent
-        completed = _run_server(workdir=workdir, sccache_path=str(fake_sccache))
+        completed = _run_server(
+            Scenario(workdir=workdir, sccache_path=str(fake_sccache))
+        )
 
         assert completed.returncode == 0, completed.stderr
         assert "server_startup_timeout_ms = 60000" in _written_conf(workdir)
@@ -367,7 +384,7 @@ class TestStartupTimeout:
             "fi\n",
             encoding="utf-8",
         )
-        _run_server(workdir=workdir, sccache_path=str(binary))
+        _run_server(Scenario(workdir=workdir, sccache_path=str(binary)))
 
         seen = (workdir / "seen.conf").read_text(encoding="utf-8")
         assert seen
@@ -383,9 +400,11 @@ class TestStartupTimeout:
         theirs = workdir / "theirs.toml"
         theirs.write_text('[cache.gha]\nversion = "x"\n', encoding="utf-8")
         _run_server(
-            workdir=workdir,
-            sccache_path=str(fake_sccache),
-            caller_conf=str(theirs),
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                caller_conf=str(theirs),
+            )
         )
 
         merged = _written_conf(workdir)
@@ -399,9 +418,11 @@ class TestStartupTimeout:
         theirs = workdir / "theirs.toml"
         theirs.write_text("server_startup_timeout_ms = 5000\n", encoding="utf-8")
         _run_server(
-            workdir=workdir,
-            sccache_path=str(fake_sccache),
-            caller_conf=str(theirs),
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                caller_conf=str(theirs),
+            )
         )
 
         assert _written_conf(workdir) == "server_startup_timeout_ms = 5000\n"
@@ -411,9 +432,11 @@ class TestStartupTimeout:
         """When the caller owns the server the action touches nothing."""
         workdir = fake_sccache.parent
         _run_server(
-            workdir=workdir,
-            sccache_path=str(fake_sccache),
-            wrapper_state="caller-set",
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                wrapper_state="caller-set",
+            )
         )
 
         assert _env_file(workdir) == []
@@ -439,10 +462,12 @@ class TestOutcomeMetric:
     ) -> None:
         """A path that reported nothing would be invisible in the series."""
         completed = _run_server(
-            workdir=fake_sccache.parent,
-            sccache_path=str(fake_sccache),
-            wrapper_state=wrapper_state,
-            start_exit=start_exit,
+            Scenario(
+                workdir=fake_sccache.parent,
+                sccache_path=str(fake_sccache),
+                wrapper_state=wrapper_state,
+                start_exit=start_exit,
+            )
         )
 
         assert _reported(completed) == expected
@@ -450,7 +475,7 @@ class TestOutcomeMetric:
     def test_the_metric_names_no_path(self, fake_sccache: Path) -> None:
         """A binary path in the metric gives the series a value per runner."""
         completed = _run_server(
-            workdir=fake_sccache.parent, sccache_path=str(fake_sccache)
+            Scenario(workdir=fake_sccache.parent, sccache_path=str(fake_sccache))
         )
         outcome = _reported(completed)
 

@@ -22,7 +22,12 @@ concurrency:
 jobs:
   library:
     name: library (py${{ matrix.python }})
-    runs-on: ubuntu-latest
+    # The library's own lane is short and needs nothing from a hosted image, so
+    # it runs on the smallest Ubicloud runner; a fork's pull request cannot
+    # obtain one and falls back to a hosted runner.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false

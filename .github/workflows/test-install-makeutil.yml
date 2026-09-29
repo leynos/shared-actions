@@ -15,13 +15,25 @@ jobs:
     # One matrix leg per published target, because a runner is the only
     # place the real release asset, its sidecar, and the cache restore are
     # all exercised at once. The pytest suite drives the same functions
-    # against an injected downloader and cannot see any of that.
-    name: Install and reuse makeutil (${{ matrix.runner }})
+    # against an injected downloader and cannot see any of that. Named by
+    # platform word, not by runner: the x86_64 leg's label is an expression
+    # that depends on whether the pull request came from a fork, so a name
+    # interpolating it would give the lane two check names. The aarch64 leg
+    # stays on a GitHub-hosted Arm runner because this repository has
+    # measured no Ubicloud Arm shape.
+    name: Install and reuse makeutil (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        include:
+          - platform: linux-x86_64
+            runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -81,13 +93,20 @@ jobs:
     # wrote, so it proves nothing about the cache. This job starts on a fresh
     # runner after that one has saved its cache entry, so `cached` here can
     # only mean the restored binary verified against the pinned digest.
-    name: Restore makeutil from the cache (${{ matrix.runner }})
+    name: Restore makeutil from the cache (${{ matrix.platform }})
     needs: install-makeutil
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        include:
+          - platform: linux-x86_64
+            runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -116,7 +135,10 @@ jobs:
     # replaces only what the download is checked against, not what is
     # fetched, so this proves the verification is not merely decorative.
     name: Fail closed on a tampered digest
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -144,7 +166,10 @@ jobs:
     # 0.0.1 is not, and must never become, an entry in the digest table:
     # an unpinned version is refused before anything is downloaded.
     name: Fail closed on an unpinned version
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

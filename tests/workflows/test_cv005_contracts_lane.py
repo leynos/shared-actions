@@ -98,6 +98,7 @@ LIBRARY_SKIPPING_LANES: typ.Final[frozenset[str]] = frozenset(
         "test-export-ubicloud-cache-credentials.yml",
         "test-install-mdtablefix.yml",
         "test-install-whitaker.yml",
+        "test-setup-rust-mold.yml",
         "test-setup-rust-sccache.yml",
         "test-upload-codescene-coverage.yml",
     }

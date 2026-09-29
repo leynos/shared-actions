@@ -2028,6 +2028,42 @@ Internals for maintainers:
   `tests/workflows/test_resolve_workflow_source.py`; the OIDC happy path is
   validated by every real run of the consuming workflows.
 
+## The `cv005-contracts` library
+
+`packages/cv005-contracts` holds the CV-005 CodeScene coverage and `codescene`
+environment contracts that consumer repositories once copied by hand. It is
+installed from a full shared-actions commit and run as `cv005-contracts check`;
+the package README is its users' guide. This section records what a maintainer
+of this repository needs.
+
+- **Lane.** `.github/workflows/test-cv005-contracts.yml` runs the package's
+  `make check-fmt lint typecheck test mutation-ledger` on Python 3.12 to 3.14,
+  only for a change to the package or the workflow. The seven self-test lanes
+  for actions the library cannot affect skip library-only changes with
+  `paths-ignore`; `tests/workflows/test_cv005_contracts_lane.py` pins that set
+  exactly and refuses the ignore on any required workflow, the main-branch
+  publisher and the Dependabot automerge caller.
+- **Mutation ledger.** `tests/mutations.toml` names, for each clause, one exact
+  substitution and the test that must fail once it is applied. The harness runs
+  only the named test, in parallel, each mutation in its own copy of the
+  package, and refuses an anchor that no longer occurs exactly once. A clause
+  is proved in both directions: a fixture that fails without it, and a narrow
+  case that passes when it is over-broadened.
+- **Parity exclusion.** The parity rule leaves out environment keys that pin or
+  place a tool (`*_VERSION`, `*_REV`, `*_SHA256*`, uv directories, Cargo
+  retries) on the ground that `generate-coverage` never reads them.
+  `tests/workflows/test_cv005_parity_exclusions.py` reads the action's
+  `action.yml` and scripts and fails if it reads any such key, so an edit to
+  the action starts it. The fix it asks for is to list the key in
+  `parity.ACTION_READ_KEYS`, which makes it compared.
+- **Declared shapes.** A repository declares an `[[exception]]` (one waived
+  clause, with its ruling, reason and optionally the command that replaces the
+  action) or a `[[pairing]]` (a lane leg mapped to the publisher leg it
+  ratchets against, with the matrix cell, the declared differences and the
+  selecting conditions) in `.github/cv005.toml`. Neither passes silently:
+  waived findings print on every run, and a stale or ungrounded declaration is
+  itself a finding.
+
 ## Running the Test Suite
 
 ```bash

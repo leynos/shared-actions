@@ -1,5 +1,5 @@
-.PHONY: all clean help test lint lint-whitaker markdownlint nixie fmt check-fmt \
-	typecheck spelling
+.PHONY: all clean help makeutil test lint lint-whitaker markdownlint nixie fmt check-fmt \
+	typecheck spelling skylos-allow
 
 export GITHUB_ACTION_PATH ?= $(CURDIR)
 
@@ -35,8 +35,23 @@ TYPOS_CONFIG_BUILDER_VERSION ?= v0.1.1
 TYPOS_CONFIG_BUILDER = $(UV_ENV) $(UV) tool run --python 3.14 --from \
 	"git+https://github.com/leynos/typos-config-builder.git@$(TYPOS_CONFIG_BUILDER_VERSION)" \
 	typos-config-builder
+SKYLOS_VERSION ?= 4.33.2
+MAKEUTIL_REVISION := 29fc5a1634ffbaa18a773eed9dff1b2838a45d9c
+MAKEUTIL_TOOLCHAIN := nightly-2026-05-28
+MAKEUTIL ?= $(if $(wildcard $(HOME)/.cargo/bin/makeutil),$(HOME)/.cargo/bin/makeutil,makeutil)
+# Skylos parses source using its own Python AST, so Python 3.14 prevents
+# phantom dead-code findings from syntax older tool runtimes cannot parse.
+SKYLOS_CLI = $(UV_ENV) $(UV) tool run --python 3.14 --from 'skylos==$(SKYLOS_VERSION)' skylos
+SKYLOS = $(SKYLOS_CLI) --config-file pyproject.toml
+SKYLOS_PRODUCTION_TARGETS ?= .github/actions workflow_scripts scripts \
+	actions_common.py bool_utils.py cargo_utils.py cmd_utils.py cmd_utils_importer.py
+SKYLOS_EXCLUDE_FOLDERS ?= tests
+SKYLOS_WHITELIST_LOCK ?= .skylos-whitelist.lock
 
-test: .venv ## Run tests
+makeutil: ## Verify the Makefile parser used by contract tests
+	@command -v $(MAKEUTIL) >/dev/null 2>&1 || { printf "Error: makeutil is required; install the pinned parser documented in docs/developers-guide.md\\n" >&2; exit 1; }
+
+test: makeutil .venv ## Run tests
 	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest -n auto --dist worksteal -v
 # Truthy values: 1, true, TRUE, True, yes, YES, Yes, on, ON, On
 ifneq ($(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS))),)
@@ -47,17 +62,27 @@ endif
 	$(UV) venv
 	$(UV) sync --group dev
 
-lint: ## Check test scripts and actions, then run the Whitaker Dylint suite
+lint: ## Check code and actions, including dead production code
 	$(UV) tool run ruff check
 	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) \
 		-exec $(ACTION_VALIDATOR) {} \;
 	$(MAKE) lint-whitaker
+	$(SKYLOS) $(SKYLOS_PRODUCTION_TARGETS) --exclude $(SKYLOS_EXCLUDE_FOLDERS) --category dead_code \
+		--gate --format concise --no-upload --no-provenance --no-grep-verify
 
 lint-whitaker: ## Run the Whitaker Dylint suite on rust-toy-app with warnings denied
 	cd rust-toy-app && RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
 
+skylos-allow: export SKYLOS_SYMBOL = $(value SYMBOL)
+skylos-allow: export SKYLOS_REASON = $(value REASON)
+skylos-allow: ## Document one named Skylos exception, not an entry point
+	@case "$${SKYLOS_SYMBOL}" in *[![:space:]]*) ;; *) printf "Error: SYMBOL is required for a named whitelist exception\\n" >&2; exit 2;; esac
+	@case "$${SKYLOS_SYMBOL}" in *\**|*\?*|*\[*) printf "Error: SYMBOL must not contain wildcard characters (*, ?, or [)\\n" >&2; exit 2;; esac
+	@case "$${SKYLOS_REASON}" in *[![:space:]]*) ;; *) printf "Error: REASON is required for a named whitelist exception\\n" >&2; exit 2;; esac
+	flock "$(SKYLOS_WHITELIST_LOCK)" env $(SKYLOS_CLI) whitelist "$${SKYLOS_SYMBOL}" --reason "$${SKYLOS_REASON}"
+
 typecheck: .venv ## Run static type checking with Ty
-	./.venv/bin/ty check --python .venv \
+	$(UV) run ty check \
 		--extra-search-path . \
 		--extra-search-path .github/actions/generate-coverage/scripts \
 		--extra-search-path .github/actions/ratchet-coverage/scripts \
@@ -78,7 +103,7 @@ typecheck: .venv ## Run static type checking with Ty
 		.github/actions/setup-rust/scripts \
 		.github/actions/install-mdtablefix/tests \
 		.github/actions/windows-package/scripts
-	./.venv/bin/ty check --python .venv \
+	$(UV) run ty check \
 		--extra-search-path . \
 		--extra-search-path .github/actions/macos-package/scripts \
 		.github/actions/macos-package/scripts

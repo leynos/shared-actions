@@ -15,7 +15,7 @@ from cyclopts.exceptions import CycloptsError as UsageError  # cyclopts>=3.24 (p
 from syspath_hack import SysPathMode, ensure_module_dir
 
 if __package__ in {None, ""}:
-    _MODULE_DIR = ensure_module_dir(__file__, mode=SysPathMode.PREPEND)
+    ensure_module_dir(__file__, mode=SysPathMode.PREPEND)
 
 from windows_installer import (
     FileSpecification,

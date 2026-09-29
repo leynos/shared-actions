@@ -127,7 +127,9 @@ class TestForeignCommitExtraction:
             }
         }
 
-        (foreign,) = dependabot_commit_audit.audit_commits(payload).foreign
+        page = dependabot_commit_audit.commit_page(payload)
+        assert page is not None, "the commit connection should be readable"
+        (foreign,) = dependabot_commit_audit.foreign_commits(page.records)
 
         assert foreign.author == dependabot_commit_audit.UNKNOWN_AUTHOR, (
             "a commit crediting nobody must be reported as unauthored, not "
@@ -187,7 +189,9 @@ class TestForeignCommitExtraction:
             }
         }
 
-        foreign = dependabot_commit_audit.audit_commits(payload).foreign
+        page = dependabot_commit_audit.commit_page(payload)
+        assert page is not None, "the commit connection should be readable"
+        foreign = dependabot_commit_audit.foreign_commits(page.records)
 
         assert [commit.oid for commit in foreign] == ["aaaa1111"], (
             f"{reason} must be refused rather than certified"
@@ -204,7 +208,9 @@ class TestForeignCommitExtraction:
             }
         }
 
-        assert dependabot_commit_audit.audit_commits(payload).foreign == (), (
+        page = dependabot_commit_audit.commit_page(payload)
+        assert page is not None, "the commit connection should be readable"
+        assert dependabot_commit_audit.foreign_commits(page.records) == (), (
             "both logins are Dependabot's, so nothing is foreign"
         )
 
@@ -219,7 +225,9 @@ class TestForeignCommitExtraction:
             }
         }
 
-        found = dependabot_commit_audit.audit_commits(payload).foreign
+        page = dependabot_commit_audit.commit_page(payload)
+        assert page is not None, "the commit connection should be readable"
+        found = dependabot_commit_audit.foreign_commits(page.records)
 
         assert [commit.oid for commit in found] == ["cccccccc3333"], found
         assert found[0].author == "leynos", found
@@ -236,7 +244,9 @@ class TestForeignCommitExtraction:
             }
         }
 
-        found = dependabot_commit_audit.audit_commits(payload).foreign
+        page = dependabot_commit_audit.commit_page(payload)
+        assert page is not None, "the commit connection should be readable"
+        found = dependabot_commit_audit.foreign_commits(page.records)
 
         assert [commit.author for commit in found] == ["leynos"], found
 
@@ -248,7 +258,9 @@ class TestForeignCommitExtraction:
             }
         }
 
-        found = dependabot_commit_audit.audit_commits(payload).foreign
+        page = dependabot_commit_audit.commit_page(payload)
+        assert page is not None, "the commit connection should be readable"
+        found = dependabot_commit_audit.foreign_commits(page.records)
 
         assert [commit.author for commit in found] == [
             dependabot_commit_audit.UNKNOWN_AUTHOR
@@ -268,19 +280,15 @@ class TestForeignCommitExtraction:
         halt every consumer's automerge at once, which is a worse
         failure than the one this check prevents.
         """
-        audit = dependabot_commit_audit.audit_commits(payload)
-
-        assert audit.foreign == (), payload
-        assert not audit.readable, (
-            "an unreadable list must be distinguishable from a clean branch, "
-            "or the loss of the check is silent"
+        assert dependabot_commit_audit.commit_page(payload) is None, (
+            "an unreadable list must be distinguishable from a clean branch"
         )
 
     def test_a_readable_list_says_so(self) -> None:
         """The ordinary case must not look like a failure to read."""
         payload = {"commits": {"nodes": [_commit_node("aaaa1111", "dependabot[bot]")]}}
 
-        assert dependabot_commit_audit.audit_commits(payload).readable, payload
+        assert dependabot_commit_audit.commit_page(payload) is not None, payload
 
 
 class TestForeignCommitsBlockAutomerge:

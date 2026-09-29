@@ -38,10 +38,10 @@ class _RejectRedirect(urllib.request.HTTPRedirectHandler):
     handler_order = 100
 
     def redirect_request(
-        self, *args: object, **kwargs: object
+        self, *_args: object, **_kwargs: object
     ) -> urllib.request.Request | None:
         """Refuse every 30x response from an immutable direct archive URL."""
-        del args, kwargs
+        del _args, _kwargs
         error = "archive download redirects are not allowed"
         raise InstallError(error)
 

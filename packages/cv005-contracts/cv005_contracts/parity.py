@@ -219,6 +219,7 @@ def ratchet_violations(
     document: Document,
     label: str,
     alternatives: cabc.Mapping[str, frozenset[str]] | None = None,
+    resolved: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Require each job measuring coverage to ratchet exactly one of its legs.
 
@@ -234,6 +235,9 @@ def ratchet_violations(
         leg name, each with the extra conditions that select it. Where every
         such leg of a job carries a different, non-empty set, only one runs in
         any cell, so together they ratchet once.
+    resolved : frozenset[str], optional
+        Legs a declared pairing shows to ratchet in its cell although their
+        `with-ratchet` is a matrix expression, so they count as ratcheting.
 
     Returns
     -------
@@ -248,7 +252,10 @@ def ratchet_violations(
                 leg_id(label, name, step, index)
                 for index, step in enumerate(steps(job))
                 if invokes(step, COVERAGE_ACTION)
-                and is_true(inputs_of(step).get("with-ratchet"))
+                and (
+                    is_true(inputs_of(step).get("with-ratchet"))
+                    or leg_id(label, name, step, index) in resolved
+                )
             ],
             alternatives or {},
         )

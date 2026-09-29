@@ -152,9 +152,10 @@ like any other pull request. A real fork run proved that arm on 2026-09-26:
 pull request #535, opened from a fork at this record's merged head plus a
 changelog line. Every Rust cache lane ran on a GitHub-hosted runner.
 `setup-rust` selected local disk (`metric setup-rust.sccache.backend=local`)
-with no proxy credential exported. `actions/cache/restore` ran, found nothing
-yet saved and wrote nothing. sccache reported statistics with no read or write
-error, for example 131 hits and 140 misses in `coverage` (run 36278628304).
+with no proxy credential exported. `actions/cache/restore` ran and found no
+cached entry; no cache writes occurred. sccache reported statistics with no
+read or write error, for example 131 hits and 140 misses in `coverage` (run
+36278628304).
 
 ## Implementation notes
 

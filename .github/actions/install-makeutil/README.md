@@ -27,7 +27,7 @@ leaves a partial or unverified binary behind.
 ## Version pinning
 
 There is no floating or `latest` version. `version` must name three numeric
-components, and the action's digest table (`scripts/install_makeutil.py`) must
+components, and the action's digest table (`scripts/makeutil_plan.py`) must
 already carry the SHA-256 digest for that version on the runner's target; a
 version missing from the table fails with `result=unknown-version` rather than
 installing an unverified asset.

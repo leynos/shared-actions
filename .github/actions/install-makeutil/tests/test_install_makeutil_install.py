@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import os
 import typing as typ
+from pathlib import Path
 
 import makeutil_verify
 import pytest
-from makeutil_errors import DownloadError
+from makeutil_errors import DownloadError, StoreError
+from makeutil_store import FilesystemBinaryStore
 from makeutil_verify import (
     CACHED,
     DIGEST_MISMATCH,
@@ -25,9 +27,6 @@ from makeutil_verify import (
     install_makeutil,
     sha256_hex,
 )
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
 
 _BINARY = b"pretend this is a static makeutil binary\n"
 _NAME = "makeutil-x86_64-unknown-linux-musl"
@@ -66,7 +65,7 @@ def _install(
 ) -> makeutil_verify.InstallResult:
     """Run `install_makeutil` for the canned asset URLs."""
     return install_makeutil(
-        executable_path=target,
+        store=FilesystemBinaryStore(target),
         expected_sha256=expected_sha256,
         asset_urls=_ASSET_URLS,
         downloader=downloader,
@@ -156,28 +155,6 @@ class TestFailureScenarios:
         assert result.outcome == DOWNLOAD_FAILED
         assert not target.exists()
 
-    def test_a_staging_failure_is_reported_as_install_failed(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """An `OSError` while moving the staged file into place - here
-        injected via `Path.replace` - becomes a bounded `install-failed`
-        result rather than an uncaught traceback, and leaves neither a
-        staged temporary file nor a partial target behind.
-        """
-        target = tmp_path / "bin" / "makeutil"
-
-        def _failing_replace(self: Path, _dest: object) -> typ.NoReturn:
-            message = "simulated replace failure"
-            raise OSError(message)
-
-        monkeypatch.setattr(makeutil_verify.Path, "replace", _failing_replace)
-
-        result = _install(target, _fake_downloader())
-
-        assert result.outcome == INSTALL_FAILED
-        assert not target.exists()
-        assert list(target.parent.iterdir()) == []
-
     def test_a_sidecar_download_failure_installs_nothing(self, tmp_path: Path) -> None:
         """The binary alone verifying is not enough; the sidecar fetch can
         still fail and must still leave nothing installed.
@@ -194,67 +171,6 @@ class TestFailureScenarios:
 
         assert result.outcome == DOWNLOAD_FAILED
         assert not target.exists()
-
-
-class TestStagingFailures:
-    """Writing or moding the staged file can fail after both digests agree."""
-
-    @pytest.mark.parametrize("failing_step", ["write", "chmod"])
-    def test_a_staging_step_failure_is_install_failed_and_leaves_no_file(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing_step: str
-    ) -> None:
-        """An `OSError` while writing or `chmod`-ing the staged file becomes a
-        bounded `install-failed` result, and the staged temporary file is
-        removed rather than left beside the target.
-        """
-        target = tmp_path / "bin" / "makeutil"
-        real_fdopen = os.fdopen
-
-        class _FailingHandle:
-            def __init__(self, handle: typ.IO[bytes]) -> None:
-                self._handle = handle
-
-            def __enter__(self) -> typ.Self:
-                return self
-
-            def __exit__(self, *_exc_info: object) -> None:
-                self._handle.close()
-
-            def write(self, _data: bytes) -> int:
-                message = "simulated write failure"
-                raise OSError(message)
-
-        def _failing_chmod(self: Path, *_args: object) -> typ.NoReturn:
-            message = "simulated chmod failure"
-            raise OSError(message)
-
-        if failing_step == "write":
-            monkeypatch.setattr(
-                makeutil_verify.os,
-                "fdopen",
-                lambda fd, mode: _FailingHandle(real_fdopen(fd, mode)),
-            )
-        else:
-            monkeypatch.setattr(makeutil_verify.Path, "chmod", _failing_chmod)
-
-        result = _install(target, _fake_downloader())
-
-        assert result.outcome == INSTALL_FAILED
-        assert list(target.parent.iterdir()) == []
-
-    def test_a_bin_dir_that_cannot_be_created_is_install_failed(
-        self, tmp_path: Path
-    ) -> None:
-        """`resolve` no longer makes `bin-dir`, so the install step must report
-        a directory it cannot create - here, one beneath a regular file - as a
-        bounded result rather than a traceback.
-        """
-        blocker = tmp_path / "file"
-        blocker.write_text("not a directory")
-
-        result = _install(blocker / "bin" / "makeutil", _fake_downloader())
-
-        assert result.outcome == INSTALL_FAILED
 
 
 class TestExistingExecutableSurvivesFailures:
@@ -335,26 +251,6 @@ class TestCacheReverification:
         assert result.outcome == CACHED
         assert os.access(target, os.X_OK)
 
-    @pytest.mark.parametrize("failing_call", ["read_bytes", "chmod"])
-    def test_an_unusable_cache_entry_is_reported_as_install_failed(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing_call: str
-    ) -> None:
-        """An `OSError` reading or `chmod`-ing the cached file becomes a
-        bounded `install-failed` result rather than an uncaught traceback.
-        """
-        target = _seed_cache(tmp_path, _BINARY)
-
-        def _failing(self: Path, *_args: object) -> typ.NoReturn:
-            message = "simulated cache failure"
-            raise OSError(message)
-
-        monkeypatch.setattr(makeutil_verify.Path, failing_call, _failing)
-
-        result = _install(target, _unreachable_downloader)
-
-        assert result.outcome == INSTALL_FAILED
-        assert "cached" in result.message
-
     def test_a_cached_file_with_a_wrong_digest_is_reinstalled(
         self, tmp_path: Path
     ) -> None:
@@ -365,3 +261,97 @@ class TestCacheReverification:
 
         assert result.outcome == INSTALLED
         assert target.read_bytes() == _BINARY
+
+
+class _MemoryStore:
+    """An in-memory `BinaryStore` that can be told to fail one operation.
+
+    The policy in `install_makeutil` is proved against this, so no test needs
+    to patch `Path` or `os` to make storage fail.
+    """
+
+    location = Path("/memory/makeutil")
+
+    def __init__(self, data: bytes | None = None, *, fails_on: str = "") -> None:
+        self.data = data
+        self.is_executable = False
+        self._fails_on = fails_on
+
+    def _maybe_fail(self, operation: str) -> None:
+        if operation == self._fails_on:
+            message = f"simulated {operation} failure"
+            raise StoreError(message)
+
+    def digest(self) -> str | None:
+        self._maybe_fail("digest")
+        return None if self.data is None else sha256_hex(self.data)
+
+    def make_executable(self) -> None:
+        self._maybe_fail("make_executable")
+        self.is_executable = True
+
+    def install(self, data: bytes) -> None:
+        self._maybe_fail("install")
+        self.data = data
+        self.is_executable = True
+
+    def discard(self) -> None:
+        self.data = None
+
+
+def _install_in(
+    store: _MemoryStore, downloader: typ.Callable[[str], bytes]
+) -> makeutil_verify.InstallResult:
+    """Run `install_makeutil` against an in-memory store."""
+    return install_makeutil(
+        store=store,
+        expected_sha256=_DIGEST,
+        asset_urls=_ASSET_URLS,
+        downloader=downloader,
+    )
+
+
+class TestPolicyAgainstAnInMemoryStore:
+    """Cache reuse, replacement and storage failure, with no filesystem."""
+
+    def test_a_matching_entry_is_reused_without_a_download(self) -> None:
+        """A digest match is `cached` and is made executable, never fetched."""
+        store = _MemoryStore(_BINARY)
+
+        result = _install_in(store, _unreachable_downloader)
+
+        assert result.outcome == CACHED
+        assert result.path == store.location
+        assert store.is_executable
+
+    def test_a_stale_entry_is_replaced_by_the_verified_download(self) -> None:
+        """A wrong digest is replaced, not trusted."""
+        store = _MemoryStore(b"stale bytes")
+
+        result = _install_in(store, _fake_downloader())
+
+        assert result.outcome == INSTALLED
+        assert store.data == _BINARY
+
+    @pytest.mark.parametrize("operation", ["digest", "make_executable"])
+    def test_an_unusable_entry_is_install_failed(self, operation: str) -> None:
+        """A store that cannot read or re-mode the entry is a bounded failure,
+        and nothing is downloaded.
+        """
+        store = _MemoryStore(_BINARY, fails_on=operation)
+
+        result = _install_in(store, _unreachable_downloader)
+
+        assert result.outcome == INSTALL_FAILED
+        assert operation in result.message
+
+    def test_a_staging_failure_is_install_failed_and_keeps_the_old_entry(
+        self,
+    ) -> None:
+        """A store that cannot install leaves the previous binary in place."""
+        store = _MemoryStore(b"an older makeutil", fails_on="install")
+
+        result = _install_in(store, _fake_downloader())
+
+        assert result.outcome == INSTALL_FAILED
+        assert store.data == b"an older makeutil"

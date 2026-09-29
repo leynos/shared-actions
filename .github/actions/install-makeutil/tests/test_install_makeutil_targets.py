@@ -11,7 +11,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from install_makeutil import (
+from makeutil_bin_dir import resolve_bin_dir
+from makeutil_errors import (
+    InvalidInputError,
+    UnknownVersionError,
+    UnsupportedPlatformError,
+)
+from makeutil_plan import (
+    PlanRequest,
     build_asset_urls,
     build_cache_key,
     lookup_digest,
@@ -19,12 +26,6 @@ from install_makeutil import (
     resolve_target,
     validate_sha256_override,
     validate_version,
-)
-from makeutil_bin_dir import resolve_bin_dir
-from makeutil_errors import (
-    InvalidInputError,
-    UnknownVersionError,
-    UnsupportedPlatformError,
 )
 
 _SUPPORTED = {
@@ -267,12 +268,7 @@ class TestResolvePlan:
         bin_dir = tmp_path / "missing" / "bin"
 
         plan = resolve_plan(
-            version="0.1.0",
-            bin_dir_input=str(bin_dir),
-            sha256_override="",
-            runner_os="Linux",
-            runner_arch="ARM64",
-            home=None,
+            PlanRequest("0.1.0", str(bin_dir), "", "Linux", "ARM64", None)
         )
 
         assert plan.target == "aarch64-unknown-linux-musl"
@@ -294,13 +290,14 @@ class TestResolvePlan:
         self, tmp_path: Path, kwargs: dict[str, str], error: type[Exception]
     ) -> None:
         """Each refusal is an explicit error the command layer maps."""
-        inputs = {
-            "version": "0.1.0",
-            "bin_dir_input": str(tmp_path / "bin"),
-            "sha256_override": "",
-            "runner_os": "Linux",
-            "runner_arch": "X64",
-        } | kwargs
+        request = PlanRequest(
+            version=kwargs.get("version", "0.1.0"),
+            bin_dir_input=str(tmp_path / "bin"),
+            sha256_override="",
+            runner_os=kwargs.get("runner_os", "Linux"),
+            runner_arch="X64",
+            home=None,
+        )
 
         with pytest.raises(error):
-            resolve_plan(**inputs, home=None)
+            resolve_plan(request)

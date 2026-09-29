@@ -12,18 +12,18 @@ from __future__ import annotations
 import dataclasses as dc
 import hashlib
 import http.client
-import os
 import re
-import tempfile
 import typing as typ
 import urllib.error
 import urllib.request
-from pathlib import Path
 
-from makeutil_errors import DownloadError, MakeutilError, SidecarError
+from makeutil_errors import DownloadError, MakeutilError, SidecarError, StoreError
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing only
     import collections.abc as cabc
+    from pathlib import Path
+
+    from makeutil_store import BinaryStore
 
 #: Bounded, so a hung connection fails the job rather than holding a runner.
 DOWNLOAD_TIMEOUT_SECONDS = 30
@@ -156,29 +156,6 @@ def default_downloader(url: str) -> bytes:
     return data
 
 
-def stage_and_install(data: bytes, target: Path) -> None:
-    """Write `data` to a staged file and move it into place atomically.
-
-    The staged file is created beside `target`, given the executable bit,
-    and moved into place with `Path.replace`, which is atomic on the same
-    filesystem. A failure at any point removes the staged file rather than
-    leaving a partial one where a caller might find it.
-    """
-    target.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, staged_name = tempfile.mkstemp(
-        dir=target.parent, prefix=f".{target.name}."
-    )
-    staged = Path(staged_name)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(data)
-        staged.chmod(0o755)
-        staged.replace(target)
-    except BaseException:
-        staged.unlink(missing_ok=True)
-        raise
-
-
 @dc.dataclass(slots=True, frozen=True)
 class InstallResult:
     """The outcome of one `install_makeutil` attempt."""
@@ -198,13 +175,6 @@ class AssetUrls:
 
     binary: str
     sidecar: str
-
-
-def _cached_digest_matches(target: Path, expected_sha256: str) -> bool:
-    """Return whether a file already at `target` carries `expected_sha256`."""
-    if not target.is_file():
-        return False
-    return sha256_hex(target.read_bytes()) == expected_sha256
 
 
 class _InstallStoppedError(Exception):
@@ -265,48 +235,43 @@ def _require_sidecar_digest(sidecar_digest: str, expected_sha256: str) -> None:
         raise _InstallStoppedError(InstallResult(SIDECAR_MISMATCH, message=message))
 
 
-def _finish_install(binary: bytes, executable_path: Path) -> InstallResult:
-    """Stage `binary` into place, or report a bounded `install-failed` result.
+def _finish_install(binary: bytes, store: BinaryStore) -> InstallResult:
+    """Install `binary` through `store`, or report a bounded `install-failed`.
 
-    Writing, `chmod`-ing or moving the staged file can fail - a full disk, a
-    permission problem - after both digests already agreed; that must become
-    this module's own bounded outcome rather than an uncaught traceback, and
-    `stage_and_install` has already cleaned up any staged temporary file by
-    the time this returns.
+    Staging can fail - a full disk, a permission problem - after both digests
+    already agreed; that becomes this module's own bounded outcome rather than
+    an uncaught traceback.
     """
     try:
-        stage_and_install(binary, executable_path)
-    except OSError as error:
-        message = f"could not install to {executable_path}: {error}"
-        return InstallResult(INSTALL_FAILED, message=message)
-    return InstallResult(INSTALLED, path=executable_path)
+        store.install(binary)
+    except StoreError as error:
+        return InstallResult(INSTALL_FAILED, message=str(error))
+    return InstallResult(INSTALLED, path=store.location)
 
 
 def _reuse_cached_binary(
-    executable_path: Path, expected_sha256: str
+    store: BinaryStore, expected_sha256: str
 ) -> InstallResult | None:
-    """Return a `cached` result when the file at `executable_path` is reusable.
+    """Return a `cached` result when the stored binary is reusable.
 
     `None` means there is nothing to reuse and the caller should download. A
     digest match proves the bytes are right, not that the mode survived
     whatever placed them there - a cache restore does not preserve the
-    executable bit - so the mode is set here. Reading or `chmod`-ing an
-    unreadable or read-only entry can fail; that becomes a bounded
-    `install-failed` result rather than an uncaught traceback.
+    executable bit - so the mode is set here. A store that cannot read or
+    re-mode the entry yields a bounded `install-failed` result.
     """
     try:
-        if not _cached_digest_matches(executable_path, expected_sha256):
+        if store.digest() != expected_sha256:
             return None
-        executable_path.chmod(0o755)
-    except OSError as error:
-        message = f"could not reuse the cached {executable_path}: {error}"
-        return InstallResult(INSTALL_FAILED, message=message)
-    return InstallResult(CACHED, path=executable_path)
+        store.make_executable()
+    except StoreError as error:
+        return InstallResult(INSTALL_FAILED, message=str(error))
+    return InstallResult(CACHED, path=store.location)
 
 
 def install_makeutil(
     *,
-    executable_path: Path,
+    store: BinaryStore,
     expected_sha256: str,
     asset_urls: AssetUrls,
     downloader: Downloader = default_downloader,
@@ -315,15 +280,16 @@ def install_makeutil(
 
     Both the pinned digest table entry (`expected_sha256`) and the release's
     own `.sha256` sidecar must agree with the downloaded bytes before
-    anything is written to `executable_path`. A file already at
-    `executable_path` is trusted only when it already carries
-    `expected_sha256`; otherwise it is replaced, which is what makes a cache
-    hit with a stale digest self-heal rather than fail silently.
+    anything is written to `store`. A binary already in `store` is trusted
+    only when it already carries `expected_sha256`; otherwise it is replaced,
+    which is what makes a cache hit with a stale digest self-heal rather than
+    fail silently.
 
     Parameters
     ----------
-    executable_path : Path
-        Where the verified binary is installed.
+    store : BinaryStore
+        Where the verified binary is installed; injected so the policy here
+        touches no filesystem of its own.
     expected_sha256 : str
         The digest the download must match; ordinarily the digest table's
         entry, but overridable for a test that tampers with it.
@@ -337,7 +303,7 @@ def install_makeutil(
     InstallResult
         `outcome` is one of the bounded metric values this module declares.
     """
-    cached = _reuse_cached_binary(executable_path, expected_sha256)
+    cached = _reuse_cached_binary(store, expected_sha256)
     if cached is not None:
         return cached
 
@@ -352,4 +318,4 @@ def install_makeutil(
     except _InstallStoppedError as stopped:
         return stopped.result
 
-    return _finish_install(binary, executable_path)
+    return _finish_install(binary, store)

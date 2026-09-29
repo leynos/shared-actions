@@ -21,7 +21,7 @@ from _makeutil_action import (
     load_action,
     step_by_name,
 )
-from install_makeutil import _TARGETS
+from makeutil_plan import _TARGETS
 from makeutil_verify import CACHE_HIT, CACHE_MISS, CACHE_STALE
 
 

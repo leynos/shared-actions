@@ -1185,15 +1185,16 @@ the step outputs, the summary and the annotations.
 `bin-dir` and stages the binary. The split lets the action place an
 `actions/cache` step, keyed on the plan, between the two.
 
-`makeutil_bin_dir.py` owns `bin-dir` validation, `makeutil_verify.py` owns the
-downloader, the digest checks and the staged install, and `install_makeutil.py`
-owns the digest table, the CLI and the metrics. The runner mapping is
-`Linux/X64` to `x86_64-unknown-linux-musl` and `Linux/ARM64` to
-`aarch64-unknown-linux-musl`; nothing else is supported.
+`makeutil_plan.py` owns the digest table, the runner mapping and `resolve_plan`;
+`makeutil_bin_dir.py` owns `bin-dir` validation; `makeutil_verify.py` owns the
+downloader and the install policy; `makeutil_store.py` owns the filesystem; and
+`install_makeutil.py` owns the CLI, the step outputs and the metrics. The
+runner mapping is `Linux/X64` to `x86_64-unknown-linux-musl` and `Linux/ARM64`
+to `aarch64-unknown-linux-musl`; nothing else is supported.
 
 ### Trust model
 
-The pinned digest table in `install_makeutil.py` is the trust anchor, keyed by
+The pinned digest table in `makeutil_plan.py` is the trust anchor, keyed by
 version and target. The release's `.sha256` sidecar is a second, independent
 check: it must agree with the table and must name the expected asset. Both are
 checked before any byte reaches `bin-dir`. The downloader is HTTPS only, sizes
@@ -1208,8 +1209,8 @@ redirects.
 
 The action owns one cache, keyed
 `install-makeutil-<version>-<target>-<digest>`. A restore is re-verified
-against the pinned digest, its mode is set, and it is replaced on a mismatch. An
-`OSError` reading or `chmod`-ing a restored entry becomes `install-failed`. The
+against the pinned digest, its mode is set, and it is replaced on a mismatch. A
+`StoreError` reading or re-moding a restored entry becomes `install-failed`. The
 `install` step receives the cache step's `cache-hit` output so it can report
 `install-makeutil.cache` as `hit`, `miss` or `stale`, the last being a restored
 entry that was rejected. When the install fails after a restore (`cache-hit` is
@@ -1232,13 +1233,26 @@ each step.
 
 ### Ports and adapters
 
-`install_makeutil` takes the downloader as an injected callable, which is the
-seam every test uses, and its policy (cache reuse, download order, digest
-outcomes) reads as an ordered sequence of small helpers. The filesystem is used
-directly rather than through a further store abstraction: the script is a few
-hundred lines of standard library with one caller, and an in-memory store would
-restate `pathlib` without removing a dependency on it. Revisit that if a second
-backend for the installed binary appears.
+`install_makeutil` takes two injected dependencies. The downloader is a
+callable, and the installed binary sits behind the `BinaryStore` protocol in
+`makeutil_store.py`: `digest`, `make_executable`, `install`, `discard` and a
+`location`. The production `FilesystemBinaryStore` is the only code on the
+install path that uses `Path`, `os` or `tempfile`, and it maps every `OSError`
+to a `StoreError`, so storage failure is a typed outcome of the port and the
+policy reports it as `install-failed`. Policy tests use an in-memory store; the
+adapter is tested against real temporary directories, injecting an error only
+for a write or `chmod` failure a filesystem will not produce on demand.
+
+The command layer treats a failure to write `GITHUB_OUTPUT` or
+`GITHUB_STEP_SUMMARY` as a reported error rather than a traceback. It writes
+those files directly rather than through a publisher port: they are the
+action's only channel to the workflow and there is one caller.
+
+`InstallPlan` still carries `Path` values, release URLs and a cache key, so the
+plan is not free of vendor representation. Introducing a separate domain model
+(`Runner`, `Target`, `Digest`) with adapters to translate it was considered and
+declined: the plan has one producer and one consumer, and the extra layer would
+restate the same fields under different names.
 
 When this boundary changes, update `action.yml`, the README, the changelog, the
 users' guide and these tests together.

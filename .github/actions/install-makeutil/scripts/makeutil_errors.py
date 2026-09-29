@@ -30,3 +30,7 @@ class SidecarError(MakeutilError):
 
 class DownloadError(MakeutilError):
     """Raised when a download could not be completed."""
+
+
+class StoreError(MakeutilError):
+    """Raised when the installed binary cannot be read, staged or removed."""

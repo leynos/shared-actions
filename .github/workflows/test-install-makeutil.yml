@@ -76,6 +76,40 @@ jobs:
           # summary file, so the action's output is read rather than a summary.
           test "${SECOND_RESULT}" = cached
 
+  install-makeutil-cache-restore:
+    # The second install inside `install-makeutil` reuses a file the same job
+    # wrote, so it proves nothing about the cache. This job starts on a fresh
+    # runner after that one has saved its cache entry, so `cached` here can
+    # only mean the restored binary verified against the pinned digest.
+    name: Restore makeutil from the cache (${{ matrix.runner }})
+    needs: install-makeutil
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Restore makeutil
+        id: install
+        uses: ./.github/actions/install-makeutil
+        with:
+          version: ${{ env.MAKEUTIL_TEST_VERSION }}
+          bin-dir: ${{ runner.temp }}/makeutil-bin
+
+      - name: Assert the restored installation
+        shell: bash
+        env:
+          INSTALLED_PATH: ${{ steps.install.outputs.path }}
+          INSTALL_RESULT: ${{ steps.install.outputs.result }}
+        run: |
+          set -euo pipefail
+          test "${INSTALL_RESULT}" = cached
+          test -x "${INSTALLED_PATH}"
+
   install-makeutil-digest-mismatch:
     # A tampered expected digest must fail closed even though the real
     # download is untouched and correct: the test-only override input

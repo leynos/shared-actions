@@ -12,7 +12,7 @@ file.
   reject any other runner OS/architecture with
   `install-makeutil.result=unsupported-platform` before the digest table is
   consulted.
-- Pin a digest table in `scripts/install_makeutil.py`, keyed by (version,
+- Pin a digest table in `scripts/makeutil_plan.py`, keyed by (version,
   target); reject a version missing from the table with
   `install-makeutil.result=unknown-version` rather than installing an
   unverified asset. There is no floating or `latest` version.
@@ -27,6 +27,9 @@ file.
 - Emit an `install-makeutil.cache` line over `hit`, `miss` and `stale`, fed by
   the cache step's `cache-hit` output, so a restored-but-rejected entry is told
   apart from an ordinary miss.
+- Put the installed binary behind a `BinaryStore` port with a
+  `FilesystemBinaryStore` adapter that maps `OSError` to `StoreError`, and
+  report a failure writing step outputs instead of raising it.
 - Split `resolve` into a side-effect-free `resolve_plan` query returning a
   typed plan, and a command that publishes it; the home directory is injected
   and an unresolvable `bin-dir` is `invalid-input`.

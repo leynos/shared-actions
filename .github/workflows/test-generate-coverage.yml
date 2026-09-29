@@ -47,24 +47,50 @@ name: Test generate-coverage
 # same workflow keeps publication at its default, so the upload path stays
 # exercised where a real runtime token exists.
 on:
+  # Dispatch only, and deliberately: this is an act fixture rather than a
+  # lane of this repository's coverage. act reads the file directly and
+  # ignores `on:`, so the job runs under `act pull_request` whatever is
+  # declared here -- a dispatch-only file still reported
+  # `github.event_name == 'pull_request'` when driven that way. Declaring
+  # a pull-request trigger would claim a boundary this job does not sit
+  # in, and the repository's pull-request coverage rules would then
+  # adjudicate a fixture that measures nothing about this repository's
+  # coverage.
+  #
+  # The trigger clause is not merely a label. A pull-request trigger also
+  # obliges a Linux lane to carry the fork-fallback `runs-on`, and act
+  # skips a job whose label it has no image for: the harness passes
+  # `-P ubuntu-latest=...` and nothing else, so a fallback expression
+  # resolving to `ubicloud-standard-2` makes act print "Skipping
+  # unsupported platform" and exit without running a step. The fixture
+  # would stop testing anything. `test-codescene-parser-proof.yml` is the
+  # same shape: a hand-run lane that names its runner outright.
   workflow_dispatch:
-  pull_request:
 
 permissions:
   contents: read
 
 jobs:
   test-generate-coverage-out-no-suffix:
+    # A dispatch-only lane names its runner outright: no fork can reach it,
+    # so the fallback expression a pull-request lane owes would only give
+    # act a label it has no image for. `test-codescene-parser-proof.yml`
+    # takes the same shape. The label is `ubuntu-latest` rather than
+    # `ubicloud-standard-2` because this job is the one the act harness
+    # drives, and the harness maps that label alone.
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    # Sized from the rule rather than picked: one watchdog window at the 600 s
-    # stated below, plus ten minutes of measured work outside the window, plus
-    # a fifteen-minute margin above that sum, is 2,100 s or 35 minutes. A
-    # measured act run of the whole job took 146 s, of which the coverage step
-    # was 48 s, so a ceiling sized for the watchdog's worst case costs nothing
-    # and keeps this lane inside the rule rather than beside it.
-    timeout-minutes: 45
+    # Sized from the rule rather than picked, and the tier is what fixes the
+    # watchdog. A lane naming `cargo-manifest` must carry a ceiling strictly
+    # above the sum of its watchdog windows, the ten minutes of measured
+    # work outside them, and the fifteen-minute margin. The 600 s first
+    # written here demanded 35 minutes, above every tier in the table, so
+    # the budget moved instead: 240 s is 29 minutes by that sum, which the
+    # `coverage` tier's 30 minutes clears. Five times the 48 s coverage step
+    # a measured act run reported, so the margin is not a guess, and a
+    # measured act run of the whole job took 146 s.
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         # v7.0.1
@@ -99,11 +125,12 @@ jobs:
           # A written budget for the one window this step arms, rather than
           # the 1,800 s the action defaults to. That default is sized for a
           # cold sccache store, which this lane cannot have: the fixture crate
-          # has no dependencies, so its build is seconds either way. Stating
-          # the smaller number keeps the ceiling requirement at 600 s plus the
-          # 600 s allowance and 900 s margin, 35 minutes in all, where the
-          # larger budget would demand 55.
-          cargo-wait-timeout: "600"
+          # has no dependencies, so its build is seconds either way. The
+          # value is set by the same arithmetic as the ceiling above: 240 s
+          # plus the 600 s allowance and the 900 s margin is 29 minutes,
+          # which the `coverage` tier clears and no smaller tier does. The
+          # 1,800 s default would demand 55 minutes, above every tier.
+          cargo-wait-timeout: "240"
           use-cargo-nextest: 'false'
           # Suppressed under act only. This is an explicit opt-out available
           # to any caller, not a workaround for the input collision above: the

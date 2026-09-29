@@ -26,6 +26,17 @@
   copy of an input never sits beside a variable this action sets. The `file`,
   `format`, and `artefact-name` outputs are unchanged, as is the
   `publish-artefact` default of `"true"`.
+- Guard that fix with an act fixture of its own,
+  `.github/workflows/test-generate-coverage.yml`, driven by the pytest harness
+  under `ACT_WORKFLOW_TESTS=1`. The lane is `workflow_dispatch`-only and stays
+  GitHub-hosted: act ignores a workflow's `on:` clause, so the trigger claims
+  nothing about where the job runs, and the harness maps only the
+  `ubuntu-latest` image, so the Ubicloud label the repository's other
+  self-tests take would make act print "Skipping unsupported platform" and run
+  no step. It reaches cargo through `cargo-manifest`, so it states both a
+  `cargo-wait-timeout` and a `timeout-minutes` the watchdog cannot pre-empt:
+  240 s against the `coverage` tier's 30 minutes, which is the smallest tier
+  the 600 s outside-window allowance and 900 s margin leave available.
 - Stop a warm Python dependency cache from breaking `uv venv`, on the suspected
   cause that restored `~/.cache/uv/environments-v2` script environments, bound
   to the interpreter and runner that built them, were unusable elsewhere. The

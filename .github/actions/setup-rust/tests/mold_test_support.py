@@ -105,7 +105,7 @@ def install(tmp_path: Path, served: Served) -> object:
         served.release,
         tool_cache=tmp_path / "tool-cache",
         temp_dir=tmp_path / "temp",
-        base_url=served.base_url,
+        adapters=install_mold.Adapters(base_url=served.base_url),
     )
 
 

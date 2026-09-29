@@ -93,7 +93,7 @@ def test_an_unwritable_scratch_space_is_a_filesystem_failure(tmp_path: Path) -> 
             served.release,
             tool_cache=tmp_path / "tool-cache",
             temp_dir=blocked / "temp",
-            base_url=served.base_url,
+            adapters=install_mold.Adapters(base_url=served.base_url),
         )
 
 

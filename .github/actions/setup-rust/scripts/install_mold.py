@@ -212,10 +212,15 @@ class Outcome:
 
 @dataclasses.dataclass(frozen=True)
 class Adapters:
-    """The process and network boundaries the installer crosses."""
+    """The process and network boundaries the installer crosses.
+
+    ``base_url`` rides here because it names where the network boundary
+    reaches, and keeps the install entry points to four parameters.
+    """
 
     run: RunBinary = run_binary
     fetch: OpenUrl = open_url
+    base_url: str = RELEASE_BASE_URL
 
 
 def select_release(
@@ -355,6 +360,30 @@ def verify(archive: Path, release: Release) -> None:
         raise DigestError(reason)
 
 
+def _extract(archive: Path, release: Release, staging: Path) -> None:
+    """Extract *archive* into *staging* through the ``data`` filter."""
+    try:
+        with tarfile.open(archive, "r:gz") as bundle:
+            bundle.extractall(staging, filter="data")
+    except (tarfile.TarError, OSError) as error:
+        reason = f"failed to unpack {release.archive_name}: {error}"
+        raise ArchiveError(reason) from error
+
+
+def _require_shape(release: Release, staging: Path) -> Path:
+    """Return the release tree under *staging* once its shape is confirmed."""
+    strays = [e for e in staging.iterdir() if e.name != release.root_name]
+    if strays:
+        reason = f"{release.archive_name} has entries outside {release.root_name}/"
+        raise ArchiveError(reason)
+    tree = staging / release.root_name
+    missing = [member for member in REQUIRED_MEMBERS if not (tree / member).exists()]
+    if missing:
+        reason = f"{release.archive_name} lacks {', '.join(missing)}"
+        raise ArchiveError(reason)
+    return tree
+
+
 def unpack(archive: Path, release: Release, staging: Path) -> Path:
     """Unpack *archive* into *staging* and return its release tree.
 
@@ -369,24 +398,8 @@ def unpack(archive: Path, release: Release, staging: Path) -> Path:
     MoldInstallError
         If the archive cannot be read or lacks the files a caller needs.
     """
-    try:
-        with tarfile.open(archive, "r:gz") as bundle:
-            bundle.extractall(staging, filter="data")
-    except (tarfile.TarError, OSError) as error:
-        reason = f"failed to unpack {release.archive_name}: {error}"
-        raise ArchiveError(reason) from error
-    stray = sorted(
-        entry.name for entry in staging.iterdir() if entry.name != release.root_name
-    )
-    if stray:
-        reason = f"{release.archive_name} has entries outside {release.root_name}/"
-        raise ArchiveError(reason)
-    tree = staging / release.root_name
-    missing = [member for member in REQUIRED_MEMBERS if not (tree / member).exists()]
-    if missing:
-        reason = f"{release.archive_name} lacks {', '.join(missing)}"
-        raise ArchiveError(reason)
-    return tree
+    _extract(archive, release, staging)
+    return _require_shape(release, staging)
 
 
 def _place(tree: Path, destination: Path) -> None:
@@ -405,7 +418,6 @@ def _fetch_and_place(
     destination: Path,
     *,
     temp_dir: Path,
-    base_url: str,
     adapters: Adapters,
 ) -> None:
     """Download, verify and unpack *release*, then rename it to *destination*."""
@@ -418,7 +430,7 @@ def _fetch_and_place(
         ) as staging,
     ):
         archive = Path(scratch) / release.archive_name
-        download(release.url(base_url), archive, adapters.fetch)
+        download(release.url(adapters.base_url), archive, adapters.fetch)
         verify(archive, release)
         _place(unpack(archive, release, Path(staging)), destination)
 
@@ -428,7 +440,6 @@ def install(
     *,
     tool_cache: Path,
     temp_dir: Path,
-    base_url: str = RELEASE_BASE_URL,
     adapters: Adapters | None = None,
 ) -> Outcome:
     """Install *release* into *tool_cache*, reusing a usable earlier install.
@@ -451,7 +462,6 @@ def install(
             release,
             destination,
             temp_dir=temp_dir,
-            base_url=base_url,
             adapters=adapters,
         )
         reported = probe(destination / "bin" / "mold", adapters.run)
@@ -532,8 +542,9 @@ def main(
             release,
             tool_cache=args.tool_cache,
             temp_dir=args.temp_dir,
-            base_url=args.release_base_url,
-            adapters=adapters,
+            adapters=dataclasses.replace(
+                adapters or Adapters(), base_url=args.release_base_url
+            ),
         )
         _report(outcome, release, args)
     except MoldInstallError as error:

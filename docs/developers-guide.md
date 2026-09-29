@@ -329,6 +329,17 @@ export, and is belt and braces: a server this step started has zero counters
 already, but a `--start-server` that adopted one would not. A failure to zero
 costs a baseline rather than the cache, so it warns.
 
+The start is fail-open. Before it, the step writes a config file under
+`RUNNER_TEMP` holding `server_startup_timeout_ms = 60000` and exports
+`SCCACHE_CONF` to the server and to `GITHUB_ENV`, because sccache's 10 s
+startup timeout is settable only through that file and the backend probe on
+Ubicloud intermittently outlasts it. A caller's own config is kept, with the
+key written first so it stays top level, and a key the caller set wins. If the
+server still will not start, the step warns, writes `RUSTC_WRAPPER=` to
+`GITHUB_ENV` (an empty value counts as unset, so Cargo compiles with plain
+rustc) and exits 0 with `start-failed`: a cache is an optimization and an
+unreachable one must never fail a job.
+
 Whether the restart may happen is read from the wrapper step's `state` output,
 not from `RUSTC_WRAPPER`: an inherited wrapper may name this very binary, and
 stopping the server behind it would discard the statistics of everything

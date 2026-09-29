@@ -239,6 +239,10 @@ this very binary, when a caller ran `setup-rust` earlier in the job or nested
 it through `rust-build-release`, and stopping that server would discard the
 statistics of everything compiled so far. Each run reports
 `metric setup-rust.sccache.server=<started|start-failed|caller-set|missing-sccache-path>`.
+The server gets a 60 s startup timeout through an `SCCACHE_CONF` file the step
+writes (a config you already name is kept, and a timeout you set wins). If it
+still will not start, the step warns, clears `RUSTC_WRAPPER` and lets the job
+compile without the cache instead of failing.
 
 Some exports have to be put back rather than made. The last thing
 `mozilla-actions/sccache-action` does is write `ACTIONS_CACHE_SERVICE_V2=on` to

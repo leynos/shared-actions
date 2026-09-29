@@ -922,11 +922,35 @@ runs:
         # started, which was before the restore above. Stopping it is the
         # only way to rebind; a fresh server also starts with zero counters,
         # so a caller's later --show-stats measures their own build.
+        # The server's first act is to probe its cache backend, and on
+        # Ubicloud that probe intermittently outlasts sccache's fixed 10 s
+        # startup timeout. The timeout is settable only through the config
+        # file SCCACHE_CONF names, never an environment variable, so write one.
+        # A caller's own config is kept, with the timeout placed ahead of it
+        # because a top-level key written after a table would land inside that
+        # table. A key the caller already set wins.
+        conf="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/setup-rust-sccache.toml"
+        if [[ -n "${SCCACHE_CONF:-}" && -f "$SCCACHE_CONF" ]] \
+          && grep -Eq '^[[:space:]]*server_startup_timeout_ms[[:space:]]*=' "$SCCACHE_CONF"; then
+          conf="$SCCACHE_CONF"
+        elif [[ -n "${SCCACHE_CONF:-}" && -f "$SCCACHE_CONF" ]]; then
+          { printf 'server_startup_timeout_ms = 60000\n'; cat "$SCCACHE_CONF"; } > "$conf.new"
+          mv "$conf.new" "$conf"
+        else
+          printf 'server_startup_timeout_ms = 60000\n' > "$conf"
+        fi
+        export SCCACHE_CONF="$conf"
+        echo "SCCACHE_CONF=$conf" >> "$GITHUB_ENV"
         "$SCCACHE_PATH" --stop-server >/dev/null 2>&1 || true
+        # A cache is an optimization, so a server that will not start must
+        # not fail the job. Clearing the wrapper makes Cargo compile with
+        # plain rustc (an empty RUSTC_WRAPPER counts as unset), and the
+        # warning keeps the loss visible.
         if ! "$SCCACHE_PATH" --start-server; then
           report start-failed
-          echo "::error title=setup-rust sccache::could not start the sccache server" >&2
-          exit 1
+          echo "::warning title=setup-rust sccache::sccache server did not start; building without the compiler cache"
+          echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+          exit 0
         fi
         # A server this step started has zero counters already. Zeroing is
         # belt and braces against a --start-server that adopted one, and it

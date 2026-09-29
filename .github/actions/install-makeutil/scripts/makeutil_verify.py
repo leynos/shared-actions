@@ -93,8 +93,40 @@ def parse_sidecar(text: str, expected_name: str) -> str:
     return match.group("digest")
 
 
+class _HttpsOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow redirects only when the target is HTTPS.
+
+    `urlopen` re-applies no scheme check on a redirect, so a release asset
+    whose 302 pointed at `http://` or `ftp://` would otherwise be fetched in
+    the clear. GitHub redirects release assets to a CDN, so redirects stay
+    enabled and each hop is validated instead.
+    """
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: typ.IO[bytes],
+        code: int,
+        msg: str,
+        headers: http.client.HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        """Refuse a redirect whose target is not HTTPS."""
+        if not newurl.startswith("https://"):
+            message = f"refusing a redirect to a non-HTTPS URL: {newurl}"
+            raise urllib.error.URLError(message)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _https_only_opener() -> urllib.request.OpenerDirector:
+    """Build an opener that validates the scheme of every redirect hop."""
+    return urllib.request.build_opener(_HttpsOnlyRedirectHandler())
+
+
 def default_downloader(url: str) -> bytes:
     """Fetch `url` over HTTPS only, bounded by a timeout and a size cap.
+
+    Every redirect hop must also be HTTPS.
 
     Raises
     ------
@@ -107,7 +139,7 @@ def default_downloader(url: str) -> bytes:
         raise DownloadError(msg)
     request = urllib.request.Request(url)  # noqa: S310 - fixed https origin
     try:
-        with urllib.request.urlopen(  # noqa: S310 - fixed https origin
+        with _https_only_opener().open(
             request, timeout=DOWNLOAD_TIMEOUT_SECONDS
         ) as response:
             data = response.read(_MAX_ASSET_BYTES + 1)

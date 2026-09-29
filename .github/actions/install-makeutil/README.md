@@ -52,14 +52,6 @@ the pinned digest (`install-makeutil-<version>-<target>-<digest>`), which only
 this action knows, so only this action can keep the key correct as the digest
 table changes.
 
-```yaml
-- name: Install makeutil
-  uses: ./.github/actions/install-makeutil
-  with:
-    version: 0.1.0
-    bin-dir: ${{ runner.temp }}/makeutil-bin
-```
-
 A cache hit is re-verified against the pinned digest before it is trusted. A
 cached file that no longer matches - because the digest table moved on, or the
 file was tampered with - is replaced rather than trusted.
@@ -112,6 +104,7 @@ install.
   uses: ./.github/actions/install-makeutil
   with:
     version: 0.1.0
+    bin-dir: ${{ runner.temp }}/makeutil-bin
 
 - name: Parse a Makefile
   run: makeutil parse Makefile

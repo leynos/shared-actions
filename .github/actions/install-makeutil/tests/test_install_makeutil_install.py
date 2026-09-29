@@ -9,8 +9,13 @@ is the fail-closed guarantee the packet requires.
 from __future__ import annotations
 
 import http.client
+import http.server
+import io
 import os
+import threading
 import typing as typ
+import urllib.error
+import urllib.request
 
 import makeutil_verify
 import pytest
@@ -245,20 +250,107 @@ class TestHttpsOnly:
     ) -> None:
         """A `http://` URL is refused by name and never reaches `urlopen`.
 
-        `urlopen` is replaced with one that fails the test, so a refusal that
+        The opener is replaced with one that fails the test, so a refusal that
         came from the network rather than from the scheme check cannot pass.
         """
 
-        def no_request(*_args: object, **_kwargs: object) -> typ.NoReturn:
-            msg = "urlopen must not be called for a non-HTTPS URL"
+        def no_request() -> typ.NoReturn:
+            msg = "no request must be made for a non-HTTPS URL"
             raise AssertionError(msg)
 
-        monkeypatch.setattr(makeutil_verify.urllib.request, "urlopen", no_request)
+        monkeypatch.setattr(makeutil_verify, "_https_only_opener", no_request)
 
         with pytest.raises(DownloadError, match="non-HTTPS"):
             makeutil_verify.default_downloader(
                 "http://github.com/leynos/makeutil/releases/download/x"
             )
+
+
+class TestHttpsOnlyRedirects:
+    """A redirect hop is held to the same HTTPS-only rule as the first URL."""
+
+    @pytest.mark.parametrize(
+        "target", ["http://cdn.example/asset", "ftp://cdn.example/asset"]
+    )
+    def test_a_redirect_to_a_cleartext_target_is_refused(self, target: str) -> None:
+        """The handler raises before a non-HTTPS hop is requested."""
+        handler = makeutil_verify._HttpsOnlyRedirectHandler()
+        request = urllib.request.Request("https://github.com/x")
+
+        with pytest.raises(urllib.error.URLError, match="non-HTTPS"):
+            handler.redirect_request(
+                request,
+                io.BytesIO(),
+                302,
+                "Found",
+                http.client.HTTPMessage(),
+                target,
+            )
+
+    def test_a_redirect_to_an_https_target_is_followed(self) -> None:
+        """A CDN hop over HTTPS yields the follow-up request."""
+        handler = makeutil_verify._HttpsOnlyRedirectHandler()
+        request = urllib.request.Request("https://github.com/x")
+
+        followed = handler.redirect_request(
+            request,
+            io.BytesIO(),
+            302,
+            "Found",
+            http.client.HTTPMessage(),
+            "https://cdn.example/asset",
+        )
+
+        assert followed is not None
+        assert followed.full_url == "https://cdn.example/asset"
+
+    def test_the_opener_refuses_a_live_cleartext_redirect(self) -> None:
+        """The real opener stops a 302 to `http://` before following it.
+
+        The handler can be correct yet absent from the opener; a loopback
+        server that redirects to a second cleartext URL proves the opener
+        itself carries it.
+        """
+
+        class _Redirect(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                self.send_response(302)
+                self.send_header("Location", "http://127.0.0.1:9/asset")
+                self.end_headers()
+
+            def log_message(self, *_args: object) -> None:
+                return None
+
+        with http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Redirect) as server:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            url = f"http://127.0.0.1:{server.server_port}/"
+            try:
+                with pytest.raises(urllib.error.URLError, match="non-HTTPS"):
+                    makeutil_verify._https_only_opener().open(url, timeout=5)
+            finally:
+                server.shutdown()
+
+    def test_the_default_downloader_uses_the_validating_opener(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The downloader must open through the redirect-validating opener.
+
+        Without this, the handler could be correct and simply never installed.
+        """
+        seen: list[str] = []
+
+        class _Opener:
+            def open(self, request: urllib.request.Request, **_kwargs: object) -> None:
+                seen.append(request.full_url)
+                message = "stop here"
+                raise urllib.error.URLError(message)
+
+        monkeypatch.setattr(makeutil_verify, "_https_only_opener", _Opener)
+
+        with pytest.raises(DownloadError):
+            makeutil_verify.default_downloader("https://github.com/leynos/x")
+
+        assert seen == ["https://github.com/leynos/x"]
 
 
 class TestHttpClientExceptions:
@@ -285,10 +377,11 @@ class TestHttpClientExceptions:
                 partial = b""
                 raise http.client.IncompleteRead(partial)
 
-        def _fake_urlopen(*_args: object, **_kwargs: object) -> _RaisingResponse:
-            return _RaisingResponse()
+        class _FakeOpener:
+            def open(self, *_args: object, **_kwargs: object) -> _RaisingResponse:
+                return _RaisingResponse()
 
-        monkeypatch.setattr(makeutil_verify.urllib.request, "urlopen", _fake_urlopen)
+        monkeypatch.setattr(makeutil_verify, "_https_only_opener", _FakeOpener)
 
         with pytest.raises(DownloadError, match="could not download"):
             makeutil_verify.default_downloader(

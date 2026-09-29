@@ -22,6 +22,8 @@ file.
 - Cache the installed executable, keyed on
   `install-makeutil-<version>-<target>-<digest>`. A cache hit is re-verified
   against the pinned digest and replaced on a mismatch.
+- Refuse any redirect hop that is not HTTPS, so a release asset cannot be
+  bounced to a cleartext or non-HTTP origin.
 - Add a test-only `expected-sha256-override` input, so a workflow can
   tamper with the expected digest and assert that a genuinely correct download
   is still refused.

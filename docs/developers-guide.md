@@ -2876,7 +2876,7 @@ sibling field such as `head.repo.private` changes which pull requests fall
 back, and an earlier draft of the contract let exactly that mutation past by
 concluding the lane was no longer a Linux lane at all.
 
-Five kinds of Linux job stay GitHub-hosted, each recorded with its reason in
+Six kinds of Linux job stay GitHub-hosted, each recorded with its reason in
 `HOSTED_LINUX_EXEMPTIONS`:
 
 | Job                                                                                         | Why it stays hosted                                                                                                                                                                       |
@@ -2885,6 +2885,7 @@ Five kinds of Linux job stay GitHub-hosted, each recorded with its reason in
 | `test-setup-rust-sccache.yml::exports-the-wrapper` and `::refuses_a_missing_ubicloud_proxy` | They prove `setup-rust`'s GitHub-hosted arm and that `expect-cache: ubicloud` fails where there is no proxy. On Ubicloud the action selects the proxy, so both would test the other arm.  |
 | `mutation-cargo.yml` and `mutation-mutmut.yml`                                              | Scheduled, never developer-blocking, and free on public-repository minutes.                                                                                                               |
 | `dependabot-automerge.yml::automerge`                                                       | A delayed-comment lane that waits on other checks rather than computing anything.                                                                                                         |
+| `test-generate-coverage.yml::test-generate-coverage-out-no-suffix`                          | The act fixture for `generate-coverage`'s `out` step, never run by GitHub. The harness maps only `ubuntu-latest`, so the Ubicloud label would leave act running no step.                  |
 | Caller jobs that only `uses:` another workflow                                              | They occupy no runner of their own.                                                                                                                                                       |
 
 `ubuntu-24.04-arm` is recognized alongside `windows-11-arm`, as a GitHub-hosted

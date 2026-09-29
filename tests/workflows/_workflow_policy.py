@@ -77,6 +77,22 @@ HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
         "A delayed-comment lane that waits on other checks rather than "
         "computing anything, and never blocks a developer."
     ),
+    (
+        "test-generate-coverage.yml",
+        "test-generate-coverage-out-no-suffix",
+    ): (
+        "The job is the act fixture for generate-coverage's out step, not a "
+        "lane of this repository's coverage, so it is dispatch only and no "
+        "fork can reach it. It must nonetheless stay GitHub-hosted, because "
+        "the act harness maps only ubuntu-latest: give this job the "
+        "Ubicloud label the rule prefers and act prints 'Skipping "
+        "unsupported platform' and runs no step, leaving the fixture that "
+        "guards the composite-input collision testing nothing. The rest of "
+        "the repository's self-tests take the Ubicloud label because they "
+        "meet a real consumer's runner there; this one is never run by "
+        "GitHub at all, so the placement buys it nothing and costs it the "
+        "only execution it has."
+    ),
 }
 
 #: The only jobs allowed to run on the GitHub-hosted Linux Arm runner, each

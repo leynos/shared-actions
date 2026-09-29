@@ -15,11 +15,25 @@ permissions:
 
 jobs:
   installs-on-linux:
+    # Named by platform word, not by runner: the x86_64 leg's label is an
+    # expression that depends on whether the pull request came from a fork,
+    # so a name interpolating it would give the lane two check names. The
+    # aarch64 leg stays on a GitHub-hosted Arm runner because the mold
+    # archive for that architecture is only proved on real Arm hardware and
+    # this repository has measured no Ubicloud Arm shape.
+    name: Install and reuse mold (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
-    runs-on: ${{ matrix.runner }}
+        include:
+          - platform: linux-x86_64
+            runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,11 +99,17 @@ jobs:
           --scratch "$RUNNER_TEMP/mold-tampered"
 
   skips-off-linux:
+    name: Skip mold off Linux (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-15, windows-latest]
-    runs-on: ${{ matrix.runner }}
+        include:
+          - platform: macos
+            runner: macos-15
+          - platform: windows
+            runner: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

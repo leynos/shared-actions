@@ -104,6 +104,8 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
         "test-setup-rust-sccache.yml",
         "restores_a_caller_cache_service_choice",
     ): "assertion",
+    ("test-setup-rust-mold.yml", "installs-on-linux"): "install",
+    ("test-setup-rust-mold.yml", "skips-off-linux"): "assertion",
     ("test-stage-release-artefacts.yml", "test-stage-artefacts"): "assertion",
     (
         "test-stage-release-artefacts.yml",

@@ -2656,6 +2656,13 @@ Five kinds of Linux job stay GitHub-hosted, each recorded with its reason in
 | `dependabot-automerge.yml::automerge`                                                       | A delayed-comment lane that waits on other checks rather than computing anything.                                                                                                         |
 | Caller jobs that only `uses:` another workflow                                              | They occupy no runner of their own.                                                                                                                                                       |
 
+`ubuntu-24.04-arm` is recognized alongside `windows-11-arm`, as a GitHub-hosted
+Arm label outside the Linux placement rule. The rule concerns x86_64 work, and
+no Ubicloud Arm shape has been measured. `test-setup-rust-mold.yml` uses it for
+the one leg that proves the aarch64 mold archive on real Arm hardware. Its
+x86_64 leg follows the ordinary fork-fallback rule, and both legs carry
+platform-word names so that no check name depends on the runner.
+
 An exemption whose job has been renamed or deleted fails the contract. That is
 deliberate: without it the mapping accumulates permissions for jobs that no
 longer exist, and the next job to take one of those names inherits a decision

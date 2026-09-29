@@ -33,8 +33,12 @@ HOSTED_LINUX: typ.Final[str] = "ubuntu-latest"
 RECOGNIZED_LINUX_LABELS: typ.Final[frozenset[str]] = frozenset(
     {UBICLOUD_LINUX, HOSTED_LINUX}
 )
+#: `windows-11-arm` and `ubuntu-24.04-arm` are the GitHub-hosted Arm runners.
+#: The Linux Arm one is listed here, not with the Linux labels, because the
+#: Ubicloud placement rule is about x86_64 work and no Ubicloud Arm shape has
+#: been measured; it is the only place the aarch64 mold archive is proved.
 RECOGNIZED_OTHER_LABELS: typ.Final[frozenset[str]] = frozenset(
-    {"macos-15", "windows-latest", "windows-11-arm"}
+    {"macos-15", "windows-latest", "windows-11-arm", "ubuntu-24.04-arm"}
 )
 
 _MUTATION_REASON: typ.Final[str] = (

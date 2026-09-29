@@ -8,26 +8,23 @@ well-formed.
 
 from __future__ import annotations
 
-import typing as typ
+from pathlib import Path
 
 import pytest
 from install_makeutil import (
     build_asset_urls,
     build_cache_key,
     lookup_digest,
-    resolve_bin_dir,
     resolve_target,
     validate_sha256_override,
     validate_version,
 )
+from makeutil_bin_dir import resolve_bin_dir
 from makeutil_errors import (
     InvalidInputError,
     UnknownVersionError,
     UnsupportedPlatformError,
 )
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
 
 _SUPPORTED = {
     ("Linux", "X64"): "x86_64-unknown-linux-musl",
@@ -161,24 +158,26 @@ class TestValidateSha256Override:
 
 
 class TestResolveBinDir:
-    """`bin-dir` validation: absolute or `~/`-relative, and creatable."""
+    """`bin-dir` validation: absolute or `~/`-relative, never created here."""
 
     def test_a_tilde_relative_path_is_expanded_under_home(self) -> None:
         """`~/...` resolves under the real home directory, not a literal `~`."""
         result = resolve_bin_dir("~/.local/bin-test-install-makeutil")
 
         assert result.is_absolute()
-        assert result.is_dir()
-        result.rmdir()
+        assert result == Path.home() / ".local" / "bin-test-install-makeutil"
+        assert not result.exists()
 
-    def test_an_absolute_path_is_created_and_returned(self, tmp_path: Path) -> None:
-        """A caller-supplied absolute path is created if it does not exist."""
+    def test_an_absolute_path_is_returned_without_being_created(
+        self, tmp_path: Path
+    ) -> None:
+        """Resolution is a query; a missing directory stays missing."""
         target = tmp_path / "nested" / "bin"
 
         result = resolve_bin_dir(str(target))
 
         assert result == target.resolve()
-        assert result.is_dir()
+        assert not target.exists()
 
     @pytest.mark.parametrize(
         "bin_dir_input",

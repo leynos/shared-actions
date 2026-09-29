@@ -23,12 +23,21 @@ import sys
 import typing as typ
 from pathlib import Path
 
+from makeutil_bin_dir import resolve_bin_dir
 from makeutil_errors import (
     InvalidInputError,
     UnknownVersionError,
     UnsupportedPlatformError,
 )
-from makeutil_verify import CACHED, INSTALLED, AssetUrls, install_makeutil
+from makeutil_verify import (
+    CACHE_HIT,
+    CACHE_MISS,
+    CACHE_STALE,
+    CACHED,
+    INSTALLED,
+    AssetUrls,
+    install_makeutil,
+)
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing only
     import collections.abc as cabc
@@ -38,8 +47,6 @@ REPOSITORY = "leynos/makeutil"
 
 #: Name the installed executable is given inside ``bin-dir``.
 BINARY_NAME = "makeutil"
-
-_MAX_BIN_DIR_LENGTH = 240
 
 _VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
@@ -91,102 +98,6 @@ def validate_sha256_override(sha256_override: str) -> None:
     if sha256_override and not _SHA256_RE.match(sha256_override):
         msg = "sha256-override must be 64 lowercase hexadecimal characters"
         raise InvalidInputError(msg)
-
-
-def _reject_crlf_in_bin_dir(bin_dir_input: str) -> None:
-    """Reject a `bin-dir` containing a carriage return or newline."""
-    if "\r" in bin_dir_input or "\n" in bin_dir_input:
-        msg = "bin-dir must not contain a carriage return or newline"
-        raise InvalidInputError(msg)
-
-
-def _reject_overlong_bin_dir(bin_dir_input: str) -> None:
-    """Reject a `bin-dir` longer than the runner-safe ceiling."""
-    if len(bin_dir_input) > _MAX_BIN_DIR_LENGTH:
-        msg = f"bin-dir must be at most {_MAX_BIN_DIR_LENGTH} characters"
-        raise InvalidInputError(msg)
-
-
-def _expand_bin_dir(bin_dir_input: str) -> str:
-    """Expand an absolute or `~/`-relative `bin-dir` to a plain path string."""
-    if bin_dir_input == "~" or bin_dir_input.startswith("~/"):
-        return str(Path.home()) + bin_dir_input[1:]
-    if bin_dir_input.startswith("/"):
-        return bin_dir_input
-    msg = "bin-dir must be an absolute path or start with ~/"
-    raise InvalidInputError(msg)
-
-
-def _reject_parent_components(expanded_bin_dir: str) -> None:
-    """Reject an expanded `bin-dir` containing a parent-directory component."""
-    if "/../" in f"/{expanded_bin_dir}/":
-        msg = "bin-dir must not contain parent-directory components"
-        raise InvalidInputError(msg)
-
-
-def _reject_path_separator(expanded_bin_dir: str) -> None:
-    """Reject an expanded `bin-dir` containing the runner PATH separator."""
-    if ":" in expanded_bin_dir:
-        msg = "bin-dir must not contain the runner PATH separator"
-        raise InvalidInputError(msg)
-
-
-def _create_bin_dir(bin_dir_input: str, expanded_bin_dir: str) -> Path:
-    """Create the expanded `bin-dir` and return its resolved, absolute form.
-
-    `bin_dir_input` is threaded through separately so a creation failure's
-    message names the value the caller supplied, not the expanded form.
-    """
-    path = Path(expanded_bin_dir)
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-    except OSError as error:
-        msg = f"bin-dir {bin_dir_input} could not be created on this runner"
-        raise InvalidInputError(msg) from error
-    return path.resolve()
-
-
-def _revalidate_resolved_bin_dir(resolved_bin_dir: Path) -> None:
-    """Reapply the CR/LF, PATH-separator and parent-component checks to a
-    resolved `bin-dir`.
-
-    `bin_dir_input` is validated only in its given spelling; when it is a
-    symlink, the resolved target - what is actually published to
-    `GITHUB_PATH` - could still smuggle a rejected character or component.
-    Re-running the same checks against the resolved path closes that gap.
-    """
-    resolved_str = str(resolved_bin_dir)
-    _reject_crlf_in_bin_dir(resolved_str)
-    _reject_parent_components(resolved_str)
-    _reject_path_separator(resolved_str)
-
-
-def resolve_bin_dir(bin_dir_input: str) -> Path:
-    """Validate `bin_dir_input` and return it as an absolute, existing path.
-
-    Parameters
-    ----------
-    bin_dir_input : str
-        The raw `bin-dir` input: an absolute path, or one starting `~/`.
-
-    Returns
-    -------
-    Path
-        The resolved, created directory.
-
-    Raises
-    ------
-    InvalidInputError
-        If the input is malformed, or the directory could not be created.
-    """
-    _reject_crlf_in_bin_dir(bin_dir_input)
-    _reject_overlong_bin_dir(bin_dir_input)
-    expanded_bin_dir = _expand_bin_dir(bin_dir_input)
-    _reject_parent_components(expanded_bin_dir)
-    _reject_path_separator(expanded_bin_dir)
-    resolved_bin_dir = _create_bin_dir(bin_dir_input, expanded_bin_dir)
-    _revalidate_resolved_bin_dir(resolved_bin_dir)
-    return resolved_bin_dir
 
 
 def resolve_target(runner_os: str, runner_arch: str) -> str:
@@ -252,14 +163,31 @@ def _append_output(env: cabc.Mapping[str, str], name: str, value: str) -> None:
         handle.write(f"{name}={value}\n")
 
 
-def _emit_metric(env: cabc.Mapping[str, str], result: str) -> None:
-    """Record `install-makeutil.result=<result>` to the log and the summary."""
-    line = f"install-makeutil.result={result}"
+def _emit_metric(env: cabc.Mapping[str, str], name: str, value: str) -> None:
+    """Record `install-makeutil.<name>=<value>` to the log and the summary."""
+    line = f"install-makeutil.{name}={value}"
     print(f"::notice title=Install makeutil::{line}")
     summary_path = env.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with Path(summary_path).open("a", encoding="utf-8") as handle:
             handle.write(f"{line}\n")
+
+
+def _emit_result(env: cabc.Mapping[str, str], result: str) -> None:
+    """Record the run's terminal `install-makeutil.result`."""
+    _emit_metric(env, "result", result)
+
+
+def cache_state(cache_hit: str, outcome: str) -> str:
+    """Classify the run's cache use from the cache step's `cache-hit` output.
+
+    The result alone cannot tell a plain miss from a restored entry that was
+    rejected and replaced, so the cache step's own signal is folded in:
+    `cache-hit` is `true` only when the exact key was restored.
+    """
+    if outcome == CACHED:
+        return CACHE_HIT
+    return CACHE_STALE if cache_hit == "true" else CACHE_MISS
 
 
 def _emit_error(title: str, message: str) -> None:
@@ -283,15 +211,15 @@ def _run_resolve(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
         table_digest = lookup_digest(args.version, target)
     except InvalidInputError as error:
         _emit_error("Invalid install-makeutil input", str(error))
-        _emit_metric(env, "invalid-input")
+        _emit_result(env, "invalid-input")
         return 1
     except UnsupportedPlatformError as error:
         _emit_error("Install makeutil failed", str(error))
-        _emit_metric(env, "unsupported-platform")
+        _emit_result(env, "unsupported-platform")
         return 1
     except UnknownVersionError as error:
         _emit_error("Install makeutil failed", str(error))
-        _emit_metric(env, "unknown-version")
+        _emit_result(env, "unknown-version")
         return 1
 
     expected_sha256 = args.sha256_override or table_digest
@@ -321,7 +249,8 @@ def _run_install(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
         expected_sha256=args.expected_sha256,
         asset_urls=AssetUrls(binary=args.binary_url, sidecar=args.sidecar_url),
     )
-    _emit_metric(env, result.outcome)
+    _emit_result(env, result.outcome)
+    _emit_metric(env, "cache", cache_state(args.cache_hit, result.outcome))
     if result.outcome not in {CACHED, INSTALLED}:
         _emit_error("Install makeutil failed", result.message)
         return 1
@@ -353,6 +282,7 @@ def _build_parser() -> argparse.ArgumentParser:
     install.add_argument("--binary-url", required=True)
     install.add_argument("--sidecar-url", required=True)
     install.add_argument("--version", required=True)
+    install.add_argument("--cache-hit", default="")
 
     return parser
 

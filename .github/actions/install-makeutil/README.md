@@ -73,6 +73,14 @@ the job summary, over a bounded vocabulary:
 | `install-makeutil.result=download-failed`      | The binary or the sidecar could not be fetched       |
 | `install-makeutil.result=install-failed`       | The verified binary could not be staged or installed |
 
+Beside it, one `install-makeutil.cache` line reports how the cache was used:
+
+| Metric                         | Meaning                                               |
+| ------------------------------ | ----------------------------------------------------- |
+| `install-makeutil.cache=hit`   | A restored binary verified and was reused             |
+| `install-makeutil.cache=miss`  | Nothing was restored                                  |
+| `install-makeutil.cache=stale` | A restored binary was rejected and replaced or failed |
+
 ## Inputs
 
 | Name                       | Type   | Description                                                    | Required | Default        |

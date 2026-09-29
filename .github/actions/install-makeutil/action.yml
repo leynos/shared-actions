@@ -84,6 +84,7 @@ runs:
       shell: bash
       env:
         BINARY_URL: ${{ steps.resolve.outputs.binary-url }}
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
         EXECUTABLE_PATH: ${{ steps.resolve.outputs.executable-path }}
         EXPECTED_SHA256: ${{ steps.resolve.outputs.expected-sha256 }}
         INSTALL_SCRIPT: ${{ github.action_path }}/scripts/install_makeutil.py
@@ -96,7 +97,8 @@ runs:
           --expected-sha256 "$EXPECTED_SHA256" \
           --binary-url "$BINARY_URL" \
           --sidecar-url "$SIDECAR_URL" \
-          --version "$VERSION"
+          --version "$VERSION" \
+          --cache-hit "$CACHE_HIT"
 
     - name: Add makeutil to PATH
       shell: bash

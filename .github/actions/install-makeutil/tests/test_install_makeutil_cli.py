@@ -85,6 +85,52 @@ class TestResolveSubcommand:
             "install-makeutil-0.1.0-x86_64-unknown-linux-musl-"
             "99dd28a138dbe07e88e4dc5dd3954e6b29b46cc959635311d326cb537253115d"
         )
+        release = "https://github.com/leynos/makeutil/releases/download/v0.1.0"
+        assert outputs["binary-url"] == f"{release}/makeutil-x86_64-unknown-linux-musl"
+        assert outputs["sidecar-url"] == (
+            f"{release}/makeutil-x86_64-unknown-linux-musl.sha256"
+        )
+        assert outputs["version"] == "0.1.0"
+        assert set(outputs) == {
+            "target",
+            "bin-dir",
+            "executable-path",
+            "expected-sha256",
+            "binary-url",
+            "sidecar-url",
+            "cache-key",
+            "version",
+        }
+
+    def test_resolving_publishes_the_plan_without_creating_bin_dir(
+        self, tmp_path: Path
+    ) -> None:
+        """`resolve` is the query half: a missing `bin-dir` is planned, not made.
+
+        Creating it is the `install` step's job, at the point it writes the
+        binary.
+        """
+        env = _fake_env(tmp_path)
+        bin_dir = tmp_path / "not" / "yet" / "there"
+
+        exit_code = cli.main(
+            [
+                "resolve",
+                "--version",
+                "0.1.0",
+                "--bin-dir",
+                str(bin_dir),
+                "--runner-os",
+                "Linux",
+                "--runner-arch",
+                "X64",
+            ],
+            env,
+        )
+
+        assert exit_code == 0
+        assert _outputs(env)["bin-dir"] == str(bin_dir.resolve())
+        assert not bin_dir.exists()
 
     def test_a_sha256_override_replaces_the_table_digest_in_the_output(
         self, tmp_path: Path
@@ -231,3 +277,83 @@ class TestInstallSubcommand:
         assert outputs["result"] == CACHED
         summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
         assert f"install-makeutil.result={CACHED}" in summary
+
+    @pytest.mark.parametrize(
+        ("cache_hit", "expected_state"),
+        [("true", "hit"), ("", "hit"), ("false", "hit")],
+    )
+    def test_a_reused_binary_reports_a_cache_hit(
+        self, tmp_path: Path, cache_hit: str, expected_state: str
+    ) -> None:
+        """A verified reuse is a hit however the cache step phrased its output."""
+        env = _fake_env(tmp_path)
+        target = tmp_path / "bin" / "makeutil"
+        target.parent.mkdir(parents=True)
+        binary = b"already installed makeutil\n"
+        target.write_bytes(binary)
+
+        cli.main(
+            [
+                "install",
+                "--executable-path",
+                str(target),
+                "--expected-sha256",
+                sha256_hex(binary),
+                "--binary-url",
+                "https://example.invalid/unreachable",
+                "--sidecar-url",
+                "https://example.invalid/unreachable.sha256",
+                "--version",
+                "0.1.0",
+                "--cache-hit",
+                cache_hit,
+            ],
+            env,
+        )
+
+        summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
+        assert f"install-makeutil.cache={expected_state}" in summary
+
+    @pytest.mark.parametrize(
+        ("cache_hit", "expected_state"),
+        [("true", "stale"), ("false", "miss"), ("", "miss")],
+    )
+    def test_a_failed_install_reports_one_result_and_no_success_outputs(
+        self, tmp_path: Path, cache_hit: str, expected_state: str
+    ) -> None:
+        """A refused download exits 1, emits exactly one bounded result, names
+        a stale entry apart from a plain miss, and publishes nothing.
+
+        A plain-HTTP URL is refused by the default downloader before any
+        request, so the failure needs no network.
+        """
+        env = _fake_env(tmp_path)
+
+        exit_code = cli.main(
+            [
+                "install",
+                "--executable-path",
+                str(tmp_path / "bin" / "makeutil"),
+                "--expected-sha256",
+                "0" * 64,
+                "--binary-url",
+                "http://example.invalid/makeutil",
+                "--sidecar-url",
+                "http://example.invalid/makeutil.sha256",
+                "--version",
+                "0.1.0",
+                "--cache-hit",
+                cache_hit,
+            ],
+            env,
+        )
+
+        assert exit_code == 1
+        assert _outputs(env) == {}
+        lines = (
+            Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8").splitlines()
+        )
+        assert [line for line in lines if ".result=" in line] == [
+            "install-makeutil.result=download-failed"
+        ]
+        assert f"install-makeutil.cache={expected_state}" in lines

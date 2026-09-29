@@ -46,6 +46,13 @@ SIDECAR_MISMATCH = "sidecar-mismatch"
 DOWNLOAD_FAILED = "download-failed"
 INSTALL_FAILED = "install-failed"
 
+#: Cache state of a run, reported beside its result. `hit` is a restored
+#: entry that verified and was reused, `stale` a restored entry that was
+#: rejected or unusable, and `miss` no restored entry at all.
+CACHE_HIT = "hit"
+CACHE_MISS = "miss"
+CACHE_STALE = "stale"
+
 if typ.TYPE_CHECKING:  # pragma: no cover - typing only
     Downloader = cabc.Callable[[str], bytes]
 else:
@@ -93,7 +100,9 @@ def parse_sidecar(text: str, expected_name: str) -> str:
     return match.group("digest")
 
 
-def _https_only_opener() -> urllib.request.OpenerDirector:
+def _https_only_opener(
+    https_handler: urllib.request.BaseHandler | None = None,
+) -> urllib.request.OpenerDirector:
     """Build an opener that can speak HTTPS and nothing else.
 
     `urlopen` follows a redirect without re-checking the scheme, so a release
@@ -101,12 +110,15 @@ def _https_only_opener() -> urllib.request.OpenerDirector:
     clear. GitHub redirects release assets to a CDN, so redirects stay
     enabled; the opener instead carries no handler for any other scheme, and
     a hop to one fails with an unknown-URL-type error before any request.
+
+    `https_handler` exists so a test can serve canned HTTPS responses,
+    redirects included, without a live TLS server; production passes none.
     """
     opener = urllib.request.OpenerDirector()
     for handler in (
         urllib.request.ProxyHandler(),
         urllib.request.UnknownHandler(),
-        urllib.request.HTTPSHandler(),
+        https_handler or urllib.request.HTTPSHandler(),
         urllib.request.HTTPDefaultErrorHandler(),
         urllib.request.HTTPRedirectHandler(),
         urllib.request.HTTPErrorProcessor(),

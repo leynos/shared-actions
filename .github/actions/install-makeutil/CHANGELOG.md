@@ -24,6 +24,11 @@ file.
   against the pinned digest and replaced on a mismatch.
 - Refuse any redirect hop that is not HTTPS, so a release asset cannot be
   bounced to a cleartext or non-HTTP origin.
+- Emit an `install-makeutil.cache` line over `hit`, `miss` and `stale`, fed by
+  the cache step's `cache-hit` output, so a restored-but-rejected entry is told
+  apart from an ordinary miss.
+- Make `resolve` a pure query: it no longer creates `bin-dir`, which the
+  `install` step now creates, reporting a failure as `install-failed`.
 - Add a test-only `expected-sha256-override` input, so a workflow can
   tamper with the expected digest and assert that a genuinely correct download
   is still refused.

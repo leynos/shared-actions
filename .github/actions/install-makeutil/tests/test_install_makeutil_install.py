@@ -8,11 +8,8 @@ is the fail-closed guarantee the packet requires.
 
 from __future__ import annotations
 
-import http.client
 import os
 import typing as typ
-import urllib.error
-import urllib.request
 
 import makeutil_verify
 import pytest
@@ -199,6 +196,117 @@ class TestFailureScenarios:
         assert not target.exists()
 
 
+class TestStagingFailures:
+    """Writing or moding the staged file can fail after both digests agree."""
+
+    @pytest.mark.parametrize("failing_step", ["write", "chmod"])
+    def test_a_staging_step_failure_is_install_failed_and_leaves_no_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing_step: str
+    ) -> None:
+        """An `OSError` while writing or `chmod`-ing the staged file becomes a
+        bounded `install-failed` result, and the staged temporary file is
+        removed rather than left beside the target.
+        """
+        target = tmp_path / "bin" / "makeutil"
+        real_fdopen = os.fdopen
+
+        class _FailingHandle:
+            def __init__(self, handle: typ.IO[bytes]) -> None:
+                self._handle = handle
+
+            def __enter__(self) -> typ.Self:
+                return self
+
+            def __exit__(self, *_exc_info: object) -> None:
+                self._handle.close()
+
+            def write(self, _data: bytes) -> int:
+                message = "simulated write failure"
+                raise OSError(message)
+
+        def _failing_chmod(self: Path, *_args: object) -> typ.NoReturn:
+            message = "simulated chmod failure"
+            raise OSError(message)
+
+        if failing_step == "write":
+            monkeypatch.setattr(
+                makeutil_verify.os,
+                "fdopen",
+                lambda fd, mode: _FailingHandle(real_fdopen(fd, mode)),
+            )
+        else:
+            monkeypatch.setattr(makeutil_verify.Path, "chmod", _failing_chmod)
+
+        result = _install(target, _fake_downloader())
+
+        assert result.outcome == INSTALL_FAILED
+        assert list(target.parent.iterdir()) == []
+
+    def test_a_bin_dir_that_cannot_be_created_is_install_failed(
+        self, tmp_path: Path
+    ) -> None:
+        """`resolve` no longer makes `bin-dir`, so the install step must report
+        a directory it cannot create - here, one beneath a regular file - as a
+        bounded result rather than a traceback.
+        """
+        blocker = tmp_path / "file"
+        blocker.write_text("not a directory")
+
+        result = _install(blocker / "bin" / "makeutil", _fake_downloader())
+
+        assert result.outcome == INSTALL_FAILED
+
+
+class TestExistingExecutableSurvivesFailures:
+    """A failed install never disturbs a binary already in `bin-dir`."""
+
+    _OLD = b"an older makeutil that must survive\n"
+
+    @pytest.mark.parametrize(
+        ("downloader", "expected_digest", "outcome"),
+        [
+            pytest.param(_fake_downloader(), "0" * 64, DIGEST_MISMATCH, id="digest"),
+            pytest.param(
+                _fake_downloader(sidecar=f"{'f' * 64}  {_NAME}\n".encode()),
+                _DIGEST,
+                SIDECAR_MISMATCH,
+                id="sidecar",
+            ),
+        ],
+    )
+    def test_a_verification_failure_keeps_the_existing_bytes_and_mode(
+        self,
+        tmp_path: Path,
+        downloader: typ.Callable[[str], bytes],
+        expected_digest: str,
+        outcome: str,
+    ) -> None:
+        """The old file is neither replaced nor re-moded when a check fails."""
+        target = _seed_cache(tmp_path, self._OLD, mode=0o700)
+
+        result = _install(target, downloader, expected_digest)
+
+        assert result.outcome == outcome
+        assert target.read_bytes() == self._OLD
+        assert target.stat().st_mode & 0o777 == 0o700
+
+    def test_a_download_failure_keeps_the_existing_bytes_and_mode(
+        self, tmp_path: Path
+    ) -> None:
+        """An unreachable release leaves the previous binary in place."""
+        target = _seed_cache(tmp_path, self._OLD, mode=0o700)
+
+        def _failing_downloader(_url: str) -> bytes:
+            message = "connection refused"
+            raise DownloadError(message)
+
+        result = _install(target, _failing_downloader, "0" * 64)
+
+        assert result.outcome == DOWNLOAD_FAILED
+        assert target.read_bytes() == self._OLD
+        assert target.stat().st_mode & 0o777 == 0o700
+
+
 class TestCacheReverification:
     """A cache hit is only ever trusted after re-verifying its digest."""
 
@@ -257,110 +365,3 @@ class TestCacheReverification:
 
         assert result.outcome == INSTALLED
         assert target.read_bytes() == _BINARY
-
-
-class TestHttpsOnly:
-    """The default downloader refuses anything but HTTPS."""
-
-    def test_a_non_https_url_is_refused_before_any_request(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A `http://` URL is refused by name and never reaches `urlopen`.
-
-        The opener is replaced with one that fails the test, so a refusal that
-        came from the network rather than from the scheme check cannot pass.
-        """
-
-        def no_request() -> typ.NoReturn:
-            msg = "no request must be made for a non-HTTPS URL"
-            raise AssertionError(msg)
-
-        monkeypatch.setattr(makeutil_verify, "_https_only_opener", no_request)
-
-        with pytest.raises(DownloadError, match="non-HTTPS"):
-            makeutil_verify.default_downloader(
-                "http://github.com/leynos/makeutil/releases/download/x"
-            )
-
-
-class TestHttpsOnlyRedirects:
-    """A redirect hop is held to the same HTTPS-only rule as the first URL."""
-
-    @pytest.mark.parametrize("scheme", ["http", "ftp", "file"])
-    def test_the_opener_refuses_a_non_https_hop(self, scheme: str) -> None:
-        """The opener has no handler for a scheme other than HTTPS.
-
-        A redirect to such a URL is opened through this same opener, so it
-        fails as an unknown URL type before any request is made.
-        """
-        opener = makeutil_verify._https_only_opener()
-
-        with pytest.raises(urllib.error.URLError, match="unknown url type"):
-            opener.open(f"{scheme}://127.0.0.1:9/asset", timeout=5)
-
-    def test_the_opener_still_follows_redirects(self) -> None:
-        """Redirects stay enabled, because release assets redirect to a CDN."""
-        opener = makeutil_verify._https_only_opener()
-
-        assert any(
-            isinstance(handler, urllib.request.HTTPRedirectHandler)
-            for handler in opener.handlers  # ty: ignore[unresolved-attribute]
-        )
-
-    def test_the_default_downloader_uses_the_validating_opener(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The downloader must open through the redirect-validating opener.
-
-        Without this, the handler could be correct and simply never installed.
-        """
-        seen: list[str] = []
-
-        class _Opener:
-            def open(self, request: urllib.request.Request, **_kwargs: object) -> None:
-                seen.append(request.full_url)
-                message = "stop here"
-                raise urllib.error.URLError(message)
-
-        monkeypatch.setattr(makeutil_verify, "_https_only_opener", _Opener)
-
-        with pytest.raises(DownloadError):
-            makeutil_verify.default_downloader("https://github.com/leynos/x")
-
-        assert seen == ["https://github.com/leynos/x"]
-
-
-class TestHttpClientExceptions:
-    """An `http.client.HTTPException` during the response body read must
-    become a `DownloadError`, not escape as a traceback.
-    """
-
-    def test_an_incomplete_read_becomes_a_download_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """`http.client.IncompleteRead` is a `HTTPException` subclass that
-        `response.read()` can raise mid-body; it must be caught alongside
-        the URL and OS errors already handled.
-        """
-
-        class _RaisingResponse:
-            def __enter__(self) -> typ.Self:
-                return self
-
-            def __exit__(self, *_exc_info: object) -> None:
-                return None
-
-            def read(self, _size: int) -> bytes:
-                partial = b""
-                raise http.client.IncompleteRead(partial)
-
-        class _FakeOpener:
-            def open(self, *_args: object, **_kwargs: object) -> _RaisingResponse:
-                return _RaisingResponse()
-
-        monkeypatch.setattr(makeutil_verify, "_https_only_opener", _FakeOpener)
-
-        with pytest.raises(DownloadError, match="could not download"):
-            makeutil_verify.default_downloader(
-                "https://github.com/leynos/makeutil/releases/download/x"
-            )

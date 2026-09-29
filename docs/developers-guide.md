@@ -1163,6 +1163,76 @@ every workflow with a `.yml` or `.yaml` extension in any case:
 synthetic workflows. Raising the floor is a decision, because every lane and
 every consumer has to move with it.
 
+## `install-makeutil` action contract
+
+The action installs makeutil's prebuilt static binary and never builds it. Its
+implementation is Python 3 standard library only, so it needs no dependency
+beyond the runner's `python3`, and it calls no `cargo` or `cargo-binstall`; a
+contract test in
+`.github/actions/install-makeutil/tests/test_install_makeutil_action.py` fails
+if either appears in a step.
+
+### Resolution and installation are separate steps
+
+`install_makeutil.py resolve` is a query: it validates the inputs, maps the
+runner to a target triple, looks up the pinned digest, and publishes the plan
+as step outputs. It creates nothing; a missing `bin-dir` is planned, not made.
+`install_makeutil.py install` is the command: it downloads, verifies, makes
+`bin-dir` and stages the binary. The split lets the action place an
+`actions/cache` step, keyed on the plan, between the two.
+
+`makeutil_bin_dir.py` owns `bin-dir` validation, `makeutil_verify.py` owns the
+downloader, the digest checks and the staged install, and `install_makeutil.py`
+owns the digest table, the CLI and the metrics. The runner mapping is
+`Linux/X64` to `x86_64-unknown-linux-musl` and `Linux/ARM64` to
+`aarch64-unknown-linux-musl`; nothing else is supported.
+
+### Trust model
+
+The pinned digest table in `install_makeutil.py` is the trust anchor, keyed by
+version and target. The release's `.sha256` sidecar is a second, independent
+check: it must agree with the table and must name the expected asset. Both are
+checked before any byte reaches `bin-dir`. The downloader is HTTPS only, sizes
+its read against a 50 MiB cap, and carries a 30 second timeout. Its opener is
+built from `OpenerDirector` with only the proxy, HTTPS, redirect and error
+handlers, so a redirect to `http://`, `ftp://` or `file://` fails as an unknown
+URL type before any request. `_https_only_opener` takes an optional HTTPS
+handler so tests can serve canned responses and prove both refused and followed
+redirects.
+
+### Cache ownership and re-verification
+
+The action owns one cache, keyed
+`install-makeutil-<version>-<target>-<digest>`. A restore is re-verified
+against the pinned digest, its mode is set, and it is replaced on a mismatch. An
+`OSError` reading or `chmod`-ing a restored entry becomes `install-failed`. The
+`install` step receives the cache step's `cache-hit` output so it can report
+`install-makeutil.cache` as `hit`, `miss` or `stale`, the last being a restored
+entry that was rejected.
+
+### Bounded metrics
+
+`install-makeutil.result` is the terminal outcome over a closed vocabulary that
+the README table, `makeutil_verify.py` and the contract tests must agree on;
+`install-makeutil.cache` ranges over `hit`, `miss` and `stale`. Neither carries
+a URL, a digest or a path. Failures also emit an `::error` annotation. The
+action emits no tracing spans: it is a short composite step whose boundaries
+are the four named steps and the two metrics, and a GitHub job already times
+each step.
+
+### Ports and adapters
+
+`install_makeutil` takes the downloader as an injected callable, which is the
+seam every test uses, and its policy (cache reuse, download order, digest
+outcomes) reads as an ordered sequence of small helpers. The filesystem is used
+directly rather than through a further store abstraction: the script is a few
+hundred lines of standard library with one caller, and an in-memory store would
+restate `pathlib` without removing a dependency on it. Revisit that if a second
+backend for the installed binary appears.
+
+When this boundary changes, update `action.yml`, the README, the changelog, the
+users' guide and these tests together.
+
 ## This repository's coverage publication
 
 The decision and what it costs are recorded in

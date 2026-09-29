@@ -22,6 +22,7 @@ from _makeutil_action import (
     step_by_name,
 )
 from install_makeutil import _TARGETS
+from makeutil_verify import CACHE_HIT, CACHE_MISS, CACHE_STALE
 
 
 class TestInputsAndOutputs:
@@ -157,6 +158,22 @@ class TestMetrics:
 
         for result in METRIC_RESULTS:
             assert f"install-makeutil.result={result}" in readme
+
+    def test_the_cache_states_match_the_readme(self) -> None:
+        """Each cache state the script can report is documented."""
+        readme = (INSTALL_SCRIPT_PATH.parents[1] / "README.md").read_text(
+            encoding="utf-8"
+        )
+
+        for state in (CACHE_HIT, CACHE_MISS, CACHE_STALE):
+            assert f"install-makeutil.cache={state}" in readme
+
+    def test_the_install_step_passes_the_cache_hit_output(self) -> None:
+        """Without `cache-hit`, a rejected restore would read as a plain miss."""
+        step = step_by_name("Install makeutil")
+
+        assert "steps.cache.outputs.cache-hit" in step["env"]["CACHE_HIT"]
+        assert '--cache-hit "$CACHE_HIT"' in step["run"]
 
     def test_the_digest_table_module_defines_only_these_targets(self) -> None:
         """Reading the module's own table, not a restatement of it, is what

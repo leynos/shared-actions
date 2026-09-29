@@ -93,34 +93,26 @@ def parse_sidecar(text: str, expected_name: str) -> str:
     return match.group("digest")
 
 
-class _HttpsOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Follow redirects only when the target is HTTPS.
-
-    `urlopen` re-applies no scheme check on a redirect, so a release asset
-    whose 302 pointed at `http://` or `ftp://` would otherwise be fetched in
-    the clear. GitHub redirects release assets to a CDN, so redirects stay
-    enabled and each hop is validated instead.
-    """
-
-    def redirect_request(
-        self,
-        req: urllib.request.Request,
-        fp: typ.IO[bytes],
-        code: int,
-        msg: str,
-        headers: http.client.HTTPMessage,
-        newurl: str,
-    ) -> urllib.request.Request | None:
-        """Refuse a redirect whose target is not HTTPS."""
-        if not newurl.startswith("https://"):
-            message = f"refusing a redirect to a non-HTTPS URL: {newurl}"
-            raise urllib.error.URLError(message)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
 def _https_only_opener() -> urllib.request.OpenerDirector:
-    """Build an opener that validates the scheme of every redirect hop."""
-    return urllib.request.build_opener(_HttpsOnlyRedirectHandler())
+    """Build an opener that can speak HTTPS and nothing else.
+
+    `urlopen` follows a redirect without re-checking the scheme, so a release
+    asset answering 302 to `http://` or `ftp://` would be fetched in the
+    clear. GitHub redirects release assets to a CDN, so redirects stay
+    enabled; the opener instead carries no handler for any other scheme, and
+    a hop to one fails with an unknown-URL-type error before any request.
+    """
+    opener = urllib.request.OpenerDirector()
+    for handler in (
+        urllib.request.ProxyHandler(),
+        urllib.request.UnknownHandler(),
+        urllib.request.HTTPSHandler(),
+        urllib.request.HTTPDefaultErrorHandler(),
+        urllib.request.HTTPRedirectHandler(),
+        urllib.request.HTTPErrorProcessor(),
+    ):
+        opener.add_handler(handler)
+    return opener
 
 
 def default_downloader(url: str) -> bytes:

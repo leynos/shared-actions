@@ -9,10 +9,7 @@ is the fail-closed guarantee the packet requires.
 from __future__ import annotations
 
 import http.client
-import http.server
-import io
 import os
-import threading
 import typing as typ
 import urllib.error
 import urllib.request
@@ -269,66 +266,26 @@ class TestHttpsOnly:
 class TestHttpsOnlyRedirects:
     """A redirect hop is held to the same HTTPS-only rule as the first URL."""
 
-    @pytest.mark.parametrize(
-        "target", ["http://cdn.example/asset", "ftp://cdn.example/asset"]
-    )
-    def test_a_redirect_to_a_cleartext_target_is_refused(self, target: str) -> None:
-        """The handler raises before a non-HTTPS hop is requested."""
-        handler = makeutil_verify._HttpsOnlyRedirectHandler()
-        request = urllib.request.Request("https://github.com/x")
+    @pytest.mark.parametrize("scheme", ["http", "ftp", "file"])
+    def test_the_opener_refuses_a_non_https_hop(self, scheme: str) -> None:
+        """The opener has no handler for a scheme other than HTTPS.
 
-        with pytest.raises(urllib.error.URLError, match="non-HTTPS"):
-            handler.redirect_request(
-                request,
-                io.BytesIO(),
-                302,
-                "Found",
-                http.client.HTTPMessage(),
-                target,
-            )
-
-    def test_a_redirect_to_an_https_target_is_followed(self) -> None:
-        """A CDN hop over HTTPS yields the follow-up request."""
-        handler = makeutil_verify._HttpsOnlyRedirectHandler()
-        request = urllib.request.Request("https://github.com/x")
-
-        followed = handler.redirect_request(
-            request,
-            io.BytesIO(),
-            302,
-            "Found",
-            http.client.HTTPMessage(),
-            "https://cdn.example/asset",
-        )
-
-        assert followed is not None
-        assert followed.full_url == "https://cdn.example/asset"
-
-    def test_the_opener_refuses_a_live_cleartext_redirect(self) -> None:
-        """The real opener stops a 302 to `http://` before following it.
-
-        The handler can be correct yet absent from the opener; a loopback
-        server that redirects to a second cleartext URL proves the opener
-        itself carries it.
+        A redirect to such a URL is opened through this same opener, so it
+        fails as an unknown URL type before any request is made.
         """
+        opener = makeutil_verify._https_only_opener()
 
-        class _Redirect(http.server.BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                self.send_response(302)
-                self.send_header("Location", "http://127.0.0.1:9/asset")
-                self.end_headers()
+        with pytest.raises(urllib.error.URLError, match="unknown url type"):
+            opener.open(f"{scheme}://127.0.0.1:9/asset", timeout=5)
 
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-                return None
+    def test_the_opener_still_follows_redirects(self) -> None:
+        """Redirects stay enabled, because release assets redirect to a CDN."""
+        opener = makeutil_verify._https_only_opener()
 
-        with http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Redirect) as server:
-            threading.Thread(target=server.serve_forever, daemon=True).start()
-            url = f"http://127.0.0.1:{server.server_port}/"
-            try:
-                with pytest.raises(urllib.error.URLError, match="non-HTTPS"):
-                    makeutil_verify._https_only_opener().open(url, timeout=5)
-            finally:
-                server.shutdown()
+        assert any(
+            isinstance(handler, urllib.request.HTTPRedirectHandler)
+            for handler in opener.handlers  # ty: ignore[unresolved-attribute]
+        )
 
     def test_the_default_downloader_uses_the_validating_opener(
         self, monkeypatch: pytest.MonkeyPatch

@@ -25,8 +25,8 @@ LIBRARY: typ.Final[Path] = REPOSITORY / "packages" / "cv005-contracts"
 # which is also the commit a consumer pins.
 sys.path.insert(0, str(LIBRARY))
 
-from cv005_contracts import parity  # noqa: E402 - needs the path added above.
-from cv005_contracts.action_reads import (  # noqa: E402 - as above.
+from cv005_contracts import parity
+from cv005_contracts.action_reads import (
     excluded_reads,
     keys_read,
     pattern_reads,

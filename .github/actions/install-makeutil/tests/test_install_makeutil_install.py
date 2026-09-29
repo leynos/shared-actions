@@ -318,7 +318,7 @@ class TestHttpsOnlyRedirects:
                 self.send_header("Location", "http://127.0.0.1:9/asset")
                 self.end_headers()
 
-            def log_message(self, *_args: object) -> None:
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
                 return None
 
         with http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Redirect) as server:

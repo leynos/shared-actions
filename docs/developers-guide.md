@@ -1193,7 +1193,7 @@ The pinned digest table in `install_makeutil.py` is the trust anchor, keyed by
 version and target. The release's `.sha256` sidecar is a second, independent
 check: it must agree with the table and must name the expected asset. Both are
 checked before any byte reaches `bin-dir`. The downloader is HTTPS only, sizes
-its read against a 50 MiB cap, and carries a 30 second timeout. Its opener is
+its read against a 50 MiB cap, and carries a 30-second timeout. Its opener is
 built from `OpenerDirector` with only the proxy, HTTPS, redirect and error
 handlers, so a redirect to `http://`, `ftp://` or `file://` fails as an unknown
 URL type before any request. `_https_only_opener` takes an optional HTTPS

@@ -92,7 +92,7 @@ Beside it, one `install-makeutil.cache` line reports how the cache was used:
 `expected-sha256-override` exists so a test workflow can tamper with the
 expected digest and assert that a genuinely correct download is still refused.
 It has no legitimate use outside such a test; leave it unset in any real
-install.
+installation.
 
 ## Outputs
 

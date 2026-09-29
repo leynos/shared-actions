@@ -1018,6 +1018,10 @@ A day whose only Rust changes are test files is a separate matter and needs no
 caller change: `mutation-cargo.yml` drops the files cargo-mutants cannot act on
 before scoping, and skips the job rather than running it to a failure.
 
+A caller whose `.cargo/config.toml` selects the mold linker passes
+`install-mold: 'true'` to `mutation-cargo.yml`, which forwards it to
+`setup-rust`. See `docs/mutation-cargo-workflow.md`.
+
 ## The problem
 
 The nested `actions-rust-lang/setup-rust-toolchain` action exports

@@ -74,6 +74,14 @@ on:
           pipefail`; empty means no extra setup.
         type: string
         default: ""
+      install-mold:
+        description: >-
+          Install the pinned mold linker through setup-rust ("true" or
+          "false"), for callers whose `.cargo/config.toml` selects it. The
+          workflow sets no linker flag itself; see the workflow guide for
+          how RUSTFLAGS interacts with the caller's configuration.
+        type: string
+        default: 'false'
 
 # Default the token to no scopes; jobs opt in explicitly.
 permissions: {}
@@ -213,6 +221,8 @@ jobs:
       - name: Setup Rust
         if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
         uses: ./workflow-src/.github/actions/setup-rust
+        with:
+          install-mold: ${{ inputs.install-mold }}
 
       - name: Install cargo-mutants
         if: ${{ env.ACT != 'true' }}

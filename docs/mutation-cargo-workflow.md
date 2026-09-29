@@ -85,6 +85,21 @@ jobs:
 | `extra-args`            | (empty)                   | Extra cargo-mutants arguments (shell-lexed), e.g. `--all-features`.                                                                                         |
 | `allow-no-mutants`      | `false`                   | Accept a run that enumerated no mutants; left false, an empty run fails.                                                                                    |
 | `setup-commands`        | (empty)                   | Shell commands run before cargo-mutants in each mutants job (e.g. `sudo apt-get install -y mold` when the repo's `.cargo/config.toml` selects that linker). |
+| `install-mold`          | `false`                   | `"true"` installs the pinned mold linker through `setup-rust` on Linux runners, for repos whose `.cargo/config.toml` selects it. Sets no linker flag.       |
+
+## Installing mold
+
+Pass `install-mold: 'true'` when the caller's `.cargo/config.toml` selects the
+mold linker, so the scheduled run finds it. The input is forwarded to the
+`setup-rust` step, which verifies the pinned release against its recorded
+SHA-256 and puts `mold` and `ld.mold` on `PATH`; see the `setup-rust` section
+of the users' guide. Prefer it to an `apt-get` line in `setup-commands`.
+
+The workflow does not change `setup-rust`'s `rustflags` default. That default
+exports `RUSTFLAGS="-D warnings"`, and Cargo takes `RUSTFLAGS` over every
+`rustflags` entry in `.cargo/config.toml`, so a mold flag set there does not
+apply in these runs; mold is installed, and used only where the configuration
+selects it through `linker`.
 
 ## Notes
 

@@ -1151,8 +1151,8 @@ expect = "test_a_matrix_cell_the_job_does_not_have_is_refused"
 [[mutation]]
 id = "PM6 an unread matrix value accepted"
 file = "cv005_contracts/pairing.py"
-old = "        for key in sorted(set(pairing.matrix) - read)\n"
-new = "        for key in []\n"
+old = "            for key in sorted(set(self._pairing.matrix) - self._read)\n"
+new = "            for key in []\n"
 expect = "test_a_matrix_value_the_leg_never_reads_is_refused"
 
 [[mutation]]

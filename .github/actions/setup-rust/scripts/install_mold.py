@@ -453,10 +453,10 @@ def install(
     """
     adapters = adapters or Adapters()
     destination = install_dir(tool_cache, release)
-    state = cache_state(destination, release, adapters.run)
-    if state == "hit":
-        return Outcome(status="cached", cache=state, bin_dir=destination / "bin")
     try:
+        state = cache_state(destination, release, adapters.run)
+        if state == "hit":
+            return Outcome(status="cached", cache=state, bin_dir=destination / "bin")
         _marker(destination).unlink(missing_ok=True)
         _fetch_and_place(
             release,

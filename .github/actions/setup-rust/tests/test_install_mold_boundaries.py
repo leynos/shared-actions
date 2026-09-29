@@ -168,6 +168,36 @@ def test_unwritable_runner_files_fail_with_one_category(
     assert "::error title=setup-rust mold::" in captured.err
 
 
+def test_an_unreadable_cache_fails_with_one_category(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A cache whose state cannot be read is reported, not raised.
+
+    Inspecting the cache is the first filesystem access ``install`` makes, so
+    a permission error there must reach the same failure metric as any later
+    one.
+    """
+    served = serve(tmp_path)
+    monkeypatch.setattr(
+        install_mold, "MOLD_DIGESTS", {(VERSION, "x86_64"): served.release.digest}
+    )
+
+    def refuse(*_args: object, **_kwargs: object) -> object:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(install_mold, "cache_state", refuse)
+
+    status = _main(tmp_path, served)()
+
+    captured = capsys.readouterr()
+    assert status == 1
+    assert captured.out.count("metric setup-rust.mold=failed") == 1
+    assert "metric setup-rust.mold.failure=filesystem" in captured.out
+    assert "::error title=setup-rust mold::" in captured.err
+
+
 @pytest.mark.parametrize(
     ("seconds", "bucket"),
     [

@@ -118,30 +118,47 @@ def _resolved_selection(
     pairing: Pairing, lane: Leg
 ) -> tuple[dict[str, object], list[str]]:
     """Return the lane leg's selection with its matrix cell's values read in."""
-    read: set[str] = set()
-    problems: list[str] = []
+    cell = _Cell(pairing)
+    flat = _flat(selection(lane.document, lane.step))
+    resolved = {key: cell.read_into(value) for key, value in flat.items()}
+    return resolved, [*cell.problems, *cell.unread()]
 
-    def replace(match: re.Match[str]) -> str:
-        """Read one `${{ matrix.key }}` from the declared cell."""
-        read.add(match.group(1))
-        return pairing.matrix.get(match.group(1), match.group(0))
 
-    def resolve(value: object) -> object:
-        """Read the declared matrix values into one string value."""
+class _Cell:
+    """Reads a pairing's declared matrix values into a leg's string values.
+
+    It records what it could not resolve, and which declared values were
+    never read, so each becomes a finding rather than a silent difference.
+    """
+
+    def __init__(self, pairing: Pairing) -> None:
+        """Hold the pairing whose declared cell is read."""
+        self._pairing = pairing
+        self._read: set[str] = set()
+        self.problems: list[str] = []
+
+    def read_into(self, value: object) -> object:
+        """Return `value` with each `${{ matrix.<name> }}` given its declared value."""
         if not isinstance(value, str):
             return value
-        text = _MATRIX_VALUE.sub(replace, value)
+        text = _MATRIX_VALUE.sub(self._replace, value)
         if _ANY_MATRIX_READ.search(text):
-            problems.append(f"reads a matrix value the pairing does not give: {text!r}")
+            self.problems.append(
+                f"reads a matrix value the pairing does not give: {text!r}"
+            )
         return text
 
-    flat = _flat(selection(lane.document, lane.step))
-    resolved = {key: resolve(value) for key, value in flat.items()}
-    problems += [
-        f"gives matrix value {key!r}, which the leg never reads"
-        for key in sorted(set(pairing.matrix) - read)
-    ]
-    return resolved, problems
+    def unread(self) -> list[str]:
+        """Name each declared value the leg never read."""
+        return [
+            f"gives matrix value {key!r}, which the leg never reads"
+            for key in sorted(set(self._pairing.matrix) - self._read)
+        ]
+
+    def _replace(self, match: re.Match[str]) -> str:
+        """Read one `${{ matrix.<name> }}`, leaving it in place when undeclared."""
+        self._read.add(match.group(1))
+        return self._pairing.matrix.get(match.group(1), match.group(0))
 
 
 def _flat(chosen: dict[str, object]) -> dict[str, object]:
@@ -200,29 +217,44 @@ def _matrix_cells(job: dict[str, object]) -> list[dict[str, object]] | None:
     matrix = strategy.get("matrix") if isinstance(strategy, dict) else None
     if not isinstance(matrix, dict):
         return None
-    axes = {
-        key: value
-        for key, value in matrix.items()
-        if key not in _MATRIX_CONTROLS and isinstance(value, list)
-    }
-    base = (
-        [
-            dict(zip(axes, combination, strict=True))
-            for combination in itertools.product(*axes.values())
-        ]
-        if axes
-        else []
-    )
+    axes = _axes(matrix)
+    base = _product(axes)
     includes = [item for item in matrix.get("include", []) if isinstance(item, dict)]
     extended = [
         {**cell, **item}
         for cell in base
         for item in includes
-        if all(
-            cell.get(key, value) == value for key, value in item.items() if key in axes
-        )
+        if _extends(cell, item, axes)
     ]
     return [*base, *extended, *includes]
+
+
+def _axes(matrix: dict[str, object]) -> dict[str, list[object]]:
+    """Return the matrix's axes: its list-valued keys other than the controls."""
+    return {
+        key: value
+        for key, value in matrix.items()
+        if key not in _MATRIX_CONTROLS and isinstance(value, list)
+    }
+
+
+def _product(axes: dict[str, list[object]]) -> list[dict[str, object]]:
+    """Return every combination of the axes' values, none when there are no axes."""
+    if not axes:
+        return []
+    return [
+        dict(zip(axes, combination, strict=True))
+        for combination in itertools.product(*axes.values())
+    ]
+
+
+def _extends(
+    cell: dict[str, object], item: dict[str, object], axes: dict[str, list[object]]
+) -> bool:
+    """Return whether an `include` entry agrees with a cell on every axis it names."""
+    return all(
+        cell.get(key, value) == value for key, value in item.items() if key in axes
+    )
 
 
 def _guard_violations(pairing: Pairing, lane: Leg) -> list[str]:

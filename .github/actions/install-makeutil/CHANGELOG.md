@@ -30,4 +30,4 @@ file.
 - Emit exactly one `install-makeutil.result` line per run, over a bounded
   vocabulary: `invalid-input`, `unsupported-platform`, `unknown-version`,
   `cached`, `installed`, `digest-mismatch`, `sidecar-mismatch`,
-  `download-failed`.
+  `download-failed`, `install-failed`.

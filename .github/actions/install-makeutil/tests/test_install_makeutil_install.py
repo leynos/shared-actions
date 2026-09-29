@@ -227,6 +227,26 @@ class TestCacheReverification:
         assert result.outcome == CACHED
         assert os.access(target, os.X_OK)
 
+    @pytest.mark.parametrize("failing_call", ["read_bytes", "chmod"])
+    def test_an_unusable_cache_entry_is_reported_as_install_failed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing_call: str
+    ) -> None:
+        """An `OSError` reading or `chmod`-ing the cached file becomes a
+        bounded `install-failed` result rather than an uncaught traceback.
+        """
+        target = _seed_cache(tmp_path, _BINARY)
+
+        def _failing(self: Path, *_args: object) -> typ.NoReturn:
+            message = "simulated cache failure"
+            raise OSError(message)
+
+        monkeypatch.setattr(makeutil_verify.Path, failing_call, _failing)
+
+        result = _install(target, _unreachable_downloader)
+
+        assert result.outcome == INSTALL_FAILED
+        assert "cached" in result.message
+
     def test_a_cached_file_with_a_wrong_digest_is_reinstalled(
         self, tmp_path: Path
     ) -> None:

@@ -270,6 +270,28 @@ def _finish_install(binary: bytes, executable_path: Path) -> InstallResult:
     return InstallResult(INSTALLED, path=executable_path)
 
 
+def _reuse_cached_binary(
+    executable_path: Path, expected_sha256: str
+) -> InstallResult | None:
+    """Return a `cached` result when the file at `executable_path` is reusable.
+
+    `None` means there is nothing to reuse and the caller should download. A
+    digest match proves the bytes are right, not that the mode survived
+    whatever placed them there - a cache restore does not preserve the
+    executable bit - so the mode is set here. Reading or `chmod`-ing an
+    unreadable or read-only entry can fail; that becomes a bounded
+    `install-failed` result rather than an uncaught traceback.
+    """
+    try:
+        if not _cached_digest_matches(executable_path, expected_sha256):
+            return None
+        executable_path.chmod(0o755)
+    except OSError as error:
+        message = f"could not reuse the cached {executable_path}: {error}"
+        return InstallResult(INSTALL_FAILED, message=message)
+    return InstallResult(CACHED, path=executable_path)
+
+
 def install_makeutil(
     *,
     executable_path: Path,
@@ -303,12 +325,9 @@ def install_makeutil(
     InstallResult
         `outcome` is one of the bounded metric values this module declares.
     """
-    if _cached_digest_matches(executable_path, expected_sha256):
-        # A digest match proves the bytes are right, not that the mode
-        # survived whatever placed them there; a cache restore in
-        # particular does not preserve the executable bit.
-        executable_path.chmod(0o755)
-        return InstallResult(CACHED, path=executable_path)
+    cached = _reuse_cached_binary(executable_path, expected_sha256)
+    if cached is not None:
+        return cached
 
     expected_name = asset_urls.binary.rsplit("/", 1)[-1]
     try:

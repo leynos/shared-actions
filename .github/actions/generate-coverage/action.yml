@@ -189,7 +189,7 @@ runs:
         esac
     - name: Setup uv
       id: setup-uv
-      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
       with:
         # An exact uv release. Without it every run installs the newest uv,
         # and a uv release changed which interpreter a bare `uv venv` picks,

@@ -134,8 +134,34 @@ def python_key(version: str) -> str:
     return ".".join(parts[:2] if len(parts) == 3 and parts[2] == "0" else parts)
 
 
+#: Keys that match the tool-pin pattern but that `generate-coverage` itself
+#: reads, to choose the version of a tool it installs to measure with. Two
+#: legs differing in one would measure with different tools, so such a key is
+#: compared. The action reads none today: its installer versions are constants
+#: in its scripts. `tests/workflows/test_cv005_parity_exclusions.py` holds this
+#: set equal to what the action reads, so a new read cannot slip under a
+#: pattern, and adding the key here is the fix that test asks for.
+ACTION_READ_KEYS: typ.Final[frozenset[str]] = frozenset()
+
+
+def matches_exclusion(key: object) -> bool:
+    """Return whether a key matches a pattern of the handwritten exclusion.
+
+    Examples
+    --------
+    >>> [matches_exclusion(k) for k in ("UV_PYTHON", "RUFF_VERSION", "UV_TOOL_DIR")]
+    [False, True, True]
+
+    """
+    name = str(key)
+    return name in TOOL_PLACEMENT_KEYS or TOOL_PIN_KEY.fullmatch(name) is not None
+
+
 def is_measured(key: object) -> bool:
     """Return whether an environment key can change what a run measures.
+
+    A key the exclusion's patterns match is still measured when the action
+    reads it.
 
     Examples
     --------
@@ -143,8 +169,7 @@ def is_measured(key: object) -> bool:
     [True, False, False]
 
     """
-    name = str(key)
-    return name not in TOOL_PLACEMENT_KEYS and TOOL_PIN_KEY.fullmatch(name) is None
+    return str(key) in ACTION_READ_KEYS or not matches_exclusion(key)
 
 
 def selection(document: Document, step: dict[str, object]) -> dict[str, object]:

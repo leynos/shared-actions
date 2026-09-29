@@ -1266,3 +1266,66 @@ file = "cv005_contracts/declared.py"
 old = "    if duplicated := sorted(\n"
 new = "    if False and sorted(\n"
 expect = "test_a_malformed_exception_is_refused"
+
+[[mutation]]
+id = "AR1 python constants not read"
+file = "cv005_contracts/action_reads.py"
+old = "        if isinstance(node, ast.Constant)\n"
+new = "        if False\n"
+expect = "test_a_planted_python_read_is_found"
+
+[[mutation]]
+id = "AR2 shell expansions in the YAML not read"
+file = "cv005_contracts/action_reads.py"
+old = "    read = set(_SHELL_READ.findall(text)) | set(_CONTEXT_READ.findall(text))\n"
+new = "    read = set(_CONTEXT_READ.findall(text))\n"
+expect = "test_a_planted_action_read_is_found"
+
+[[mutation]]
+id = "AR3 env context references not read"
+file = "cv005_contracts/action_reads.py"
+old = "    read = set(_SHELL_READ.findall(text)) | set(_CONTEXT_READ.findall(text))\n"
+new = "    read = set(_SHELL_READ.findall(text))\n"
+expect = "test_a_planted_action_read_is_found"
+
+[[mutation]]
+id = "AR4 keys the action assigns counted as reads"
+file = "cv005_contracts/action_reads.py"
+old = "    return read - assigned\n"
+new = "    return read\n"
+expect = "test_a_key_the_action_assigns_itself_is_not_a_read"
+
+[[mutation]]
+id = "AR5 test directories read as action code"
+file = "cv005_contracts/action_reads.py"
+old = "        if path.is_file() and not _SKIPPED_DIRECTORIES & set(\n"
+new = "        if path.is_file() and not set() & set(\n"
+expect = "test_a_test_or_cache_directory_is_not_action_code"
+
+[[mutation]]
+id = "AR6 an action without metadata reads as empty"
+file = "cv005_contracts/action_reads.py"
+old = "    text = (action_dir / \"action.yml\").read_text(encoding=\"utf-8\")\n"
+new = "    text = \"\"\n"
+expect = "test_an_action_without_metadata_is_refused"
+
+[[mutation]]
+id = "AR7 the carve-out ignored"
+file = "cv005_contracts/parity.py"
+old = "    return str(key) in ACTION_READ_KEYS or not matches_exclusion(key)"
+new = "    return not matches_exclusion(key)"
+expect = "test_a_key_the_action_reads_is_compared_once_listed"
+
+[[mutation]]
+id = "AR8 the carve-out admits every key"
+file = "cv005_contracts/parity.py"
+old = "    return str(key) in ACTION_READ_KEYS or not matches_exclusion(key)"
+new = "    return True"
+expect = "test_a_planted_python_read_is_found"
+
+[[mutation]]
+id = "AR9 placement keys not excluded"
+file = "cv005_contracts/parity.py"
+old = "    return name in TOOL_PLACEMENT_KEYS or TOOL_PIN_KEY.fullmatch(name) is not None"
+new = "    return TOOL_PIN_KEY.fullmatch(name) is not None"
+expect = "test_every_kind_of_excluded_key_is_found"

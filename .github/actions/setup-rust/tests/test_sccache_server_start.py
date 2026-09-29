@@ -103,6 +103,8 @@ def _run_server(scenario: Scenario) -> subprocess.CompletedProcess[str]:
     (workdir / "temp").mkdir(exist_ok=True)
     environment["RUNNER_TEMP"] = str(workdir / "temp")
     environment["GITHUB_ENV"] = str(workdir / "github_env")
+    environment["GITHUB_OUTPUT"] = str(workdir / "github_output")
+    environment["GITHUB_STEP_SUMMARY"] = str(workdir / "summary")
     if scenario.caller_conf is not None:
         environment["SCCACHE_CONF"] = scenario.caller_conf
     if sccache_path is not None:
@@ -126,6 +128,12 @@ def _env_file(workdir: Path) -> list[str]:
     """Return the lines the fragment appended to `GITHUB_ENV`."""
     path = workdir / "github_env"
     return path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+
+
+def _read(workdir: Path, name: str) -> str:
+    """Return a file the fragment wrote under `workdir`, or empty."""
+    path = workdir / name
+    return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
 def _written_conf(workdir: Path) -> str:
@@ -342,9 +350,9 @@ class TestBehaviour:
 
         assert completed.returncode == 0, completed.stderr
         assert (
-            "::warning title=setup-rust sccache::sccache server did not start; "
-            "building without the compiler cache"
-        ) in completed.stdout
+            "::warning title=sccache-fallback::sccache server did not start "
+            "within 60 s; this job compiled without the compiler cache"
+        ) in completed.stdout.splitlines()
         assert "RUSTC_WRAPPER=" in _env_file(workdir)
         assert _reported(completed) == "start-failed"
 
@@ -356,6 +364,81 @@ class TestBehaviour:
         _run_server(Scenario(workdir=workdir, sccache_path=str(fake_sccache)))
 
         assert "RUSTC_WRAPPER=" not in _env_file(workdir)
+
+
+class TestFallbackSignals:
+    """A fallback must be findable without reading a log.
+
+    Estate-wide detectors count the annotation title, so it is a contract.
+    """
+
+    def test_the_annotation_title_is_the_contract(self, fake_sccache: Path) -> None:
+        """Renaming the title would blind every detector built on it."""
+        completed = _run_server(
+            Scenario(
+                workdir=fake_sccache.parent,
+                sccache_path=str(fake_sccache),
+                start_exit=1,
+            )
+        )
+
+        assert "::warning title=sccache-fallback::" in completed.stdout
+
+    def test_the_summary_line_reaches_the_run_page(self, fake_sccache: Path) -> None:
+        """The summary shows on the run page, not only in the log."""
+        workdir = fake_sccache.parent
+        _run_server(
+            Scenario(workdir=workdir, sccache_path=str(fake_sccache), start_exit=1)
+        )
+
+        assert (
+            "sccache: FALLBACK (cache disabled for this job)"
+            in _read(workdir, "summary").splitlines()
+        )
+
+    def test_the_output_says_fallback(self, fake_sccache: Path) -> None:
+        """A caller workflow can act on the output."""
+        workdir = fake_sccache.parent
+        _run_server(
+            Scenario(workdir=workdir, sccache_path=str(fake_sccache), start_exit=1)
+        )
+
+        assert _read(workdir, "github_output").splitlines() == ["status=fallback"]
+
+    def test_a_started_server_raises_no_fallback_signal(
+        self, fake_sccache: Path
+    ) -> None:
+        """A healthy start reports `started` and leaves the summary alone."""
+        workdir = fake_sccache.parent
+        completed = _run_server(
+            Scenario(workdir=workdir, sccache_path=str(fake_sccache))
+        )
+
+        assert "sccache-fallback" not in completed.stdout
+        assert _read(workdir, "summary") == ""
+        assert _read(workdir, "github_output").splitlines() == ["status=started"]
+
+    def test_a_caller_owned_wrapper_sets_no_status(self, fake_sccache: Path) -> None:
+        """When the action starts no server, the output stays empty."""
+        workdir = fake_sccache.parent
+        _run_server(
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                wrapper_state="caller-set",
+            )
+        )
+
+        assert _read(workdir, "github_output") == ""
+
+    def test_the_output_is_exposed_by_the_action(self) -> None:
+        """The step's output must be wired to the action's own output."""
+        outputs = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))["outputs"]
+
+        assert outputs["sccache-status"]["value"] == (
+            "${{ steps.sccache-server.outputs.status }}"
+        )
+        assert get_step(SERVER_STEP)["id"] == "sccache-server"
 
 
 class TestStartupTimeout:

@@ -340,6 +340,17 @@ server still will not start, the step warns, writes `RUSTC_WRAPPER=` to
 rustc) and exits 0 with `start-failed`: a cache is an optimization and an
 unreachable one must never fail a job.
 
+A fallback must stay detectable, so it raises three signals and a contract
+holds each:
+
+- a warning annotation titled `sccache-fallback`, reading "sccache server did
+  not start within 60 s; this job compiled without the compiler cache". The
+  title is what estate-wide detectors count on recent runs, so it never changes;
+- the line `sccache: FALLBACK (cache disabled for this job)` appended to
+  `GITHUB_STEP_SUMMARY`, which shows on the run page and not only in the log;
+- the `sccache-status` output, `fallback` here and `started` on success, empty
+  when the action did not start the server, for a caller workflow to act on.
+
 Whether the restart may happen is read from the wrapper step's `state` output,
 not from `RUSTC_WRAPPER`: an inherited wrapper may name this very binary, and
 stopping the server behind it would discard the statistics of everything

@@ -2663,6 +2663,11 @@ the one leg that proves the aarch64 mold archive on real Arm hardware. Its
 x86_64 leg follows the ordinary fork-fallback rule, and both legs carry
 platform-word names so that no check name depends on the runner.
 
+Because the label sits outside the placement rule, that rule cannot see a Linux
+job move onto it. `HOSTED_ARM_LINUX_JOBS` names the jobs allowed to use it,
+each with a reason, and `TestHostedArmLinuxLanes` fails for any other job that
+can reach the label and for an allowance whose job has gone or left the label.
+
 An exemption whose job has been renamed or deleted fails the contract. That is
 deliberate: without it the mapping accumulates permissions for jobs that no
 longer exist, and the next job to take one of those names inherits a decision

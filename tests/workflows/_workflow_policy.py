@@ -30,15 +30,17 @@ HOSTED_LINUX: typ.Final[str] = "ubuntu-latest"
 #: the shape of its name, because "starts with ubicloud" would accept a
 #: shape nobody measured and "contains ubuntu" would accept
 #: `ubicloud-standard-2-ubuntu-2404` as a GitHub-hosted runner.
+HOSTED_ARM_LINUX: typ.Final[str] = "ubuntu-24.04-arm"
 RECOGNIZED_LINUX_LABELS: typ.Final[frozenset[str]] = frozenset(
     {UBICLOUD_LINUX, HOSTED_LINUX}
 )
 #: `windows-11-arm` and `ubuntu-24.04-arm` are the GitHub-hosted Arm runners.
 #: The Linux Arm one is listed here, not with the Linux labels, because the
 #: Ubicloud placement rule is about x86_64 work and no Ubicloud Arm shape has
-#: been measured; it is the only place the aarch64 mold archive is proved.
+#: been measured. Listing it here would let any Linux job take it unseen, so
+#: `HOSTED_ARM_LINUX_JOBS` names the jobs that may, and a contract enforces it.
 RECOGNIZED_OTHER_LABELS: typ.Final[frozenset[str]] = frozenset(
-    {"macos-15", "windows-latest", "windows-11-arm", "ubuntu-24.04-arm"}
+    {"macos-15", "windows-latest", "windows-11-arm", HOSTED_ARM_LINUX}
 )
 
 _MUTATION_REASON: typ.Final[str] = (
@@ -74,6 +76,18 @@ HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ("dependabot-automerge.yml", "automerge"): (
         "A delayed-comment lane that waits on other checks rather than "
         "computing anything, and never blocks a developer."
+    ),
+}
+
+#: The only jobs allowed to run on the GitHub-hosted Linux Arm runner, each
+#: with the reason. The label sits outside the Linux placement rule, so a job
+#: not named here could take it and bypass both the Ubicloud and the
+#: fork-fallback contracts.
+HOSTED_ARM_LINUX_JOBS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
+    ("test-setup-rust-mold.yml", "installs-on-linux"): (
+        "The aarch64 mold archive is proved only on real Arm hardware, and "
+        "this repository has measured no Ubicloud Arm shape. The job's x86_64 "
+        "leg follows the ordinary Ubicloud placement."
     ),
 }
 

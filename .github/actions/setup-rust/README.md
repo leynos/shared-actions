@@ -24,6 +24,8 @@ require them, and set up macOS or OpenBSD cross-compilers.
 | rustflags                   | `RUSTFLAGS` exported by the toolchain setup step. Set to the empty string to leave `RUSTFLAGS` unset, so an inherited value or the project's `build.rustflags` applies.      | no       | `-D warnings`                         |
 | sccache-cache-discriminator | Separates this job's sccache directory cache from other jobs on the same OS, architecture and compiler. Used only on a GitHub-hosted runner the action owns.                 | no       | the job id                            |
 | expect-cache                | The sccache backend the job requires: `ubicloud`, `github` or `any`. Anything but `any` fails the job when the selected backend differs, after caller settings apply.        | no       | `any`                                 |
+| install-mold                | Install the pinned, digest-verified mold linker on Linux and put `mold` and `ld.mold` on `PATH`. A notice-only no-op on macOS and Windows. Sets no linker flag.              | no       | `false`                               |
+| mold-version                | mold release to install. Only versions whose digests the action records are accepted.                                                                                        | no       | `2.41.0`                              |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -34,6 +36,8 @@ require them, and set up macOS or OpenBSD cross-compilers.
 | Name          | Description                                                                                      |
 | ------------- | ------------------------------------------------------------------------------------------------ |
 | cache-backend | The sccache backend selected: `ubicloud`, `github` or `local`. Empty when sccache is not in use. |
+| mold-status   | `installed`, `cached` or `skipped` (off Linux). Empty when `install-mold` is not `true`.         |
+| mold-version  | The mold version now on `PATH`. Empty when mold was skipped or not requested.                    |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -86,6 +90,42 @@ Linux so that Rust crates can be cross-compiled for macOS. The SDK version can
 be configured via the `darwin-sdk-version` input and defaults to `12.3`. The
 `x86_64-apple-darwin` and `aarch64-apple-darwin` Rust targets are installed so
 that Cargo can produce macOS binaries.
+
+When `install-mold` is `true` on a Linux runner, the action installs the pinned
+mold release for the runner's architecture (x86_64 or aarch64). The archive is
+checked against a SHA-256 the action records for that version and architecture,
+and anything else fails the job: an unlisted version or architecture, a digest
+mismatch, an archive without `ld.mold`, or a binary that reports a different
+version. The verified tree is kept in the runner's tool cache under the version
+and digest, so a second call in the same job, or on a runner whose tool cache
+persists, reports `cached` and downloads nothing. On macOS and Windows the
+input is a no-op with a notice, so a matrix can pass it unconditionally.
+
+The action never selects mold for you. Choose it in the project's
+`.cargo/config.toml`, which keeps local builds and CI on one configuration:
+
+```toml
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-D", "warnings", "-C", "link-arg=-fuse-ld=mold"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-D", "warnings", "-C", "link-arg=-fuse-ld=mold"]
+```
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/setup-rust@<sha>
+  with:
+    install-mold: 'true'
+    rustflags: ''
+```
+
+Set `rustflags: ''` as well. Cargo takes `RUSTFLAGS` in preference to every
+`rustflags` entry in `.cargo/config.toml`, and the input's default,
+`-D warnings`, is exported as `RUSTFLAGS`, so without it the configuration
+above is ignored and the build links with the system linker while `mold-status`
+still reports `installed`. For the same reason the job must not inherit a
+`RUSTFLAGS` of its own. The configuration above carries `-D warnings` itself,
+so nothing is lost.
 
 When `with-openbsd` is enabled, the action installs the nightly toolchain
 specified by the `openbsd-nightly` input (default `nightly-2025-07-20`), builds

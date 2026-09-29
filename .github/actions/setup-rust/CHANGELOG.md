@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Add an opt-in `install-mold` input. On a Linux runner it installs the pinned
+  mold release (2.41.0, or `mold-version`) for x86_64 or aarch64, verified
+  against a SHA-256 table the action holds, and puts `mold` and `ld.mold` on
+  `PATH` from the tool cache, keyed by version and digest. An unlisted version
+  or architecture, a digest mismatch or a wrong version reported by the binary
+  fails the job. On macOS and Windows it is a no-op with a notice. New outputs
+  `mold-status` (`installed`, `cached` or `skipped`) and `mold-version` report
+  the outcome, and bounded metrics report the cache state (`miss`, `hit` or
+  `stale`), an elapsed-time bucket and, on failure, one category. A cached tree
+  that has lost `ld.mold` or no longer runs is reinstalled. The action sets no
+  linker flag; the consumer's `.cargo/config.toml` selects mold, with
+  `rustflags: ''` so the default `-D warnings` is not exported as `RUSTFLAGS`
+  over it.
+
 - Select the sccache backend by runner. A JavaScript step reads
   `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`, which `run:` steps cannot
   see. A private address literal is Ubicloud's proxy, whose credentials the

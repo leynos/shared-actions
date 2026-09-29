@@ -432,6 +432,76 @@ that does call `export-ubicloud-cache-credentials` must still call it **before**
 `setup-rust`: the GitHub Actions backend reads its endpoint when the sccache
 server starts, so credentials published afterwards arrive too late.
 
+## `setup-rust` and the mold linker
+
+`install-mold` installs a pinned mold release on Linux runners so that the
+estate's build standard can enable mold with one input rather than an `apt`
+step in every workflow. The step runs
+`.github/actions/setup-rust/scripts/install_mold.py`, which owns every
+decision; the step only binds the runner's values through `env`.
+
+Why this is not an `install-tool` manifest entry: `install-tool` installs one
+binary member from an archive. mold is a tree, and a compiler driver asked for
+`-fuse-ld=mold` looks for `ld.mold`, which the archive ships as a symbolic link
+beside `mold`, with `libexec/mold/ld` and `lib/mold/mold-wrapper.so` for the
+other ways of invoking it. Extending `install-tool` to trees would change its
+contract for every tool it serves, so setup-rust holds its own digest table,
+`MOLD_DIGESTS`, in the script.
+
+Rules to keep:
+
+- **The pinned digest is the trust anchor, computed from an independent
+  download.** 2.41.0's digests were computed from fresh downloads and agree
+  with the digests GitHub records for the release assets and with netsuke's
+  `tools/mold/SHA256SUMS`. A new version needs both architectures recorded
+  before a caller can ask for it, and the action's `mold-version` default must
+  be one of them; a contract holds that.
+- **Fail closed, with one category.** An unlisted version or architecture, a
+  failed or truncated download, a digest mismatch, an archive without
+  `bin/mold` and `bin/ld.mold` or with anything beside its single top-level
+  directory, a member that would land outside the staging directory, a binary
+  reporting another version, and any filesystem or runner-file error all fail
+  the job. Each is a `MoldInstallError` subclass naming one bounded category,
+  `main` prints exactly one `failed` metric and one
+  `metric setup-rust.mold.failure=<category>`, and none of them leaves a
+  completion marker or a `PATH` entry. `http.client.IncompleteRead` is not an
+  `OSError`, so the download catches `HTTPException` too.
+- **The tool-cache path carries the digest.**
+  `<tool cache>/mold/<version>-<digest>/<arch>` with an `<arch>.complete`
+  marker beside it. A changed pin for the same version therefore never reuses a
+  tree unpacked from the old archive. A marked tree is a `hit` only while every
+  required file is present and the binary under it still reports the pinned
+  version; otherwise it is `stale` and reinstalled. The state is reported as
+  `metric setup-rust.mold.cache=<miss|hit|stale>`, beside an elapsed-time
+  bucket.
+- **Side effects sit behind two adapters.** `scripts/mold_adapters.py` holds
+  `run_binary` and `open_url`, the only places the installer touches a process
+  or the network. `install` and `main` take them as parameters, so tests
+  substitute stand-ins, and `probe` returns a typed `Probe` that keeps a
+  failure's kind instead of collapsing it into "not installed".
+- **The unpacked tree is renamed into place.** It is unpacked beside its
+  destination, so the rename stays on one filesystem and a reader never sees
+  half a tree.
+- **No linker flag.** Selecting mold is the consumer's `.cargo/config.toml`
+  (concordat BD-002). A contract refuses `fuse-ld` and `*_LINKER` in every step
+  of the action.
+- **Off Linux it is a notice.** A matrix passes `install-mold` to every leg,
+  so macOS and Windows report `skipped` and never fail.
+
+`tests/test_install_mold.py` drives the script against stand-in archives served
+from a `file://` base URL, `tests/test_install_mold_boundaries.py` substitutes
+the adapters and makes the tool cache and runner files unwritable,
+`tests/test_install_mold_properties.py` generates escaping member names and
+link targets, and `tests/test_mold_contract.py` holds the manifest's guards,
+command, outputs, default and input validation. All were proved by mutation.
+The installer and its assertion script declare Python 3.12, an inline-recorded
+exception to the scripting standard's 3.13: they run on Ubuntu 24.04, whose
+system interpreter is 3.12, and a 3.13 floor would download an interpreter on
+every job. `.github/workflows/test-setup-rust-mold.yml` runs the action on
+x86_64 and aarch64 Linux (a fresh install, a cached second call, a build linked
+by mold and a tampered archive refused) and on macOS and Windows (the skip),
+with every assertion in `.github/scripts/assert_mold_install.py`.
+
 ## Rust action cache ownership
 
 The [`setup-rust`](../.github/actions/setup-rust/action.yml) and

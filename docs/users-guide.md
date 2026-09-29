@@ -161,6 +161,49 @@ action can do that with `core.exportVariable`, and one that touches a reserved
 `ACTIONS_*` name will silently outrank whatever a caller exported earlier. Look
 for the write before assuming the platform.
 
+## `setup-rust` and the mold linker
+
+Set `install-mold: 'true'` to have `setup-rust` install the mold linker on a
+Linux runner. It is opt-in and off by default.
+
+- **What is installed.** mold 2.41.0, or the release named by `mold-version`,
+  for x86_64 or aarch64. Only versions whose SHA-256 the action records are
+  accepted, and the archive is checked against that digest before anything is
+  unpacked. `mold` and `ld.mold` are then on `PATH` for the rest of the job.
+- **Failure.** An unrecorded version, an unsupported architecture, a failed
+  download, a digest mismatch or a binary reporting another version fails the
+  job. Nothing is put on `PATH`, and the step prints
+  `metric setup-rust.mold=failed` with one
+  `metric setup-rust.mold.failure=<category>` line.
+- **Reuse.** The verified tree is kept in the runner's tool cache under the
+  version and digest. A second call in the same job, or a call on a runner
+  whose tool cache persists, reports `cached` and downloads nothing. A cached
+  tree that has lost `ld.mold` or no longer runs is reinstalled.
+- **macOS and Windows.** A notice and `mold-status: skipped`, never an error,
+  so a matrix can pass the input to every leg.
+- **Outputs.** `mold-status` (`installed`, `cached` or `skipped`, and empty
+  when the input is not `true`) and `mold-version`.
+
+The action sets no linker flag. Select mold in the project's
+`.cargo/config.toml`, and set `rustflags: ''` so the action's default
+`-D warnings` is not exported as `RUSTFLAGS`, which Cargo would take in
+preference to the configuration file:
+
+```toml
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-D", "warnings", "-C", "link-arg=-fuse-ld=mold"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-D", "warnings", "-C", "link-arg=-fuse-ld=mold"]
+```
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/setup-rust@<sha>
+  with:
+    install-mold: 'true'
+    rustflags: ''
+```
+
 ## Rust cache ownership
 
 `setup-rust` and `generate-coverage` accept `cache-provider: github` or

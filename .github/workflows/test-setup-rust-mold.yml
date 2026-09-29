@@ -1,0 +1,115 @@
+name: Test setup-rust mold
+
+# Exercises setup-rust's install-mold input on real runners: a fresh install
+# and a tool-cache reuse on both Linux architectures, a build that really
+# links with mold, a tampered archive refused, and the notice-only skip on
+# macOS and Windows. Every assertion lives in .github/scripts/assert_mold_install.py.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installs-on-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust with mold
+        id: first
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'false'
+          install-mold: 'true'
+
+      - name: Assert the first call installed mold
+        shell: bash
+        env:
+          MOLD_STATUS: ${{ steps.first.outputs.mold-status }}
+          MOLD_VERSION: ${{ steps.first.outputs.mold-version }}
+        run: >-
+          uv run --script .github/scripts/assert_mold_install.py outcome
+          --status "$MOLD_STATUS" --version "$MOLD_VERSION"
+          --expect-status installed --expect-version 2.41.0
+
+      - name: Set up Rust with mold again
+        id: second
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'false'
+          install-mold: 'true'
+
+      - name: Assert the second call reused the tool cache
+        shell: bash
+        env:
+          MOLD_STATUS: ${{ steps.second.outputs.mold-status }}
+          MOLD_VERSION: ${{ steps.second.outputs.mold-version }}
+        run: >-
+          uv run --script .github/scripts/assert_mold_install.py outcome
+          --status "$MOLD_STATUS" --version "$MOLD_VERSION"
+          --expect-status cached --expect-version 2.41.0
+
+      # The action sets no linker flag, so the job does, as a consumer's
+      # .cargo/config.toml would.
+      - name: Build the toy app with mold as the linker
+        shell: bash
+        env:
+          RUSTFLAGS: -C link-arg=-fuse-ld=mold
+        run: cargo build --manifest-path rust-toy-app/Cargo.toml
+
+      - name: Assert the toy app was linked by mold
+        shell: bash
+        run: >-
+          uv run --script .github/scripts/assert_mold_install.py linked-by-mold
+          --binary rust-toy-app/target/debug/rust-toy-app
+
+      - name: Assert a tampered archive is refused
+        shell: bash
+        run: >-
+          uv run --script .github/scripts/assert_mold_install.py tampered
+          --mold-version 2.41.0 --runner-arch "$RUNNER_ARCH"
+          --scratch "$RUNNER_TEMP/mold-tampered"
+
+  skips-off-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust with mold
+        id: setup
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'false'
+          install-mold: 'true'
+
+      - name: Assert mold was skipped with a notice
+        shell: bash
+        env:
+          MOLD_STATUS: ${{ steps.setup.outputs.mold-status }}
+          MOLD_VERSION: ${{ steps.setup.outputs.mold-version }}
+        run: >-
+          uv run --script .github/scripts/assert_mold_install.py outcome
+          --status "$MOLD_STATUS" --version "$MOLD_VERSION"
+          --expect-status skipped --expect-version ""

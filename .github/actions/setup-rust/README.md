@@ -106,17 +106,26 @@ The action never selects mold for you. Choose it in the project's
 
 ```toml
 [target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+rustflags = ["-D", "warnings", "-C", "link-arg=-fuse-ld=mold"]
 
 [target.aarch64-unknown-linux-gnu]
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+rustflags = ["-D", "warnings", "-C", "link-arg=-fuse-ld=mold"]
 ```
 
 ```yaml
 - uses: leynos/shared-actions/.github/actions/setup-rust@<sha>
   with:
     install-mold: 'true'
+    rustflags: ''
 ```
+
+Set `rustflags: ''` as well. Cargo takes `RUSTFLAGS` in preference to every
+`rustflags` entry in `.cargo/config.toml`, and the input's default,
+`-D warnings`, is exported as `RUSTFLAGS`, so without it the configuration
+above is ignored and the build links with the system linker while `mold-status`
+still reports `installed`. For the same reason the job must not inherit a
+`RUSTFLAGS` of its own. The configuration above carries `-D warnings` itself,
+so nothing is lost.
 
 When `with-openbsd` is enabled, the action installs the nightly toolchain
 specified by the `openbsd-nightly` input (default `nightly-2025-07-20`), builds

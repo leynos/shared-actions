@@ -9,8 +9,12 @@
   or architecture, a digest mismatch or a wrong version reported by the binary
   fails the job. On macOS and Windows it is a no-op with a notice. New outputs
   `mold-status` (`installed`, `cached` or `skipped`) and `mold-version` report
-  the outcome. The action sets no linker flag; the consumer's
-  `.cargo/config.toml` selects mold.
+  the outcome, and bounded metrics report the cache state (`miss`, `hit` or
+  `stale`), an elapsed-time bucket and, on failure, one category. A cached tree
+  that has lost `ld.mold` or no longer runs is reinstalled. The action sets no
+  linker flag; the consumer's `.cargo/config.toml` selects mold, with
+  `rustflags: ''` so the default `-D warnings` is not exported as `RUSTFLAGS`
+  over it.
 
 - Select the sccache backend by runner. A JavaScript step reads
   `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`, which `run:` steps cannot

@@ -3,6 +3,9 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
+# Python 3.12 rather than the scripting standard's 3.13, as for the installer
+# it imports: the test workflow runs it on Ubuntu 24.04, whose system
+# interpreter is 3.12, and nothing here needs 3.13.
 """Assert what setup-rust's mold installer did on a real runner.
 
 ``test-setup-rust-mold.yml`` calls this after each step it checks, so every
@@ -49,6 +52,8 @@ def _load_installer() -> ModuleType:
     if spec is None or spec.loader is None:
         msg = f"cannot load {INSTALLER}"
         raise MoldAssertionError(msg)
+    # The installer imports its adapters module from its own directory.
+    sys.path.insert(0, str(INSTALLER.parent))
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)

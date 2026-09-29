@@ -10,6 +10,9 @@ hold the action to setting no linker flag, which is the consumer's choice.
 from __future__ import annotations
 
 import importlib.util
+import os
+import shutil
+import subprocess
 import sys
 import typing as typ
 from pathlib import Path
@@ -37,6 +40,9 @@ def _load_installer() -> ModuleType:
     spec = importlib.util.spec_from_file_location("install_mold_contract", SCRIPT)
     assert spec is not None
     assert spec.loader is not None
+    # The installer imports its adapters module from its own directory.
+    if str(SCRIPT.parent) not in sys.path:
+        sys.path.insert(0, str(SCRIPT.parent))
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
@@ -136,3 +142,44 @@ def test_the_action_sets_no_linker_flag() -> None:
     ]
 
     assert offenders == []
+
+
+@pytest.mark.parametrize(
+    ("value", "expected_status"),
+    [
+        pytest.param("true", 0, id="true"),
+        pytest.param("false", 0, id="false"),
+        pytest.param("yes", 1, id="yes"),
+        pytest.param("True", 1, id="capitalised"),
+        pytest.param("", 1, id="empty"),
+    ],
+)
+def test_install_mold_accepts_only_true_or_false(
+    value: str, expected_status: int
+) -> None:
+    """A mistyped value fails the job instead of silently skipping mold.
+
+    The step's own body runs with the input bound as the action binds it.
+    """
+    step = next(
+        step
+        for step in _manifest()["runs"]["steps"]
+        if step.get("name") == "Validate install-mold"
+    )
+    assert step["env"] == {"SR_INSTALL_MOLD": "${{ inputs.install-mold }}"}
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash not found on PATH")
+
+    result = subprocess.run(  # noqa: S603, TID251 - runs the action's own fragment.
+        [bash, "-c", str(step["run"])],
+        check=False,
+        capture_output=True,
+        env={**os.environ, "SR_INSTALL_MOLD": value},
+        text=True,
+    )
+
+    assert result.returncode == expected_status
+    assert ("install-mold must be true or false" in result.stderr) == bool(
+        expected_status
+    )

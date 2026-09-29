@@ -9,17 +9,11 @@ commit difference, and a number comes out either way.
 
 from __future__ import annotations
 
-import re
 import typing as typ
 
 from .closure import reachable
 from .expressions import ConditionError, missing_terms
-from .parity import (
-    generator_env,
-    inputs_of,
-    is_false,
-    ratchet_violations,
-)
+from .parity import inputs_of, is_false, ratchet_violations
 from .publisher import COVERAGE_ACTION, action_steps, invokes
 from .reading import jobs, steps, triggers
 
@@ -143,68 +137,3 @@ def second_writer_violations(
         if name != publisher
         for _ in _push_coverage_steps(document)
     ]
-
-
-#: An explicit interpreter version, such as `3.13` or `3.13.5`. uv also
-#: accepts `3` or `>=3.12`, but those still take the newest match on the
-#: runner, which is the drift this pin exists to stop.
-_BOUNDED_PYTHON: typ.Final[re.Pattern[str]] = re.compile(r"\d+\.\d+(?:\.\d+)?")
-
-
-def _pins_interpreter(
-    document: Document, step: dict[str, object], interpreter: str
-) -> bool:
-    """Return whether a coverage step's merged `env` pins exactly `interpreter`."""
-    match generator_env(document, step):
-        case {"UV_PYTHON": str() as version}:
-            return version == interpreter
-        case _:
-            return False
-
-
-def interpreter_violations(publisher: Document, interpreter: str) -> list[str]:
-    """Require the publisher's generator to pin the configured interpreter.
-
-    `generate-coverage` builds its venv with `uv venv`, which takes the
-    newest Python it can find, so a lane whose earlier steps download
-    another Python measures under that one. The parity rule already holds
-    every lane generator's measured `env` equal to a publisher generator's,
-    so pinning the publisher pins them all.
-
-    Parameters
-    ----------
-    publisher : Document
-        The publisher workflow document.
-    interpreter : str
-        The explicit version the repository measures under, such as `3.13`.
-
-    Returns
-    -------
-    list[str]
-        One violation when the generator's `UV_PYTHON` is not exactly
-        `interpreter`, or when `interpreter` itself is not an explicit
-        version.
-
-    Examples
-    --------
-    >>> interpreter_violations({"jobs": {}}, "3")
-    ["the configured interpreter '3' is not an explicit version such as 3.13"]
-
-    """
-    if _BOUNDED_PYTHON.fullmatch(interpreter) is None:
-        message = (
-            f"the configured interpreter {interpreter!r} is not an explicit "
-            "version such as 3.13"
-        )
-        return [message]
-    generators = action_steps(publisher, COVERAGE_ACTION)
-    if generators and all(
-        _pins_interpreter(publisher, step, interpreter) for step in generators
-    ):
-        return []
-    message = (
-        f"the publisher's generate-coverage must set env UV_PYTHON: "
-        f"'{interpreter}'; the action's venv otherwise takes the newest Python "
-        "on the runner"
-    )
-    return [message]

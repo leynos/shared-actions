@@ -17,11 +17,8 @@ from .config import Config, load_config
 from .credential import check_step_violations, token_scope_violations
 from .environment import environment_violations
 from .hardening import lane_hardening_violations, publisher_hardening_violations
-from .lanes import (
-    interpreter_violations,
-    pull_request_lane_violations,
-    second_writer_violations,
-)
+from .interpreter import interpreter_violations
+from .lanes import pull_request_lane_violations, second_writer_violations
 from .loading import Document, read_workflows
 from .parity import inputs_of, is_true, publisher_lane_violations
 from .permissions import permissions_violations
@@ -221,7 +218,7 @@ def _coverage_clauses(
         yield (
             "coverage",
             "coverage.interpreter",
-            lambda: interpreter_violations(publisher, interpreter),
+            lambda: interpreter_violations(publisher, interpreter, closure),
         )
 
 

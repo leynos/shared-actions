@@ -103,8 +103,8 @@ def test_the_interpreter_clause_runs_only_when_configured(tmp_path: Path) -> Non
     )
     assert violations(unpinned) == []
     pinned = _write_tree(tmp_path / "pinned", texts)
-    clauses = [item.clause for item in violations(pinned)]
-    assert clauses == ["coverage.interpreter"], clauses
+    clauses = {item.clause for item in violations(pinned)}
+    assert clauses == {"coverage.interpreter"}, clauses
 
 
 @pytest.mark.parametrize(

@@ -471,15 +471,15 @@ expect = "test_a_called_workflow_is_inside_the_closure"
 
 [[mutation]]
 id = "J1 interpreter compared loosely"
-file = "cv005_contracts/lanes.py"
-old = "            return version == interpreter\n"
+file = "cv005_contracts/interpreter.py"
+old = "            return python_key(version) == python_key(interpreter)\n"
 new = "            return bool(version)\n"
 expect = "test_an_unpinned_or_other_interpreter_is_refused"
 
 [[mutation]]
 id = "J2 unbounded configured interpreter accepted"
-file = "cv005_contracts/lanes.py"
-old = "    if _BOUNDED_PYTHON.fullmatch(interpreter) is None:\n"
+file = "cv005_contracts/interpreter.py"
+old = "    if BOUNDED_PYTHON.fullmatch(interpreter) is None:\n"
 new = "    if False:\n"
 expect = "test_an_unbounded_configured_interpreter_is_refused"
 
@@ -958,3 +958,122 @@ file = "cv005_contracts/concurrency.py"
 old = "    found = [] if group in PUBLISHER_GROUPS else [message]"
 new = "    found = [] if group == \"coverage-main-${{ github.ref }}\" else [message]"
 expect = "test_a_string_group_in_an_estate_spelling_is_accepted"
+
+[[mutation]]
+id = "I1 pin compared as spelt"
+file = "cv005_contracts/interpreter.py"
+old = "            return python_key(version) == python_key(interpreter)\n"
+new = "            return version.strip() == interpreter\n"
+expect = "test_a_patch_zero_spelling_is_the_same_pin"
+
+[[mutation]]
+id = "I2 fold widened to every patch"
+file = "cv005_contracts/parity.py"
+old = "    return \".\".join(parts[:2] if len(parts) == 3 and parts[2] == \"0\" else parts)"
+new = "    return \".\".join(parts[:2])"
+expect = "test_only_a_trailing_patch_zero_is_folded"
+
+[[mutation]]
+id = "I3 parity compares spellings"
+file = "cv005_contracts/parity.py"
+old = "    _fold_python_spellings(inputs, env)\n"
+new = ""
+expect = "test_a_lane_spelling_the_pin_with_patch_zero_agrees_with_the_publisher"
+
+[[mutation]]
+id = "I3b fold applied to nothing in parity"
+file = "cv005_contracts/parity.py"
+old = "                held[key] = python_key(str(held[key]))"
+new = "                held[key] = str(held[key])"
+expect = "test_a_lane_spelling_the_pin_with_patch_zero_agrees_with_the_publisher"
+
+[[mutation]]
+id = "I4 empty step value skipped when merging env"
+file = "cv005_contracts/parity.py"
+old = "            merged.update(env)\n"
+new = "            merged.update({k: v for k, v in env.items() if v not in ('', None)})\n"
+expect = "test_an_empty_step_value_masks_the_outer_pin"
+
+[[mutation]]
+id = "I5 outer env wins over inner"
+file = "cv005_contracts/parity.py"
+old = "    for scope in (document, held, step):"
+new = "    for scope in (step, held, document):"
+expect = "test_an_inner_pin_over_a_different_outer_one_is_the_pin"
+
+[[mutation]]
+id = "I6 masking not named"
+file = "cv005_contracts/interpreter.py"
+old = "    set_outside = any(_declares_version(scope) for scope in outer)"
+new = "    set_outside = False"
+expect = "test_an_empty_step_value_in_a_lane_masks_the_outer_pin"
+
+[[mutation]]
+id = "I7 reliable setup ignored"
+file = "cv005_contracts/interpreter.py"
+old = "    if not reliable:\n        return []\n"
+new = "    return []\n"
+expect = "test_a_setup_that_always_runs_and_disagrees_is_refused"
+
+[[mutation]]
+id = "I8 a guarded repeat erases the earlier setup"
+file = "cv005_contracts/interpreter.py"
+old = "        for setup in before[reliable[-1] :]\n"
+new = "        for setup in before[-1:]\n        if not _may_not_run(setup)\n"
+expect = "test_a_guarded_repeat_setup_that_names_another_version_is_refused"
+
+[[mutation]]
+id = "I9 a lone guarded setup counted"
+file = "cv005_contracts/interpreter.py"
+old = "    if not reliable:\n        return []\n"
+new = "    if not before:\n        return []\n    reliable = reliable or [0]\n"
+expect = "test_a_guarded_setup_that_cannot_disagree_is_accepted"
+
+[[mutation]]
+id = "I10 every declared source conflicts"
+file = "cv005_contracts/interpreter.py"
+old = "        if python_key(version) != python_key(interpreter)\n"
+new = "        if True\n"
+expect = "test_a_setup_that_always_runs_and_agrees_is_accepted"
+
+[[mutation]]
+id = "I11 setups after the generator read"
+file = "cv005_contracts/interpreter.py"
+old = "        for candidate in steps(held)[: position(steps(held), step)]"
+new = "        for candidate in steps(held)"
+expect = "test_a_setup_after_the_generator_is_not_read"
+
+[[mutation]]
+id = "I12 setups in other jobs read"
+file = "cv005_contracts/interpreter.py"
+old = "    held = _job_of(document, step)\n    before = ["
+new = "    held = {\"steps\": [s for j in jobs(document).values() for s in steps(j)]}\n    before = ["
+expect = "test_a_setup_in_another_job_is_not_read"
+
+[[mutation]]
+id = "I13 python-version input ignored"
+file = "cv005_contracts/interpreter.py"
+old = "    if version := _text(inputs_of(step).get(\"python-version\")):"
+new = "    if version := \"\":"
+expect = "test_a_python_version_input_that_disagrees_is_refused"
+
+[[mutation]]
+id = "I14 foreign action matched by path"
+file = "cv005_contracts/publisher.py"
+old = "    return _action_of(step) == action.casefold()\n"
+new = "    return _action_of(step).endswith(action.casefold().split(\"/\", 2)[2])\n"
+expect = "test_a_lane_with_only_a_foreign_generator_generates_nothing"
+
+[[mutation]]
+id = "I14b foreign action judged as the shared one"
+file = "cv005_contracts/publisher.py"
+old = "    return _action_of(step) == action.casefold()\n"
+new = "    return _action_of(step).endswith(action.casefold().split(\"/\", 2)[2])\n"
+expect = "test_a_foreign_generator_is_not_judged_as_the_shared_one"
+
+[[mutation]]
+id = "I15 action owner compared with case"
+file = "cv005_contracts/publisher.py"
+old = "    return str(step.get(\"uses\", \"\")).split(\"@\", 1)[0].casefold()"
+new = "    return str(step.get(\"uses\", \"\")).split(\"@\", 1)[0]"
+expect = "test_the_shared_action_is_matched_without_regard_to_case"

@@ -114,6 +114,23 @@ def generator_env(document: Document, step: dict[str, object]) -> dict[object, o
     return merged
 
 
+def python_key(version: str) -> str:
+    """Return a Python version in one spelling, so `3.13` and `3.13.0` agree.
+
+    A trailing `.0` patch names the same version as the bare minor under
+    PEP 440, and workflows spell it both ways. Nothing else is folded: `3.13.1`
+    is another version, and so is `3.130`.
+
+    Examples
+    --------
+    >>> [python_key(v) for v in ("3.13", "3.13.0", " 3.13.0 ", "3.13.1", "3.130")]
+    ['3.13', '3.13', '3.13', '3.13.1', '3.130']
+
+    """
+    parts = version.strip().split(".")
+    return ".".join(parts[:2] if len(parts) == 3 and parts[2] == "0" else parts)
+
+
 def is_measured(key: object) -> bool:
     """Return whether an environment key can change what a run measures.
 
@@ -153,7 +170,20 @@ def selection(document: Document, step: dict[str, object]) -> dict[str, object]:
         for key, value in generator_env(document, step).items()
         if is_measured(key)
     }
+    _fold_python_spellings(inputs, env)
     return {"with": inputs, "env": env}
+
+
+def _fold_python_spellings(*mappings: dict[typ.Any, object]) -> None:
+    """Rewrite each interpreter request in one spelling, in place.
+
+    Only the two keys the resolver reads are folded, and only when they hold
+    text; any other value is left as written, so it still differs.
+    """
+    for held in mappings:
+        for key in ("python-version", "UV_PYTHON"):
+            if isinstance(held.get(key), str):
+                held[key] = python_key(str(held[key]))
 
 
 def ratchet_violations(document: Document, label: str) -> list[str]:

@@ -71,7 +71,8 @@ the retired checksum names.
   refused when the workflow declares none, since it then holds the default
   token, or when the workflow's grant can write.
   - Concurrency: one ref-keyed group that never cancels, at one scope only.
-  - The upload runs in upload mode, reading the report its own job wrote
+  - The upload runs in upload mode (`mode` absent, or `upload`; any other
+    value is refused), reading the report its own job wrote
     earlier, from the same commit pin as the generator. An omitted `path` or
     `format` reads as the action's default: `cobertura`, and `coverage.xml`
     or, for `lcov`, `lcov.info`. A report merged from several legs counts
@@ -99,7 +100,18 @@ the retired checksum names.
     environment keys that pin or place another tool: names ending
     `_VERSION`, `_REV` or `_SHA256` (with any platform suffix), uv's tool and
     cache directories, and Cargo's network retry settings.
-  - Each lane pins the configured interpreter.
+  - Each generator, in a lane or the publisher, pins the configured
+    interpreter through `UV_PYTHON`, and no other source may name another:
+    - `3.13` and `3.13.0` are the same version; `3.13.1` is not.
+    - An empty `UV_PYTHON` on a step or job masks the pin an outer scope
+      set, because the action reads an empty value as unset.
+    - The `python-version` input outranks `UV_PYTHON`, so it must agree.
+    - `setup-python` steps earlier in the same job must agree. A repeat that
+      is guarded by `if:` or may fail green counts as well as the reliable
+      setup before it, since either version may be on `PATH`. A guarded
+      setup with no reliable one before it claims nothing.
+    - A `generate-coverage` from another owner or repository at the same
+      path is not the shared action and is not judged as one.
   - Each lane runs read-only and cannot continue on error.
   - Only the publisher writes the baseline on a push.
 - **Least privilege.** The upload job's permissions are exactly

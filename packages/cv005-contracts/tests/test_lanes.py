@@ -15,8 +15,8 @@ from contract_fixtures import (
     parse_tree,
     tree,
 )
+from cv005_contracts.interpreter import interpreter_violations
 from cv005_contracts.lanes import (
-    interpreter_violations,
     pull_request_lane_violations,
     second_writer_violations,
 )

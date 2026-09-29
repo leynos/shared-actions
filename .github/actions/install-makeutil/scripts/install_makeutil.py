@@ -17,6 +17,7 @@ insert an ``actions/cache`` step keyed on the plan between them.
 from __future__ import annotations
 
 import argparse
+import dataclasses as dc
 import os
 import re
 import sys
@@ -195,20 +196,99 @@ def _emit_error(title: str, message: str) -> None:
     print(f"::error title={title}::{message}", file=sys.stderr)
 
 
-def _run_resolve(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
-    """Resolve the install plan and publish it as step outputs.
+@dc.dataclass(slots=True, frozen=True)
+class InstallPlan:
+    """Everything the `install` step and the cache step need, decided up front."""
 
-    This is the pure half of the action: nothing is downloaded or installed
-    here, only decided. A refusal at this stage - a malformed input, an
-    unsupported platform, or an unpinned version - reports its own bounded
-    metric and never reaches the download step.
+    target: str
+    bin_dir: Path
+    executable_path: Path
+    expected_sha256: str
+    binary_url: str
+    sidecar_url: str
+    cache_key: str
+    version: str
+
+    def outputs(self) -> tuple[tuple[str, str], ...]:
+        """Return the plan as the `(name, value)` step outputs it publishes."""
+        return (
+            ("target", self.target),
+            ("bin-dir", str(self.bin_dir)),
+            ("executable-path", str(self.executable_path)),
+            ("expected-sha256", self.expected_sha256),
+            ("binary-url", self.binary_url),
+            ("sidecar-url", self.sidecar_url),
+            ("cache-key", self.cache_key),
+            ("version", self.version),
+        )
+
+
+def resolve_plan(
+    *,
+    version: str,
+    bin_dir_input: str,
+    sha256_override: str,
+    runner_os: str,
+    runner_arch: str,
+    home: Path | None,
+) -> InstallPlan:
+    """Decide the install plan from the action's inputs, touching nothing.
+
+    This is the query half of `resolve`: it reads no environment, writes no
+    output and creates no directory. The home directory is passed in.
+
+    Raises
+    ------
+    InvalidInputError
+        If an input is malformed or `bin-dir` cannot be resolved.
+    UnsupportedPlatformError
+        If makeutil publishes no prebuilt binary for the runner.
+    UnknownVersionError
+        If the digest table has no entry for the version and target.
+    """
+    validate_version(version)
+    validate_sha256_override(sha256_override)
+    bin_dir = resolve_bin_dir(bin_dir_input, home)
+    target = resolve_target(runner_os, runner_arch)
+    table_digest = lookup_digest(version, target)
+    binary_url, sidecar_url = build_asset_urls(version, target)
+    return InstallPlan(
+        target=target,
+        bin_dir=bin_dir,
+        executable_path=bin_dir / BINARY_NAME,
+        expected_sha256=sha256_override or table_digest,
+        binary_url=binary_url,
+        sidecar_url=sidecar_url,
+        cache_key=build_cache_key(version, target, table_digest),
+        version=version,
+    )
+
+
+def _ambient_home() -> Path | None:
+    """Return the runner's home directory, or `None` where it has none."""
+    try:
+        return Path.home()
+    except (RuntimeError, KeyError):
+        return None
+
+
+def _run_resolve(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
+    """Publish the install plan as step outputs, or report why it was refused.
+
+    This is the command half of `resolve`, the only place that writes outputs,
+    the summary or annotations. A refusal - a malformed input, an unsupported
+    platform, or an unpinned version - reports its own bounded metric and never
+    reaches the download step.
     """
     try:
-        validate_version(args.version)
-        validate_sha256_override(args.sha256_override)
-        bin_dir = resolve_bin_dir(args.bin_dir)
-        target = resolve_target(args.runner_os, args.runner_arch)
-        table_digest = lookup_digest(args.version, target)
+        plan = resolve_plan(
+            version=args.version,
+            bin_dir_input=args.bin_dir,
+            sha256_override=args.sha256_override,
+            runner_os=args.runner_os,
+            runner_arch=args.runner_arch,
+            home=_ambient_home(),
+        )
     except InvalidInputError as error:
         _emit_error("Invalid install-makeutil input", str(error))
         _emit_result(env, "invalid-input")
@@ -222,22 +302,7 @@ def _run_resolve(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
         _emit_result(env, "unknown-version")
         return 1
 
-    expected_sha256 = args.sha256_override or table_digest
-    binary_url, sidecar_url = build_asset_urls(args.version, target)
-    executable_path = bin_dir / BINARY_NAME
-    cache_key = build_cache_key(args.version, target, table_digest)
-
-    outputs = (
-        ("target", target),
-        ("bin-dir", str(bin_dir)),
-        ("executable-path", str(executable_path)),
-        ("expected-sha256", expected_sha256),
-        ("binary-url", binary_url),
-        ("sidecar-url", sidecar_url),
-        ("cache-key", cache_key),
-        ("version", args.version),
-    )
-    for name, value in outputs:
+    for name, value in plan.outputs():
         _append_output(env, name, value)
     return 0
 

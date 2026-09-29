@@ -27,6 +27,9 @@ file.
 - Emit an `install-makeutil.cache` line over `hit`, `miss` and `stale`, fed by
   the cache step's `cache-hit` output, so a restored-but-rejected entry is told
   apart from an ordinary miss.
+- Split `resolve` into a side-effect-free `resolve_plan` query returning a
+  typed plan, and a command that publishes it; the home directory is injected
+  and an unresolvable `bin-dir` is `invalid-input`.
 - Make `resolve` a pure query: it no longer creates `bin-dir`, which the
   `install` step now creates, reporting a failure as `install-failed`.
 - Add a test-only `expected-sha256-override` input, so a workflow can

@@ -15,6 +15,7 @@ from install_makeutil import (
     build_asset_urls,
     build_cache_key,
     lookup_digest,
+    resolve_plan,
     resolve_target,
     validate_sha256_override,
     validate_version,
@@ -160,13 +161,39 @@ class TestValidateSha256Override:
 class TestResolveBinDir:
     """`bin-dir` validation: absolute or `~/`-relative, never created here."""
 
-    def test_a_tilde_relative_path_is_expanded_under_home(self) -> None:
-        """`~/...` resolves under the real home directory, not a literal `~`."""
-        result = resolve_bin_dir("~/.local/bin-test-install-makeutil")
+    def test_a_tilde_relative_path_is_expanded_under_the_injected_home(
+        self, tmp_path: Path
+    ) -> None:
+        """`~/...` resolves under the home passed in, not a literal `~` and
+        not the ambient home, so the query reads no process state.
+        """
+        result = resolve_bin_dir("~/.local/bin", tmp_path)
 
-        assert result.is_absolute()
-        assert result == Path.home() / ".local" / "bin-test-install-makeutil"
+        assert result == (tmp_path / ".local" / "bin").resolve()
         assert not result.exists()
+
+    def test_a_tilde_path_without_a_home_is_refused(self) -> None:
+        """A runner with no home directory cannot expand `~/`."""
+        with pytest.raises(InvalidInputError, match="no home directory"):
+            resolve_bin_dir("~/.local/bin", None)
+
+    @pytest.mark.parametrize("failure", [RuntimeError, OSError])
+    def test_an_unresolvable_path_is_refused_not_raised(
+        self, monkeypatch: pytest.MonkeyPatch, failure: type[Exception]
+    ) -> None:
+        """`Path.resolve()` can raise `RuntimeError` (a symlink loop on older
+        Pythons) or `OSError`; either must surface as the documented
+        `InvalidInputError`, not escape as a traceback.
+        """
+
+        def _failing_resolve(self: Path, *_args: object, **_kwargs: object) -> Path:
+            message = "simulated resolution failure"
+            raise failure(message)
+
+        monkeypatch.setattr(Path, "resolve", _failing_resolve)
+
+        with pytest.raises(InvalidInputError, match="could not be resolved"):
+            resolve_bin_dir("/opt/tools/bin", None)
 
     def test_an_absolute_path_is_returned_without_being_created(
         self, tmp_path: Path
@@ -174,7 +201,7 @@ class TestResolveBinDir:
         """Resolution is a query; a missing directory stays missing."""
         target = tmp_path / "nested" / "bin"
 
-        result = resolve_bin_dir(str(target))
+        result = resolve_bin_dir(str(target), None)
 
         assert result == target.resolve()
         assert not target.exists()
@@ -193,12 +220,12 @@ class TestResolveBinDir:
         over-long value are all refused before any directory is touched.
         """
         with pytest.raises(InvalidInputError):
-            resolve_bin_dir(bin_dir_input)
+            resolve_bin_dir(bin_dir_input, None)
 
     def test_a_newline_in_bin_dir_is_refused(self) -> None:
         """A newline could smuggle a second GITHUB_PATH line; refused first."""
         with pytest.raises(InvalidInputError):
-            resolve_bin_dir("/opt/tools/bin\n/etc")
+            resolve_bin_dir("/opt/tools/bin\n/etc", None)
 
     def test_a_symlink_resolving_to_a_colon_in_its_path_is_refused(
         self, tmp_path: Path
@@ -214,7 +241,7 @@ class TestResolveBinDir:
         link.symlink_to(target)
 
         with pytest.raises(InvalidInputError):
-            resolve_bin_dir(str(link))
+            resolve_bin_dir(str(link), None)
 
     def test_a_symlink_to_a_clean_directory_is_still_accepted(
         self, tmp_path: Path
@@ -227,6 +254,53 @@ class TestResolveBinDir:
         link = tmp_path / "link-to-bin"
         link.symlink_to(target)
 
-        result = resolve_bin_dir(str(link))
+        result = resolve_bin_dir(str(link), None)
 
         assert result == target.resolve()
+
+
+class TestResolvePlan:
+    """`resolve_plan` is a query: it decides and returns, and changes nothing."""
+
+    def test_the_plan_is_returned_and_nothing_is_created(self, tmp_path: Path) -> None:
+        """No output environment is needed, and a missing `bin-dir` stays so."""
+        bin_dir = tmp_path / "missing" / "bin"
+
+        plan = resolve_plan(
+            version="0.1.0",
+            bin_dir_input=str(bin_dir),
+            sha256_override="",
+            runner_os="Linux",
+            runner_arch="ARM64",
+            home=None,
+        )
+
+        assert plan.target == "aarch64-unknown-linux-musl"
+        assert plan.executable_path == bin_dir.resolve() / "makeutil"
+        assert plan.cache_key.endswith(plan.expected_sha256)
+        assert dict(plan.outputs())["version"] == "0.1.0"
+        assert not bin_dir.exists()
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize(
+        ("kwargs", "error"),
+        [
+            pytest.param({"version": "x"}, InvalidInputError, id="version"),
+            pytest.param({"runner_os": "Windows"}, UnsupportedPlatformError, id="os"),
+            pytest.param({"version": "0.0.1"}, UnknownVersionError, id="unpinned"),
+        ],
+    )
+    def test_a_refusal_is_a_typed_error(
+        self, tmp_path: Path, kwargs: dict[str, str], error: type[Exception]
+    ) -> None:
+        """Each refusal is an explicit error the command layer maps."""
+        inputs = {
+            "version": "0.1.0",
+            "bin_dir_input": str(tmp_path / "bin"),
+            "sha256_override": "",
+            "runner_os": "Linux",
+            "runner_arch": "X64",
+        } | kwargs
+
+        with pytest.raises(error):
+            resolve_plan(**inputs, home=None)

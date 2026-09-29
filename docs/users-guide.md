@@ -748,9 +748,9 @@ Each run writes one `install-makeutil.result` line to the job summary, over
 `invalid-input`, `unsupported-platform`, `unknown-version`, `cached`,
 `installed`, `digest-mismatch`, `sidecar-mismatch`, `download-failed` and
 `install-failed`, beside one `install-makeutil.cache` line over `hit`, `miss`
-and `stale`. `stale` means the cache restored an entry that was then rejected
-and replaced, which distinguishes cache degradation from an ordinary miss. A
-failure is also annotated with `::error`.
+and `stale`. `stale` means the cache restored an entry that was then rejected,
+whether its replacement succeeded or failed, which distinguishes cache
+degradation from an ordinary miss. A failure is also annotated with `::error`.
 
 ## `generate-coverage` action
 

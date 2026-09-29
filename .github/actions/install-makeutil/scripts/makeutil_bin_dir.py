@@ -30,10 +30,17 @@ def _reject_overlong_bin_dir(bin_dir_input: str) -> None:
         raise InvalidInputError(msg)
 
 
-def _expand_bin_dir(bin_dir_input: str) -> str:
-    """Expand an absolute or `~/`-relative `bin-dir` to a plain path string."""
+def _expand_bin_dir(bin_dir_input: str, home: Path | None) -> str:
+    """Expand an absolute or `~/`-relative `bin-dir` to a plain path string.
+
+    `home` is injected so resolution reads no ambient state; `None` means the
+    runner has no home directory, which makes a `~/` input unresolvable.
+    """
     if bin_dir_input == "~" or bin_dir_input.startswith("~/"):
-        return str(Path.home()) + bin_dir_input[1:]
+        if home is None:
+            msg = "bin-dir starts with ~/ but the runner has no home directory"
+            raise InvalidInputError(msg)
+        return str(home) + bin_dir_input[1:]
     if bin_dir_input.startswith("/"):
         return bin_dir_input
     msg = "bin-dir must be an absolute path or start with ~/"
@@ -59,9 +66,14 @@ def _absolute_bin_dir(expanded_bin_dir: str) -> Path:
 
     Nothing is created: resolving is a query, and the install step makes the
     directory when it writes the binary. A path that does not exist yet
-    resolves as far as it does exist.
+    resolves as far as it does exist. A symlink loop or an unreadable
+    component cannot be resolved, which is reported as invalid input.
     """
-    return Path(expanded_bin_dir).resolve()
+    try:
+        return Path(expanded_bin_dir).resolve()
+    except (OSError, RuntimeError) as error:
+        msg = "bin-dir could not be resolved on this runner"
+        raise InvalidInputError(msg) from error
 
 
 def _revalidate_resolved_bin_dir(resolved_bin_dir: Path) -> None:
@@ -79,7 +91,7 @@ def _revalidate_resolved_bin_dir(resolved_bin_dir: Path) -> None:
     _reject_path_separator(resolved_str)
 
 
-def resolve_bin_dir(bin_dir_input: str) -> Path:
+def resolve_bin_dir(bin_dir_input: str, home: Path | None) -> Path:
     """Validate `bin_dir_input` and return it as an absolute path.
 
     The directory is not created here; the `install` subcommand creates it.
@@ -88,6 +100,8 @@ def resolve_bin_dir(bin_dir_input: str) -> Path:
     ----------
     bin_dir_input : str
         The raw `bin-dir` input: an absolute path, or one starting `~/`.
+    home : Path or None
+        The home directory `~/` expands to, or `None` where there is none.
 
     Returns
     -------
@@ -97,11 +111,11 @@ def resolve_bin_dir(bin_dir_input: str) -> Path:
     Raises
     ------
     InvalidInputError
-        If the input is malformed.
+        If the input is malformed or cannot be resolved.
     """
     _reject_crlf_in_bin_dir(bin_dir_input)
     _reject_overlong_bin_dir(bin_dir_input)
-    expanded_bin_dir = _expand_bin_dir(bin_dir_input)
+    expanded_bin_dir = _expand_bin_dir(bin_dir_input, home)
     _reject_parent_components(expanded_bin_dir)
     _reject_path_separator(expanded_bin_dir)
     resolved_bin_dir = _absolute_bin_dir(expanded_bin_dir)

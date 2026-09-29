@@ -1174,9 +1174,13 @@ if either appears in a step.
 
 ### Resolution and installation are separate steps
 
-`install_makeutil.py resolve` is a query: it validates the inputs, maps the
-runner to a target triple, looks up the pinned digest, and publishes the plan
-as step outputs. It creates nothing; a missing `bin-dir` is planned, not made.
+`install_makeutil.py resolve` has a query half and a command half.
+`resolve_plan` is the query: it validates the inputs, maps the runner to a
+target triple, looks up the pinned digest and returns a typed `InstallPlan`. It
+reads no environment (the home directory is passed in), writes no output and
+creates nothing; a missing `bin-dir` is planned, not made, and an unresolvable
+one is an `InvalidInputError`. `_run_resolve` is the command: it alone writes
+the step outputs, the summary and the annotations.
 `install_makeutil.py install` is the command: it downloads, verifies, makes
 `bin-dir` and stages the binary. The split lets the action place an
 `actions/cache` step, keyed on the plan, between the two.

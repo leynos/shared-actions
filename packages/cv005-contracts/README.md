@@ -78,8 +78,10 @@ the retired checksum names.
     or, for `lcov`, `lcov.info`. A report merged from several legs counts
     when an earlier `run` step, after a generator of the same format,
     redirects its output to the uploaded file.
-  - Nothing in the publisher may carry `continue-on-error`. Only the upload
-    step may carry an `if:`.
+  - No publisher job may carry `if` or `continue-on-error`, and neither may
+    the `generate-coverage` steps; the upload step may carry `if:` (its guard
+    is asserted) but not `continue-on-error`. Other steps may carry both, but a
+    report-merging `run` step that carries either does not count as the merge.
 - **Token.** A check step runs exactly
   `echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"`.
   The upload runs only when that output is `true` and the ref is main, and it

@@ -107,11 +107,11 @@ auto‑increments patch unless `release‑type` input overrides (`minor`, `major
   Investigate every Skylos finding. Remove genuine dead code. Prefer a typed
   `[tool.skylos.dead_code]` entry-point rule for an implicit runtime caller.
   Only when that cannot model the verified boundary, use
-  `make skylos-allow SYMBOL=<symbol> REASON="<verified runtime caller>"`.
-  Both values must contain non-whitespace text; `SYMBOL` avoids WSL's injected
+  `make skylos-allow SYMBOL=<symbol> REASON="<verified runtime caller>"`. Both
+  values must contain non-whitespace text; `SYMBOL` avoids WSL's injected
   hostname `NAME` variable. The helper serializes its `pyproject.toml` update
-  with `flock` and the ignored repository-local `.skylos-whitelist.lock`. Do not add
-  unexplained exceptions.
+  with `flock` and the ignored repository-local `.skylos-whitelist.lock`. Do
+  not add unexplained exceptions.
 
 CI workflow lives at `.github/workflows/ci.yml` and runs on PR and nightly via
 schedule.

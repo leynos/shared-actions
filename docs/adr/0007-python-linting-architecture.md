@@ -21,10 +21,10 @@ otherwise conceal dead production code.
 
 Skylos scans only the production modules selected by
 `SKYLOS_PRODUCTION_TARGETS` and excludes `SKYLOS_EXCLUDE_FOLDERS`. The gate is
-strict and runs in CI through the same `make lint` target. Skylos is provisioned
-through its standalone Python 3.14 tool environment because it parses source
-with its own runtime AST; the pin prevents phantom findings when current source
-uses syntax an older runtime cannot parse.
+strict and runs in CI through the same `make lint` target. Skylos is
+provisioned through its standalone Python 3.14 tool environment because it
+parses source with its own runtime AST; the pin prevents phantom findings when
+current source uses syntax an older runtime cannot parse.
 
 Scan-only global options remain in `SKYLOS`. `SKYLOS_CLI` stays command-only so
 `skylos-allow` can dispatch `skylos whitelist <symbol> --reason <reason>` in

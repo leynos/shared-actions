@@ -36,9 +36,6 @@ from pathlib import Path
 
 from plumbum import local
 
-#: The step's own marker for where a run's interpreter came from, logged so a
-#: run shows which rule chose it.
-SOURCES: tuple[str, ...] = ("input", "UV_PYTHON", ".python-version", "PATH")
 VERSION_PROBE = "import sys; print('%d.%d' % sys.version_info[:2])"
 MAJOR_MINOR = re.compile(r"\d+\.\d+")
 

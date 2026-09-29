@@ -376,11 +376,9 @@ def foreign_commits(records: typ.Sequence[CommitRecord]) -> tuple[ForeignCommit,
     have been read. A commit whose authors
     came back truncated is reported foreign rather than waved through,
     because the check exists to certify the branch and a partial list
-    certifies nothing. That is the opposite of the unreadable-list case
-    in :func:`audit_commits`, and deliberately so: there the branch's
-    commits could not be seen at all, which is a query fault affecting
-    every consumer at once; here one visible commit could not be read to
-    the end, which is a property of that commit.
+    certifies nothing. In contrast, ``audit_whole_branch`` reports an
+    unreadable result when a GraphQL page carries no commit list or the
+    branch cannot be read to its end.
 
     Parameters
     ----------
@@ -431,37 +429,3 @@ def _judge(record: CommitRecord) -> ForeignCommit | None:
     if not record.authors_complete:
         return ForeignCommit(oid=record.oid, author=UNREAD_CO_AUTHOR)
     return None
-
-
-def audit_commits(pull_request: dict[str, JsonValue]) -> CommitAudit:
-    """Find the commits on one page that Dependabot did not write.
-
-    Callers that must cover a whole branch use :func:`fetch_pull_request`,
-    which pages the connection first. This composes the adapter and the
-    rule over a single response.
-
-    Parameters
-    ----------
-    pull_request : dict
-        The pull request node from the GraphQL query.
-
-    Returns
-    -------
-    CommitAudit
-        Whether the commit list could be read, and one entry per commit
-        with an author outside :data:`DEPENDABOT_LOGINS`. An unreadable
-        list yields no foreign commits, so the check fails open: a query
-        change that stopped returning commits would otherwise halt every
-        consumer's automerge at once, which is a worse failure than the
-        one this prevents. ``readable`` is what makes that loss visible
-        rather than silent.
-    """
-    page = commit_page(pull_request)
-    if page is None:
-        return CommitAudit(readable=False, foreign=())
-    return CommitAudit(
-        readable=True,
-        foreign=foreign_commits(page.records),
-        pages=1,
-        commits=len(page.records),
-    )

@@ -129,9 +129,8 @@ for the whole job, rather than skipping the upload.
 Two things go in `.github/cv005.toml`, and neither passes silently.
 
 An **exception** waives one clause on the record. It names the ruling that
-allows it and the reason, and may name a command the publisher must run in
-its place. whitaker measures by `make coverage`, which the shared action
-cannot run:
+allows it and the reason, and may name a command the publisher must run in its
+place. whitaker measures by `make coverage`, which the shared action cannot run:
 
 ```toml
 [[exception]]
@@ -141,13 +140,13 @@ reason = "Coverage comes from `make coverage`, not generate-coverage."
 requires = "make coverage"              # a publisher `run` step must contain this
 ```
 
-The waived findings are printed under the exception on every run. An
-exception is itself a finding when its clause is unknown, when it waives
-nothing (stale), or when the publisher runs no step containing `requires`.
-One exception waives one clause, never a family.
+The waived findings are printed under the exception on every run. An exception
+is itself a finding when its clause is unknown, when it waives nothing (stale),
+or when the publisher runs no step containing `requires`. One exception waives
+one clause, never a family.
 
-A **pairing** maps a lane leg to the publisher leg it ratchets against, where
-a matrix job or a separate baseline job defeats inspection. A leg is named
+A **pairing** maps a lane leg to the publisher leg it ratchets against, where a
+matrix job or a separate baseline job defeats inspection. A leg is named
 `workflow-file:job-id:step-name`. rstest-bdd's Windows lanes are one:
 
 ```toml
@@ -162,12 +161,12 @@ with-default-features = "false"
 ```
 
 The library checks that both legs exist; that the matrix cell exists in the
-job's matrix and every value given is read; that the two legs differ on
-exactly the keys in `differs` once the cell's values are read in; and that the
-leg's `if:` is the pull-request guard plus exactly `guards`. Legs of one job
-that carry different, non-empty `guards` count as one ratchet, since only one
-runs in any cell. A lane leg no pairing names falls back to the estate rule,
-which refuses it unless its selection equals a publisher leg's.
+job's matrix and every value given is read; that the two legs differ on exactly
+the keys in `differs` once the cell's values are read in; and that the leg's
+`if:` is the pull-request guard plus exactly `guards`. Legs of one job that
+carry different, non-empty `guards` count as one ratchet, since only one runs
+in any cell. A lane leg no pairing names falls back to the estate rule, which
+refuses it unless its selection equals a publisher leg's.
 
 ## Developing the library
 

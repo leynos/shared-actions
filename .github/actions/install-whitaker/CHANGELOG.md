@@ -5,6 +5,31 @@ file.
 
 ## v1.0.0 (Unreleased)
 
+- Enforce the estate's Whitaker install rule. The installer always receives
+  `--no-source-fallback`, whatever `ci-mode` says, so a missing published lint
+  library or Dylint tool archive fails before Cargo starts. The default
+  `installer-version` is 0.2.9, the first release with that flag, and any
+  version below it is refused. A non-empty `suite-version` is refused, because
+  the lint suite is a rolling release and is never pinned. `allow-suite-pin` is
+  removed. `ci-mode` now chooses only whether the published assets are checked
+  before the installer runs. The output check that fails a reported source
+  build stays as a backstop, and now runs in every mode. This supersedes the
+  earlier `WHITAKER_NO_SOURCE_FALLBACK` environment control.
+
+- Put the installer's tool directory (`~/.local/bin`, or `XDG_BIN_HOME`) on
+  `PATH` for the installer and, through `GITHUB_PATH`, for later steps. The
+  installer proves cargo-dylint by running `cargo dylint`, which finds its
+  subcommand only on `PATH`; on Windows the directory was not there, so every
+  run failed that proof and compiled cargo-dylint from source. The fallback
+  went unseen because the installer reports it on stderr and the action read
+  stdout alone. It now reads both streams, and `--no-source-fallback` turns the
+  same gap into a failure.
+
+- Add a `cranelift` input, off by default, that passes `--cranelift` so the
+  installer adds `rustc-codegen-cranelift` to the lint suite's toolchain. A
+  repository whose builds select Cranelift ran `whitaker-installer --cranelift`
+  directly; the action is now the only permitted route, so it carries the flag.
+
 - Refuse a silent source build. Whitaker republishes its rolling release on
   every merge, and the publish briefly left the tag without a complete asset
   set. A consumer landed in it: chutoro's install began in the same second a

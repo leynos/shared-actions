@@ -40,11 +40,22 @@ require_posix_host()
 
 _WRONG_SHA256 = "0" * 64
 _PROPERTY_SETTINGS = settings(deadline=None, derandomize=True, max_examples=25)
-_VALID_INSTALLER_VERSIONS = st.lists(
-    st.from_regex(r"0|[1-9][0-9]{0,2}", fullmatch=True),
-    min_size=1,
-    max_size=3,
-).map(".".join)
+#: The action refuses an installer older than 0.2.9, the first with
+#: --no-source-fallback, so generated versions start at that floor.
+_INSTALLER_FLOOR = (0, 2, 9)
+_VALID_INSTALLER_VERSIONS = (
+    st.lists(
+        st.from_regex(r"0|[1-9][0-9]{0,2}", fullmatch=True),
+        min_size=1,
+        max_size=3,
+    )
+    .filter(
+        lambda parts: (
+            tuple(int(part) for part in [*parts, "0", "0"][:3]) >= _INSTALLER_FLOOR
+        )
+    )
+    .map(".".join)
+)
 _WINDOWS_RESERVED_SEGMENTS = frozenset(
     {
         "CON",
@@ -139,7 +150,7 @@ class TestInstallation:
         """Verify a non-default Cargo home receives the requested version."""
         run = run_scenario(
             InstallScenario(
-                installer_version="0.2.6",
+                installer_version="0.2.10",
                 cargo_home_name="custom-cargo-home",
             ),
         )
@@ -147,8 +158,8 @@ class TestInstallation:
         assert run.result.returncode == 0, run.result.stderr
         assert run.installer_path.is_file()
         assert run.installer_path.parent.parent.name == "custom-cargo-home"
-        assert "/v0.2.6/" in run.download_log.read_text(encoding="utf-8")
-        assert "state=miss version=0.2.6" in run.result.stdout
+        assert "/v0.2.10/" in run.download_log.read_text(encoding="utf-8")
+        assert "state=miss version=0.2.10" in run.result.stdout
 
     def test_prefers_the_cargo_home_installer_over_the_ambient_path(
         self,

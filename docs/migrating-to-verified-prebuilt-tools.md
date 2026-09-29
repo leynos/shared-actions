@@ -68,10 +68,23 @@ never builds `cs-coverage` from source.
 
 ### Default version
 
-The default `installer-version` input moved from `0.2.6` to `0.2.7`. Both
-versions remain pinned in `installer-digests.sha256` for all five supported
-targets, so a caller that explicitly pins `installer-version: "0.2.6"` is
-unaffected.
+The default `installer-version` is `0.2.9`, the first installer release with
+`--no-source-fallback`. The action refuses any older version, because it passes
+that flag on every run and an older installer rejects it. A caller that pins
+`installer-version: "0.2.6"`, `"0.2.7"` or `"0.2.8"` now fails validation.
+Delete the override so the action's default applies, or name `0.2.9` or later.
+
+### Suite pins are refused
+
+The lint suite is a rolling release. A non-empty `suite-version` now fails the
+step, and `allow-suite-pin` has been removed. Delete both from callers.
+
+### No source builds
+
+Every run passes `--no-source-fallback`, so a missing published lint library or
+Dylint tool archive fails the run rather than being compiled. `ci-mode: false`
+no longer permits a source build; it only skips the check of the published
+assets before the installer runs.
 
 ### Pinned digest manifest
 
@@ -80,7 +93,7 @@ unaffected.
 Each line pairs a digest with an asset filename, for example:
 
 ```text
-78959394c6bbf77eb80ce7f6818d1dedabea68224a3603b3481ee927f8be9fa0  whitaker-installer-aarch64-apple-darwin-v0.2.7.tgz
+7ab59318fe717e1638cfa39a0055cc6da66e53ffa1b9d6a54470f567120b238f  whitaker-installer-aarch64-apple-darwin-v0.2.9.tgz
 ```
 
 ### The `installer-sha256` input

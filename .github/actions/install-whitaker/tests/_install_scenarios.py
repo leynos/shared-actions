@@ -83,18 +83,48 @@ if [ "$FAIL_INSTALLER" = "true" ]; then
   echo "whitaker-installer failed while installing the Dylint suite" >&2
   exit 33
 fi
-printf '%s\\n' "suite installed" >> "$INSTALLER_LOG"
 # Arguments go to a sibling file so the installer log stays exactly what
 # the existing assertions expect it to be.
 printf '%s\\n' "$*" >> "${INSTALLER_LOG}.args"
-# Reproduces the notice a real installer prints when a rolling asset is
-# absent and it builds the Dylint tools with `cargo install` instead. The
-# action reads this from stdout, so the stub writes it there too.
+# A rolling asset is absent. Like a real installer from 0.2.9 on, the stub
+# refuses before Cargo starts when it was given --no-source-fallback;
+# otherwise it reproduces the notices a real installer prints on stderr when
+# it builds the Dylint tools with `cargo install` instead. The action once
+# read stdout alone and missed exactly these. `IGNORE_NO_SOURCE_FALLBACK`
+# models an installer that accepts the flag and falls back anyway, which only
+# the output backstop can catch.
 if [ "$INSTALLER_SOURCE_FALLBACK" = "true" ]; then
-  asset=cargo-dylint-x86_64-unknown-linux-gnu-v6.0.1.tgz
-  echo "repository asset not found: ${asset}. Falling back"
-  echo "Installed cargo-dylint from source with cargo install"
+  if [ "$IGNORE_NO_SOURCE_FALLBACK" != "true" ]; then
+    for argument in "$@"; do
+      if [ "$argument" = --no-source-fallback ]; then
+        echo "published cargo-dylint is unavailable; source fallback is forbidden" >&2
+        exit 34
+      fi
+    done
+  fi
+  printf '%s\\n' 'cargo install cargo-dylint' >> "$SOURCE_BUILD_LOG"
+  # A real installer reports a Dylint tool's fallback on stderr.
+  notice="Repository install for cargo-dylint failed verification"
+  echo "${notice}; falling back to Cargo." >&2
+  echo "Installed cargo-dylint from source with cargo install." >&2
 fi
+# The first PATH entry, so a test can see the tool directory was prepended.
+printf '%s\\n' "${PATH%%:*}" >> "${INSTALLER_LOG}.path"
+printf '%s\\n' "suite installed" >> "$INSTALLER_LOG"
+"""
+
+#: Stands in for scripts/verify_rolling_assets.py, which reads the live rolling
+#: release. The lifecycle runs offline, so the stub records that the pre-check
+#: ran and reports either a toolchain or the absence the real script reports.
+_ROLLING_ASSETS_STUB = """import os
+import sys
+
+with open(os.environ["ROLLING_CHECK_LOG"], "a", encoding="utf-8") as log:
+    log.write(" ".join(sys.argv[1:]) + "\\n")
+if os.environ["ROLLING_ASSETS_MISSING"] == "true":
+    print("rolling release is missing a lint asset", file=sys.stderr)
+    sys.exit(1)
+print("nightly-2025-09-18")
 """
 
 _CONFLICTING_INSTALLER_STUB = """#!/usr/bin/env bash
@@ -244,10 +274,15 @@ class InstallScenario:
     #: assets, so an asset pre-check would fail for a reason unrelated to
     #: the behaviour under test. The tests that care set it explicitly.
     ci_mode: str = "false"
-    allow_suite_pin: str = "false"
+    cranelift: str = "false"
     #: Make the stub installer report the source fallback a missing rolling
     #: asset causes, which is the outcome CI must refuse.
     installer_source_fallback: bool = False
+    #: Make the stub accept --no-source-fallback and fall back regardless,
+    #: the defect the action's output backstop exists to catch.
+    ignore_no_source_fallback: bool = False
+    #: Make the rolling-release pre-check report a missing lint asset.
+    rolling_assets_missing: bool = False
 
     @property
     def payload_sha256(self) -> str:
@@ -308,6 +343,26 @@ class InstallRun:
     def installer_args(self) -> Path:
         """Return the arguments the action passed to the installer."""
         return self.root / "installer.log.args"
+
+    @property
+    def installer_path_head(self) -> str:
+        """Return the first PATH entry the stub installer saw."""
+        return (self.root / "installer.log.path").read_text(encoding="utf-8").strip()
+
+    @property
+    def github_path(self) -> Path:
+        """Return the ``$GITHUB_PATH`` file the run step appends to."""
+        return self.root / "github-path"
+
+    @property
+    def rolling_check_log(self) -> Path:
+        """Return the pre-check stub log, absent when the check was skipped."""
+        return self.root / "rolling-check.log"
+
+    @property
+    def source_build_log(self) -> Path:
+        """Return the source-build stub log, absent when fallback was refused."""
+        return self.root / "source-build.log"
 
     @property
     def conflict_log(self) -> Path:
@@ -381,6 +436,9 @@ def _prepare_action_directory(root: Path, scenario: InstallScenario) -> Path:
         destination = action_path / "scripts" / source.name
         shutil.copy2(source, destination)
         destination.chmod(0o755)
+    (action_path / "scripts" / "verify_rolling_assets.py").write_text(
+        _ROLLING_ASSETS_STUB, encoding="utf-8"
+    )
     return action_path
 
 
@@ -409,10 +467,10 @@ def _build_context(
     """Build the expression context the lifecycle fragments resolve against."""
     return ActionContext(
         inputs={
-            "allow-suite-pin": scenario.allow_suite_pin,
             "cache-provider": scenario.cache_provider,
             "cargo-home": scenario.cargo_home_value or bash_path(cargo_home),
             "ci-mode": scenario.ci_mode,
+            "cranelift": scenario.cranelift,
             "github-token": "",
             "installer-sha256": scenario.installer_sha256,
             "installer-version": scenario.installer_version,
@@ -518,9 +576,14 @@ def _base_env(root: Path, scenario: InstallScenario, path: str) -> dict[str, str
         "FAIL_DOWNLOAD": str(scenario.fail_download).lower(),
         "FAIL_INSTALLER": str(scenario.fail_installer).lower(),
         "GITHUB_STEP_SUMMARY": bash_file_path(root / "summary.md"),
+        "GITHUB_PATH": bash_file_path(root / "github-path"),
         "HOME": bash_path(home),
         "INSTALLER_LOG": bash_file_path(root / "installer.log"),
         "INSTALLER_SOURCE_FALLBACK": str(scenario.installer_source_fallback).lower(),
+        "IGNORE_NO_SOURCE_FALLBACK": str(scenario.ignore_no_source_fallback).lower(),
+        "ROLLING_ASSETS_MISSING": str(scenario.rolling_assets_missing).lower(),
+        "ROLLING_CHECK_LOG": bash_file_path(root / "rolling-check.log"),
+        "SOURCE_BUILD_LOG": bash_file_path(root / "source-build.log"),
         "RUNNER_OS": scenario.runner_os,
         "RUNNER_TEMP": bash_path(runner_temp),
         "SIDECAR_SHA256": scenario.expected_sidecar,

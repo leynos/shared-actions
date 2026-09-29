@@ -68,6 +68,9 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ): "assertion",
     ("test-codescene-parser-proof.yml", "parser-proof"): "install",
     ("test-coverage-watchdog.yml", "terminates-an-overrunning-cargo"): "assertion",
+    # The package's own gates: format, lint, type-check, the suite and the
+    # mutation ledger, which finishes in under a minute on 32 cores.
+    ("test-cv005-contracts.yml", "library"): "suite",
     ("test-install-mdtablefix.yml", "install-mdtablefix"): "install",
     ("test-install-mdtablefix.yml", "install-mdtablefix-no-prebuilt"): "install",
     ("test-install-tool.yml", "installs-and-caches"): "install",

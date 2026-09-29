@@ -1,0 +1,56 @@
+name: Test cv005-contracts
+
+# The shared CV-005 contract library's own lane. It runs only when the
+# library or this workflow changes, so a library change does not start the
+# action self-test lanes, and an action change does not start this one.
+# tests/workflows/test_cv005_contracts_lane.py holds the filter.
+
+on:
+  pull_request:
+    paths:
+      - 'packages/cv005-contracts/**'
+      - '.github/workflows/test-cv005-contracts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  library:
+    name: library (py${{ matrix.python }})
+    # The library's own lane is short and needs nothing from a hosted image, so
+    # it runs on the smallest Ubicloud runner; a fork's pull request cannot
+    # obtain one and falls back to a hosted runner.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13', '3.14']
+    defaults:
+      run:
+        working-directory: packages/cv005-contracts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Check formatting
+        run: make check-fmt PYTHON=${{ matrix.python }}
+      - name: Lint
+        run: make lint PYTHON=${{ matrix.python }}
+      - name: Type-check
+        run: make typecheck PYTHON=${{ matrix.python }}
+      - name: Test
+        run: make test PYTHON=${{ matrix.python }}
+      - name: Prove every clause by mutation
+        run: make mutation-ledger PYTHON=${{ matrix.python }}

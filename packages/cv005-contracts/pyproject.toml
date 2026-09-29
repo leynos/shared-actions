@@ -1,0 +1,29 @@
+[project]
+name = "cv005-contracts"
+version = "0.1.0"
+description = "The estate's CV-005 CodeScene coverage and codescene-environment workflow contracts"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "ISC" }
+dependencies = ["cyclopts>=4.22,<5", "pyyaml>=6,<7"]
+
+[project.scripts]
+cv005-contracts = "cv005_contracts.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<10",
+    "hypothesis>=6,<7",
+    "pytest-xdist>=3,<4",
+    "plumbum>=1.8,<3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cv005_contracts"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

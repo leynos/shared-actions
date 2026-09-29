@@ -1,7 +1,7 @@
 """Regression tests for the committed spelling policy."""
 
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _INLINE_CODE_IGNORE_PATTERN = r"`[^`\n]+`"

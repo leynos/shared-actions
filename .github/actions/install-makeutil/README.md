@@ -47,10 +47,10 @@ file beside `bin-dir` and moved into place only after both checks pass.
 
 ## Caching
 
-Unlike `install-mdtablefix`, this action owns its own cache: the key folds in
-the pinned digest (`install-makeutil-<version>-<target>-<digest>`), which only
-this action knows, so only this action can keep the key correct as the digest
-table changes.
+Unlike `install-mdtablefix`, this action owns its cache: the key folds in the
+pinned digest (`install-makeutil-<version>-<target>-<digest>`), which only this
+action knows, so only this action can keep the key correct as the digest table
+changes.
 
 A cache hit is re-verified against the pinned digest before it is trusted. A
 cached file that no longer matches - because the digest table moved on, or the

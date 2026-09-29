@@ -307,6 +307,21 @@ def _run_resolve(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
     return 0
 
 
+def _discard_rejected_restore(executable_path: Path, cache_hit: str) -> None:
+    """Remove a restored binary the install rejected, so it cannot stay usable.
+
+    Only a file the cache step restored (`cache-hit` is `true`) is removed; one
+    that was already in `bin-dir` is left as found. A removal that fails is
+    ignored: the run is already failing and the annotation names the cause.
+    """
+    if cache_hit != "true":
+        return
+    try:
+        executable_path.unlink(missing_ok=True)
+    except OSError:
+        return
+
+
 def _run_install(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
     """Install (or reuse) the verified binary and publish the outputs."""
     result = install_makeutil(
@@ -317,6 +332,7 @@ def _run_install(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
     _emit_result(env, result.outcome)
     _emit_metric(env, "cache", cache_state(args.cache_hit, result.outcome))
     if result.outcome not in {CACHED, INSTALLED}:
+        _discard_rejected_restore(Path(args.executable_path), args.cache_hit)
         _emit_error("Install makeutil failed", result.message)
         return 1
     _append_output(env, "path", str(result.path))

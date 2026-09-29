@@ -1212,12 +1212,18 @@ against the pinned digest, its mode is set, and it is replaced on a mismatch. An
 `OSError` reading or `chmod`-ing a restored entry becomes `install-failed`. The
 `install` step receives the cache step's `cache-hit` output so it can report
 `install-makeutil.cache` as `hit`, `miss` or `stale`, the last being a restored
-entry that was rejected.
+entry that was rejected. When the install fails after a restore (`cache-hit` is
+`true`), the rejected restored file is removed so it cannot stay usable; a file
+the cache did not supply is left as found.
 
 ### Bounded metrics
 
-`install-makeutil.result` is the terminal outcome over a closed vocabulary that
-the README table, `makeutil_verify.py` and the contract tests must agree on;
+`install-makeutil.result` is the terminal outcome over a closed vocabulary. The
+README table lists every value. `makeutil_verify.py` declares the six values
+the install path decides (`cached`, `installed`, `digest-mismatch`,
+`sidecar-mismatch`, `download-failed`, `install-failed`); `install_makeutil.py`
+adds `invalid-input`, `unsupported-platform` and `unknown-version` for the
+`resolve` refusals. The contract tests hold the README against the union;
 `install-makeutil.cache` ranges over `hit`, `miss` and `stale`. Neither carries
 a URL, a digest or a path. Failures also emit an `::error` annotation. The
 action emits no tracing spans: it is a short composite step whose boundaries

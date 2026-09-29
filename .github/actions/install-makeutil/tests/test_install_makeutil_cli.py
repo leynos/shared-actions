@@ -357,3 +357,39 @@ class TestInstallSubcommand:
             "install-makeutil.result=download-failed"
         ]
         assert f"install-makeutil.cache={expected_state}" in lines
+
+    @pytest.mark.parametrize(
+        ("cache_hit", "remains"), [("true", False), ("false", True), ("", True)]
+    )
+    def test_a_rejected_restored_binary_is_removed_only_when_restored(
+        self, tmp_path: Path, cache_hit: str, remains: object
+    ) -> None:
+        """After a failed install, a binary the cache step restored must not
+        stay usable, while one that was already in `bin-dir` is left as found.
+        """
+        env = _fake_env(tmp_path)
+        target = tmp_path / "bin" / "makeutil"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"stale restored bytes\n")
+
+        exit_code = cli.main(
+            [
+                "install",
+                "--executable-path",
+                str(target),
+                "--expected-sha256",
+                "0" * 64,
+                "--binary-url",
+                "http://example.invalid/makeutil",
+                "--sidecar-url",
+                "http://example.invalid/makeutil.sha256",
+                "--version",
+                "0.1.0",
+                "--cache-hit",
+                cache_hit,
+            ],
+            env,
+        )
+
+        assert exit_code == 1
+        assert target.exists() is remains

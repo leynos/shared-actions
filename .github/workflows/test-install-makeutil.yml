@@ -36,9 +36,11 @@ jobs:
 
       - name: Verify the installed version
         shell: bash
+        env:
+          INSTALLED_PATH: ${{ steps.install.outputs.path }}
         run: |
           set -euo pipefail
-          test -x "${{ steps.install.outputs.path }}"
+          test -x "${INSTALLED_PATH}"
           reported="$(makeutil --version)"
           test "${reported}" = "makeutil ${MAKEUTIL_TEST_VERSION}"
 

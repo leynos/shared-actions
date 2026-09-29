@@ -33,13 +33,21 @@ def contradict(first: str, second: str) -> bool:
     False
 
     """
-    a, b = _COMPARISON.match(first), _COMPARISON.match(second)
-    if a is None or b is None or a.group(1) != b.group(1):
+    left, right = _parse(first), _parse(second)
+    if left is None or right is None:
         return False
-    same_literal = a.group(3) == b.group(3)
-    if a.group(2) == b.group(2) == "==":
-        return not same_literal
-    return a.group(2) != b.group(2) and same_literal
+    (operand, op, literal), (other, other_op, other_literal) = left, right
+    if operand != other:
+        return False
+    if op == other_op == "==":
+        return literal != other_literal
+    return op != other_op and literal == other_literal
+
+
+def _parse(term: str) -> tuple[str, str, str] | None:
+    """Split a comparison into operand, operator and literal, or None."""
+    match = _COMPARISON.match(term)
+    return None if match is None else (match[1], match[2], match[3])
 
 
 def are_exclusive(selectors: cabc.Sequence[frozenset[str]]) -> bool:

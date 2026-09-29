@@ -1375,14 +1375,14 @@ expect = "test_legs_whose_guards_can_hold_together_do_not_count_as_one_ratchet"
 [[mutation]]
 id = "CX7 same operand always contradicts"
 file = "cv005_contracts/exclusive.py"
-old = "        return not same_literal\n"
+old = "        return literal != other_literal\n"
 new = "        return True\n"
 expect = "test_two_terms_contradict_only_on_one_operand"
 
 [[mutation]]
 id = "CX8 equality against inequality never contradicts"
 file = "cv005_contracts/exclusive.py"
-old = "    return a.group(2) != b.group(2) and same_literal\n"
+old = "    return op != other_op and literal == other_literal\n"
 new = "    return False\n"
 expect = "test_two_terms_contradict_only_on_one_operand"
 

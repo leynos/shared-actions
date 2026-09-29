@@ -13,9 +13,12 @@ from pathlib import Path
 
 import cyclopts
 
-from .api import FAMILIES, violations
+from .api import FAMILIES, report
 from .config import ConfigError, load_config
 from .loading import WorkflowReadingError
+
+if typ.TYPE_CHECKING:
+    from .waivers import Waiver
 
 app = cyclopts.App(
     name="cv005-contracts",
@@ -52,13 +55,27 @@ def check(
     """
     try:
         config = load_config(repository)
-        found = violations(repository, config, frozenset(only) or FAMILIES)
+        result = report(repository, config, frozenset(only) or FAMILIES)
     except (ConfigError, WorkflowReadingError, ValueError) as error:
         print(f"cv005-contracts: {error}", file=sys.stderr)
         return EXIT_UNREADABLE
-    for item in found:
+    for waiver in result.waivers:
+        _print_waiver(waiver)
+    for item in result.violations:
         print(item)
-    return EXIT_VIOLATIONS if found else EXIT_CLEAN
+    return EXIT_VIOLATIONS if result.violations else EXIT_CLEAN
+
+
+def _print_waiver(waiver: Waiver) -> None:
+    """Print a declared exception and each finding it waived.
+
+    An exception that holds is still reported on every run, so a waiver is
+    never invisible to whoever reads the output.
+    """
+    exemption = waiver.exemption
+    print(f"exception {exemption.clause} [{exemption.ruling}]: {exemption.reason}")
+    for finding in waiver.findings:
+        print(f"  waived: {finding}")
 
 
 def main() -> None:

@@ -18,6 +18,8 @@ from .publisher import COVERAGE_ACTION, action_steps, invokes
 from .reading import jobs, steps, triggers
 
 if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
     from .loading import Document
 
 PULL_REQUEST_GUARD: typ.Final[frozenset[str]] = frozenset(
@@ -27,7 +29,10 @@ PULL_REQUEST_GUARD: typ.Final[frozenset[str]] = frozenset(
 )
 
 
-def pull_request_lane_violations(closure: dict[str, Document]) -> list[str]:
+def pull_request_lane_violations(
+    closure: dict[str, Document],
+    declared: cabc.Mapping[str, frozenset[str]] | None = None,
+) -> list[str]:
     """Require every pull-request lane to ratchet and publish nothing.
 
     Each job ratchets exactly one of its coverage legs, and no leg ships
@@ -38,6 +43,9 @@ def pull_request_lane_violations(closure: dict[str, Document]) -> list[str]:
     ----------
     closure : dict[str, Document]
         The pull-request-reachable workflows, by file name.
+    declared : Mapping[str, frozenset[str]] | None, optional
+        The lane legs a declared pairing covers, by leg name, with the
+        conditions that select each; see `parity.ratchet_violations`.
 
     Returns
     -------
@@ -55,7 +63,7 @@ def pull_request_lane_violations(closure: dict[str, Document]) -> list[str]:
     found = [
         problem
         for name, document in sorted(closure.items())
-        for problem in ratchet_violations(document, name)
+        for problem in ratchet_violations(document, name, declared)
     ]
     found += [
         f"{name}: generate-coverage must set publish-artefact: 'false'"

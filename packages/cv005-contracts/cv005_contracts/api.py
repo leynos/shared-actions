@@ -20,6 +20,7 @@ from .hardening import lane_hardening_violations, publisher_hardening_violations
 from .interpreter import interpreter_violations
 from .lanes import pull_request_lane_violations, second_writer_violations
 from .loading import Document, read_workflows
+from .pairing import guards_by_leg, pairing_violations
 from .parity import inputs_of, is_true, publisher_lane_violations
 from .permissions import permissions_violations
 from .publisher import COVERAGE_ACTION, action_steps, find_publisher
@@ -30,6 +31,7 @@ from .publisher_rules import (
     upload_step_violations,
 )
 from .reach import pull_request_closure, pull_request_violations
+from .waivers import Waiver, apply_exceptions
 from .wiring import wiring_violations
 
 if typ.TYPE_CHECKING:
@@ -88,12 +90,77 @@ def read_tree(repo_root: Path) -> dict[str, Document]:
     return read_workflows(repo_root / ".github" / "workflows") | read_actions(repo_root)
 
 
+@dc.dataclass(frozen=True, slots=True)
+class Report:
+    """The outcome of a run: what stands, and what the exceptions waived.
+
+    Attributes
+    ----------
+    violations : list[Violation]
+        Every finding that stands, including any about an exception itself.
+    waivers : list[Waiver]
+        Each declared exception with the findings it waived, for printing.
+
+    """
+
+    violations: list[Violation]
+    waivers: list[Waiver]
+
+
+def report(
+    repo_root: Path,
+    config: Config | None = None,
+    only: cabc.Set[str] = FAMILIES,
+) -> Report:
+    """Run the selected contract families and apply the declared exceptions.
+
+    Parameters
+    ----------
+    repo_root : Path
+        The repository root.
+    config : Config | None, optional
+        The repository's parameters; read from `.github/cv005.toml` when
+        omitted.
+    only : collections.abc.Set[str], optional
+        The families to run; every family by default.
+
+    Returns
+    -------
+    Report
+        The standing violations and the waivers.
+
+    Raises
+    ------
+    ValueError
+        If `only` names an unknown family.
+
+    """
+    if unknown := sorted(set(only) - FAMILIES):
+        message = f"unknown contract families: {unknown}"
+        raise ValueError(message)
+    config = config or load_config(repo_root)
+    documents = read_tree(repo_root)
+    clauses = list(_clauses(documents, config))
+    results = {
+        clause: messages() for family, clause, messages in clauses if family in only
+    }
+    standing, waivers = apply_exceptions(
+        results,
+        {clause for _, clause, _ in clauses},
+        config.exceptions,
+        find_publisher(documents)[1],
+    )
+    return Report([Violation(clause, message) for clause, message in standing], waivers)
+
+
 def violations(
     repo_root: Path,
     config: Config | None = None,
     only: cabc.Set[str] = FAMILIES,
 ) -> list[Violation]:
     """Return every violation of the selected contract families.
+
+    A convenience over `report` for callers that need only what stands.
 
     Parameters
     ----------
@@ -110,22 +177,8 @@ def violations(
     list[Violation]
         Every violation, in family order.
 
-    Raises
-    ------
-    ValueError
-        If `only` names an unknown family.
-
     """
-    if unknown := sorted(set(only) - FAMILIES):
-        message = f"unknown contract families: {unknown}"
-        raise ValueError(message)
-    config = config or load_config(repo_root)
-    documents = read_tree(repo_root)
-    found: list[Violation] = []
-    for family, clause, messages in _clauses(documents, config):
-        if family in only:
-            found.extend(Violation(clause, message) for message in messages())
-    return found
+    return report(repo_root, config, only).violations
 
 
 #: One clause: its family, its identifier and its deferred reading.
@@ -188,15 +241,16 @@ def _coverage_clauses(
 ) -> cabc.Iterator[Clause]:
     """Yield the coverage lanes' clauses."""
     name, publisher = found_publisher
+    declared = guards_by_leg(config.pairings)
     yield (
         "coverage",
         "coverage.pull-request-lane",
-        lambda: pull_request_lane_violations(closure),
+        lambda: pull_request_lane_violations(closure, declared),
     )
     yield (
         "coverage",
         "coverage.lane-hardening",
-        lambda: lane_hardening_violations(closure),
+        lambda: lane_hardening_violations(closure, declared),
     )
     yield (
         "coverage",
@@ -206,7 +260,12 @@ def _coverage_clauses(
     yield (
         "coverage",
         "coverage.selection-parity",
-        lambda: publisher_lane_violations(publisher, closure),
+        lambda: publisher_lane_violations(publisher, closure, declared),
+    )
+    yield (
+        "coverage",
+        "coverage.pairing",
+        lambda: pairing_violations(name, publisher, closure, config.pairings),
     )
     yield (
         "coverage",

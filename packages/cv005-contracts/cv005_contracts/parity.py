@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 import typing as typ
 
+from .legs import Leg, generator_legs, leg_id
 from .publisher import (
     COVERAGE_ACTION,
     PINNED_COMMIT,
@@ -27,6 +28,8 @@ from .publisher import (
 from .reading import jobs, steps
 
 if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
     from .loading import Document
 
 #: Inputs that may differ between a pull-request lane and the publisher,
@@ -186,7 +189,11 @@ def _fold_python_spellings(*mappings: dict[typ.Any, object]) -> None:
                 held[key] = python_key(str(held[key]))
 
 
-def ratchet_violations(document: Document, label: str) -> list[str]:
+def ratchet_violations(
+    document: Document,
+    label: str,
+    alternatives: cabc.Mapping[str, frozenset[str]] | None = None,
+) -> list[str]:
     """Require each job measuring coverage to ratchet exactly one of its legs.
 
     Parameters
@@ -194,7 +201,13 @@ def ratchet_violations(document: Document, label: str) -> list[str]:
     document : Document
         The workflow whose jobs are held.
     label : str
-        How findings name the workflow, such as its file name.
+        How findings name the workflow, such as its file name; it also begins
+        each leg's name.
+    alternatives : Mapping[str, frozenset[str]] | None, optional
+        Declared lane legs that stand in for one another in a matrix job, by
+        leg name, each with the extra conditions that select it. Where every
+        such leg of a job carries a different, non-empty set, only one runs in
+        any cell, so together they ratchet once.
 
     Returns
     -------
@@ -204,23 +217,41 @@ def ratchet_violations(document: Document, label: str) -> list[str]:
 
     """
     counts = {
-        name: [
-            is_true(inputs_of(step).get("with-ratchet"))
-            for step in steps(job)
-            if invokes(step, COVERAGE_ACTION)
-        ]
+        name: _ratchets(
+            [
+                leg_id(label, name, step, index)
+                for index, step in enumerate(steps(job))
+                if invokes(step, COVERAGE_ACTION)
+                and is_true(inputs_of(step).get("with-ratchet"))
+            ],
+            alternatives or {},
+        )
         for name, job in jobs(document).items()
+        if any(invokes(step, COVERAGE_ACTION) for step in steps(job))
     }
     return [
         f"{label}: job {name} must set with-ratchet: 'true' on exactly one "
-        f"generate-coverage step; found {sum(legs)}"
-        for name, legs in counts.items()
-        if legs and sum(legs) != 1
+        f"generate-coverage step; found {count}"
+        for name, count in counts.items()
+        if count != 1
     ]
 
 
+def _ratchets(
+    ratcheting: list[str], alternatives: cabc.Mapping[str, frozenset[str]]
+) -> int:
+    """Count a job's ratchets, taking declared alternatives as one."""
+    paired = [ident for ident in ratcheting if ident in alternatives]
+    selectors = [alternatives[ident] for ident in paired]
+    is_exclusive = all(selectors) and len(set(selectors)) == len(selectors)
+    alone = len(ratcheting) - len(paired)
+    return alone + (1 if paired and is_exclusive else len(paired))
+
+
 def publisher_lane_violations(
-    publisher: Document, closure: dict[str, Document]
+    publisher: Document,
+    closure: dict[str, Document],
+    declared: cabc.Mapping[str, frozenset[str]] | None = None,
 ) -> list[str]:
     """Require the publisher to ratchet the selection every lane measures.
 
@@ -235,6 +266,10 @@ def publisher_lane_violations(
         The publisher workflow document.
     closure : dict[str, Document]
         The pull-request-reachable workflows, by file name.
+    declared : Mapping[str, frozenset[str]] | None, optional
+        The lane legs a declared pairing covers, by leg name, with their
+        selecting conditions. Their selection is held by the pairing rules,
+        not compared here, but they still share the commit pin.
 
     Returns
     -------
@@ -246,28 +281,27 @@ def publisher_lane_violations(
     if not generators:
         return ["the publisher must generate coverage; found no generate-coverage step"]
     measured = [selection(publisher, step) for step in generators]
-    lane_steps = _lane_steps(closure)
-    pinned = [*generators, upload_step(publisher), *(step for *_, step in lane_steps)]
+    lanes = _lane_legs(closure)
+    pinned = [*generators, upload_step(publisher), *(leg.step for _, leg in lanes)]
     pins = {pin_of(step) for step in pinned}
     return (
         ratchet_violations(publisher, "the publisher")
         + [
             f"{name}: coverage selection differs from the publisher's"
-            for name, document, step in lane_steps
-            if _unpaired(selection(document, step), measured)
+            for name, leg in lanes
+            if leg.ident not in (declared or {})
+            and _unpaired(selection(leg.document, leg.step), measured)
         ]
         + _pin_violations(pins)
     )
 
 
-def _lane_steps(
-    closure: dict[str, Document],
-) -> list[tuple[str, Document, dict[str, object]]]:
-    """Return each pull-request coverage step with its workflow's name and document."""
+def _lane_legs(closure: dict[str, Document]) -> list[tuple[str, Leg]]:
+    """Return each pull-request generator leg with its workflow's name."""
     return [
-        (name, document, step)
+        (name, leg)
         for name, document in sorted(closure.items())
-        for step in action_steps(document, COVERAGE_ACTION)
+        for leg in generator_legs(name, document)
     ]
 
 

@@ -11,6 +11,14 @@ import dataclasses as dc
 import tomllib
 import typing as typ
 
+from .declared import (
+    DeclarationError,
+    Exemption,
+    Pairing,
+    read_exemptions,
+    read_pairings,
+)
+
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
@@ -40,6 +48,10 @@ class Config:
         Whether the `codescene` environment contract applies.
     selection : dict[str, str]
         Generator inputs the publisher must carry with exactly these values.
+    exceptions : tuple[Exemption, ...]
+        Clauses waived on the record, each citing its ruling.
+    pairings : tuple[Pairing, ...]
+        Lane legs mapped to the publisher legs they ratchet against.
 
     """
 
@@ -48,6 +60,8 @@ class Config:
     interpreter: str | None = None
     environment: bool = True
     selection: dict[str, str] = dc.field(default_factory=dict)
+    exceptions: tuple[Exemption, ...] = ()
+    pairings: tuple[Pairing, ...] = ()
 
 
 def load_config(repo_root: Path) -> Config:
@@ -109,7 +123,7 @@ def config_from_mapping(raw: dict[str, object]) -> Config:
     for key, kind in OPTIONAL_KEY_TYPES.items():
         _require(raw, key, kind)
     _require_string_selection(raw)
-    return Config(**typ.cast("dict[str, typ.Any]", raw))
+    return Config(**_plain_keys(raw), **_declared(raw))
 
 
 #: The optional keys and the type each value must have.
@@ -121,9 +135,34 @@ OPTIONAL_KEY_TYPES: typ.Final[dict[str, type]] = {
 }
 
 
+#: The TOML table names that `Config` holds under another field name.
+TABLE_KEYS: typ.Final[dict[str, str]] = {
+    "exception": "exceptions",
+    "pairing": "pairings",
+}
+
+
+def _plain_keys(raw: dict[str, object]) -> dict[str, typ.Any]:
+    """Return the keys that are `Config` fields under their own name."""
+    return {key: value for key, value in raw.items() if key not in TABLE_KEYS}
+
+
+def _declared(raw: dict[str, object]) -> dict[str, typ.Any]:
+    """Read the `[[exception]]` and `[[pairing]]` tables into `Config` fields."""
+    try:
+        return {
+            "exceptions": read_exemptions(raw.get("exception")),
+            "pairings": read_pairings(raw.get("pairing")),
+        }
+    except DeclarationError as error:
+        message = f"{CONFIG_PATH}: {error}"
+        raise ConfigError(message) from error
+
+
 def _refuse_unknown_keys(raw: dict[str, object]) -> None:
     """Refuse a key `Config` does not define, so a misspelling cannot pass."""
-    known = {field.name for field in dc.fields(Config)}
+    known = {field.name for field in dc.fields(Config)} - set(TABLE_KEYS.values())
+    known |= set(TABLE_KEYS)
     if unknown := sorted(set(raw) - known):
         message = f"{CONFIG_PATH} names unknown keys: {unknown}"
         raise ConfigError(message)

@@ -1112,3 +1112,157 @@ file = "cv005_contracts/environment.py"
 old = "    return name is not None and \"${{\" in name"
 new = "    return \"${{\" in str(job.get(\"environment\"))"
 expect = "test_a_computed_url_is_not_a_computed_name"
+
+[[mutation]]
+id = "PM1 a missing lane leg passes"
+file = "cv005_contracts/pairing.py"
+old = "            (\"lane\", pairing.lane, lane),\n"
+new = "            (\"lane\", pairing.lane, other),\n"
+expect = "test_a_pairing_naming_a_lane_leg_that_does_not_exist_is_refused"
+
+[[mutation]]
+id = "PM2 a missing publisher leg passes"
+file = "cv005_contracts/pairing.py"
+old = "            (\"publisher\", pairing.publisher, other),\n"
+new = "            (\"publisher\", pairing.publisher, lane),\n"
+expect = "test_a_pairing_naming_a_publisher_leg_that_does_not_exist_is_refused"
+
+[[mutation]]
+id = "PM3 an undeclared difference accepted"
+file = "cv005_contracts/pairing.py"
+old = "        for key in sorted(differing - declared)\n"
+new = "        for key in sorted(differing & declared & set())\n"
+expect = "test_a_difference_the_pairing_does_not_declare_is_refused"
+
+[[mutation]]
+id = "PM4 a stale declared difference accepted"
+file = "cv005_contracts/pairing.py"
+old = "        for key in sorted(declared - differing)\n"
+new = "        for key in sorted(declared & differing & set())\n"
+expect = "test_a_difference_the_pairing_declares_but_the_legs_lack_is_refused"
+
+[[mutation]]
+id = "PM5 a matrix cell not checked"
+file = "cv005_contracts/pairing.py"
+old = "    if not pairing.matrix:\n        return []\n"
+new = "    return []\n"
+expect = "test_a_matrix_cell_the_job_does_not_have_is_refused"
+
+[[mutation]]
+id = "PM6 an unread matrix value accepted"
+file = "cv005_contracts/pairing.py"
+old = "        for key in sorted(set(pairing.matrix) - read)\n"
+new = "        for key in []\n"
+expect = "test_a_matrix_value_the_leg_never_reads_is_refused"
+
+[[mutation]]
+id = "PM7 an unresolved matrix read accepted"
+file = "cv005_contracts/pairing.py"
+old = "        if _ANY_MATRIX_READ.search(text):\n"
+new = "        if False:\n"
+expect = "test_a_matrix_value_the_pairing_does_not_give_is_refused"
+
+[[mutation]]
+id = "PM8 declared conditions not held exactly"
+file = "cv005_contracts/pairing.py"
+old = "    if held == expected:\n        return []\n"
+new = "    if True:\n        return []\n"
+expect = "test_the_declared_conditions_are_held_exactly"
+
+[[mutation]]
+id = "PM9 alternatives always exclusive"
+file = "cv005_contracts/parity.py"
+old = "    is_exclusive = all(selectors) and len(set(selectors)) == len(selectors)\n"
+new = "    is_exclusive = True\n"
+expect = "test_legs_sharing_their_selecting_conditions_do_not_stand_in_for_each_other"
+
+[[mutation]]
+id = "PM10 alternatives never count as one"
+file = "cv005_contracts/parity.py"
+old = "    return alone + (1 if paired and is_exclusive else len(paired))\n"
+new = "    return alone + len(paired)\n"
+expect = "test_the_declared_tree_passes"
+
+[[mutation]]
+id = "PM11 declared terms widen the lane guard to any terms"
+file = "cv005_contracts/hardening.py"
+old = "== PULL_REQUEST_GUARD | extra_terms"
+new = ">= PULL_REQUEST_GUARD"
+expect = "test_a_condition_outside_the_pairing_is_still_refused_by_the_lane_rules"
+
+[[mutation]]
+id = "PM12 declared legs compared by the estate rule"
+file = "cv005_contracts/parity.py"
+old = "            if leg.ident not in (declared or {})\n"
+new = "            if True\n"
+expect = "test_the_declared_tree_passes"
+
+[[mutation]]
+id = "PM13 no lane leg compared by the estate rule"
+file = "cv005_contracts/parity.py"
+old = "            if leg.ident not in (declared or {})\n"
+new = "            if False\n"
+expect = "test_an_unmapped_leg_is_refused"
+
+[[mutation]]
+id = "PM14 duplicate lane legs accepted"
+file = "cv005_contracts/declared.py"
+old = "    if duplicated := sorted({lane for lane in lanes if lanes.count(lane) > 1}):"
+new = "    if False:"
+expect = "test_a_malformed_pairing_is_refused"
+
+[[mutation]]
+id = "WM1 waived findings not removed"
+file = "cv005_contracts/waivers.py"
+old = "        if clause not in waived\n"
+new = "        if True\n"
+expect = "test_the_declared_exceptions_waive_exactly_their_clauses"
+
+[[mutation]]
+id = "WM2 an exception waives its whole family"
+file = "cv005_contracts/waivers.py"
+old = "        if clause not in waived\n"
+new = "        if clause.split(\".\")[0] not in {w.split(\".\")[0] for w in waived}\n"
+expect = "test_an_exception_does_not_waive_a_whole_family"
+
+[[mutation]]
+id = "WM3 a stale exception accepted"
+file = "cv005_contracts/waivers.py"
+old = "            problems.append(\n                f\"the exception for {exemption.clause} waives nothing; remove it\"\n            )"
+new = "            pass"
+expect = "test_an_exception_that_waives_nothing_is_refused"
+
+[[mutation]]
+id = "WM4 an unknown clause accepted"
+file = "cv005_contracts/waivers.py"
+old = "        problems.append(f\"{exemption.clause} is not a clause; it cannot be waived\")"
+new = "        pass"
+expect = "test_an_exception_naming_no_clause_is_refused"
+
+[[mutation]]
+id = "WM5 a replacement command not required"
+file = "cv005_contracts/waivers.py"
+old = "    if exemption.requires and not _runs(publisher, exemption.requires):"
+new = "    if False:"
+expect = "test_an_exception_needing_a_command_the_publisher_does_not_run_is_refused"
+
+[[mutation]]
+id = "WM6 waivers not printed"
+file = "cv005_contracts/cli.py"
+old = "    for waiver in result.waivers:\n        _print_waiver(waiver)\n"
+new = "    pass\n"
+expect = "test_the_command_prints_every_declared_exception"
+
+[[mutation]]
+id = "WM7 an exception for a clause that did not run judged"
+file = "cv005_contracts/waivers.py"
+old = "    elif exemption.clause in results:\n        if findings := results[exemption.clause]:"
+new = "    else:\n        if findings := results.get(exemption.clause):"
+expect = "test_an_exception_for_a_family_that_did_not_run_is_not_stale"
+
+[[mutation]]
+id = "WM8 duplicate exceptions accepted"
+file = "cv005_contracts/declared.py"
+old = "    if duplicated := sorted(\n"
+new = "    if False and sorted(\n"
+expect = "test_a_malformed_exception_is_refused"

@@ -11,10 +11,13 @@ from __future__ import annotations
 import typing as typ
 
 from .expressions import ConditionError, conjuncts
-from .publisher import COVERAGE_ACTION, invokes, upload_job
+from .legs import Leg, generator_legs
+from .publisher import invokes, upload_job
 from .reading import jobs, steps
 
 if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
     from .loading import Document
 
 #: The only token scope the upload job and a coverage lane's job need.
@@ -79,13 +82,19 @@ def _keeps_no_credentials(step: dict[str, object]) -> bool:
     return _input(step, "persist-credentials") is False
 
 
-def lane_hardening_violations(closure: dict[str, Document]) -> list[str]:
+def lane_hardening_violations(
+    closure: dict[str, Document],
+    declared: cabc.Mapping[str, frozenset[str]] | None = None,
+) -> list[str]:
     """Keep each pull-request coverage lane read-only and impossible to skip.
 
     Parameters
     ----------
     closure : dict[str, Document]
         The pull-request-reachable workflows, by file name.
+    declared : Mapping[str, frozenset[str]] | None, optional
+        The extra conditions each declared lane leg may carry besides the
+        pull-request guard, by leg name.
 
     Returns
     -------
@@ -94,52 +103,57 @@ def lane_hardening_violations(closure: dict[str, Document]) -> list[str]:
         write access, or publish its report through `upload-artifact`.
 
     """
-    located = _coverage_steps(closure)
-    found = [problem for place in located for problem in _lane_violations(*place)]
-    reports = {str(_input(step, "output-path")) for *_, step in located}
+    located = _coverage_legs(closure)
+    extra = declared or {}
+    found = [
+        problem
+        for name, leg in located
+        for problem in _lane_violations(name, leg, extra.get(leg.ident, frozenset()))
+    ]
+    reports = {str(_input(leg.step, "output-path")) for _, leg in located}
     return found + _artefact_uploads(closure, reports)
 
 
-def _coverage_steps(
-    closure: dict[str, Document],
-) -> list[tuple[str, Document, dict[str, object], dict[str, object]]]:
-    """Return each lane coverage step with its workflow name, document and job."""
+def _coverage_legs(closure: dict[str, Document]) -> list[tuple[str, Leg]]:
+    """Return each lane coverage leg with the name of the workflow holding it."""
     return [
-        (name, document, job, step)
+        (name, leg)
         for name, document in sorted(closure.items())
-        for job in jobs(document).values()
-        for step in steps(job)
-        if invokes(step, COVERAGE_ACTION)
+        for leg in generator_legs(name, document)
     ]
 
 
-def _lane_violations(
-    name: str, document: Document, job: dict[str, object], step: dict[str, object]
-) -> list[str]:
+def _lane_violations(name: str, leg: Leg, extra_terms: frozenset[str]) -> list[str]:
     """Report one lane's coverage step that can fail green or hold write access."""
     problems = [
         (
             "must not continue on error",
-            _continues_on_error(step) or _continues_on_error(job),
+            _continues_on_error(leg.step) or _continues_on_error(leg.job),
         ),
         (
             "may carry only the pull-request guard as a condition",
-            not (_only_guarded(step) and _only_guarded(job)),
+            not (_only_guarded(leg.step, extra_terms) and _only_guarded(leg.job)),
         ),
         (
             f"job permissions must be exactly {READ_ONLY}",
-            _effective_permissions(document, job) != READ_ONLY,
+            _effective_permissions(leg.document, leg.job) != READ_ONLY,
         ),
     ]
     return [f"{name}: coverage {problem}" for problem, failed in problems if failed]
 
 
-def _only_guarded(holder: dict[str, object]) -> bool:
-    """Return whether a condition is absent or exactly the pull-request guard."""
+def _only_guarded(
+    holder: dict[str, object], extra_terms: frozenset[str] = frozenset()
+) -> bool:
+    """Return whether a condition is absent or the pull-request guard, and no more.
+
+    `extra_terms` are the conditions a declared pairing says select this leg;
+    they are held exactly, so any other term is still refused.
+    """
     if "if" not in holder:
         return True
     try:
-        return frozenset(conjuncts(holder["if"])) == PULL_REQUEST_GUARD
+        return frozenset(conjuncts(holder["if"])) == PULL_REQUEST_GUARD | extra_terms
     except ConditionError:
         return False
 

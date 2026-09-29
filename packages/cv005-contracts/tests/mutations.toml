@@ -1207,8 +1207,8 @@ expect = "test_an_unmapped_leg_is_refused"
 [[mutation]]
 id = "PM14 duplicate lane legs accepted"
 file = "cv005_contracts/declared.py"
-old = "    if duplicated := sorted({lane for lane in lanes if lanes.count(lane) > 1}):"
-new = "    if False:"
+old = "    _refuse_repeats([pairing.lane for pairing in found], \"pairing names a lane leg\")\n"
+new = "    pass\n"
 expect = "test_a_malformed_pairing_is_refused"
 
 [[mutation]]
@@ -1263,8 +1263,8 @@ expect = "test_an_exception_for_a_family_that_did_not_run_is_not_stale"
 [[mutation]]
 id = "WM8 duplicate exceptions accepted"
 file = "cv005_contracts/declared.py"
-old = "    if duplicated := sorted(\n"
-new = "    if False and sorted(\n"
+old = "    _refuse_repeats([table[\"clause\"] for table in found], \"exception waives a clause\")\n"
+new = "    pass\n"
 expect = "test_a_malformed_exception_is_refused"
 
 [[mutation]]

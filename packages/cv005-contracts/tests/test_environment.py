@@ -59,10 +59,15 @@ def _reports(documents: dict[str, Document], fragment: str) -> None:
     )
 
 
+def _accepts(documents: dict[str, Document], why: str) -> None:
+    """Fail unless the rule reports nothing, saying `why` it should."""
+    found = environment_violations(documents, REPOSITORY)
+    assert not found, f"{why}, got {found}"
+
+
 def test_repository_places_the_environment(documents: dict[str, Document]) -> None:
     """The publisher declares the environment and nothing else does."""
-    found = environment_violations(documents, REPOSITORY)
-    assert not found, f"expected no violations, got {found}"
+    _accepts(documents, "expected no violations")
 
 
 def test_publisher_cannot_drop_the_environment(documents: dict[str, Document]) -> None:
@@ -82,8 +87,7 @@ def test_publisher_cannot_name_another_environment(
 def test_mapping_form_is_accepted(documents: dict[str, Document]) -> None:
     """`{name: codescene}` is the same declaration as the bare string."""
     _first_job(documents, PUBLISHER)["environment"] = {"name": "codescene"}
-    found = environment_violations(documents, REPOSITORY)
-    assert not found, f"the mapping form must be accepted, got {found}"
+    _accepts(documents, "the mapping form must be accepted")
 
 
 @pytest.mark.parametrize("name", ["codescene", "CodeScene"])
@@ -202,8 +206,7 @@ def test_other_environments_pass_wherever_they_sit(
     documents["deploy.yml"] = load_workflow(
         DEPLOY.replace("environment: codescene", f"environment: {name}")
     )
-    found = environment_violations(documents, REPOSITORY)
-    assert not found, f"{name!r} must not be held to the codescene rules: {found}"
+    _accepts(documents, f"{name!r} must not be held to the codescene rules")
 
 
 def test_a_computed_url_is_not_a_computed_name(
@@ -214,8 +217,7 @@ def test_a_computed_url_is_not_a_computed_name(
         "name": "codescene",
         "url": "${{ steps.deploy.outputs.url }}",
     }
-    found = environment_violations(documents, REPOSITORY)
-    assert not found, f"a computed url must be accepted, got {found}"
+    _accepts(documents, "a computed url must be accepted")
 
 
 def test_a_computed_url_on_another_environment_is_accepted(
@@ -226,5 +228,4 @@ def test_a_computed_url_on_another_environment_is_accepted(
         "name": "preview",
         "url": "${{ steps.deploy.outputs.url }}",
     }
-    found = environment_violations(documents, REPOSITORY)
-    assert not found, f"a computed url must be accepted, got {found}"
+    _accepts(documents, "a computed url must be accepted")

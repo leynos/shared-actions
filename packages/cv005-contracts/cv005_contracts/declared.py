@@ -110,12 +110,7 @@ def read_exemptions(raw: object) -> tuple[Exemption, ...]:
     ]
     for table in found:
         _require_text(table, ("clause", "ruling", "reason"))
-    clauses = [table["clause"] for table in found]
-    if duplicated := sorted(
-        {clause for clause in clauses if clauses.count(clause) > 1}
-    ):
-        message = f"exception waives a clause twice: {duplicated}"
-        raise DeclarationError(message)
+    _refuse_repeats([table["clause"] for table in found], "exception waives a clause")
     return tuple(Exemption(**table) for table in found)
 
 
@@ -139,24 +134,29 @@ def read_pairings(raw: object) -> tuple[Pairing, ...]:
         same lane leg twice.
 
     """
-    found: list[Pairing] = []
-    for item in _tables(raw, "pairing"):
-        table = _table(item, "pairing", {"lane", "publisher"}, _PAIRING_OPTIONAL)
-        _require_text(table, ("lane", "publisher"))
-        found.append(
-            Pairing(
-                lane=table["lane"],
-                publisher=table["publisher"],
-                matrix=_strings_by_key(table.get("matrix", {}), "matrix"),
-                differs=tuple(_strings(table.get("differs", []), "differs")),
-                guards=tuple(_strings(table.get("guards", []), "guards")),
-            )
-        )
-    lanes = [pairing.lane for pairing in found]
-    if duplicated := sorted({lane for lane in lanes if lanes.count(lane) > 1}):
-        message = f"pairing names a lane leg twice: {duplicated}"
-        raise DeclarationError(message)
+    found = [_pairing(item) for item in _tables(raw, "pairing")]
+    _refuse_repeats([pairing.lane for pairing in found], "pairing names a lane leg")
     return tuple(found)
+
+
+def _pairing(item: object) -> Pairing:
+    """Read one `[[pairing]]` table into a `Pairing`."""
+    table = _table(item, "pairing", {"lane", "publisher"}, _PAIRING_OPTIONAL)
+    _require_text(table, ("lane", "publisher"))
+    return Pairing(
+        lane=table["lane"],
+        publisher=table["publisher"],
+        matrix=_strings_by_key(table.get("matrix", {}), "matrix"),
+        differs=tuple(_strings(table.get("differs", []), "differs")),
+        guards=tuple(_strings(table.get("guards", []), "guards")),
+    )
+
+
+def _refuse_repeats(names: list[str], what: str) -> None:
+    """Refuse a name that appears more than once, saying `what` repeated it."""
+    if repeated := sorted({name for name in names if names.count(name) > 1}):
+        message = f"{what} twice: {repeated}"
+        raise DeclarationError(message)
 
 
 _PAIRING_OPTIONAL: typ.Final[set[str]] = {"matrix", "differs", "guards"}
@@ -191,26 +191,34 @@ def _table(
 def _require_text(table: dict[str, typ.Any], keys: tuple[str, ...]) -> None:
     """Refuse a key whose value is not a non-empty string."""
     for key in keys:
-        if not isinstance(table[key], str) or not table[key].strip():
+        if not _is_text(table[key]):
             message = f"{key} must be a non-empty string"
             raise DeclarationError(message)
 
 
+def _is_text(value: object) -> bool:
+    """Return whether a value is a string with something in it."""
+    return isinstance(value, str) and bool(value.strip())
+
+
 def _strings(value: object, name: str) -> list[str]:
     """Return a list of non-empty strings, or refuse."""
-    if not isinstance(value, list) or not all(
-        isinstance(item, str) and item for item in value
-    ):
-        message = f"{name} must be a list of non-empty strings"
-        raise DeclarationError(message)
-    return typ.cast("list[str]", value)
+    if isinstance(value, list) and all(_is_text(item) for item in value):
+        return typ.cast("list[str]", value)
+    message = f"{name} must be a list of non-empty strings"
+    raise DeclarationError(message)
 
 
 def _strings_by_key(value: object, name: str) -> dict[str, str]:
     """Return a mapping of strings to strings, or refuse."""
-    if not isinstance(value, dict) or not all(
-        isinstance(key, str) and isinstance(item, str) for key, item in value.items()
+    if isinstance(value, dict) and all(
+        _is_string_pair(key, item) for key, item in value.items()
     ):
-        message = f"{name} must map names to strings"
-        raise DeclarationError(message)
-    return typ.cast("dict[str, str]", value)
+        return typ.cast("dict[str, str]", value)
+    message = f"{name} must map names to strings"
+    raise DeclarationError(message)
+
+
+def _is_string_pair(key: object, item: object) -> bool:
+    """Return whether a mapping entry is a string keyed to a string."""
+    return isinstance(key, str) and isinstance(item, str)

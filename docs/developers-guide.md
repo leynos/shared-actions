@@ -215,19 +215,18 @@ target, so every pull request rejects unexplained production dead code.
 ### Skylos dead-code policy
 
 Skylos `4.33.2` scans action implementations, workflow helpers, root modules,
-and the maintained tooling script, while excluding test directories so test-only
-imports cannot make production symbols appear live. `$(SKYLOS_CLI)` runs it
-with Python 3.14 because Skylos parses source using its own runtime AST; pinning
-that runtime prevents phantom findings from newer Python syntax. `$(SKYLOS)`
-adds scan-only options such as `--config-file`, leaving the command-only CLI
-available for subcommands.
+and the maintained tooling script, while excluding test directories so
+test-only imports cannot make production symbols appear live. `$(SKYLOS_CLI)`
+runs it with Python 3.14 because Skylos parses source using its own runtime
+AST; pinning that runtime prevents phantom findings from newer Python syntax.
+`$(SKYLOS)` adds scan-only options such as `--config-file`, leaving the
+command-only CLI available for subcommands.
 
 Treat each finding as dead code until a runtime caller is verified. Remove
 genuine dead code. For framework callbacks, protocol implementations, or other
-implicit runtime callers, first add a narrowly typed
-`[tool.skylos.dead_code]` entry-point rule with the full name and verified
-caller. Only when that boundary cannot be modelled as an entry point, record a
-named exception with:
+implicit runtime callers, first add a narrowly typed `[tool.skylos.dead_code]`
+entry-point rule with the full name and verified caller. Only when that
+boundary cannot be modelled as an entry point, record a named exception with:
 
 ```shell
 make skylos-allow SYMBOL=registered_handler REASON="Loaded by plugin registry"
@@ -2891,9 +2890,9 @@ what stops a schema change from quietly meaning a different rule.
 
 `foreign_commits` holds the rule itself, over `CommitRecord` values alone:
 every credited login must be in `DEPENDABOT_LOGINS`, and the credit list must
-have been read to its end. `audit_commits` composes the two over a single
-response. `audit_whole_branch`, in `dependabot_github.py`, pages the connection
-first and is what the production path uses.
+have been read to its end. `audit_whole_branch`, in `dependabot_github.py`,
+pages the connection to its end before applying this rule, and is the
+production path.
 
 ### The GitHub transport boundary
 

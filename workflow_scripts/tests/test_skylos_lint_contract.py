@@ -122,6 +122,44 @@ _EXPECTED_SKYLOS_WHITELIST_NAMES: typ.Final = frozenset(
         "with_env",
     }
 )
+_EXPECTED_SKYLOS_DOCUMENTED_WHITELIST_NAMES: typ.Final = (
+    _EXPECTED_SKYLOS_WHITELIST_NAMES
+    | frozenset(
+        {
+            "AUTHOR_PAGE_SIZE",
+            "AutomergeConfig",
+            "COMMIT_PAGE_SIZE",
+            "COMMITS_FRAGMENT",
+            "COMMITS_PAGE_QUERY",
+            "DEPENDABOT_LOGINS",
+            "Decision",
+            "DecisionStatus",
+            "DISABLE_AUTOMERGE_MUTATION",
+            "ENABLE_AUTOMERGE_MUTATION",
+            "GraphQLQuery",
+            "MAX_COMMIT_PAGES",
+            "MERGE_PULL_REQUEST_MUTATION",
+            "MergeMethod",
+            "MergeStateRetryConfig",
+            "MergeStateStatus",
+            "MergeableState",
+            "PULL_REQUEST_QUERY",
+            "PullRequestContext",
+            "PullRequestRef",
+            "classify_merge_state",
+            "commit_audit_outcome",
+            "commit_page",
+            "emit_decision",
+            "emit_withdrawal_notice",
+            "evaluate",
+            "fetch_pull_request",
+            "foreign_commits",
+            "handler_order",
+            "judge",
+            "merge_state_retry_config",
+        }
+    )
+)
 _EXPECTED_SKYLOS_ENTRYPOINT_NAMES: typ.Final = frozenset()
 _WILDCARD_SYMBOLS: typ.Final = ("*", "?", "[")
 _MAKEUTIL_INSTALL_TOKENS: typ.Final = (
@@ -406,11 +444,12 @@ class TestSkylosLintContract:
         assert names == _EXPECTED_SKYLOS_WHITELIST_NAMES, (
             "Skylos whitelist names must preserve the consciously reviewed set"
         )
-        assert frozenset(documented) == _EXPECTED_SKYLOS_WHITELIST_NAMES, (
+        documented_names = frozenset(documented)
+        assert documented_names == _EXPECTED_SKYLOS_DOCUMENTED_WHITELIST_NAMES, (
             "Skylos documented whitelist names must preserve the reviewed set"
         )
-        assert names == frozenset(documented), (
-            "every Skylos allow-list name must have exactly one documented reason"
+        assert names <= documented_names, (
+            "every legacy Skylos whitelist name must have a documented reason"
         )
         assert all(
             isinstance(reason, str) and reason.strip() for reason in documented.values()

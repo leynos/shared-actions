@@ -169,3 +169,62 @@ def test_a_workflow_run_chain_may_not_declare_it(
     )
     documents["chained.yml"] = load_workflow(chained)
     _reports(documents, REACHABLE)
+
+
+#: Environment names that are not `codescene`, including ones that contain or
+#: extend it, since a rule reading a substring or a prefix would hold them too.
+OTHER_ENVIRONMENTS: typ.Final[list[str]] = [
+    "production",
+    "release",
+    "codescene-staging",
+    "not-codescene",
+    "codescenes",
+]
+
+
+@pytest.mark.parametrize("name", OTHER_ENVIRONMENTS)
+def test_other_environments_pass_wherever_they_sit(
+    documents: dict[str, Document], name: str
+) -> None:
+    """The rule holds `codescene` alone: another environment is no finding.
+
+    It sits on a pull-request job, on a job of the publisher that uploads
+    nothing, and on a job of a workflow a pull request calls, the three
+    places `codescene` itself would be refused.
+    """
+    _first_job(documents, LANE)["environment"] = {"name": name}
+    jobs(documents[PUBLISHER])["other"] = {
+        "runs-on": "ubuntu-latest",
+        "environment": name,
+        "steps": [{"run": "true"}],
+    }
+    documents["caller.yml"] = load_workflow(CALLER.format(prefix="./"))
+    documents["deploy.yml"] = load_workflow(
+        DEPLOY.replace("environment: codescene", f"environment: {name}")
+    )
+    found = environment_violations(documents, REPOSITORY)
+    assert not found, f"{name!r} must not be held to the codescene rules: {found}"
+
+
+def test_a_computed_url_is_not_a_computed_name(
+    documents: dict[str, Document],
+) -> None:
+    """Only the `name` decides placement; an expression in `url` is accepted."""
+    _first_job(documents, PUBLISHER)["environment"] = {
+        "name": "codescene",
+        "url": "${{ steps.deploy.outputs.url }}",
+    }
+    found = environment_violations(documents, REPOSITORY)
+    assert not found, f"a computed url must be accepted, got {found}"
+
+
+def test_a_computed_url_on_another_environment_is_accepted(
+    documents: dict[str, Document],
+) -> None:
+    """The same holds where the environment is not `codescene`."""
+    _first_job(documents, LANE)["environment"] = {
+        "name": "preview",
+        "url": "${{ steps.deploy.outputs.url }}",
+    }
+    found = environment_violations(documents, REPOSITORY)
+    assert not found, f"a computed url must be accepted, got {found}"

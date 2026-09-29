@@ -1077,3 +1077,38 @@ file = "cv005_contracts/publisher.py"
 old = "    return str(step.get(\"uses\", \"\")).split(\"@\", 1)[0].casefold()"
 new = "    return str(step.get(\"uses\", \"\")).split(\"@\", 1)[0]"
 expect = "test_the_shared_action_is_matched_without_regard_to_case"
+
+[[mutation]]
+id = "V-env8 the uploading job may omit the environment"
+file = "cv005_contracts/environment.py"
+old = "for where, job in uploading if not declares_codescene(job)\n"
+new = "for where, job in uploading if False\n"
+expect = "test_publisher_cannot_drop_the_environment"
+
+[[mutation]]
+id = "V-env9 workflow_run chain not followed"
+file = "cv005_contracts/reach.py"
+old = "        or _is_chained_on_a_run(document)\n"
+new = "        or False\n"
+expect = "test_a_workflow_run_chain_may_not_declare_it"
+
+[[mutation]]
+id = "V-env10 environment held by substring"
+file = "cv005_contracts/environment.py"
+old = "name.casefold() == ENVIRONMENT"
+new = "ENVIRONMENT in name.casefold()"
+expect = "test_other_environments_pass_wherever_they_sit"
+
+[[mutation]]
+id = "V-env11 every environment counts as codescene"
+file = "cv005_contracts/environment.py"
+old = "name.casefold() == ENVIRONMENT"
+new = "True"
+expect = "test_other_environments_pass_wherever_they_sit"
+
+[[mutation]]
+id = "V-env12 a computed url read as a computed name"
+file = "cv005_contracts/environment.py"
+old = "    return name is not None and \"${{\" in name"
+new = "    return \"${{\" in str(job.get(\"environment\"))"
+expect = "test_a_computed_url_is_not_a_computed_name"

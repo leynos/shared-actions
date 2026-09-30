@@ -561,6 +561,29 @@ class TestStartupTimeout:
         assert merged.startswith("server_startup_timeout_ms = 60000\n")
         assert nested in merged
 
+    @pytest.mark.parametrize("delimiter", ['"""', "'''"])
+    def test_a_timeout_named_inside_a_multiline_string_is_not_the_root_key(
+        self, fake_sccache: Path, delimiter: str
+    ) -> None:
+        """TOML treats those lines as string content, not as a root setting.
+
+        Scanning line by line would take the string's content for the caller's
+        own timeout and skip the required default.
+        """
+        workdir = fake_sccache.parent
+        theirs = workdir / "theirs.toml"
+        text = f"alpha = {delimiter}\nserver_startup_timeout_ms = 123\n{delimiter}\n"
+        theirs.write_text(text, encoding="utf-8")
+        _run_server(
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                caller_conf=str(theirs),
+            )
+        )
+
+        assert _written_conf(workdir) == "server_startup_timeout_ms = 60000\n" + text
+
     def test_the_merged_config_is_private(self, fake_sccache: Path) -> None:
         """A caller's config may hold backend credentials.
 

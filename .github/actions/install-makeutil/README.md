@@ -85,7 +85,7 @@ Beside it, one `install-makeutil.cache` line reports how the cache was used:
 
 | Name                       | Type   | Description                                                    | Required | Default        |
 | -------------------------- | ------ | -------------------------------------------------------------- | -------- | -------------- |
-| `version`                  | string | Exact makeutil version to install                              | no       | `0.1.1`        |
+| `version`                  | string | Exact makeutil version to install                              | no       | `0.1.2`        |
 | `bin-dir`                  | string | Directory receiving the executable, added to `PATH`            | no       | `~/.local/bin` |
 | `expected-sha256-override` | string | Test-only: replaces the pinned digest table entry for this run | no       | `""`           |
 
@@ -111,7 +111,7 @@ installation.
 - name: Install makeutil
   uses: ./.github/actions/install-makeutil
   with:
-    version: 0.1.1
+    version: 0.1.2
     bin-dir: ${{ runner.temp }}/makeutil-bin
 
 - name: Parse a Makefile

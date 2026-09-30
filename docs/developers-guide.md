@@ -1265,16 +1265,17 @@ URL type before any request. `_https_only_opener` takes an optional HTTPS
 handler so tests can serve canned responses and prove both refused and followed
 redirects.
 
-The table pins two versions, each for both musl targets: `0.1.1`, the `version`
-default, and `0.1.0`, which stays installable by naming it. Every digest is
-copied from the release's own `.sha256` files, never computed here. The
-real-install workflow (`test-install-makeutil.yml`) explicitly installs `0.1.1`
-on both architectures, passing `MAKEUTIL_TEST_VERSION` to `version`, and asserts
-`makeutil --version`, so a wrong digest fails there against the published
-asset. It does not exercise the default chosen when `version` is omitted;
-`test_the_inputs_are_exactly_these` pins that default. Adding a release means
-adding its two digests to the table, moving the default in `action.yml`, and
-moving `MAKEUTIL_TEST_VERSION` in that workflow, together.
+The table pins three versions, each for both musl targets: `0.1.2`, the
+`version` default, and `0.1.1` and `0.1.0`, which stay installable by naming
+them. Every digest is copied from the release's own `.sha256` files, never
+computed here. The real-install workflow (`test-install-makeutil.yml`)
+explicitly installs `0.1.2` on both architectures, passing
+`MAKEUTIL_TEST_VERSION` to `version`, and asserts `makeutil --version`, so a
+wrong digest fails there against the published asset. It does not exercise the
+default chosen when `version` is omitted; `test_the_inputs_are_exactly_these`
+pins that default. Adding a release means adding its two digests to the table,
+moving the default in `action.yml`, and moving `MAKEUTIL_TEST_VERSION` in that
+workflow, together.
 
 ### Cache ownership and re-verification
 

@@ -94,6 +94,19 @@ class TestLookupDigest:
             == "8ec3eebd0e2af7cf0e087dc810defc7c065c3938a5179cdb0b3e25148659aaa4"
         )
 
+    def test_the_pinned_0_1_2_digests_match_the_release_sidecars(self) -> None:
+        """The digests are the ones the v0.1.2 release publishes in its
+        `.sha256` files, not values computed here.
+        """
+        assert (
+            lookup_digest("0.1.2", "x86_64-unknown-linux-musl")
+            == "688c3385ac2f5cb630e8a0ffe640815f366793195d35e89821b918b09531adf8"
+        )
+        assert (
+            lookup_digest("0.1.2", "aarch64-unknown-linux-musl")
+            == "ad0d00c25739c9aaee2e1f3aa02749580c580e422cafb03ec3507f4f2ab28e70"
+        )
+
     def test_an_unpinned_version_is_refused(self) -> None:
         """A version absent from the table fails rather than installing
         unverified; the error names what must change to unblock it.

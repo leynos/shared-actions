@@ -65,7 +65,7 @@ def _first_entry(python_version_file: Path) -> str:
     >>> import tempfile
     >>> with tempfile.TemporaryDirectory() as tmp:
     ...     path = Path(tmp) / ".python-version"
-    ...     _ = path.write_text("# pinned\\n3.13\\n3.12\\n", encoding="utf-8")
+    ...     _ = path.write_text("# pinned\n3.13\n3.12\n", encoding="utf-8")
     ...     _first_entry(path)
     '3.13'
 

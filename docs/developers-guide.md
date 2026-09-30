@@ -594,10 +594,13 @@ The Python dependency cache follows the same rule. `Cache Python deps` keys on
 runner OS, architecture, `runner.environment` and the resolved `major.minor`,
 repeats that prefix in its only restore key, and excludes
 `~/.cache/uv/environments-v2` from the cached path while keeping `~/.cache/uv`.
-A warm restore once handed a lane a script environment built on another runner
-type or Python, and `uv venv --python <that interpreter>` then exited 2 with
-the cause hidden (issue #547). `run_python.py` also echoes uv's stderr when
-`uv venv` fails, as it already did for `uv sync`.
+Warm runs once failed `uv venv --python <that interpreter>` with exit 2 while a
+cold run passed, with the cause hidden (issue #547). A restored script
+environment built on another runner type or Python is the suspected cause, not
+a confirmed one, so the exclusion removes that state rather than explaining it;
+the next warm run on the affected lanes is the end-to-end evidence.
+`run_python.py` also echoes uv's stderr when `uv venv` fails, as it already did
+for `uv sync`.
 [`test_generate_coverage_python_cache.py`](../tests/workflows/test_generate_coverage_python_cache.py)
 asserts the exclusion, the retained positive path, and that the key and every
 restore key carry each boundary; the venv failure's stderr is asserted in

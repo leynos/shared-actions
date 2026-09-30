@@ -238,14 +238,14 @@ backend. mold remains usable as the linker for coverage builds.
 
 The Python dependency cache stores `~/.cache/uv` except `environments-v2`, and
 its key is
-`<os>-<arch>-<runner environment>-py<major.minor>-py-deps-<hash
-of pyproject.toml>`.
+`<os>-<arch>-<runner environment>-py<major.minor>-py-deps-<hash of pyproject.toml>`.
 `environments-v2` holds the script environments `uv run --script` builds, each
-bound to the interpreter and runner that built it; restoring one built on
-another runner type or Python made `uv venv --python` exit 2, so uv rebuilds it
-instead. The restore key repeats the same prefix, so a restore never crosses a
-runner environment, architecture or interpreter. A failing `uv venv` now prints
-uv's own error.
+bound to the interpreter and runner that built it; warm runs that restored them
+failed `uv venv --python` with exit 2 while a cold run passed (issue #547). A
+restored environment built on another runner type or Python is the suspected
+cause, not a confirmed one, so uv rebuilds it instead. The restore key repeats
+the same prefix, so a restore never crosses a runner environment, architecture
+or interpreter. A failing `uv venv` now prints uv's own error.
 
 Set `cache-provider: external` when the caller mounts those Rust and uv cache
 paths through one external cache service, such as a Namespace cache volume.

@@ -312,10 +312,12 @@ runs:
       with:
         # `environments-v2` holds the script environments `uv run --script`
         # built, and each is bound to the interpreter and runner that built
-        # it. Restoring one built elsewhere leaves `uv venv --python <that
-        # interpreter>` exiting 2 (issue #547), so it is never cached; uv
-        # rebuilds it in seconds, whereas the wheel and archive caches it
-        # leaves in place are the part worth restoring.
+        # it. Warm runs restoring them failed `uv venv --python <that
+        # interpreter>` with exit 2 while a cold run passed (issue #547); a
+        # restored environment built elsewhere is the suspected cause, not a
+        # confirmed one. So it is never cached; uv rebuilds it in seconds,
+        # whereas the wheel and archive caches it leaves in place are the part
+        # worth restoring.
         path: |
           ~/.cache/uv
           !~/.cache/uv/environments-v2

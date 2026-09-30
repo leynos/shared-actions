@@ -703,7 +703,7 @@ expect = "test_a_lane_may_not_upload_its_report_as_an_artefact"
 [[mutation]]
 id = "H9 every artefact refused"
 file = "cv005_contracts/hardening.py"
-old = "        if report != \"None\" and report in str(_input(step, \"path\"))\n"
+old = "        if report != \"None\"\n        and any(\n            could_hold_the_report(entry, report)\n            for entry in entries_of(_input(step, \"path\"))\n        )\n"
 new = "        if True\n"
 expect = "test_an_unrelated_artefact_is_allowed"
 
@@ -1489,3 +1489,173 @@ file = "cv005_contracts/requires_python.py"
 old = "    if any(accepted.contains(version, prereleases=True) for version in candidates):\n        return []\n"
 new = "    if candidates:\n        return []\n"
 expect = "test_an_empty_patch_range_is_refused"
+||||||| parent of 3ee753ac (Refuse an artefact upload that could select a lane's coverage report)
+
+
+[[mutation]]
+id = "RA1 the lane guard reads only the report's plain name"
+file = "cv005_contracts/hardening.py"
+old = "        and any(\n            could_hold_the_report(entry, report)\n            for entry in entries_of(_input(step, \"path\"))\n        )\n"
+new = "        and report in str(_input(step, \"path\"))\n"
+expect = "test_a_lane_upload_of_the_workspace_is_refused_end_to_end"
+
+[[mutation]]
+id = "RA2 a negation is judged like a selection"
+file = "cv005_contracts/report_paths.py"
+old = "    if entry.startswith(\"!\"):\n        # A negation only removes files from what the other entries select.\n        return False\n"
+new = ""
+expect = "test_an_entry_that_cannot_hold_the_report_is_allowed[a negation]"
+
+[[mutation]]
+id = "RA3 a path ending in the report's name is not refused"
+file = "cv005_contracts/report_paths.py"
+old = "    if report in entry:\n        return True\n"
+new = ""
+expect = "test_an_entry_that_could_hold_the_report_is_refused[a path ending in the report's name]"
+
+[[mutation]]
+id = "RA4 an absolute path is not judged"
+file = "cv005_contracts/report_paths.py"
+old = "    if entry.startswith((\"/\", \"~\")):\n        return not _in_scratch(entry)\n"
+new = ""
+expect = "test_an_entry_that_could_hold_the_report_is_refused[an absolute path above the workspace]"
+
+[[mutation]]
+id = "RA5 every absolute path is refused"
+file = "cv005_contracts/report_paths.py"
+old = "        return not _in_scratch(entry)\n    if \"${{\" in entry:"
+new = "        return True\n    if \"${{\" in entry:"
+expect = "test_an_entry_that_cannot_hold_the_report_is_allowed[a scratch file]"
+
+[[mutation]]
+id = "RA6 a scratch path may climb out"
+file = "cv005_contracts/report_paths.py"
+old = "    return entry.startswith(SCRATCH_ROOTS) and \"..\" not in entry.split(\"/\")"
+new = "    return entry.startswith(SCRATCH_ROOTS)"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[a scratch path that climbs out]"
+
+[[mutation]]
+id = "RA7 an expression is never refused"
+file = "cv005_contracts/report_paths.py"
+old = "        return not _expression_stays_outside(entry)\n"
+new = "        return False\n"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[the workspace expression]"
+
+[[mutation]]
+id = "RA8 an expression is always refused"
+file = "cv005_contracts/report_paths.py"
+old = "        return not _expression_stays_outside(entry)\n"
+new = "        return True\n"
+expect = "test_an_entry_that_cannot_hold_the_report_is_allowed[a scratch expression]"
+
+[[mutation]]
+id = "RA9 only the first alternative of an expression is read"
+file = "cv005_contracts/expressions.py"
+old = "for alternative in _split_top_level(_unwrap(expression), \"||\")\n"
+new = "for alternative in _split_top_level(_unwrap(expression), \"||\")[:1]\n"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[an alternative that yields the workspace]"
+
+[[mutation]]
+id = "RA10 the first operand of a chain is read instead of the last"
+file = "cv005_contracts/expressions.py"
+old = "_split_top_level(alternative, \"&&\")[-1].strip()"
+new = "_split_top_level(alternative, \"&&\")[0].strip()"
+expect = "test_an_entry_that_cannot_hold_the_report_is_allowed[a scratch expression]"
+
+[[mutation]]
+id = "RA11 a non-literal result is skipped"
+file = "cv005_contracts/report_paths.py"
+old = "    if not all(literals):\n        return False\n"
+new = ""
+expect = "test_an_entry_that_could_hold_the_report_is_refused[an alternative that yields the workspace]"
+
+[[mutation]]
+id = "RA12 an unreadable expression is cleared"
+file = "cv005_contracts/report_paths.py"
+old = "    except ConditionError:\n        return False\n"
+new = "    except ConditionError:\n        return True\n"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[an unbalanced expression]"
+
+[[mutation]]
+id = "RA13 a partly written expression is cleared"
+file = "cv005_contracts/report_paths.py"
+old = "    if match is None:\n        return False\n"
+new = "    if match is None:\n        return True\n"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[an expression inside a path]"
+
+[[mutation]]
+id = "RA14 a climbing path is not refused"
+file = "cv005_contracts/report_paths.py"
+old = "    if \"..\" in entry.split(\"/\"):\n        return True\n"
+new = ""
+expect = "test_an_entry_that_could_hold_the_report_is_refused[a path climbing out]"
+
+[[mutation]]
+id = "RA15 a glob is not read"
+file = "cv005_contracts/report_paths.py"
+old = "        return _glob_selects(entry, report)\n"
+new = "        return False\n"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[a glob over the extension]"
+
+[[mutation]]
+id = "RA16 every glob is refused"
+file = "cv005_contracts/report_paths.py"
+old = "        return _glob_selects(entry, report)\n"
+new = "        return True\n"
+expect = "test_an_entry_that_cannot_hold_the_report_is_allowed[a glob over other files]"
+
+[[mutation]]
+id = "RA17 a glob is tried only against the report"
+file = "cv005_contracts/report_paths.py"
+old = "    candidates = [\"/\".join(parts[: count + 1]) for count in range(len(parts))]"
+new = "    candidates = [\"/\".join(parts)]"
+expect = "test_a_directory_or_glob_holding_a_nested_report_is_refused"
+
+[[mutation]]
+id = "RA18 braces are not expanded"
+file = "cv005_contracts/report_paths.py"
+old = "for pattern in _expand_braces(entry)"
+new = "for pattern in [entry]"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[a brace group naming it]"
+
+[[mutation]]
+id = "RA19 a recursive glob needs a directory"
+file = "cv005_contracts/report_paths.py"
+old = "return r\"(?:[^/]+/)*\", index + 3"
+new = "return r\"(?:[^/]+/)\", index + 3"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[a recursive glob]"
+
+[[mutation]]
+id = "RA20 a star crosses a slash"
+file = "cv005_contracts/report_paths.py"
+old = "return \"[^/]*\", index + 1"
+new = "return \".*\", index + 1"
+expect = "test_a_sibling_directory_or_glob_of_a_nested_report_is_allowed"
+
+[[mutation]]
+id = "RA21 every plain entry is refused"
+file = "cv005_contracts/report_paths.py"
+old = "    return _parts(report)[: len(parts)] == parts"
+new = "    return True"
+expect = "test_an_entry_that_cannot_hold_the_report_is_allowed[a directory beside the report]"
+
+[[mutation]]
+id = "RA22 a directory holding the report is not refused"
+file = "cv005_contracts/report_paths.py"
+old = "    return _parts(report)[: len(parts)] == parts"
+new = "    return not parts"
+expect = "test_a_directory_or_glob_holding_a_nested_report_is_refused"
+
+[[mutation]]
+id = "RA23 a multi-line path is one entry"
+file = "cv005_contracts/report_paths.py"
+old = "str(path).splitlines()"
+new = "[str(path)]"
+expect = "test_a_lane_upload_of_one_breaching_line_among_many_is_refused"
+
+[[mutation]]
+id = "RA24 blank lines are entries"
+file = "cv005_contracts/report_paths.py"
+old = " for line in str(path).splitlines() if line.strip()]"
+new = " for line in str(path).splitlines()]"
+expect = "test_a_path_is_read_one_entry_per_line"

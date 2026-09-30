@@ -76,6 +76,40 @@ def _split_top_level(text: str, separator: str) -> list[str]:
     return [text[start:end] for start, end in zip(starts, ends, strict=True)]
 
 
+def yielded_operands(expression: str) -> list[str]:
+    """Return the operand each `||` alternative of a `${{ }}` expression yields.
+
+    `a && b || c && d` yields `b` when `a` holds, else `d` when `c` holds, so
+    only the last operand of each `&&` chain is a value the expression can
+    produce. Split only outside literals and groups.
+
+    Parameters
+    ----------
+    expression : str
+        The whole expression, with or without its `${{ }}` wrapper.
+
+    Returns
+    -------
+    list[str]
+        The stripped last operand of each alternative, in order.
+
+    Raises
+    ------
+    ConditionError
+        If a quote or a parenthesis is left unbalanced.
+
+    Examples
+    --------
+    >>> yielded_operands("${{ x == 'y' && '/tmp/a' || '' }}")
+    ["'/tmp/a'", "''"]
+
+    """
+    return [
+        _split_top_level(alternative, "&&")[-1].strip()
+        for alternative in _split_top_level(_unwrap(expression), "||")
+    ]
+
+
 def _normalize(term: str) -> str:
     """Collapse runs of whitespace so spacing cannot defeat a comparison."""
     return " ".join(term.split())

@@ -96,6 +96,13 @@ the retired checksum names.
   - Each job measuring coverage, in a lane or the publisher, ratchets
     exactly one of its legs. The action keys the baseline by job.
   - Lanes publish no artefact and never set `publish-baseline`.
+    A lane step uploading with `actions/upload-artifact` is judged by what
+    each `path` line could select, not by whether it names the report: the
+    workspace (`.`, `./`), a path climbing out with `..`, a directory holding
+    the report, a glob matching it or a directory above it, an absolute or
+    `~` path outside `/tmp/`, and an expression that is not wholly quoted
+    `/tmp/` literals are all refused. A negation (`!path`), a directory or
+    glob elsewhere, and a `/tmp/` path are not.
   - Each lane leg measures the selection of one publisher leg: the same
     inputs, and the same merged `env` (workflow, then job, then step).
     Inputs that name, ship or save the report are not compared. Nor are

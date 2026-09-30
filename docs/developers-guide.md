@@ -2213,6 +2213,15 @@ of this repository needs.
   package, and refuses an anchor that no longer occurs exactly once. A clause
   is proved in both directions: a fixture that fails without it, and a narrow
   case that passes when it is over-broadened.
+- **Artefact paths.** `report_paths.could_hold_the_report` judges each line of
+  a lane's `upload-artifact` `path` by what it could select, so
+  `publish-artefact: 'false'` cannot be defeated by an upload of `.`, a parent
+  directory, a glob or an unresolved expression. It is tested on the entry, not
+  the workflow, with a breaching and a narrow case for each reading. It has no
+  glob dependency: `report_paths._glob_regex` translates `*`, `**`, `?`,
+  classes and braces. A glob is tried against the report and each directory
+  above it, since a match on a directory uploads everything beneath. The origin
+  was chutoro's pre-adoption `report_paths.py`.
 - **Parity exclusion.** The parity rule leaves out environment keys that pin or
   place a tool (`*_VERSION`, `*_REV`, `*_SHA256*`, uv directories, Cargo
   retries) on the ground that `generate-coverage` never reads them.

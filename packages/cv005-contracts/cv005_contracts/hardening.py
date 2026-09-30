@@ -14,6 +14,7 @@ from .expressions import ConditionError, conjuncts
 from .legs import Leg, generator_legs
 from .publisher import invokes, upload_job
 from .reading import jobs, steps
+from .report_paths import could_hold_the_report, entries_of
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -171,5 +172,9 @@ def _artefact_uploads(closure: dict[str, Document], reports: set[str]) -> list[s
         for step in steps(job)
         if invokes(step, ARTEFACT_ACTION)
         for report in sorted(reports)
-        if report != "None" and report in str(_input(step, "path"))
+        if report != "None"
+        and any(
+            could_hold_the_report(entry, report)
+            for entry in entries_of(_input(step, "path"))
+        )
     ]

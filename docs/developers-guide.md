@@ -1175,12 +1175,15 @@ if either appears in a step.
 ### Resolution and installation are separate steps
 
 `install_makeutil.py resolve` has a query half and a command half.
-`resolve_plan` is the query: it validates the inputs, maps the runner to a
-target triple, looks up the pinned digest and returns a typed `InstallPlan`. It
-reads no environment (the home directory is passed in), writes no output and
-creates nothing; a missing `bin-dir` is planned, not made, and an unresolvable
-one is an `InvalidInputError`. `_run_resolve` is the command: it alone writes
-the step outputs, the summary and the annotations.
+`resolve_plan` is the query: value-based validation of the version and digest
+override, the runner-to-target mapping, the pinned digest lookup, the release
+URLs and the cache key, returned as a typed `InstallPlan`. It touches no
+filesystem and reads no environment: its `PlanRequest` carries an already
+resolved `bin_dir`. `_run_resolve` is the command. It acquires the home
+directory, resolves and validates `bin-dir` through `makeutil_bin_dir` (the one
+place path resolution can fail, mapped to `InvalidInputError`), calls
+`resolve_plan`, and alone writes the step outputs, the summary and the
+annotations. A missing `bin-dir` is planned, not made.
 `install_makeutil.py install` is the command: it downloads, verifies, makes
 `bin-dir` and stages the binary. The split lets the action place an
 `actions/cache` step, keyed on the plan, between the two.
@@ -1236,10 +1239,13 @@ each step.
 `install_makeutil` takes two injected dependencies. The downloader is a
 callable, and the installed binary sits behind the `BinaryStore` protocol in
 `makeutil_store.py`: `digest`, `make_executable`, `install`, `discard` and a
-`location`. The production `FilesystemBinaryStore` is the only code on the
-install path that uses `Path`, `os` or `tempfile`, and it maps every `OSError`
-to a `StoreError`, so storage failure is a typed outcome of the port and the
-policy reports it as `install-failed`. Policy tests use an in-memory store; the
+`location`. The production `FilesystemBinaryStore` is the only adapter that
+creates, re-modes, replaces or deletes the binary. It uses `os` and `tempfile`
+for that and maps every `OSError` to a `StoreError`, so storage failure is a
+typed outcome of the port and the policy reports it as `install-failed`. Other
+filesystem use is named separately: `makeutil_bin_dir.py` resolves and
+validates paths, and the command layer writes `GITHUB_OUTPUT` and
+`GITHUB_STEP_SUMMARY` directly. Policy tests use an in-memory store; the
 adapter is tested against real temporary directories, injecting an error only
 for a write or `chmod` failure a filesystem will not produce on demand.
 

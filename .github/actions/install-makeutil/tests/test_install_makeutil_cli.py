@@ -221,3 +221,35 @@ class TestResolveSubcommand:
         assert _outputs(env) == {"result": "invalid-input"}
         summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
         assert "install-makeutil.result=invalid-input" in summary
+
+    def test_an_unresolvable_bin_dir_is_refused_at_the_command_boundary(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A path-resolution failure is mapped by the command layer to
+        `invalid-input` and a published `result`, before any plan is made.
+        """
+        env = _fake_env(tmp_path)
+
+        def _failing_resolve(self: Path, *_args: object, **_kwargs: object) -> Path:
+            message = "simulated resolution failure"
+            raise OSError(message)
+
+        monkeypatch.setattr(Path, "resolve", _failing_resolve)
+
+        exit_code = cli.main(
+            [
+                "resolve",
+                "--version",
+                "0.1.0",
+                "--bin-dir",
+                "/opt/tools/bin",
+                "--runner-os",
+                "Linux",
+                "--runner-arch",
+                "X64",
+            ],
+            env,
+        )
+
+        assert exit_code == 1
+        assert _outputs(env) == {"result": "invalid-input"}

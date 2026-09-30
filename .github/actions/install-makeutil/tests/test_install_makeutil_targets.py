@@ -267,12 +267,10 @@ class TestResolvePlan:
         """No output environment is needed, and a missing `bin-dir` stays so."""
         bin_dir = tmp_path / "missing" / "bin"
 
-        plan = resolve_plan(
-            PlanRequest("0.1.0", str(bin_dir), "", "Linux", "ARM64", None)
-        )
+        plan = resolve_plan(PlanRequest("0.1.0", bin_dir, "", "Linux", "ARM64"))
 
         assert plan.target == "aarch64-unknown-linux-musl"
-        assert plan.executable_path == bin_dir.resolve() / "makeutil"
+        assert plan.executable_path == bin_dir / "makeutil"
         assert plan.cache_key.endswith(plan.expected_sha256)
         assert dict(plan.outputs())["version"] == "0.1.0"
         assert not bin_dir.exists()
@@ -292,11 +290,10 @@ class TestResolvePlan:
         """Each refusal is an explicit error the command layer maps."""
         request = PlanRequest(
             version=kwargs.get("version", "0.1.0"),
-            bin_dir_input=str(tmp_path / "bin"),
+            bin_dir=tmp_path / "bin",
             sha256_override="",
             runner_os=kwargs.get("runner_os", "Linux"),
             runner_arch="X64",
-            home=None,
         )
 
         with pytest.raises(error):

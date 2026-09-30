@@ -13,7 +13,6 @@ import dataclasses as dc
 import re
 import typing as typ
 
-from makeutil_bin_dir import resolve_bin_dir
 from makeutil_errors import (
     InvalidInputError,
     UnknownVersionError,
@@ -167,23 +166,24 @@ class PlanRequest:
     """The action's inputs and the runner facts `resolve_plan` decides from."""
 
     version: str
-    bin_dir_input: str
+    bin_dir: Path
     sha256_override: str
     runner_os: str
     runner_arch: str
-    home: Path | None
 
 
 def resolve_plan(request: PlanRequest) -> InstallPlan:
     """Decide the install plan from the action's inputs, touching nothing.
 
-    This is the query half of `resolve`: it reads no environment, writes no
-    output and creates no directory. The home directory is part of the request.
+    This is the query half of `resolve`: value-based validation, the target
+    lookup, URL construction and the cache key, and nothing else. It touches no
+    filesystem and reads no environment: the request carries an already
+    resolved `bin_dir`, which the command layer obtains from `makeutil_bin_dir`.
 
     Raises
     ------
     InvalidInputError
-        If an input is malformed or `bin-dir` cannot be resolved.
+        If the version or the digest override is malformed.
     UnsupportedPlatformError
         If makeutil publishes no prebuilt binary for the runner.
     UnknownVersionError
@@ -191,7 +191,7 @@ def resolve_plan(request: PlanRequest) -> InstallPlan:
     """
     validate_version(request.version)
     validate_sha256_override(request.sha256_override)
-    bin_dir = resolve_bin_dir(request.bin_dir_input, request.home)
+    bin_dir = request.bin_dir
     target = resolve_target(request.runner_os, request.runner_arch)
     table_digest = lookup_digest(request.version, target)
     binary_url, sidecar_url = build_asset_urls(request.version, target)

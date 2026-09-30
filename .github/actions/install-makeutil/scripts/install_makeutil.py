@@ -24,6 +24,7 @@ import sys
 import typing as typ
 from pathlib import Path
 
+from makeutil_bin_dir import resolve_bin_dir
 from makeutil_errors import (
     InvalidInputError,
     StoreError,
@@ -73,10 +74,11 @@ def _emit_result(env: cabc.Mapping[str, str], result: str) -> None:
     The value goes to the log and summary as a metric and to the step's
     `result` output, so a later step can assert why a refusal or failure
     happened. `GITHUB_STEP_SUMMARY` is scoped to one step and cannot be read
-    from another.
+    from another. The output is written first, so a summary that cannot be
+    written does not cost the workflow the reason.
     """
-    _emit_metric(env, "result", result)
     _append_output(env, "result", result)
+    _emit_metric(env, "result", result)
 
 
 def cache_state(cache_hit: str, outcome: str) -> str:
@@ -113,14 +115,14 @@ def _run_resolve(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
     reaches the download step.
     """
     try:
+        bin_dir = resolve_bin_dir(args.bin_dir, _ambient_home())
         plan = resolve_plan(
             PlanRequest(
                 version=args.version,
-                bin_dir_input=args.bin_dir,
+                bin_dir=bin_dir,
                 sha256_override=args.sha256_override,
                 runner_os=args.runner_os,
                 runner_arch=args.runner_arch,
-                home=_ambient_home(),
             )
         )
     except InvalidInputError as error:

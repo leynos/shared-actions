@@ -199,3 +199,32 @@ class TestInstallSubcommand:
         error = capsys.readouterr().err
         assert "::error title=Install makeutil failed::" in error
         assert "could not publish results" in error
+
+    def test_a_failed_summary_write_still_publishes_the_result_output(
+        self, tmp_path: Path
+    ) -> None:
+        """The `result` output is written before the summary, so an unwritable
+        `GITHUB_STEP_SUMMARY` does not cost the workflow the reason.
+        """
+        env = _fake_env(tmp_path)
+        env["GITHUB_STEP_SUMMARY"] = str(tmp_path / "missing-dir" / "summary.txt")
+
+        exit_code = cli.main(
+            [
+                "install",
+                "--executable-path",
+                str(tmp_path / "bin" / "makeutil"),
+                "--expected-sha256",
+                "0" * 64,
+                "--binary-url",
+                "http://example.invalid/makeutil",
+                "--sidecar-url",
+                "http://example.invalid/makeutil.sha256",
+                "--version",
+                "0.1.0",
+            ],
+            env,
+        )
+
+        assert exit_code == 1
+        assert _outputs(env) == {"result": "download-failed"}

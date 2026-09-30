@@ -999,14 +999,26 @@ runs:
         # A caller's own config is kept, with the timeout placed ahead of it
         # because a top-level key written after a table would land inside that
         # table. A root key the caller already set wins, bare or quoted; one
-        # nested under a table header is not the root key and does not count.
+        # nested under a table header, or inside a multi-line string, is not
+        # the root key and does not count.
         # The merged copy may carry backend credentials, so it is created
         # private.
         conf="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/setup-rust-sccache.toml"
         if [[ -n "${SCCACHE_CONF:-}" && -f "$SCCACHE_CONF" ]] \
           && awk '
+            function count(text, delimiter,   n, at) {
+              n = 0
+              while ((at = index(text, delimiter)) > 0) {
+                n++
+                text = substr(text, at + length(delimiter))
+              }
+              return n
+            }
+            BEGIN { dq = "\"\"\""; sq = sprintf("%c%c%c", 39, 39, 39); multiline = "" }
+            multiline != "" { if (count($0, multiline) % 2 == 1) multiline = ""; next }
             /^[[:space:]]*\[/ { exit }
             /^[[:space:]]*("server_startup_timeout_ms"|'"'"'server_startup_timeout_ms'"'"'|server_startup_timeout_ms)[[:space:]]*=/ { found = 1; exit }
+            { if (count($0, dq) % 2 == 1) multiline = dq; else if (count($0, sq) % 2 == 1) multiline = sq }
             END { exit !found }
           ' "$SCCACHE_CONF"; then
           conf="$SCCACHE_CONF"

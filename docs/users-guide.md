@@ -114,6 +114,35 @@ leaves your server running rather than restarting it and losing its counters.
 The outcome is reported as
 `metric setup-rust.sccache.server=<started|started-stats-not-zeroed|start-failed|caller-set|missing-sccache-path>`.
 
+The server gets a 60 s startup timeout instead of sccache's fixed 10 s, which
+the backend probe on Ubicloud intermittently outlasts. sccache reads that
+timeout only from a config file, so the step writes one under `RUNNER_TEMP` and
+exports it as `SCCACHE_CONF`. If you already name a config, the step keeps its
+contents and places the timeout ahead of them; a root
+`server_startup_timeout_ms` you set yourself, bare or quoted, wins, and the
+same name nested under a table header does not count. The merged copy is
+private to the runner account.
+
+A cache is an optimization, so a server that still will not start does not fail
+the job. The step clears `RUSTC_WRAPPER`, Cargo compiles without the cache, and
+the fallback is visible three ways: a warning annotation titled
+`sccache-fallback`, the line `sccache: FALLBACK (cache disabled for this job)`
+in the job summary, and the `sccache-status` output, `fallback` here and
+`started` on a healthy start (empty when the action started no server). A later
+step can act on the output:
+
+```yaml
+- name: Note an uncached build
+  if: steps.setup.outputs.sccache-status == 'fallback'
+  run: echo "this job is compiling without the compiler cache"
+```
+
+This adds an output and changes a failure into a warning; no input changes, so
+existing callers need do nothing. A caller that itself runs
+`sccache --show-stats` after the build should skip it when the status is
+`fallback`, since asking a server that never started would try to start it
+again.
+
 Some exports have to be put back rather than made, and that is the reason
 `use-sccache: 'true'` used to be unusable on Ubicloud. The last thing
 `mozilla-actions/sccache-action` does is write `ACTIONS_CACHE_SERVICE_V2=on` to

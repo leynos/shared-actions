@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Raise sccache's server startup timeout to 60 s through an `SCCACHE_CONF`
+  config file, merged into any config the caller already names, and make a
+  server that will not start fail open. The 10 s default intermittently expired
+  on Ubicloud while the server probed its cache backend, failing the job with
+  "Timed out waiting for server startup". The step now warns, writes
+  `RUSTC_WRAPPER=` to `GITHUB_ENV` and exits 0, still reporting
+  `metric setup-rust.sccache.server=start-failed`. A fallback stays detectable:
+  a `::warning title=sccache-fallback::` annotation (the title is a stable
+  contract), the summary line
+  `sccache: FALLBACK (cache disabled for this job)`, and a new `sccache-status`
+  output (`started` or `fallback`).
+
 - Add an opt-in `install-mold` input. On a Linux runner it installs the pinned
   mold release (2.41.0, or `mold-version`) for x86_64 or aarch64, verified
   against a SHA-256 table the action holds, and puts `mold` and `ld.mold` on

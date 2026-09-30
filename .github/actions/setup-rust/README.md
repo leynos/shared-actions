@@ -33,11 +33,12 @@ require them, and set up macOS or OpenBSD cross-compilers.
 
 <!-- markdownlint-disable MD013 -->
 
-| Name          | Description                                                                                      |
-| ------------- | ------------------------------------------------------------------------------------------------ |
-| cache-backend | The sccache backend selected: `ubicloud`, `github` or `local`. Empty when sccache is not in use. |
-| mold-status   | `installed`, `cached` or `skipped` (off Linux). Empty when `install-mold` is not `true`.         |
-| mold-version  | The mold version now on `PATH`. Empty when mold was skipped or not requested.                    |
+| Name           | Description                                                                                                                                                                    |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| cache-backend  | The sccache backend selected: `ubicloud`, `github` or `local`. Empty when sccache is not in use.                                                                               |
+| sccache-status | `started` when the action started the sccache server, `fallback` when it would not start and the job compiles without the cache. Empty when the action did not start a server. |
+| mold-status    | `installed`, `cached` or `skipped` (off Linux). Empty when `install-mold` is not `true`.                                                                                       |
+| mold-version   | The mold version now on `PATH`. Empty when mold was skipped or not requested.                                                                                                  |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -239,6 +240,14 @@ this very binary, when a caller ran `setup-rust` earlier in the job or nested
 it through `rust-build-release`, and stopping that server would discard the
 statistics of everything compiled so far. Each run reports
 `metric setup-rust.sccache.server=<started|start-failed|caller-set|missing-sccache-path>`.
+The server gets a 60 s startup timeout through an `SCCACHE_CONF` file the step
+writes (a config you already name is kept, and a timeout you set wins). If it
+still will not start, the step clears `RUSTC_WRAPPER` and lets the job compile
+without the cache instead of failing, and says so three ways: a warning
+annotation titled `sccache-fallback`, the line
+`sccache: FALLBACK (cache disabled for this job)` in the job summary, and
+`sccache-status=fallback` as an output (`started` otherwise). The annotation
+title is a contract that estate-wide detectors match on; it never changes.
 
 Some exports have to be put back rather than made. The last thing
 `mozilla-actions/sccache-action` does is write `ACTIONS_CACHE_SERVICE_V2=on` to

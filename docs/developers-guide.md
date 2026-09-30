@@ -329,6 +329,30 @@ export, and is belt and braces: a server this step started has zero counters
 already, but a `--start-server` that adopted one would not. A failure to zero
 costs a baseline rather than the cache, so it warns.
 
+The start is fail-open. Before it, the step writes a config file under
+`RUNNER_TEMP` holding `server_startup_timeout_ms = 60000` and exports
+`SCCACHE_CONF` to the server and to `GITHUB_ENV`, because sccache's 10 s
+startup timeout is settable only through that file and the backend probe on
+Ubicloud intermittently outlasts it. A caller's own config is kept, with the
+key written first so it stays top level, and a root key the caller set wins,
+bare or quoted (a key under a table header is not the root key). The merged
+copy is created under `umask 077`, since a caller's config may hold backend
+credentials. If the server still will not start, the step warns, writes
+`RUSTC_WRAPPER=` to `GITHUB_ENV` (an empty value counts as unset, so Cargo
+compiles with plain rustc) and exits 0 with `start-failed`: a cache is an
+optimization and an unreachable one must never fail a job.
+
+A fallback must stay detectable, so it raises three signals and a contract
+holds each:
+
+- a warning annotation titled `sccache-fallback`, reading "sccache server did
+  not start within 60 s; this job compiled without the compiler cache". The
+  title is what estate-wide detectors count on recent runs, so it never changes;
+- the line `sccache: FALLBACK (cache disabled for this job)` appended to
+  `GITHUB_STEP_SUMMARY`, which shows on the run page and not only in the log;
+- the `sccache-status` output, `fallback` here and `started` on success, empty
+  when the action did not start the server, for a caller workflow to act on.
+
 Whether the restart may happen is read from the wrapper step's `state` output,
 not from `RUSTC_WRAPPER`: an inherited wrapper may name this very binary, and
 stopping the server behind it would discard the statistics of everything

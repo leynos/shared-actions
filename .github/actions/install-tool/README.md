@@ -90,7 +90,10 @@ rather than passing a check it never made.
 The archive extractor is chosen by the asset's **extension**, never by probing
 what `tar` resolves to. Git Bash puts MSYS GNU tar ahead of the system bsdtar
 on Windows, and GNU tar cannot read a zip; choosing by capability is what broke
-`install-whitaker` in #446.
+`install-whitaker` in #446. Supported extensions are `.tar.gz`, `.tgz`,
+`.tar.xz` and `.zip`. A `.tar.xz` archive is extracted by the same code path as
+`.tar.gz`, because both GNU tar and bsdtar detect xz compression from the
+archive itself.
 
 ## Cache ownership
 

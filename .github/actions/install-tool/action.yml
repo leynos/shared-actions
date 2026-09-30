@@ -300,7 +300,7 @@ runs:
         # the step before any metric was emitted and leave a scraper seeing a
         # verified digest followed by silence.
         case "$EXTENSION" in
-          tar.gz|tgz)
+          tar.gz|tgz|tar.xz)
             if ! extract_tarball "$ARCHIVE" "$extract_dir"; then
               emit_metric "install-tool.install=failed"
               echo "::error title=install-tool::could not extract ${ARCHIVE}" >&2

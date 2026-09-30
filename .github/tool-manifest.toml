@@ -259,3 +259,49 @@ version-args = ["--version"]
   sha256 = "e94cfc5b58cbe439302f586c1d1bd7980c2cd371d47bdf385ade657411e6f3ac"
   member = "sccache-v0.17.0-x86_64-pc-windows-msvc/sccache.exe"
   sidecar-verified = "true"
+
+
+# Merman publishes a `.sha256` beside every archive, and each digest below was
+# computed from an independent download and then found to agree with it.
+#
+# There is no `aarch64-unknown-linux-gnu` entry because upstream publishes no
+# such archive: v0.7.0 ships Linux x86_64, both macOS targets and Windows
+# x86_64 only. `install-tool` fails closed on a target it cannot resolve, which
+# is the correct outcome here, and a pin invented for a missing archive would
+# not be.
+#
+# The tarballs place the binary under a directory named for the triple; the
+# Windows zip places it at the root. Hence the differing `member` paths.
+[[tool]]
+name = "merman-cli"
+version = "0.7.0"
+binary = "merman-cli"
+version-args = ["--version"]
+
+  [[tool.target]]
+  triple = "x86_64-unknown-linux-gnu"
+  url = "https://github.com/Latias94/merman/releases/download/v0.7.0/merman-cli-x86_64-unknown-linux-gnu.tar.xz"
+  sha256 = "dfdc2a978a884aa5a2ad5b85285fb5175cb435e82cf96efa860a550749e09d99"
+  member = "merman-cli-x86_64-unknown-linux-gnu/merman-cli"
+  sidecar-verified = "true"
+
+  [[tool.target]]
+  triple = "x86_64-apple-darwin"
+  url = "https://github.com/Latias94/merman/releases/download/v0.7.0/merman-cli-x86_64-apple-darwin.tar.xz"
+  sha256 = "c73a9f676b2f9ec5b81ec805253f39f160b1d76a503c80408bea72fa017fb8f1"
+  member = "merman-cli-x86_64-apple-darwin/merman-cli"
+  sidecar-verified = "true"
+
+  [[tool.target]]
+  triple = "aarch64-apple-darwin"
+  url = "https://github.com/Latias94/merman/releases/download/v0.7.0/merman-cli-aarch64-apple-darwin.tar.xz"
+  sha256 = "5c61d806c9cdb1b16062797955fb51849d5df7789e0dc8ea4c54e22d61b865ae"
+  member = "merman-cli-aarch64-apple-darwin/merman-cli"
+  sidecar-verified = "true"
+
+  [[tool.target]]
+  triple = "x86_64-pc-windows-msvc"
+  url = "https://github.com/Latias94/merman/releases/download/v0.7.0/merman-cli-x86_64-pc-windows-msvc.zip"
+  sha256 = "51f4898058d7bae48255a15663cafc14fcee3e352f271a916b2c057587070977"
+  member = "merman-cli.exe"
+  sidecar-verified = "true"

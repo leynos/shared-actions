@@ -53,6 +53,19 @@ version-args = []
   sha256 = "aaaabbbbccccddddeeeeffff00001111aaaabbbbccccddddeeeeffff00001111"
   member = "quiet"
   sidecar-verified = "false"
+
+[[tool]]
+name = "brisk"
+version = "2.0.0"
+binary = "brisk"
+version-args = ["--version"]
+
+  [[tool.target]]
+  triple = "x86_64-unknown-linux-gnu"
+  url = "https://github.com/example/brisk/releases/download/v2.0.0/brisk.tar.xz"
+  sha256 = "1111222233334444555566667777888811112222333344445555666677778888"
+  member = "brisk-2.0.0/brisk"
+  sidecar-verified = "true"
 """
 
 
@@ -134,6 +147,15 @@ class TestResolution:
 
         assert fields["binary"] == "widget.exe"
         assert fields["extension"] == "zip"
+
+    def test_resolves_a_tar_xz_archive(self, manifest: Path) -> None:
+        """`.tar.xz` is a tarball extension, not a bare `.xz` guess."""
+        completed, fields = resolve(manifest, "brisk", "2.0.0")
+
+        assert completed.returncode == 0, completed.stderr
+        assert fields["status"] == "ok"
+        assert fields["extension"] == "tar.xz"
+        assert fields["member"] == "brisk-2.0.0/brisk"
 
     def test_reports_a_tool_that_cannot_be_asked_its_version(
         self, manifest: Path
@@ -226,6 +248,14 @@ class TestAgainstTheRealManifest:
         assert completed.returncode == 0, completed.stderr
         assert fields["status"] == "ok"
         assert fields["triple"] == triple
+
+    def test_merman_fails_closed_on_linux_arm64(self) -> None:
+        """Merman publishes no Linux ARM64 archive, so the resolver refuses."""
+        _completed, fields = resolve(
+            TOOL_MANIFEST_PATH, "merman-cli", "0.7.0", Runner("Linux", "ARM64")
+        )
+
+        assert fields["error-kind"] == "unsupported-target", fields
 
     def test_dylint_fails_closed_off_linux(self) -> None:
         """No macOS or Windows archive exists, so it must refuse to guess."""

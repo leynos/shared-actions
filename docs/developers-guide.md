@@ -13,6 +13,10 @@ overlay, scans tracked Markdown with the pinned Typos release, and applies the
 shared phrase corrections that Typos cannot express. Because the dictionary is
 live, `typos.toml` must never be drift checked in continuous integration.
 
+`TYPOS_CONFIG_BUILDER_VERSION` in the `Makefile` pins the
+`typos-config-builder` release the gate runs (currently `v0.1.3`). Raise it
+together with the regenerated `typos.toml`, never on its own.
+
 The builder refreshes the untracked `.typos-oxendict-base.toml` cache and its
 metadata only when the shared dictionary is newer, so the last fetched base
 remains usable in a network-restricted checkout.

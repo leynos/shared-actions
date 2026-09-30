@@ -5,6 +5,8 @@ file.
 
 ## Unreleased
 
+- Pin makeutil 0.1.1 (digests taken from the release's `.sha256` files) and make
+  it the default `version`. 0.1.0 stays in the table for callers that name it.
 - Add a composite action that installs makeutil's prebuilt static Linux
   binary, verified against a pinned digest table and the release's own
   `.sha256` sidecar, and never builds from source.

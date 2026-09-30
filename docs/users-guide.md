@@ -710,7 +710,7 @@ rather than after a from-source compile.
 - name: Install makeutil
   uses: ./.github/actions/install-makeutil
   with:
-    version: 0.1.0
+    version: 0.1.1
 
 - name: Parse a Makefile
   run: makeutil parse Makefile

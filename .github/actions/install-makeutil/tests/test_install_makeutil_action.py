@@ -33,7 +33,7 @@ class TestInputsAndOutputs:
         inputs = load_action()["inputs"]
 
         assert set(inputs) == {"version", "bin-dir", "expected-sha256-override"}
-        assert inputs["version"]["default"] == "0.1.0"
+        assert inputs["version"]["default"] == "0.1.1"
         assert inputs["bin-dir"]["default"] == "~/.local/bin"
         assert inputs["expected-sha256-override"]["default"] == ""
         assert inputs["expected-sha256-override"]["required"] is False

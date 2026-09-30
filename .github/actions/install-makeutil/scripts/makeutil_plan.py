@@ -53,6 +53,12 @@ _DIGESTS: dict[tuple[str, str], str] = {
     ("0.1.0", "aarch64-unknown-linux-musl"): (
         "72b1513eb8640ee18ec0298cb9c0209985a339826863e24e186ceb0929a1c05b"
     ),
+    ("0.1.1", "x86_64-unknown-linux-musl"): (
+        "be86dd00994ffeb81fedaa660cf007366a5de87bccab5c73ec1153b2ad7fe26c"
+    ),
+    ("0.1.1", "aarch64-unknown-linux-musl"): (
+        "8ec3eebd0e2af7cf0e087dc810defc7c065c3938a5179cdb0b3e25148659aaa4"
+    ),
 }
 
 

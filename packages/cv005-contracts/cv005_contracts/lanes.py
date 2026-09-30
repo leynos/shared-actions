@@ -32,6 +32,7 @@ PULL_REQUEST_GUARD: typ.Final[frozenset[str]] = frozenset(
 def pull_request_lane_violations(
     closure: dict[str, Document],
     declared: cabc.Mapping[str, frozenset[str]] | None = None,
+    resolved: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Require every pull-request lane to ratchet and publish nothing.
 
@@ -46,6 +47,8 @@ def pull_request_lane_violations(
     declared : Mapping[str, frozenset[str]] | None, optional
         The lane legs a declared pairing covers, by leg name, with the
         conditions that select each; see `parity.ratchet_violations`.
+    resolved : frozenset[str], optional
+        Declared legs that ratchet in their cell through a matrix value.
 
     Returns
     -------
@@ -63,7 +66,7 @@ def pull_request_lane_violations(
     found = [
         problem
         for name, document in sorted(closure.items())
-        for problem in ratchet_violations(document, name, declared)
+        for problem in ratchet_violations(document, name, declared, resolved)
     ]
     found += [
         f"{name}: generate-coverage must set publish-artefact: 'false'"

@@ -20,7 +20,7 @@ import typing as typ
 
 from .expressions import ConditionError, conjuncts
 from .legs import Leg, generator_legs
-from .parity import selection
+from .parity import inputs_of, is_true, selection
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -121,7 +121,52 @@ def _resolved_selection(
     cell = _Cell(pairing)
     flat = _flat(selection(lane.document, lane.step))
     resolved = {key: cell.read_into(value) for key, value in flat.items()}
+    # `selection` has already read `with-ratchet` as a boolean, which turns a
+    # matrix expression into false before the cell's value can be read in.
+    resolved["with-ratchet"] = is_true(
+        cell.read_into(inputs_of(lane.step).get("with-ratchet"))
+    )
     return resolved, [*cell.problems, *cell.unread()]
+
+
+def ratcheting_legs(
+    closure: dict[str, Document], pairings: cabc.Sequence[Pairing]
+) -> frozenset[str]:
+    """Return the paired lane legs whose `with-ratchet` is true in their cell.
+
+    A leg may take `with-ratchet` from a matrix value, such as
+    `${{ matrix.ratchet }}`, so that only the Linux leg ratchets. The estate
+    rule reads the literal text, which is not true, and would count no ratchet
+    in the job. The pairing declares the cell, so the value is read in there.
+
+    Parameters
+    ----------
+    closure : dict[str, Document]
+        The pull-request-reachable workflows, by file name.
+    pairings : Sequence[Pairing]
+        The declared pairings.
+
+    Returns
+    -------
+    frozenset[str]
+        The names of the lane legs that ratchet in the cell their pairing names.
+
+    """
+    legs = {
+        leg.ident: leg
+        for name, document in sorted(closure.items())
+        for leg in generator_legs(name, document)
+    }
+    return frozenset(
+        pairing.lane
+        for pairing in pairings
+        if pairing.lane in legs
+        and is_true(
+            _Cell(pairing).read_into(
+                inputs_of(legs[pairing.lane].step).get("with-ratchet")
+            )
+        )
+    )
 
 
 class _Cell:
@@ -279,10 +324,45 @@ _UNGUARDED_CELL: typ.Final[str] = (
 )
 
 
+def _selects_beyond_the_ratchet(pairing: Pairing, lane: Leg) -> bool:
+    """Return whether a declared matrix value picks anything but the ratchet.
+
+    A leg that runs in every cell of its matrix, and takes only `with-ratchet`
+    from it, differs between cells in that flag alone: the selection every
+    cell measures is the same, so nothing needs guarding. A value read by any
+    other input or environment key changes what a cell measures, and then only
+    a guard shows the leg is confined to the declared cell.
+    """
+    elsewhere = {
+        key
+        for name, value in _string_values(lane)
+        if name != "with-ratchet"
+        for key in _MATRIX_VALUE.findall(value)
+    }
+    return bool(set(pairing.matrix) & elsewhere) or (
+        bool(pairing.matrix) and not _reads_only_the_ratchet(pairing, lane)
+    )
+
+
+def _reads_only_the_ratchet(pairing: Pairing, lane: Leg) -> bool:
+    """Return whether every declared matrix value is read by `with-ratchet`."""
+    raw = inputs_of(lane.step).get("with-ratchet")
+    read = set(_MATRIX_VALUE.findall(raw)) if isinstance(raw, str) else set()
+    return set(pairing.matrix) <= read
+
+
+def _string_values(lane: Leg) -> list[tuple[str, str]]:
+    """Return the name and text of every string input and environment value."""
+    flat = _flat(selection(lane.document, lane.step))
+    raw = inputs_of(lane.step)
+    named = {**flat, **raw}
+    return [(key, value) for key, value in named.items() if isinstance(value, str)]
+
+
 def _guard_violations(pairing: Pairing, lane: Leg) -> list[str]:
     """Require the leg's `if:` to be the pull-request guard and the declared guards."""
     if not pairing.guards:
-        return [_UNGUARDED_CELL] if pairing.matrix else []
+        return [_UNGUARDED_CELL] if _selects_beyond_the_ratchet(pairing, lane) else []
     try:
         held = (
             frozenset(conjuncts(lane.step["if"])) if "if" in lane.step else frozenset()

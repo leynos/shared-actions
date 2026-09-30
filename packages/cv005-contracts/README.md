@@ -169,11 +169,15 @@ the keys in `differs` once the cell's values are read in; and that the leg's
 one ratchet only when their `guards` contradict pairwise, that is, compare one
 operand with two different literals or with `==` in one and `!=` in the other,
 since only then can at most one run in any cell. A pairing with matrix values
-must declare `guards`, or nothing would restrict the leg to its cell. The cell
-must survive the matrix's `exclude`, which applies before `include`. A
-report-merging `run` step counts only when it carries no `if` and no
-`continue-on-error`. A lane leg no pairing names falls back to the estate rule,
-which refuses it unless its selection equals a publisher leg's.
+must declare `guards`, or nothing would restrict the leg to its cell, unless
+the leg runs in every cell and takes only `with-ratchet` from the matrix
+(`with-ratchet: ${{ matrix.ratchet }}`): the cells then differ in that flag
+alone, the declared cell is read in, and the leg counts as the job's ratchet
+where it ratchets there. The cell must survive the matrix's `exclude`, which
+applies before `include`. A report-merging `run` step counts only when it
+carries no `if` and no `continue-on-error`. A lane leg no pairing names falls
+back to the estate rule, which refuses it unless its selection equals a
+publisher leg's.
 
 ## Developing the library
 

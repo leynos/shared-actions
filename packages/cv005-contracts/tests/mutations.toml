@@ -172,7 +172,7 @@ expect = "test_the_checksum_refresher_is_refused"
 [[mutation]]
 id = "R30 ratchet not required on PR lanes"
 file = "cv005_contracts/lanes.py"
-old = "        for problem in ratchet_violations(document, name, declared)\n"
+old = "        for problem in ratchet_violations(document, name, declared, resolved)\n"
 new = "        for problem in []\n"
 expect = "test_a_pull_request_lane_ratchets_and_publishes_nothing"
 
@@ -1354,14 +1354,14 @@ expect = "test_an_unconditional_merge_still_counts"
 [[mutation]]
 id = "CX4 a guardless matrix pairing accepted"
 file = "cv005_contracts/pairing.py"
-old = "        return [_UNGUARDED_CELL] if pairing.matrix else []\n"
+old = "        return [_UNGUARDED_CELL] if _selects_beyond_the_ratchet(pairing, lane) else []\n"
 new = "        return []\n"
 expect = "test_a_matrix_pairing_without_guards_is_refused"
 
 [[mutation]]
 id = "CX5 every guardless pairing refused"
 file = "cv005_contracts/pairing.py"
-old = "        return [_UNGUARDED_CELL] if pairing.matrix else []\n"
+old = "        return [_UNGUARDED_CELL] if _selects_beyond_the_ratchet(pairing, lane) else []\n"
 new = "        return [_UNGUARDED_CELL]\n"
 expect = "test_a_guardless_pairing_without_matrix_values_is_not_refused_for_it"
 
@@ -1399,3 +1399,38 @@ file = "cv005_contracts/pairing.py"
 old = "        and all(cell.get(key) == value for key, value in entry.items())\n"
 new = "        and any(cell.get(key) == value for key, value in entry.items())\n"
 expect = "test_an_excluded_combination_is_not_a_cell"
+
+[[mutation]]
+id = "MR1 a matrix ratchet is not counted"
+file = "cv005_contracts/parity.py"
+old = "                    or leg_id(label, name, step, index) in resolved\n"
+new = "                    or False\n"
+expect = "test_a_declared_ratcheting_cell_counts_as_the_jobs_one_ratchet"
+
+[[mutation]]
+id = "MR2 a declared cell that does not ratchet counts"
+file = "cv005_contracts/pairing.py"
+old = "        and is_true(\n            _Cell(pairing).read_into(\n                inputs_of(legs[pairing.lane].step).get(\"with-ratchet\")\n            )\n        )\n"
+new = "        and True\n"
+expect = "test_a_declared_cell_that_does_not_ratchet_is_refused"
+
+[[mutation]]
+id = "MR3 the matrix ratchet is not read into the selection"
+file = "cv005_contracts/pairing.py"
+old = "    resolved[\"with-ratchet\"] = is_true(\n        cell.read_into(inputs_of(lane.step).get(\"with-ratchet\"))\n    )\n"
+new = ""
+expect = "test_a_declared_ratcheting_cell_counts_as_the_jobs_one_ratchet"
+
+[[mutation]]
+id = "MR4 a value read by another input needs no guard"
+file = "cv005_contracts/pairing.py"
+old = "    return bool(set(pairing.matrix) & elsewhere) or (\n        bool(pairing.matrix) and not _reads_only_the_ratchet(pairing, lane)\n    )\n"
+new = "    return False\n"
+expect = "test_a_matrix_pairing_without_guards_is_refused"
+
+[[mutation]]
+id = "MR5 every matrix pairing needs a guard"
+file = "cv005_contracts/pairing.py"
+old = "    return bool(set(pairing.matrix) & elsewhere) or (\n        bool(pairing.matrix) and not _reads_only_the_ratchet(pairing, lane)\n    )\n"
+new = "    return bool(pairing.matrix)\n"
+expect = "test_a_declared_ratcheting_cell_counts_as_the_jobs_one_ratchet"

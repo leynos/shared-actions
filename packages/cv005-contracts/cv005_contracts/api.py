@@ -20,7 +20,7 @@ from .hardening import lane_hardening_violations, publisher_hardening_violations
 from .interpreter import interpreter_violations
 from .lanes import pull_request_lane_violations, second_writer_violations
 from .loading import Document, read_workflows
-from .pairing import guards_by_leg, pairing_violations
+from .pairing import guards_by_leg, pairing_violations, ratcheting_legs
 from .parity import inputs_of, is_true, publisher_lane_violations
 from .permissions import permissions_violations
 from .publisher import COVERAGE_ACTION, action_steps, find_publisher
@@ -242,10 +242,11 @@ def _coverage_clauses(
     """Yield the coverage lanes' clauses."""
     name, publisher = found_publisher
     declared = guards_by_leg(config.pairings)
+    resolved = ratcheting_legs(closure, config.pairings)
     yield (
         "coverage",
         "coverage.pull-request-lane",
-        lambda: pull_request_lane_violations(closure, declared),
+        lambda: pull_request_lane_violations(closure, declared, resolved),
     )
     yield (
         "coverage",

@@ -1,0 +1,199 @@
+name: Test install-makeutil
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MAKEUTIL_TEST_VERSION: 0.1.0
+
+jobs:
+  install-makeutil:
+    # One matrix leg per published target, because a runner is the only
+    # place the real release asset, its sidecar, and the cache restore are
+    # all exercised at once. The pytest suite drives the same functions
+    # against an injected downloader and cannot see any of that. Named by
+    # platform word, not by runner: the x86_64 leg's label is an expression
+    # that depends on whether the pull request came from a fork, so a name
+    # interpolating it would give the lane two check names. The aarch64 leg
+    # stays on a GitHub-hosted Arm runner because this repository has
+    # measured no Ubicloud Arm shape.
+    name: Install and reuse makeutil (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install makeutil
+        id: install
+        uses: ./.github/actions/install-makeutil
+        with:
+          version: ${{ env.MAKEUTIL_TEST_VERSION }}
+          bin-dir: ${{ runner.temp }}/makeutil-bin
+
+      - name: Verify the installed version
+        shell: bash
+        env:
+          INSTALLED_PATH: ${{ steps.install.outputs.path }}
+        run: |
+          set -euo pipefail
+          test -x "${INSTALLED_PATH}"
+          reported="$(makeutil --version)"
+          test "${reported}" = "makeutil ${MAKEUTIL_TEST_VERSION}"
+
+      - name: Run makeutil parse on a small Makefile
+        shell: bash
+        run: |
+          set -euo pipefail
+          workdir="${RUNNER_TEMP}/makeutil-parse"
+          mkdir -p "${workdir}"
+          cat > "${workdir}/Makefile" <<'MAKEFILE'
+          all: build
+
+          build:
+          	echo building
+          MAKEFILE
+          makeutil parse "${workdir}/Makefile"
+
+      - name: Install makeutil again
+        id: install-again
+        uses: ./.github/actions/install-makeutil
+        with:
+          version: ${{ env.MAKEUTIL_TEST_VERSION }}
+          bin-dir: ${{ runner.temp }}/makeutil-bin
+
+      - name: Verify the second install was cached
+        shell: bash
+        env:
+          SECOND_RESULT: ${{ steps.install-again.outputs.result }}
+        run: |
+          set -euo pipefail
+          # The second run finds the verified binary already in bin-dir, so it
+          # must report `cached`, not `installed`. Each step writes its own
+          # summary file, so the action's output is read rather than a summary.
+          test "${SECOND_RESULT}" = cached
+
+  install-makeutil-cache-restore:
+    # The second install inside `install-makeutil` reuses a file the same job
+    # wrote, so it proves nothing about the cache. This job starts on a fresh
+    # runner after that one has saved its cache entry, so `cached` here can
+    # only mean the restored binary verified against the pinned digest.
+    name: Restore makeutil from the cache (${{ matrix.platform }})
+    needs: install-makeutil
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Restore makeutil
+        id: install
+        uses: ./.github/actions/install-makeutil
+        with:
+          version: ${{ env.MAKEUTIL_TEST_VERSION }}
+          bin-dir: ${{ runner.temp }}/makeutil-bin
+
+      - name: Assert the restored installation
+        shell: bash
+        env:
+          INSTALLED_PATH: ${{ steps.install.outputs.path }}
+          INSTALL_RESULT: ${{ steps.install.outputs.result }}
+        run: |
+          set -euo pipefail
+          test "${INSTALL_RESULT}" = cached
+          test -x "${INSTALLED_PATH}"
+
+  install-makeutil-digest-mismatch:
+    # A tampered expected digest must fail closed even though the real
+    # download is untouched and correct: the test-only override input
+    # replaces only what the download is checked against, not what is
+    # fetched, so this proves the verification is not merely decorative.
+    name: Fail closed on a tampered digest
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install makeutil with a tampered digest
+        id: install-tampered
+        continue-on-error: true
+        uses: ./.github/actions/install-makeutil
+        with:
+          version: ${{ env.MAKEUTIL_TEST_VERSION }}
+          bin-dir: ${{ runner.temp }}/makeutil-bin-tampered
+          expected-sha256-override: "0000000000000000000000000000000000000000000000000000000000000000"
+
+      - name: Verify the fail-closed contract
+        shell: bash
+        env:
+          INSTALL_OUTCOME: ${{ steps.install-tampered.outcome }}
+          INSTALL_RESULT: ${{ steps.install-tampered.outputs.result }}
+        run: |
+          set -euo pipefail
+          test "${INSTALL_OUTCOME}" = failure
+          # Refused for the right reason, not merely refused: the pinned digest
+          # disagreed with a download that was otherwise correct.
+          test "${INSTALL_RESULT}" = digest-mismatch
+          test ! -e "${RUNNER_TEMP}/makeutil-bin-tampered/makeutil"
+
+  install-makeutil-unknown-version:
+    # 0.0.1 is not, and must never become, an entry in the digest table:
+    # an unpinned version is refused before anything is downloaded.
+    name: Fail closed on an unpinned version
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install an unpinned makeutil version
+        id: install-unknown
+        continue-on-error: true
+        uses: ./.github/actions/install-makeutil
+        with:
+          version: "0.0.1"
+          bin-dir: ${{ runner.temp }}/makeutil-bin-unknown
+
+      - name: Verify the fail-closed contract
+        shell: bash
+        env:
+          INSTALL_OUTCOME: ${{ steps.install-unknown.outcome }}
+          INSTALL_RESULT: ${{ steps.install-unknown.outputs.result }}
+        run: |
+          set -euo pipefail
+          test "${INSTALL_OUTCOME}" = failure
+          test "${INSTALL_RESULT}" = unknown-version
+          test ! -e "${RUNNER_TEMP}/makeutil-bin-unknown/makeutil"

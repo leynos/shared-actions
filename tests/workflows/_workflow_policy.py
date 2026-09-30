@@ -84,6 +84,16 @@ HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
 #: not named here could take it and bypass both the Ubicloud and the
 #: fork-fallback contracts.
 HOSTED_ARM_LINUX_JOBS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
+    ("test-install-makeutil.yml", "install-makeutil"): (
+        "The aarch64 musl binary and its digest are proved only on real Arm "
+        "hardware, and this repository has measured no Ubicloud Arm shape. "
+        "The job's x86_64 leg follows the ordinary Ubicloud placement."
+    ),
+    ("test-install-makeutil.yml", "install-makeutil-cache-restore"): (
+        "It restores the entry the aarch64 leg of `install-makeutil` saved, "
+        "so it must run on the same architecture. The x86_64 leg follows the "
+        "ordinary Ubicloud placement."
+    ),
     ("test-setup-rust-mold.yml", "installs-on-linux"): (
         "The aarch64 mold archive is proved only on real Arm hardware, and "
         "this repository has measured no Ubicloud Arm shape. The job's x86_64 "

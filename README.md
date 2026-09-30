@@ -15,6 +15,7 @@ GitHub Actions
 | Export Postgres URL               | `.github/actions/export-postgres-url`                                              | v1           |
 | Export Ubicloud cache credentials | `.github/actions/export-ubicloud-cache-credentials`                                | unreleased   |
 | Generate coverage                 | `.github/actions/generate-coverage`                                                | v1           |
+| Install makeutil                  | `.github/actions/install-makeutil`                                                 | unreleased   |
 | Install mdtablefix                | `.github/actions/install-mdtablefix`                                               | unreleased   |
 | Install Nixie                     | `.github/actions/install-nixie`                                                    | unreleased   |
 | Install tool                      | `.github/actions/install-tool`                                                     | unreleased   |

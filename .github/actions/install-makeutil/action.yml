@@ -1,0 +1,110 @@
+name: Install makeutil
+description: >-
+  Install makeutil's prebuilt static Linux binary, verified against a pinned
+  digest table and the release's own sidecar, never from source.
+
+inputs:
+  version:
+    description: Exact makeutil version to install; three numeric components
+    required: false
+    default: "0.1.0"
+  bin-dir:
+    description: >-
+      Directory that receives the makeutil executable and is appended to
+      GITHUB_PATH. This action caches the executable itself, keyed on the
+      version, target and pinned digest.
+    required: false
+    default: ~/.local/bin
+  expected-sha256-override:
+    description: >-
+      Test-only. Replaces the pinned digest table's entry for this run, so a
+      workflow can tamper with the expected digest and assert that a
+      genuinely correct download is still refused. Leave unset in any real
+      install; a value here does not change what is downloaded, only what
+      the downloaded bytes are checked against.
+    required: false
+    default: ""
+
+outputs:
+  path:
+    description: Absolute path of the installed makeutil executable
+    value: ${{ steps.install.outputs.path }}
+  version:
+    description: Version installed, as named by the `version` input
+    value: ${{ steps.install.outputs.version }}
+  result:
+    description: >-
+      The run's terminal outcome. `installed` when this run downloaded and
+      verified the binary, `cached` when a binary already in bin-dir matched
+      the pinned digest, or the bounded failure value (for example
+      `digest-mismatch`) when the run refused or failed. A failing run still
+      sets it, for a caller using `continue-on-error`.
+    value: ${{ steps.install.outputs.result || steps.resolve.outputs.result }}
+
+runs:
+  using: composite
+  steps:
+    # Pure resolution: the target triple, the pinned digest, the asset URLs
+    # and the cache key are all decided here and nothing is downloaded yet.
+    # A refusal at this stage - a malformed input, an unsupported platform,
+    # or a version missing from the digest table - fails before the cache
+    # is even consulted.
+    - name: Resolve the makeutil install plan
+      id: resolve
+      shell: bash
+      env:
+        BIN_DIR_INPUT: ${{ inputs.bin-dir }}
+        RESOLVE_SCRIPT: ${{ github.action_path }}/scripts/install_makeutil.py
+        RUNNER_ARCHITECTURE: ${{ runner.arch }}
+        RUNNER_OPERATING_SYSTEM: ${{ runner.os }}
+        SHA256_OVERRIDE_INPUT: ${{ inputs.expected-sha256-override }}
+        VERSION_INPUT: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        python3 "$RESOLVE_SCRIPT" resolve \
+          --version "$VERSION_INPUT" \
+          --bin-dir "$BIN_DIR_INPUT" \
+          --sha256-override "$SHA256_OVERRIDE_INPUT" \
+          --runner-os "$RUNNER_OPERATING_SYSTEM" \
+          --runner-arch "$RUNNER_ARCHITECTURE"
+
+    # The action owns this cache, unlike install-mdtablefix, which leaves
+    # bin-dir's cache to the caller: the key here folds in the pinned
+    # digest, which the caller does not know, so only this action can keep
+    # the key correct as the digest table changes.
+    - name: Restore cached makeutil
+      id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.resolve.outputs.executable-path }}
+        key: ${{ steps.resolve.outputs.cache-key }}
+
+    # A cache hit is re-verified against the pinned digest before it is
+    # trusted, and replaced on a mismatch, so a restored file can never
+    # report success for bytes this action did not itself verify.
+    - name: Install makeutil
+      id: install
+      shell: bash
+      env:
+        BINARY_URL: ${{ steps.resolve.outputs.binary-url }}
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        EXECUTABLE_PATH: ${{ steps.resolve.outputs.executable-path }}
+        EXPECTED_SHA256: ${{ steps.resolve.outputs.expected-sha256 }}
+        INSTALL_SCRIPT: ${{ github.action_path }}/scripts/install_makeutil.py
+        SIDECAR_URL: ${{ steps.resolve.outputs.sidecar-url }}
+        VERSION: ${{ steps.resolve.outputs.version }}
+      run: |
+        set -euo pipefail
+        python3 "$INSTALL_SCRIPT" install \
+          --executable-path "$EXECUTABLE_PATH" \
+          --expected-sha256 "$EXPECTED_SHA256" \
+          --binary-url "$BINARY_URL" \
+          --sidecar-url "$SIDECAR_URL" \
+          --version "$VERSION" \
+          --cache-hit "$CACHE_HIT"
+
+    - name: Add makeutil to PATH
+      shell: bash
+      env:
+        BIN_DIR: ${{ steps.resolve.outputs.bin-dir }}
+      run: echo "$BIN_DIR" >> "$GITHUB_PATH"

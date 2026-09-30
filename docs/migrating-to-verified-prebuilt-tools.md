@@ -222,6 +222,14 @@ behind. Its change is the other direction. It no longer needs a
 drop that step. A later step in such a job that used that `cargo-binstall` for
 its own purposes still needs one installed explicitly.
 
+## New `install-makeutil` action
+
+Workflows that build makeutil from source with `cargo install --git` can adopt
+the `install-makeutil` action, which installs a digest-verified prebuilt
+binary. It is additive: no existing input or output changes. See the
+[users' guide](./users-guide.md) for its inputs, verification and cache
+behaviour.
+
 ## Checklist
 
 - [ ] Confirm which `install-whitaker` and `generate-coverage` major tags you

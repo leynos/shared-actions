@@ -19,6 +19,8 @@ documents how to use the `install-nixie` action.
   installer input and cache details.
 - [`install-mdtablefix` README](../.github/actions/install-mdtablefix/README.md)
   – platform support, cache ownership, and the pinned `cargo-binstall`.
+- [`install-makeutil` README](../.github/actions/install-makeutil/README.md) –
+  inputs, outputs, verification and cache behaviour.
 - [Migrating to verified prebuilt CI tools](./migrating-to-verified-prebuilt-tools.md)
   – upgrade guidance for the `install-whitaker` and `generate-coverage`
   verified prebuilt tool installation.
@@ -693,6 +695,72 @@ summary, over `invalid-input`, `cached`, `installed`, `no-prebuilt`,
 `binstall-unavailable`, `install-failed`, and `version-mismatch`, plus at most
 one `install-mdtablefix.binstall` line over `present` and `installed`. A
 failure is also annotated with `::error`.
+
+## `install-makeutil` action
+
+The `install-makeutil` composite action installs makeutil's prebuilt static
+Linux binary. It never builds from source and never calls `cargo`. Use it in
+place of a `cargo install --git` step: the binary arrives in about a second
+rather than after a from-source compile.
+
+```yaml
+- name: Check out the repository
+  uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+- name: Install makeutil
+  uses: ./.github/actions/install-makeutil
+  with:
+    version: 0.1.0
+
+- name: Parse a Makefile
+  run: makeutil parse Makefile
+```
+
+The repository must be checked out before invoking this local action; use the
+relative path without a version suffix. The `version` input names an exact
+release of three numeric components; there is no floating or `latest` value.
+The optional `bin-dir` input defaults to `~/.local/bin`. The executable lands
+there and the directory is appended to `GITHUB_PATH`, so later steps call
+`makeutil` by name. The outputs are `path`, `version` and `result`. `result` is
+set on every terminal path, a refusal or failure included, so a workflow using
+`continue-on-error` can assert why the action failed; `path` and `version` are
+set only on success.
+
+### Supported runners and pinned versions
+
+The action supports Linux `X64` and `ARM64` runners, installing the musl build
+for each. Any other runner fails closed with
+`install-makeutil.result=unsupported-platform` rather than compiling. A version
+the action's digest table does not list fails with `unknown-version`; a new
+makeutil release needs its digests added to the table before it can be
+installed.
+
+### Verification and HTTPS
+
+The binary is downloaded over HTTPS only, and a redirect to any other scheme is
+refused. Two digests must agree before anything is written to `bin-dir`: the
+pinned table digest, and the digest in the release's own `.sha256` sidecar,
+which must also name the expected file. A failed check leaves any binary
+already in `bin-dir` untouched. The bytes are written to a staged file beside
+the target and moved into place only once both checks pass.
+
+### `install-makeutil` cache behaviour
+
+Unlike `install-mdtablefix`, this action owns its cache. The key folds in the
+version, the target and the pinned digest, which only the action knows. A
+restored file is never trusted on arrival: it is re-verified against the pinned
+digest and replaced when it does not match, so a stale or tampered entry
+self-heals.
+
+### `install-makeutil` reported outcomes
+
+Each run writes one `install-makeutil.result` line to the job summary, over
+`invalid-input`, `unsupported-platform`, `unknown-version`, `cached`,
+`installed`, `digest-mismatch`, `sidecar-mismatch`, `download-failed` and
+`install-failed`, beside one `install-makeutil.cache` line over `hit`, `miss`
+and `stale`. `stale` means the cache restored an entry that was then rejected,
+whether its replacement succeeded or failed, which distinguishes cache
+degradation from an ordinary miss. A failure is also annotated with `::error`.
 
 ## `generate-coverage` action
 

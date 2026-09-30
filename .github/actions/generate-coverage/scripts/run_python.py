@@ -129,6 +129,9 @@ def _recreate_coverage_venv(interpreter: str = "") -> Path:
     ------
     RuntimeError
         If the Python executable cannot be located after creation.
+    plumbum.commands.processes.ProcessExecutionError
+        If ``uv venv`` exits non-zero; uv's stderr is echoed first, because
+        the job log otherwise shows only the exit status.
     """
     if COVERAGE_VENV.exists() or COVERAGE_VENV.is_symlink():
         typer.echo(
@@ -139,7 +142,14 @@ def _recreate_coverage_venv(interpreter: str = "") -> Path:
         _remove_coverage_venv()
     else:
         typer.echo(f"Creating coverage venv at {COVERAGE_VENV}")
-    run_cmd(uv[*_venv_args(interpreter)])
+    try:
+        run_cmd(uv[*_venv_args(interpreter)])
+    except ProcessExecutionError as exc:
+        typer.echo(
+            f"uv venv failed with code {exc.retcode}: {exc.stderr}",
+            err=True,
+        )
+        raise
     typer.echo(f"Coverage venv created at {COVERAGE_VENV}")
     python = _find_coverage_python()
     if python is None:

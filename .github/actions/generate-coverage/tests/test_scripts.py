@@ -3736,7 +3736,7 @@ class UvFailureSpec:
 @pytest.mark.parametrize(
     "spec",
     [
-        UvFailureSpec(fake=_FakeUv(venv_exit=1), expected_in_stderr=None),
+        UvFailureSpec(fake=_FakeUv(venv_exit=1), expected_in_stderr="uv venv exploded"),
         UvFailureSpec(fake=_FakeUv(sync_exit=2), expected_in_stderr="uv sync failed"),
     ],
     ids=["uv-venv-fails", "uv-sync-fails"],
@@ -3747,7 +3747,12 @@ def test_run_python_integration_uv_failure_modes(
     monkeypatch: pytest.MonkeyPatch,
     spec: UvFailureSpec,
 ) -> None:
-    """run_python.py exits non-zero when uv venv or uv sync fails."""
+    """run_python.py exits non-zero and shows why when uv venv or uv sync fails.
+
+    The venv case asserts uv's own message, not merely the wrapper's prefix:
+    a warm cache restore once made ``uv venv`` exit 2 and the job log showed
+    only the status, because the stderr was captured and dropped (#547).
+    """
     bin_dir, _log = _write_fake_uv(tmp_path, spec.fake)
 
     returncode, _stdout, stderr = _run_integration_script(

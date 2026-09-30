@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Stop a warm Python dependency cache from breaking `uv venv`. The cache no
+  longer stores `~/.cache/uv/environments-v2`, whose script environments are
+  bound to the interpreter and runner that built them, and its key and restore
+  key now name the architecture, the runner environment and the resolved
+  `major.minor` (`<os>-<arch>-<environment>-py3.13-py-deps-<hash>`). Existing
+  callers restore no Python dependency cache on their first run after
+  upgrading, and the next run saves one under the new key. A failing `uv venv`
+  now prints uv's stderr (#547).
 - Measure Python coverage on an explicitly resolved interpreter. `Setup uv`
   installs an exact uv release (0.12.19). A new `Resolve coverage interpreter`
   step chooses the `python-version` input, then `UV_PYTHON`, then

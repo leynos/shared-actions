@@ -1444,8 +1444,8 @@ expect = "test_an_interpreter_outside_the_range_is_refused"
 [[mutation]]
 id = "RP3 a bare minor tried as x.y.0 only"
 file = "cv005_contracts/requires_python.py"
-old = "PATCHES: typ.Final[tuple[int, ...]] = (0, 1, 2, 5, 10, 99, 999)"
-new = "PATCHES: typ.Final[tuple[int, ...]] = (0,)"
+old = "BASE_PATCHES: typ.Final[tuple[int, ...]] = (0, 1, 999)"
+new = "BASE_PATCHES: typ.Final[tuple[int, ...]] = (0,)"
 expect = "test_an_interpreter_inside_the_range_is_accepted"
 
 [[mutation]]
@@ -1468,3 +1468,24 @@ file = "cv005_contracts/api.py"
 old = "    if config.interpreter is not None:\n        interpreter = config.interpreter\n        yield (\n            \"coverage\",\n            \"coverage.requires-python\","
 new = "    if True:\n        interpreter = config.interpreter or \"3.13\"\n        yield (\n            \"coverage\",\n            \"coverage.requires-python\","
 expect = "test_a_repository_configuring_no_interpreter_is_not_judged"
+
+[[mutation]]
+id = "RP7 only the bound itself tried"
+file = "cv005_contracts/requires_python.py"
+old = "        patches |= {max(bound - 1, 0), bound, bound + 1}\n"
+new = "        patches |= {bound}\n"
+expect = "test_a_patch_between_the_sampled_ones_is_found"
+
+[[mutation]]
+id = "RP8 a major-only interpreter is not refused"
+file = "cv005_contracts/requires_python.py"
+old = "    if len(version.release) < 2:\n"
+new = "    if False:\n"
+expect = "test_a_major_only_interpreter_is_refused_not_an_error"
+
+[[mutation]]
+id = "RP9 a range with no patch accepted"
+file = "cv005_contracts/requires_python.py"
+old = "    if any(accepted.contains(version, prereleases=True) for version in candidates):\n        return []\n"
+new = "    if candidates:\n        return []\n"
+expect = "test_an_empty_patch_range_is_refused"

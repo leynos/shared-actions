@@ -116,3 +116,44 @@ def test_a_repository_configuring_no_interpreter_is_not_judged(tmp_path: Path) -
     """The clause runs only where `interpreter` is set, like `coverage.interpreter`."""
     found = _clauses(tmp_path, _project(">=3.14"), 'repository = "leynos/example"\n')
     assert "coverage.requires-python" not in found, found
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    ["==3.13.7", ">=3.13.7,<3.13.8", "!=3.13.0,!=3.13.1,!=3.13.999", ">=3.13.1000"],
+)
+def test_a_patch_between_the_sampled_ones_is_found(
+    tmp_path: Path, requirement: str
+) -> None:
+    """A range the fixed sample would miss is decided by its own bounds."""
+    assert _clauses(tmp_path, _project(requirement)) == []
+
+
+@pytest.mark.parametrize(
+    "requirement", [">=3.13.8,<3.13.8", "==3.13.7,!=3.13.7", ">3.13.7,<3.13.8"]
+)
+def test_an_empty_patch_range_is_refused(tmp_path: Path, requirement: str) -> None:
+    """The narrow opposite: a range with no 3.13 patch in it is still refused."""
+    assert _clauses(tmp_path, _project(requirement)) == ["coverage.requires-python"]
+
+
+def test_a_major_only_interpreter_is_refused_not_an_error() -> None:
+    """`3` names no minor, so it is a finding rather than an IndexError."""
+    from cv005_contracts.requires_python import _judge
+
+    found = _judge(">=3.12", "3")
+    assert len(found) == 1
+    assert "no minor" in found[0]
+
+
+def test_bytes_that_are_not_utf8_are_a_reading_failure(tmp_path: Path) -> None:
+    """A `pyproject.toml` that cannot be decoded is refused, naming the file."""
+    write_repository(tmp_path, tree(), CONFIG)
+    (tmp_path / "pyproject.toml").write_bytes(b"[project]\nname = '\xff'\n")
+    found = [
+        item
+        for item in violations(tmp_path)
+        if item.clause == "coverage.requires-python"
+    ]
+    assert len(found) == 1
+    assert "could not be read" in found[0].message

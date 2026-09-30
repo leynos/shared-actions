@@ -19,10 +19,9 @@ from packaging.version import InvalidVersion, Version
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
-#: Patch releases tried for a bare `X.Y` interpreter, which uv resolves to
-#: whichever patch it finds. A range such as `>=3.13.1` or `<3.13.2` admits
-#: some of them, and the interpreter is accepted if any is admitted.
-PATCHES: typ.Final[tuple[int, ...]] = (0, 1, 2, 5, 10, 99, 999)
+#: Patch numbers always tried for a bare `X.Y`, besides those next to a bound
+#: the specifier names.
+BASE_PATCHES: typ.Final[tuple[int, ...]] = (0, 1, 999)
 
 
 def requires_python_violations(repo_root: Path, interpreter: str) -> list[str]:
@@ -65,17 +64,17 @@ def requires_python_violations(repo_root: Path, interpreter: str) -> list[str]:
 
 def _judge(requirement: object, interpreter: str) -> list[str]:
     """Compare the interpreter with one `requires-python` value."""
+    if not isinstance(requirement, str):
+        return [f"requires-python must be a string, not {requirement!r}"]
     try:
-        accepted = SpecifierSet(str(requirement))
-        candidates = _candidates(interpreter)
-    except (InvalidSpecifier, InvalidVersion) as error:
+        accepted = SpecifierSet(requirement)
+        candidates = _candidates(interpreter, accepted)
+    except (InvalidSpecifier, InvalidVersion, ValueError) as error:
         message = (
             f"requires-python {requirement!r} or interpreter {interpreter!r} "
             f"is invalid: {error}"
         )
         return [message]
-    if not isinstance(requirement, str):
-        return [f"requires-python must be a string, not {requirement!r}"]
     if any(accepted.contains(version, prereleases=True) for version in candidates):
         return []
     message = (
@@ -85,10 +84,40 @@ def _judge(requirement: object, interpreter: str) -> list[str]:
     return [message]
 
 
-def _candidates(interpreter: str) -> list[Version]:
-    """Return the versions an interpreter request can resolve to."""
+def _candidates(interpreter: str, accepted: SpecifierSet) -> list[Version]:
+    """Return the versions an interpreter request can resolve to.
+
+    An `X.Y.Z` is one version. A bare `X.Y` resolves to whichever patch uv
+    finds, so it is accepted if any patch is; that is decided by trying the
+    patches next to every bound the specifier names in that minor, since a
+    range's membership can only change at a bound.
+    """
     version = Version(interpreter)
+    if len(version.release) < 2:
+        message = f"{interpreter!r} names no minor version"
+        raise ValueError(message)
     if len(version.release) >= 3:
         return [version]
     major, minor = version.release[0], version.release[1]
-    return [Version(f"{major}.{minor}.{patch}") for patch in PATCHES]
+    patches = set(BASE_PATCHES)
+    for bound in _bounds(accepted, major, minor):
+        patches |= {max(bound - 1, 0), bound, bound + 1}
+    return [Version(f"{major}.{minor}.{patch}") for patch in sorted(patches)]
+
+
+def _bounds(accepted: SpecifierSet, major: int, minor: int) -> list[int]:
+    """Return the patch numbers the specifier names within one minor."""
+    found: list[int] = []
+    for spec in accepted:
+        release = _release(spec.version)
+        if release[:2] == (major, minor) and len(release) >= 3:
+            found.append(release[2])
+    return found
+
+
+def _release(text: str) -> tuple[int, ...]:
+    """Return a specifier's version as a release tuple, ignoring a `.*` suffix."""
+    try:
+        return Version(text.removesuffix(".*")).release
+    except InvalidVersion:
+        return ()

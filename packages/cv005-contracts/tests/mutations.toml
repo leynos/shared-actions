@@ -1521,13 +1521,6 @@ new = ""
 expect = "test_an_entry_that_could_hold_the_report_is_refused[an absolute path above the workspace]"
 
 [[mutation]]
-id = "RA5 every absolute path is refused"
-file = "cv005_contracts/report_paths.py"
-old = "        return not _in_scratch(entry)\n    if \"${{\" in entry:"
-new = "        return True\n    if \"${{\" in entry:"
-expect = "test_an_entry_that_cannot_hold_the_report_is_allowed[a scratch file]"
-
-[[mutation]]
 id = "RA6 a scratch path may climb out"
 file = "cv005_contracts/report_paths.py"
 old = "    return entry.startswith(SCRATCH_ROOTS) and \"..\" not in entry.split(\"/\")"
@@ -1612,13 +1605,6 @@ new = "    candidates = [\"/\".join(parts)]"
 expect = "test_a_directory_or_glob_holding_a_nested_report_is_refused"
 
 [[mutation]]
-id = "RA18 braces are not expanded"
-file = "cv005_contracts/report_paths.py"
-old = "for pattern in _expand_braces(entry)"
-new = "for pattern in [entry]"
-expect = "test_an_entry_that_could_hold_the_report_is_refused[a brace group naming it]"
-
-[[mutation]]
 id = "RA19 a recursive glob needs a directory"
 file = "cv005_contracts/report_paths.py"
 old = "return r\"(?:[^/]+/)*\", index + 3"
@@ -1659,3 +1645,45 @@ file = "cv005_contracts/report_paths.py"
 old = " for line in str(path).splitlines() if line.strip()]"
 new = " for line in str(path).splitlines()]"
 expect = "test_a_path_is_read_one_entry_per_line"
+
+[[mutation]]
+id = "RA5 every absolute path is refused"
+file = "cv005_contracts/report_paths.py"
+old = "        return not _in_scratch(entry)\n    if (options"
+new = "        return True\n    if (options"
+expect = "test_an_entry_that_cannot_hold_the_report_is_allowed[a scratch file]"
+
+[[mutation]]
+id = "RA18 brace alternatives are not read as entries"
+file = "cv005_contracts/report_paths.py"
+old = "    if (options := _expand_braces(entry)) != [entry]:"
+new = "    if False:"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[a brace alternative that is the workspace]"
+
+[[mutation]]
+id = "RA25 an expression is judged after the absolute prefix"
+file = "cv005_contracts/report_paths.py"
+old = "    if \"${{\" in entry:\n        return not _expression_stays_outside(entry)\n    if entry.startswith((\"/\", \"~\")):"
+new = "    if entry.startswith(\"${{\"):\n        return not _expression_stays_outside(entry)\n    if entry.startswith((\"/\", \"~\")):"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[an expression after a scratch prefix]"
+
+[[mutation]]
+id = "RA26 one clear brace alternative clears them all"
+file = "cv005_contracts/report_paths.py"
+old = "        return any(could_hold_the_report(option, report) for option in options)"
+new = "        return all(could_hold_the_report(option, report) for option in options)"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[a brace alternative that is the workspace]"
+
+[[mutation]]
+id = "RA27 a class range is escaped to its endpoints"
+file = "cv005_contracts/report_paths.py"
+old = "        literal = _CLASS_SPECIALS.sub(r\"\\\\\\1\", body[negated:])"
+new = "        literal = re.escape(body[negated:])"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[a class range covering the report]"
+
+[[mutation]]
+id = "RA28 a class that does not compile matches nothing"
+file = "cv005_contracts/report_paths.py"
+old = "        # rather than read as matching nothing.\n        return True\n"
+new = "        # rather than read as matching nothing.\n        return False\n"
+expect = "test_an_entry_that_could_hold_the_report_is_refused[a class range that does not compile]"

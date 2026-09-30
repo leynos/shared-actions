@@ -103,6 +103,13 @@ the retired checksum names.
     `~` path outside `/tmp/`, and an expression that is not wholly quoted
     `/tmp/` literals are all refused. A negation (`!path`), a directory or
     glob elsewhere, and a `/tmp/` path are not.
+
+    Migration: a lane that uploads `.` or a parent directory, a glob or class
+    over the workspace (`**`, `*.info`, `[k-m]*`), a brace alternative that is
+    one of those, or an expression the reader cannot clear now fails
+    `coverage.lane-hardening`. Name the files or the subdirectories to upload
+    (`dist/`, `logs/*.txt`) or write them under `/tmp/`. A lane whose uploads
+    were already narrow needs nothing beyond bumping `CV005_CONTRACTS_REF`.
   - Each lane leg measures the selection of one publisher leg: the same
     inputs, and the same merged `env` (workflow, then job, then step).
     Inputs that name, ship or save the report are not compared. Nor are

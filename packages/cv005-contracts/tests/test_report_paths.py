@@ -8,8 +8,12 @@ reach it; the pair shows the guard fires on the case and stays quiet off it.
 
 from __future__ import annotations
 
+import itertools
+import typing as typ
+
 import pytest
 from contract_fixtures import mutate, parse_tree
+from cv005_contracts.expressions import yielded_operands
 from cv005_contracts.hardening import lane_hardening_violations
 from cv005_contracts.report_paths import (
     could_hold_the_report,
@@ -32,6 +36,15 @@ BREACHING = [
     pytest.param("l?ov.info", id="a glob with a wildcard character"),
     pytest.param("[l]cov.info", id="a glob with a character class"),
     pytest.param("{lcov,other}.info", id="a brace group naming it"),
+    pytest.param("[k-m]cov.info", id="a class range covering the report"),
+    pytest.param("[z-a]cov.info", id="a class range that does not compile"),
+    pytest.param("{.,dist}", id="a brace alternative that is the workspace"),
+    pytest.param("{..,x}", id="a brace alternative that climbs out"),
+    pytest.param("{/,x}", id="a brace alternative that is the root"),
+    pytest.param(
+        "/tmp/${{ x }}",  # noqa: S108
+        id="an expression after a scratch prefix",
+    ),
     pytest.param("*", id="every workspace file"),
     pytest.param("/", id="the filesystem root"),
     pytest.param("/home/runner/work", id="an absolute path above the workspace"),
@@ -62,6 +75,8 @@ NARROW = [
     pytest.param("/tmp/logs/", id="a scratch directory"),  # noqa: S108
     pytest.param("${{ x && '/tmp/a.log' || '' }}", id="a scratch expression"),
     pytest.param("{a,b}/*.txt", id="a brace group over other files"),
+    pytest.param("[a-c]og.txt", id="a class range over other files"),
+    pytest.param("{dist,logs/}", id="brace alternatives that are other directories"),
 ]
 
 
@@ -142,3 +157,77 @@ def test_a_lane_upload_of_one_breaching_line_among_many_is_refused() -> None:
 def test_a_lane_upload_of_harmless_lines_is_allowed_end_to_end() -> None:
     """Scenario: several unrelated entries and a negation stay allowed."""
     assert _lane_findings("dist/\nlogs/*.txt\n!dist/skip.txt") == []
+
+
+#: A component alphabet with no glob character, `..` or expression.
+_NAMES: typ.Final[tuple[str, ...]] = ("a", "b", "cov.info")
+
+
+def _reports() -> list[str]:
+    """Every relative report path of one to three components over `_NAMES`."""
+    return [
+        "/".join(parts)
+        for size in (1, 2, 3)
+        for parts in itertools.product(_NAMES, repeat=size)
+    ]
+
+
+def test_every_directory_above_a_report_holds_it_and_no_sibling_does() -> None:
+    """Property: over every report path, a prefix directory is refused, a sibling not.
+
+    The oracle is built, not computed: each proper or whole prefix of the
+    report's components names a directory (or the file) that contains it, and a
+    path whose first component is not one of the alphabet's names cannot.
+    """
+    for report in _reports():
+        parts = report.split("/")
+        for size in range(1, len(parts) + 1):
+            prefix = "/".join(parts[:size])
+            assert could_hold_the_report(prefix, report), (prefix, report)
+            assert could_hold_the_report(prefix + "/", report), (prefix, report)
+        assert not could_hold_the_report("qq/", report), report
+
+
+def test_a_star_at_any_depth_selects_the_report_and_a_wrong_name_does_not() -> None:
+    """Property: swapping any one component for `*` still selects the report.
+
+    Over every report path, a glob built by replacing one component with `*`
+    matches it by construction, and one built by replacing that component with
+    a name outside the alphabet followed by `*` matches nothing.
+    """
+    for report in _reports():
+        parts = report.split("/")
+        for index in range(len(parts)):
+            starred = "/".join([*parts[:index], "*", *parts[index + 1 :]])
+            assert could_hold_the_report(starred, report), (starred, report)
+            wrong = "/".join([*parts[:index], "q*", *parts[index + 1 :]])
+            assert not could_hold_the_report(wrong, report), (wrong, report)
+
+
+def test_a_scratch_path_is_cleared_exactly_when_it_never_climbs() -> None:
+    """Property: under `/tmp/`, `..` anywhere refuses and its absence clears.
+
+    Every path of one to three segments drawn from names and `..` is built and
+    the verdict compared with the presence of a `..` segment.
+    """
+    segments = ("a", "b", "..", ".")
+    for size in (1, 2, 3):
+        for chosen in itertools.product(segments, repeat=size):
+            entry = "/tmp/" + "/".join(chosen)  # noqa: S108
+            assert could_hold_the_report(entry, REPORT) == (".." in chosen), entry
+
+
+def test_an_expression_is_cleared_only_when_every_result_is_scratch_or_empty() -> None:
+    """Property: over every mix of results, one non-scratch result refuses it.
+
+    An expression of one to three `||` alternatives, each `c && 'value'`, is
+    built from scratch, empty and workspace-relative values. It is cleared
+    exactly when no value is workspace-relative, and it yields those values.
+    """
+    values = ("'/tmp/a.log'", "''", "'dist/'")
+    for size in (1, 2, 3):
+        for chosen in itertools.product(values, repeat=size):
+            body = " || ".join(f"c{i} && {value}" for i, value in enumerate(chosen))
+            entry = "${{ " + body + " }}"
+            assert yielded_operands(entry) == list(chosen), entry
+            assert could_hold_the_report(entry, REPORT) == ("'dist/'" in chosen), entry

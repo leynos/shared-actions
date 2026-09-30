@@ -29,6 +29,7 @@ _EXPRESSION: typ.Final[re.Pattern[str]] = re.compile(
 _LITERAL: typ.Final[re.Pattern[str]] = re.compile(r"^'((?:[^']|'')*)'$")
 _GLOB_CHARACTERS: typ.Final[frozenset[str]] = frozenset("*?[")
 _BRACES: typ.Final[re.Pattern[str]] = re.compile(r"\{([^{}]*)\}")
+_CLASS_SPECIALS: typ.Final[re.Pattern[str]] = re.compile(r"([\\\[\]^])")
 
 
 def entries_of(path: object) -> list[str]:
@@ -91,13 +92,18 @@ def could_hold_the_report(entry: str, report: str) -> bool:
         return False
     if report in entry:
         return True
-    if entry.startswith(("/", "~")):
-        return not _in_scratch(entry)
+    # An expression is judged before any prefix: `/tmp/${{ x }}` could
+    # evaluate to `../home/runner/work`, so its literal start clears nothing.
     if "${{" in entry:
         return not _expression_stays_outside(entry)
+    if entry.startswith(("/", "~")):
+        return not _in_scratch(entry)
+    if (options := _expand_braces(entry)) != [entry]:
+        # Each alternative is a whole entry: `{.,dist}` is `.` or `dist`.
+        return any(could_hold_the_report(option, report) for option in options)
     if ".." in entry.split("/"):
         return True
-    if _GLOB_CHARACTERS & set(entry) or "{" in entry:
+    if _GLOB_CHARACTERS & set(entry):
         return _glob_selects(entry, report)
     return _names_the_workspace_or_a_parent_of(entry, report)
 
@@ -180,20 +186,25 @@ def _glob_piece(pattern: str, index: int) -> tuple[str, int]:
     if char == "[" and end > 0:
         body = pattern[index + 1 : end]
         negated = body.startswith("!")
-        return f"[{'^' if negated else ''}{re.escape(body[negated:])}]", end + 1
+        # `-` stays a range operator; only what would end or nest the class
+        # is escaped.
+        literal = _CLASS_SPECIALS.sub(r"\\\1", body[negated:])
+        return f"[{'^' if negated else ''}{literal}]", end + 1
     return re.escape(char), index + 1
 
 
 def _glob_selects(entry: str, report: str) -> bool:
-    """Return whether a glob matches the report or a directory holding it.
+    """Return whether a brace-free glob matches the report or a directory above.
 
     A pattern that matches a directory uploads everything beneath it, so each
     ancestor of the report is tried as well as the report itself.
     """
     parts = _parts(report)
     candidates = ["/".join(parts[: count + 1]) for count in range(len(parts))]
-    return any(
-        _glob_regex("/".join(_parts(pattern))).match(candidate)
-        for pattern in _expand_braces(entry)
-        for candidate in candidates
-    )
+    try:
+        matcher = _glob_regex("/".join(_parts(entry)))
+    except re.error:
+        # A class the reader cannot compile, such as `[z-a]`, is refused
+        # rather than read as matching nothing.
+        return True
+    return any(matcher.match(candidate) for candidate in candidates)

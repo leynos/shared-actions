@@ -310,10 +310,25 @@ runs:
       # v6.1.0
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
-        path: ~/.cache/uv
-        key: ${{ runner.os }}-py-deps-${{ hashfiles('pyproject.toml') }}
+        # `environments-v2` holds the script environments `uv run --script`
+        # built, and each is bound to the interpreter and runner that built
+        # it. Warm runs restoring them failed `uv venv --python <that
+        # interpreter>` with exit 2 while a cold run passed (issue #547); a
+        # restored environment built elsewhere is the suspected cause, not a
+        # confirmed one. So it is never cached; uv rebuilds it in seconds,
+        # whereas the wheel and archive caches it leaves in place are the part
+        # worth restoring.
+        path: |
+          ~/.cache/uv
+          !~/.cache/uv/environments-v2
+        # The key names the runner environment, architecture and resolved
+        # interpreter so a restore never crosses them: a hosted runner's
+        # entries are not an Ubicloud runner's, and a Python 3.12 lane's are
+        # not a 3.14 lane's. Every restore key repeats that prefix, because a
+        # shorter one would restore across exactly those boundaries.
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-py${{ steps.interpreter.outputs.version }}-py-deps-${{ hashfiles('pyproject.toml') }}
         restore-keys: |
-          ${{ runner.os }}-py-deps-
+          ${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-py${{ steps.interpreter.outputs.version }}-py-deps-
 
     - name: Report archive cache decisions
       if: ${{ always() }}

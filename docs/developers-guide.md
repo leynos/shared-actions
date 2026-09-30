@@ -590,6 +590,23 @@ holds the manifest wiring and the venv arguments,
 the resolution order and version reading, and the cross-action cache contract
 the key shape.
 
+The Python dependency cache follows the same rule. `Cache Python deps` keys on
+runner OS, architecture, `runner.environment` and the resolved `major.minor`,
+repeats that prefix in its only restore key, and excludes
+`~/.cache/uv/environments-v2` from the cached path while keeping `~/.cache/uv`.
+Warm runs once failed `uv venv --python <that interpreter>` with exit 2 while a
+cold run passed, with the cause hidden (issue #547). A restored script
+environment built on another runner type or Python is the suspected cause, not
+a confirmed one, so the exclusion removes that state rather than explaining it;
+the next warm run on the affected lanes is the end-to-end evidence.
+`run_python.py` also echoes uv's stderr when `uv venv` fails, as it already did
+for `uv sync`.
+[`test_generate_coverage_python_cache.py`](../tests/workflows/test_generate_coverage_python_cache.py)
+asserts the exclusion, the retained positive path, and that the key and every
+restore key carry each boundary; the venv failure's stderr is asserted in
+`test_run_python_integration_uv_failure_modes`. Each was proved by mutation in
+both directions, including a restore key shortened to the old prefix.
+
 A separate reporting step emits bounded outcomes for both halves, because the
 save runs long after the archive-cache reporter. Keep the restore states closed
 to `hit`, `miss`, `skipped`, `disabled`, and `error`, and the save states to

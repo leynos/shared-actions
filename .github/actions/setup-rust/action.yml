@@ -936,13 +936,23 @@ runs:
         # file SCCACHE_CONF names, never an environment variable, so write one.
         # A caller's own config is kept, with the timeout placed ahead of it
         # because a top-level key written after a table would land inside that
-        # table. A key the caller already set wins.
+        # table. A root key the caller already set wins, bare or quoted; one
+        # nested under a table header is not the root key and does not count.
+        # The merged copy may carry backend credentials, so it is created
+        # private.
         conf="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/setup-rust-sccache.toml"
         if [[ -n "${SCCACHE_CONF:-}" && -f "$SCCACHE_CONF" ]] \
-          && grep -Eq '^[[:space:]]*server_startup_timeout_ms[[:space:]]*=' "$SCCACHE_CONF"; then
+          && awk '
+            /^[[:space:]]*\[/ { exit }
+            /^[[:space:]]*("server_startup_timeout_ms"|'"'"'server_startup_timeout_ms'"'"'|server_startup_timeout_ms)[[:space:]]*=/ { found = 1; exit }
+            END { exit !found }
+          ' "$SCCACHE_CONF"; then
           conf="$SCCACHE_CONF"
         elif [[ -n "${SCCACHE_CONF:-}" && -f "$SCCACHE_CONF" ]]; then
-          { printf 'server_startup_timeout_ms = 60000\n'; cat "$SCCACHE_CONF"; } > "$conf.new"
+          (
+            umask 077
+            { printf 'server_startup_timeout_ms = 60000\n'; cat "$SCCACHE_CONF"; } > "$conf.new"
+          )
           mv "$conf.new" "$conf"
         else
           printf 'server_startup_timeout_ms = 60000\n' > "$conf"

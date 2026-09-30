@@ -511,6 +511,77 @@ class TestStartupTimeout:
         assert _written_conf(workdir) == "server_startup_timeout_ms = 5000\n"
         assert f"SCCACHE_CONF={theirs}" in _env_file(workdir)
 
+    @pytest.mark.parametrize(
+        "spelling",
+        ['"server_startup_timeout_ms"', "'server_startup_timeout_ms'"],
+    )
+    def test_a_quoted_timeout_key_the_caller_chose_wins(
+        self, fake_sccache: Path, spelling: str
+    ) -> None:
+        """TOML lets a key be quoted; prepending a bare twin would be a duplicate.
+
+        A duplicate key is invalid TOML, so sccache could not start and the
+        fail-open path would silently disable the cache.
+        """
+        workdir = fake_sccache.parent
+        theirs = workdir / "theirs.toml"
+        theirs.write_text(f"{spelling} = 5000\n", encoding="utf-8")
+        _run_server(
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                caller_conf=str(theirs),
+            )
+        )
+
+        assert _written_conf(workdir) == f"{spelling} = 5000\n"
+
+    def test_a_nested_key_is_not_the_root_timeout(self, fake_sccache: Path) -> None:
+        """Only the root `server_startup_timeout_ms` sets the startup timeout.
+
+        `[cache.multilevel]` accepts and ignores the same name, so treating it
+        as a root setting would skip the required root value.
+        """
+        workdir = fake_sccache.parent
+        theirs = workdir / "theirs.toml"
+        nested = "[cache.multilevel]\nserver_startup_timeout_ms = 5000\n"
+        theirs.write_text(nested, encoding="utf-8")
+        _run_server(
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                caller_conf=str(theirs),
+            )
+        )
+
+        merged = _written_conf(workdir)
+        assert merged.startswith("server_startup_timeout_ms = 60000\n")
+        assert nested in merged
+
+    def test_the_merged_config_is_private(self, fake_sccache: Path) -> None:
+        """A caller's config may hold backend credentials.
+
+        The merged copy must not be more readable than an ordinary umask would
+        make it, so it is created under `umask 077`.
+        """
+        workdir = fake_sccache.parent
+        theirs = workdir / "theirs.toml"
+        theirs.write_text('[cache.s3]\nbucket = "b"\n', encoding="utf-8")
+        _run_server(
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                caller_conf=str(theirs),
+            )
+        )
+
+        names = [
+            line.removeprefix("SCCACHE_CONF=")
+            for line in _env_file(workdir)
+            if line.startswith("SCCACHE_CONF=")
+        ]
+        assert Path(names[0]).stat().st_mode & 0o077 == 0
+
     def test_a_caller_owned_wrapper_gets_no_config(self, fake_sccache: Path) -> None:
         """When the caller owns the server the action touches nothing."""
         workdir = fake_sccache.parent

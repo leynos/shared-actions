@@ -334,11 +334,13 @@ The start is fail-open. Before it, the step writes a config file under
 `SCCACHE_CONF` to the server and to `GITHUB_ENV`, because sccache's 10 s
 startup timeout is settable only through that file and the backend probe on
 Ubicloud intermittently outlasts it. A caller's own config is kept, with the
-key written first so it stays top level, and a key the caller set wins. If the
-server still will not start, the step warns, writes `RUSTC_WRAPPER=` to
-`GITHUB_ENV` (an empty value counts as unset, so Cargo compiles with plain
-rustc) and exits 0 with `start-failed`: a cache is an optimization and an
-unreachable one must never fail a job.
+key written first so it stays top level, and a root key the caller set wins,
+bare or quoted (a key under a table header is not the root key). The merged
+copy is created under `umask 077`, since a caller's config may hold backend
+credentials. If the server still will not start, the step warns, writes
+`RUSTC_WRAPPER=` to `GITHUB_ENV` (an empty value counts as unset, so Cargo
+compiles with plain rustc) and exits 0 with `start-failed`: a cache is an
+optimization and an unreachable one must never fail a job.
 
 A fallback must stay detectable, so it raises three signals and a contract
 holds each:

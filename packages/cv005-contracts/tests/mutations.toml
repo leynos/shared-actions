@@ -1489,7 +1489,6 @@ file = "cv005_contracts/requires_python.py"
 old = "    if any(accepted.contains(version, prereleases=True) for version in candidates):\n        return []\n"
 new = "    if candidates:\n        return []\n"
 expect = "test_an_empty_patch_range_is_refused"
-||||||| parent of 3ee753ac (Refuse an artefact upload that could select a lane's coverage report)
 
 
 [[mutation]]

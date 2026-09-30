@@ -92,6 +92,11 @@ def could_hold_the_report(entry: str, report: str) -> bool:
         return False
     if report in entry:
         return True
+    return _could_select(entry, report)
+
+
+def _could_select(entry: str, report: str) -> bool:
+    """Judge an entry that is neither a negation nor the report's own name."""
     # An expression is judged before any prefix: `/tmp/${{ x }}` could
     # evaluate to `../home/runner/work`, so its literal start clears nothing.
     if "${{" in entry:
@@ -101,6 +106,11 @@ def could_hold_the_report(entry: str, report: str) -> bool:
     if (options := _expand_braces(entry)) != [entry]:
         # Each alternative is a whole entry: `{.,dist}` is `.` or `dist`.
         return any(could_hold_the_report(option, report) for option in options)
+    return _could_select_relative(entry, report)
+
+
+def _could_select_relative(entry: str, report: str) -> bool:
+    """Judge a relative, brace-free entry: climbing, a glob or a plain path."""
     if ".." in entry.split("/"):
         return True
     if _GLOB_CHARACTERS & set(entry):

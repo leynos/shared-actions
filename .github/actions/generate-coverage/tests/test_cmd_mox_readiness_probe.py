@@ -16,15 +16,25 @@ This is a different connection from the one the disconnect guard covers. That
 guard wraps the reply writer, which only a valid request reaches; this one
 covers the read that never gets that far. Keeping the two in separate files
 keeps that distinction visible.
+
+The fault count is asserted by calling the parser directly rather than by
+driving a probe through a socket. A socket probe would be more end-to-end, but
+the record it produces lands on a logger shared by every connection in the
+process, so counting records over any window measures the neighbours as well
+as the probe. Under ``--dist worksteal`` the neighbours differ between runs,
+which is how an earlier socket-driven version of this test failed
+intermittently rather than on every run. See :class:`_ThreadRecordCounter`.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import socket
-import time
+import threading
+import typing as typ
 
 import pytest
 
@@ -34,6 +44,14 @@ import pytest
 _IPC_SERVER = pytest.importorskip("cmd_mox.ipc.server")
 
 _SOCKET_ENV = "CMOX_IPC_SOCKET"
+
+#: The logger cmd-mox reports a malformed read against.
+_SERVER_LOGGER = "cmd_mox.ipc.server"
+
+#: The record the guard exists to suppress, matched against the message so a
+#: passing test cannot pass on an unrelated error.
+_MALFORMED = "malformed JSON"
+
 _REQUEST = {
     "kind": "invocation",
     "command": "cargo",
@@ -55,6 +73,43 @@ def _connect(socket_path: str) -> socket.socket:
 def _probe(socket_path: str) -> None:
     """Connect and close sending nothing, exactly as the readiness check does."""
     _connect(socket_path).close()
+
+
+class _ThreadRecordCounter(logging.Handler):
+    """Count the records one thread causes a logger to emit.
+
+    ``Logger.addHandler`` is process-global: while this handler is
+    attached, a record from *any* thread reaches it. Filtering by thread is
+    what makes the count attributable, because the records that matter are
+    emitted synchronously by the thread that calls the parser. Records
+    from connections the server happens to be serving at the same time are
+    emitted by their own handler threads and are not counted.
+    """
+
+    def __init__(self, owner: int) -> None:
+        super().__init__()
+        self._owner = owner
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Keep *record* when the owning thread is the one that emitted it."""
+        if record.thread == self._owner:
+            self.records.append(record)
+
+
+@contextlib.contextmanager
+def _counting_records() -> typ.Iterator[list[logging.LogRecord]]:
+    """Collect the server logger's records for the duration of the block."""
+    logger = logging.getLogger(_SERVER_LOGGER)
+    counter = _ThreadRecordCounter(threading.get_ident())
+    previous_level = logger.level
+    logger.addHandler(counter)
+    logger.setLevel(logging.ERROR)
+    try:
+        yield counter.records
+    finally:
+        logger.removeHandler(counter)
+        logger.setLevel(previous_level)
 
 
 def test_the_guard_is_installed_by_the_session_fixture(cmd_mox: object) -> None:
@@ -80,45 +135,54 @@ def test_a_real_request_is_still_parsed(cmd_mox: object) -> None:
     assert payload["command"] == "cargo"
 
 
-def test_an_empty_probe_leaves_no_server_traceback(
-    cmd_mox: object,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_an_empty_probe_leaves_no_server_traceback(cmd_mox: object) -> None:
     """A readiness probe produces no error record.
 
     The unguarded parser is exercised first, so this fails if the guard is
     removed rather than merely asserting a silence that was never at risk.
+    Both calls are direct and synchronous, which is what lets the record
+    count be attributed to the read rather than to whatever else the
+    process happened to be serving.
     """
-    cmd_mox.stub("cargo").returns(stdout="Coverage: 81.5%\n")  # type: ignore[attr-defined]
-    cmd_mox.replay()  # type: ignore[attr-defined]
     guarded = _IPC_SERVER._parse_payload
-    socket_path = os.environ[_SOCKET_ENV]
+    unguarded = guarded.__cmd_mox_unguarded__  # type: ignore[attr-defined]
 
-    try:
-        _IPC_SERVER._parse_payload = guarded.__cmd_mox_unguarded__
-        with caplog.at_level(logging.ERROR, logger="cmd_mox.ipc.server"):
-            _probe(socket_path)
-            time.sleep(0.8)
-        assert "malformed JSON" in caplog.text
-    finally:
-        _IPC_SERVER._parse_payload = guarded
+    with _counting_records() as records:
+        assert unguarded(b"") is None, "the unguarded parser changed its answer"
 
-    caplog.clear()
-    with caplog.at_level(logging.ERROR, logger="cmd_mox.ipc.server"):
-        _probe(socket_path)
-        time.sleep(0.8)
+    assert len(records) == 1, (
+        f"the unguarded parser emitted {len(records)} error records for an "
+        "empty read, not the one malformed-JSON record the guard exists to "
+        "suppress; the guard is not what is silencing it"
+    )
+    assert _MALFORMED in records[0].getMessage(), (
+        f"the unguarded parser's record is {records[0].getMessage()!r}, not the "
+        "malformed-JSON record the probe is being conflated with"
+    )
 
-    assert caplog.text == ""
+    with _counting_records() as records:
+        assert guarded(b"") is None, "the guard stopped returning None"
+
+    assert records == [], (
+        f"an empty read left {len(records)} error records, so the guard is not "
+        "absorbing it"
+    )
 
 
 def test_a_probe_does_not_upset_the_next_request(cmd_mox: object) -> None:
-    """The shim still gets its answer after the readiness check has run."""
+    """The shim still gets its answer after the readiness check has run.
+
+    The observable contract: a real request that follows a probe is answered
+    normally. This deliberately makes no claim about what the probe logged,
+    which is :func:`test_an_empty_probe_leaves_no_server_traceback`'s job --
+    asserting it here as well would only re-introduce a count over a shared
+    logger.
+    """
     cmd_mox.stub("cargo").returns(stdout="Coverage: 81.5%\n")  # type: ignore[attr-defined]
     cmd_mox.replay()  # type: ignore[attr-defined]
     socket_path = os.environ[_SOCKET_ENV]
 
     _probe(socket_path)
-    time.sleep(0.4)
 
     client = _connect(socket_path)
     try:

@@ -190,6 +190,7 @@ class TestResolveSubcommand:
         assert exit_code == 1
         summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
         assert f"install-makeutil.result={refusal.expected_metric}" in summary
+        assert _outputs(env) == {"result": refusal.expected_metric}
 
     def test_a_malformed_sha256_override_is_refused_before_any_output(
         self, tmp_path: Path
@@ -217,6 +218,6 @@ class TestResolveSubcommand:
         )
 
         assert exit_code == 1
-        assert _outputs(env) == {}
+        assert _outputs(env) == {"result": "invalid-input"}
         summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
         assert "install-makeutil.result=invalid-input" in summary

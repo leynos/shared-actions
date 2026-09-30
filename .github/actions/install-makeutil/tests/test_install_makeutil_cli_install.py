@@ -125,7 +125,7 @@ class TestInstallSubcommand:
         )
 
         assert exit_code == 1
-        assert _outputs(env) == {}
+        assert _outputs(env) == {"result": "download-failed"}
         lines = (
             Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8").splitlines()
         )
@@ -171,10 +171,11 @@ class TestInstallSubcommand:
         assert target.exists() is remains
 
     def test_a_failure_writing_step_outputs_is_reported_not_raised(
-        self, tmp_path: Path
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """`GITHUB_OUTPUT` is the action's only channel to the workflow; when
         it cannot be written, `main` exits 1 with an annotation, no traceback.
+        The annotation is asserted, so an unconditional `return 1` would fail.
         """
         env = _fake_env(tmp_path)
         env["GITHUB_OUTPUT"] = str(tmp_path / "missing-dir" / "output.txt")
@@ -195,3 +196,6 @@ class TestInstallSubcommand:
         )
 
         assert exit_code == 1
+        error = capsys.readouterr().err
+        assert "::error title=Install makeutil failed::" in error
+        assert "could not publish results" in error

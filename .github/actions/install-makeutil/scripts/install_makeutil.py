@@ -68,8 +68,15 @@ def _emit_metric(env: cabc.Mapping[str, str], name: str, value: str) -> None:
 
 
 def _emit_result(env: cabc.Mapping[str, str], result: str) -> None:
-    """Record the run's terminal `install-makeutil.result`."""
+    """Record the run's terminal `install-makeutil.result`.
+
+    The value goes to the log and summary as a metric and to the step's
+    `result` output, so a later step can assert why a refusal or failure
+    happened. `GITHUB_STEP_SUMMARY` is scoped to one step and cannot be read
+    from another.
+    """
     _emit_metric(env, "result", result)
+    _append_output(env, "result", result)
 
 
 def cache_state(cache_hit: str, outcome: str) -> str:
@@ -163,7 +170,6 @@ def _run_install(args: argparse.Namespace, env: cabc.Mapping[str, str]) -> int:
         return 1
     _append_output(env, "path", str(result.path))
     _append_output(env, "version", args.version)
-    _append_output(env, "result", result.outcome)
     return 0
 
 

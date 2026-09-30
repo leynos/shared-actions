@@ -27,6 +27,9 @@ file.
 - Emit an `install-makeutil.cache` line over `hit`, `miss` and `stale`, fed by
   the cache step's `cache-hit` output, so a restored-but-rejected entry is told
   apart from an ordinary miss.
+- Set the `result` output on every terminal path, refusals and failures
+  included, so a caller using `continue-on-error` can assert why a run failed;
+  `path` and `version` stay success-only.
 - Put the installed binary behind a `BinaryStore` port with a
   `FilesystemBinaryStore` adapter that maps `OSError` to `StoreError`, and
   report a failure writing step outputs instead of raising it.

@@ -157,9 +157,13 @@ jobs:
         shell: bash
         env:
           INSTALL_OUTCOME: ${{ steps.install-tampered.outcome }}
+          INSTALL_RESULT: ${{ steps.install-tampered.outputs.result }}
         run: |
           set -euo pipefail
           test "${INSTALL_OUTCOME}" = failure
+          # Refused for the right reason, not merely refused: the pinned digest
+          # disagreed with a download that was otherwise correct.
+          test "${INSTALL_RESULT}" = digest-mismatch
           test ! -e "${RUNNER_TEMP}/makeutil-bin-tampered/makeutil"
 
   install-makeutil-unknown-version:
@@ -187,7 +191,9 @@ jobs:
         shell: bash
         env:
           INSTALL_OUTCOME: ${{ steps.install-unknown.outcome }}
+          INSTALL_RESULT: ${{ steps.install-unknown.outputs.result }}
         run: |
           set -euo pipefail
           test "${INSTALL_OUTCOME}" = failure
+          test "${INSTALL_RESULT}" = unknown-version
           test ! -e "${RUNNER_TEMP}/makeutil-bin-unknown/makeutil"

@@ -34,9 +34,12 @@ outputs:
     value: ${{ steps.install.outputs.version }}
   result:
     description: >-
-      `installed` when this run downloaded and verified the binary, or
-      `cached` when a binary already in bin-dir matched the pinned digest
-    value: ${{ steps.install.outputs.result }}
+      The run's terminal outcome. `installed` when this run downloaded and
+      verified the binary, `cached` when a binary already in bin-dir matched
+      the pinned digest, or the bounded failure value (for example
+      `digest-mismatch`) when the run refused or failed. A failing run still
+      sets it, for a caller using `continue-on-error`.
+    value: ${{ steps.install.outputs.result || steps.resolve.outputs.result }}
 
 runs:
   using: composite

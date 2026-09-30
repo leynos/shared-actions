@@ -51,7 +51,9 @@ class TestInputsAndOutputs:
         assert set(outputs) == {"path", "version", "result"}
         assert outputs["path"]["value"] == "${{ steps.install.outputs.path }}"
         assert outputs["version"]["value"] == "${{ steps.install.outputs.version }}"
-        assert outputs["result"]["value"] == "${{ steps.install.outputs.result }}"
+        assert outputs["result"]["value"] == (
+            "${{ steps.install.outputs.result || steps.resolve.outputs.result }}"
+        )
 
 
 class TestOrdering:

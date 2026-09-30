@@ -229,6 +229,12 @@ jobs:
         shell: bash
         env:
           CARGO_MUTANTS_VERSION: ${{ inputs.cargo-mutants-version }}
+          # cargo-binstall resolves releases through api.github.com. Without
+          # a token it is rate limited by runner IP, gets a 403, waits 120 s
+          # and then compiles from source, which cost one consumer 348 s on
+          # a single leg. The workflow token needs no scope beyond the job's
+          # `contents: read`.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [[ -n "${CARGO_MUTANTS_VERSION}" ]]; then

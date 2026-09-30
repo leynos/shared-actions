@@ -31,6 +31,7 @@ from .publisher_rules import (
     upload_step_violations,
 )
 from .reach import pull_request_closure, pull_request_violations
+from .requires_python import requires_python_violations
 from .waivers import Waiver, apply_exceptions
 from .wiring import wiring_violations
 
@@ -140,7 +141,7 @@ def report(
         raise ValueError(message)
     config = config or load_config(repo_root)
     documents = read_tree(repo_root)
-    clauses = list(_clauses(documents, config))
+    clauses = list(_clauses(documents, config, repo_root))
     results = {
         clause: messages() for family, clause, messages in clauses if family in only
     }
@@ -185,7 +186,9 @@ def violations(
 type Clause = tuple[str, str, cabc.Callable[[], list[str]]]
 
 
-def _clauses(documents: dict[str, Document], config: Config) -> cabc.Iterator[Clause]:
+def _clauses(
+    documents: dict[str, Document], config: Config, repo_root: Path
+) -> cabc.Iterator[Clause]:
     """Yield each clause's family, identifier and deferred reading."""
     repository = config.repository
     yield (
@@ -197,6 +200,13 @@ def _clauses(documents: dict[str, Document], config: Config) -> cabc.Iterator[Cl
     yield from _publisher_clauses(documents, config, name, publisher)
     closure = pull_request_closure(documents, repository)
     yield from _coverage_clauses(documents, config, (name, publisher), closure)
+    if config.interpreter is not None:
+        interpreter = config.interpreter
+        yield (
+            "coverage",
+            "coverage.requires-python",
+            lambda: requires_python_violations(repo_root, interpreter),
+        )
     if config.environment:
         yield (
             "environment",

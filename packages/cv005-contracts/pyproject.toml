@@ -5,7 +5,7 @@ description = "The estate's CV-005 CodeScene coverage and codescene-environment 
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "ISC" }
-dependencies = ["cyclopts>=4.22,<5", "pyyaml>=6,<7"]
+dependencies = ["cyclopts>=4.22,<5", "packaging>=24,<27", "pyyaml>=6,<7"]
 
 [project.scripts]
 cv005-contracts = "cv005_contracts.cli:main"

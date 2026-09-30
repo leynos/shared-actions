@@ -570,8 +570,8 @@ expect = "test_a_configured_selection_is_held"
 [[mutation]]
 id = "C7 interpreter clause never runs"
 file = "cv005_contracts/api.py"
-old = "    if config.interpreter is not None:\n"
-new = "    if False:\n"
+old = "    if config.interpreter is not None:\n        interpreter = config.interpreter\n        yield (\n            \"coverage\",\n            \"coverage.interpreter\",\n"
+new = "    if False:\n        interpreter = config.interpreter\n        yield (\n            \"coverage\",\n            \"coverage.interpreter\",\n"
 expect = "test_the_interpreter_clause_runs_only_when_configured"
 
 [[mutation]]
@@ -1434,3 +1434,58 @@ file = "cv005_contracts/pairing.py"
 old = "    return bool(set(pairing.matrix) & elsewhere) or (\n        bool(pairing.matrix) and not _reads_only_the_ratchet(pairing, lane)\n    )\n"
 new = "    return bool(pairing.matrix)\n"
 expect = "test_a_declared_ratcheting_cell_counts_as_the_jobs_one_ratchet"
+[[mutation]]
+id = "RP1 requires-python not checked"
+file = "cv005_contracts/requires_python.py"
+old = "    if any(accepted.contains(version, prereleases=True) for version in candidates):\n        return []\n"
+new = "    if True:\n        return []\n"
+expect = "test_an_interpreter_outside_the_range_is_refused"
+
+[[mutation]]
+id = "RP3 a bare minor tried as x.y.0 only"
+file = "cv005_contracts/requires_python.py"
+old = "BASE_PATCHES: typ.Final[tuple[int, ...]] = (0, 1, 999)"
+new = "BASE_PATCHES: typ.Final[tuple[int, ...]] = (0,)"
+expect = "test_an_interpreter_inside_the_range_is_accepted"
+
+[[mutation]]
+id = "RP4 a missing declaration refused"
+file = "cv005_contracts/requires_python.py"
+old = "    if requirement is None:\n        return []\n"
+new = "    if requirement is None:\n        return ['no requires-python']\n"
+expect = "test_no_requires_python_is_not_a_violation"
+
+[[mutation]]
+id = "RP5 an unreadable declaration accepted"
+file = "cv005_contracts/requires_python.py"
+old = "        return [f\"pyproject.toml could not be read: {error}\"]"
+new = "        return []"
+expect = "test_an_unreadable_or_invalid_declaration_is_refused"
+
+[[mutation]]
+id = "RP6 the clause always runs"
+file = "cv005_contracts/api.py"
+old = "    if config.interpreter is not None:\n        interpreter = config.interpreter\n        yield (\n            \"coverage\",\n            \"coverage.requires-python\","
+new = "    if True:\n        interpreter = config.interpreter or \"3.13\"\n        yield (\n            \"coverage\",\n            \"coverage.requires-python\","
+expect = "test_a_repository_configuring_no_interpreter_is_not_judged"
+
+[[mutation]]
+id = "RP7 only the bound itself tried"
+file = "cv005_contracts/requires_python.py"
+old = "        patches |= {max(bound - 1, 0), bound, bound + 1}\n"
+new = "        patches |= {bound}\n"
+expect = "test_a_patch_between_the_sampled_ones_is_found"
+
+[[mutation]]
+id = "RP8 a major-only interpreter is not refused"
+file = "cv005_contracts/requires_python.py"
+old = "    if len(version.release) < 2:\n"
+new = "    if False:\n"
+expect = "test_a_major_only_interpreter_is_refused_not_an_error"
+
+[[mutation]]
+id = "RP9 a range with no patch accepted"
+file = "cv005_contracts/requires_python.py"
+old = "    if any(accepted.contains(version, prereleases=True) for version in candidates):\n        return []\n"
+new = "    if candidates:\n        return []\n"
+expect = "test_an_empty_patch_range_is_refused"

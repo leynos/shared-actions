@@ -2068,6 +2068,14 @@ of this repository needs.
   `action.yml` and scripts and fails if it reads any such key, so an edit to
   the action starts it. The fix it asks for is to list the key in
   `parity.ACTION_READ_KEYS`, which makes it compared.
+- **`requires-python`.** `requires_python.py` reads `project.requires-python`
+  from the repository's `pyproject.toml` when there is one and holds the
+  configured `interpreter` inside it, using `packaging`'s specifier evaluation;
+  `packaging` is therefore a runtime dependency of the library. A bare `X.Y` is
+  decided from the patches next to each bound the specifier names in that
+  minor, since membership can only change at a bound, and
+  `tests/test_requires_python_properties.py` checks that choice against a
+  direct walk over generated intervals and exclusions.
 - **Declared shapes.** A repository declares an `[[exception]]` (one waived
   clause, with its ruling, reason and optionally the command that replaces the
   action) or a `[[pairing]]` (a lane leg mapped to the publisher leg it

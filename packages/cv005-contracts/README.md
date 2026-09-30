@@ -114,6 +114,10 @@ the retired checksum names.
       setup with no reliable one before it claims nothing.
     - A `generate-coverage` from another owner or repository at the same
       path is not the shared action and is not judged as one.
+  - The configured interpreter must sit inside the project's `requires-python`
+    where `pyproject.toml` declares one, since `uv sync` refuses an interpreter
+    the project excludes. A bare `3.13` is accepted if any 3.13 patch is; a
+    declaration that cannot be read or judged is refused.
   - Each lane runs read-only and cannot continue on error.
   - Only the publisher writes the baseline on a push.
 - **Least privilege.** The upload job's permissions are exactly

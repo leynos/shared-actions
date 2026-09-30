@@ -282,9 +282,18 @@ def _run_rust_coverage_test(
     monkeypatch.chdir(tmp_path)
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
-    returncode, stdout, _ = run_script(script, env)
-    assert returncode == 0
-    assert "Coverage" in stdout
+    returncode, stdout, stderr = run_script(script, env)
+    # Carry both streams into the failure message. Without them a non-zero exit
+    # reports only the code, and the child's own diagnosis -- the traceback, the
+    # shim's complaint, whatever run_rust.py printed -- is discarded exactly when
+    # it is needed. The stderr assertion below is unreachable while the exit
+    # assertion fails, so the detail has to travel in the message.
+    assert returncode == 0, (
+        f"run_rust.py exited {returncode}\n"
+        f"--- stdout ---\n{stdout}\n"
+        f"--- stderr ---\n{stderr}"
+    )
+    assert "Coverage" in stdout, f"expected a coverage report in stdout:\n{stdout}"
 
     calls = shell_stubs.calls_of("cargo")
     assert len(calls) == 1

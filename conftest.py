@@ -82,6 +82,95 @@ def _enable_cmd_mox_replay_idempotence() -> None:
     CmdMoxController.replay = _replay_with_phase_guard
 
 
+class _WritableStream(typ.Protocol):
+    """Minimal output-stream contract the reply writer relies on."""
+
+    def write(self, data: bytes) -> int:
+        """Write *data* and return the number of bytes accepted."""
+        ...
+
+
+class _DisconnectTolerantWriter:
+    """Reply stream that ignores a client which has already gone away.
+
+    ``_IPCHandler.handle`` writes the reply to ``self.wfile`` with no guard.
+    When the client has already closed its read side, that write raises
+    :class:`BrokenPipeError`, which escapes the handler and reaches
+    ``socketserver.ThreadingMixIn.process_request_thread``. Its default
+    ``handle_error`` prints a full server-side traceback — noise that reads
+    like a crash even though a client walking away mid-request is ordinary.
+
+    Wrapping the writer keeps the reply path working exactly as before for a
+    connected client and turns the disconnect into a silent no-op. The
+    swallowed error is not hidden from the connection itself: the write never
+    completed, so there is nobody left to receive an error.
+    """
+
+    __slots__ = ("_wrapped",)
+
+    def __init__(self, wrapped: _WritableStream) -> None:
+        self._wrapped = wrapped
+
+    def write(self, data: bytes) -> int:
+        """Write *data*, treating a vanished client as an empty write."""
+        try:
+            return self._wrapped.write(data)
+        except ConnectionError:
+            # BrokenPipeError, ConnectionResetError and ConnectionAbortedError
+            # all mean the peer is gone. A genuine local fault such as ENOSPC
+            # is a plain OSError and deliberately still propagates.
+            return 0
+
+    def __getattr__(self, name: str) -> object:
+        """Forward every other stream attribute to the wrapped writer."""
+        return getattr(self._wrapped, name)
+
+
+class _RequestHandler(typ.Protocol):
+    """The slice of ``socketserver.StreamRequestHandler`` the guard touches."""
+
+    wfile: _WritableStream
+
+    def setup(self) -> None:
+        """Prepare the per-connection read and write streams."""
+        ...
+
+
+def _enable_cmd_mox_ipc_disconnect_tolerance() -> None:
+    """Stop a disconnected IPC client from printing a server traceback.
+
+    See :class:`_DisconnectTolerantWriter` for the failure this normalizes.
+    The guard wraps the handler's output stream once, at connection setup,
+    rather than editing upstream source: cmd-mox is a pinned external
+    dependency, so the override is applied at this repository's test boundary
+    and disappears with the dependency.
+    """
+    if sys.platform == "win32":  # pragma: no cover - cmd-mox unavailable
+        return
+    try:
+        from cmd_mox.ipc.server import _IPCHandler
+    except (ModuleNotFoundError, ImportError):  # pragma: no cover - private API
+        return
+
+    setup = getattr(_IPCHandler, "setup", None)
+    if setup is None or getattr(setup, "__cmd_mox_disconnect_guard__", False):
+        return
+
+    def setup_with_disconnect_guard(self: _RequestHandler) -> None:
+        original_setup(self)
+        self.wfile = _DisconnectTolerantWriter(self.wfile)
+
+    original_setup = setup
+    setup_with_disconnect_guard.__cmd_mox_disconnect_guard__ = True
+    _IPCHandler.setup = setup_with_disconnect_guard
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _cmd_mox_ipc_disconnect_tolerance() -> None:
+    """Apply the cmd-mox disconnect guard once per test session."""
+    _enable_cmd_mox_ipc_disconnect_tolerance()
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _cmd_mox_replay_idempotence() -> None:
     """Apply cmd-mox replay compatibility patch once per test session."""

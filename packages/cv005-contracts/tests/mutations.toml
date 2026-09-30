@@ -1434,7 +1434,7 @@ file = "cv005_contracts/pairing.py"
 old = "    return bool(set(pairing.matrix) & elsewhere) or (\n        bool(pairing.matrix) and not _reads_only_the_ratchet(pairing, lane)\n    )\n"
 new = "    return bool(pairing.matrix)\n"
 expect = "test_a_declared_ratcheting_cell_counts_as_the_jobs_one_ratchet"
-||||||| parent of 006aecc0 (Hold the configured interpreter inside requires-python (#565))
+[[mutation]]
 id = "RP1 requires-python not checked"
 file = "cv005_contracts/requires_python.py"
 old = "    if any(accepted.contains(version, prereleases=True) for version in candidates):\n        return []\n"

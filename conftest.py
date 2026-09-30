@@ -171,6 +171,71 @@ def _cmd_mox_ipc_disconnect_tolerance() -> None:
     _enable_cmd_mox_ipc_disconnect_tolerance()
 
 
+class _PayloadParser(typ.Protocol):
+    """The slice of ``cmd_mox.ipc.server._parse_payload`` the guard wraps."""
+
+    def __call__(self, raw: bytes) -> tuple[dict[str, object], str] | None:
+        """Decode *raw* into a payload and kind, or ``None`` if unusable."""
+        ...
+
+
+def _enable_cmd_mox_empty_probe_tolerance() -> None:
+    """Stop cmd-mox's readiness probe logging a malformed-JSON traceback.
+
+    ``socket_utils._try_socket_connection`` and ``socket_utils.
+    cleanup_stale_socket`` both connect and close without writing a single
+    byte, because the only question they ask is whether the socket accepts a
+    connection. ``_parse_payload`` then decodes zero bytes, ``json.loads(b"")``
+    raises ``JSONDecodeError``, and ``logger.exception`` reports that expected
+    handshake as malformed input -- with a full traceback, once per server
+    start, on every run, healthy or not.
+
+    An empty read is unambiguous. A client with a request to make always sends
+    one, so no bytes at all can only be the readiness probe. The override
+    returns ``None`` for it, which is already the answer the server gives every
+    unusable request: ``_IPCHandler.handle`` returns before writing whenever
+    the payload does not decode. The probe is therefore answered exactly as
+    before, and merely stops being recorded as a fault.
+
+    Apply this alongside :func:`_enable_cmd_mox_ipc_disconnect_tolerance`. The
+    two are separate because they are separate connections: this one sends
+    nothing and never reaches the reply, while that one sends a valid request
+    and reaches the reply after the client has gone.
+    """
+    if sys.platform == "win32":  # pragma: no cover - cmd-mox unavailable
+        return
+    try:
+        from cmd_mox.ipc import server as ipc_server
+    except (ModuleNotFoundError, ImportError):  # pragma: no cover - private API
+        return
+
+    parse = getattr(ipc_server, "_parse_payload", None)
+    if parse is None or getattr(parse, "__cmd_mox_empty_probe_guard__", False):
+        return
+
+    def parse_without_a_probe_fault(
+        raw: bytes,
+    ) -> tuple[dict[str, object], str] | None:
+        # Zero bytes is the readiness probe, not malformed input.
+        if not raw:
+            return None
+        return original_parse(raw)
+
+    original_parse = parse
+    parse_without_a_probe_fault.__cmd_mox_empty_probe_guard__ = True
+    # Kept reachable so a regression test can put the unguarded parser back and
+    # show the traceback really is what the guard prevents, rather than
+    # asserting a silence that was never at risk.
+    parse_without_a_probe_fault.__cmd_mox_unguarded__ = original_parse
+    ipc_server._parse_payload = parse_without_a_probe_fault
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _cmd_mox_empty_probe_tolerance() -> None:
+    """Apply the cmd-mox readiness-probe guard once per test session."""
+    _enable_cmd_mox_empty_probe_tolerance()
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _cmd_mox_replay_idempotence() -> None:
     """Apply cmd-mox replay compatibility patch once per test session."""

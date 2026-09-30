@@ -1489,3 +1489,24 @@ file = "cv005_contracts/requires_python.py"
 old = "    if any(accepted.contains(version, prereleases=True) for version in candidates):\n        return []\n"
 new = "    if candidates:\n        return []\n"
 expect = "test_an_empty_patch_range_is_refused"
+
+[[mutation]]
+id = "ED1 the environment key defaults to false"
+file = "cv005_contracts/config.py"
+old = "    environment: bool = True\n"
+new = "    environment: bool = False\n"
+expect = "test_the_environment_contract_applies_when_the_key_is_absent"
+
+[[mutation]]
+id = "ED2 an explicit environment false is ignored"
+file = "cv005_contracts/api.py"
+old = "    if config.environment:\n"
+new = "    if True:\n"
+expect = "test_an_explicit_environment_false_opts_the_contract_out"
+
+[[mutation]]
+id = "ED3 the environment key is read from the declaration"
+file = "cv005_contracts/api.py"
+old = "    if config.environment:\n"
+new = "    if config.environment and \"'environment': 'codescene'\" in str(documents):\n"
+expect = "test_the_environment_contract_applies_when_the_key_is_absent"

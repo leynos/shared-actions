@@ -41,7 +41,9 @@ require them, and set up macOS or OpenBSD cross-compilers.
 | cache-backend  | The sccache backend selected: `ubicloud`, `github` or `local`. Empty when sccache is not in use.                                                                                                                         |
 | sccache-status | `started` when the action started the sccache server, `fallback` when it would not start and the job compiles without the cache. Empty when the action did not start a server.                                           |
 | mold-status    | `installed`, `cached` or `skipped` (off Linux). Empty when `install-mold` is not `true`.                                                                                                                                 |
+| clang-lld-status | `installed` or `skipped` (off Linux). Empty when `install-clang-lld` is not `true`.                                                                                            |
 | mold-version   | The mold version now on `PATH`. Empty when mold was skipped or not requested.                                                                                                                                            |
+| install-clang-lld           | Install `clang` and `lld` on Linux via `apt` and verify both land on `PATH`. A notice-only no-op on macOS and Windows. Sets no linker flag.                                  | no       | `false`                               |
 
 <!-- markdownlint-enable MD013 -->
 

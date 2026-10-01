@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Add an opt-in `install-clang-lld` input. On a Linux runner it installs
+  `clang` and `lld` via `apt`
+  (`apt-get install --yes --no-install-recommends clang lld`), then verifies
+  that `clang` and `ld.lld` land on `PATH`, failing the job with a clear
+  `::error::` otherwise. Unlike `install-mold`, no version is pinned and no
+  digest is checked, because `clang` and `lld` come from the runner's own
+  Ubuntu archive rather than a cross-architecture download. On macOS and
+  Windows it is a no-op with a notice. A new `clang-lld-status` output
+  (`installed` or `skipped`) reports the outcome, and the step reports
+  `metric setup-rust.clang-lld=<installed|skipped>`. The action sets no linker
+  flag; the consumer selects clang/lld explicitly, for example through
+  `CARGO_TARGET_<triple>_LINKER` and `RUSTFLAGS`. Lets consumers such as
+  evert's coverage workflow drop their own apt step.
+
 - Add an `export-rustc-wrapper` input (default `true`, no behaviour change) and
   a `sccache-path` output. `false` leaves `RUSTC_WRAPPER` unset for the job so
   a root lane run through `sudo -E` and nested cargo builds such as trybuild

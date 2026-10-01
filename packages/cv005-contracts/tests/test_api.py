@@ -76,6 +76,41 @@ def test_the_environment_family_is_separate(tmp_path: Path) -> None:
     assert clauses == {"environment.placement"}, clauses
 
 
+def _without_environment() -> dict[str, str]:
+    """Return the fixture tree with the publisher's environment declaration gone."""
+    texts = tree()
+    texts["coverage-main.yml"] = texts["coverage-main.yml"].replace(
+        "    environment: codescene\n", ""
+    )
+    return texts
+
+
+def test_the_environment_contract_applies_when_the_key_is_absent(
+    tmp_path: Path,
+) -> None:
+    """Scenario: a repository sets no `environment` key and drops the declaration.
+
+    Invariant: the key defaults to true, so the contract still runs and refuses.
+    Inferring it from the declaration would switch the rule off exactly when the
+    declaration is deleted, the case it exists to catch.
+    """
+    root = _write_tree(tmp_path, _without_environment())
+    assert load_config(root).environment is True
+    clauses = {item.clause for item in violations(root)}
+    assert clauses == {"environment.placement"}, clauses
+
+
+def test_an_explicit_environment_false_opts_the_contract_out(tmp_path: Path) -> None:
+    """Scenario: a repository with no `codescene` environment says so explicitly.
+
+    Invariant: `environment = false` switches off only this family, so the same
+    tree that fails with the key absent passes.
+    """
+    config = CONFIG_TEXT + "environment = false\n"
+    root = _write_tree(tmp_path, _without_environment(), config)
+    assert violations(root) == []
+
+
 def test_a_configured_selection_is_held(tmp_path: Path) -> None:
     """A generator input differing from the configured selection is refused."""
     config = CONFIG_TEXT + '[selection]\nformat = "lcov"\n'

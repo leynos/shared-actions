@@ -39,6 +39,15 @@ permissions:
   id-token: write # resolves the pinned workflow source via OIDC
 ```
 
+The `Install cargo-mutants` step passes the workflow token (`github.token`) to
+`cargo binstall` as `GITHUB_TOKEN`, which needs no scope beyond the
+`contents: read` above. Without a token, binstall's release lookups on
+`api.github.com` are rate limited by runner IP; a 403 makes it wait 120 seconds
+and then compile the crate from source. A warm cache hides that, so
+`workflow_scripts/tests/test_mutation_cargo_binstall_token.py` asserts the
+token on every `cargo binstall` step of the workflow. The same gap exists in
+callers' own steps and is tracked separately.
+
 ## Usage
 
 ```yaml

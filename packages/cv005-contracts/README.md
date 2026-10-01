@@ -46,7 +46,8 @@ repository = "leynos/example"    # required; used to refuse this repository's ow
 publisher = "coverage-main.yml"  # the publisher's file name
 interpreter = "3.13"             # the Python version every generator pins through UV_PYTHON;
                                  # omit it where the repository measures no Python
-environment = true               # hold the `codescene` environment contract
+environment = true               # the default: hold the `codescene` environment contract;
+                                 # `false` opts a repository with no such environment out
 [selection]                      # inputs each ratcheting publisher generator must carry
 language = "python"
 format = "cobertura"

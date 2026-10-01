@@ -83,13 +83,13 @@ NARROW = [
 @pytest.mark.parametrize("entry", BREACHING)
 def test_an_entry_that_could_hold_the_report_is_refused(entry: str) -> None:
     """Scenario: an artefact path selects the report without a plain name."""
-    assert could_hold_the_report(entry, REPORT)
+    assert could_hold_the_report(entry, REPORT), f"{entry!r} should be refused"
 
 
 @pytest.mark.parametrize("entry", NARROW)
 def test_an_entry_that_cannot_hold_the_report_is_allowed(entry: str) -> None:
     """Scenario: a common upload that cannot reach the report stays allowed."""
-    assert not could_hold_the_report(entry, REPORT)
+    assert not could_hold_the_report(entry, REPORT), f"{entry!r} should be allowed"
 
 
 @pytest.mark.parametrize(
@@ -106,7 +106,7 @@ def test_a_directory_or_glob_holding_a_nested_report_is_refused(
     entry: str, report: str
 ) -> None:
     """Scenario: the report sits below the workspace root, in a directory."""
-    assert could_hold_the_report(entry, report)
+    assert could_hold_the_report(entry, report), f"{entry!r} should hold {report!r}"
 
 
 @pytest.mark.parametrize(
@@ -122,7 +122,9 @@ def test_a_sibling_directory_or_glob_of_a_nested_report_is_allowed(
     entry: str, report: str
 ) -> None:
     """Scenario: the entry sits beside the nested report, not over it."""
-    assert not could_hold_the_report(entry, report)
+    assert not could_hold_the_report(entry, report), (
+        f"{entry!r} should not hold {report!r}"
+    )
 
 
 def test_a_path_is_read_one_entry_per_line() -> None:

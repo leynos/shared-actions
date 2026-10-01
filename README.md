@@ -26,6 +26,7 @@ GitHub Actions
 | Rust build release                | `.github/actions/rust-build-release`                                               | v1           |
 | Resolve workflow source           | `.github/actions/resolve-workflow-source`                                          | unreleased   |
 | Setup Rust                        | `.github/actions/setup-rust`                                                       | v1           |
+| Report sccache statistics         | `.github/actions/sccache-report`                                                   | unreleased   |
 | Stage release artefacts           | `.github/actions/stage-release-artefacts`                                          | v1           |
 | Upload CodeScene Coverage         | `.github/actions/upload-codescene-coverage`                                        | v1           |
 | Upload release assets             | `.github/actions/upload-release-assets`                                            | v1           |

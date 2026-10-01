@@ -99,6 +99,15 @@ inputs:
       whose digests the action records are accepted.
     required: false
     default: '2.41.0'
+  install-clang-lld:
+    description: >
+      Install clang and lld on a Linux runner via apt, then verify clang and
+      ld.lld land on PATH. A no-op with a notice on macOS and Windows, so a
+      matrix can pass it unconditionally. Sets no linker flag: select clang
+      and lld through the project's Cargo configuration, or
+      CARGO_TARGET_<triple>_LINKER and RUSTFLAGS.
+    required: false
+    default: 'false'
 outputs:
   cache-backend:
     description: >
@@ -123,6 +132,11 @@ outputs:
       The mold version now on PATH. Empty when mold was skipped or not
       requested.
     value: ${{ steps.mold.outputs.version }}
+  clang-lld-status:
+    description: >
+      "installed" or "skipped" (install-clang-lld on a runner other than
+      Linux). Empty when install-clang-lld is not "true".
+    value: ${{ steps.clang-lld.outputs.status || steps.clang-lld-skip.outputs.status }}
 runs:
   using: composite
   steps:
@@ -179,6 +193,19 @@ runs:
           true|false) ;;
           *)
             echo "::error::install-mold must be true or false" >&2
+            exit 1
+            ;;
+        esac
+    - name: Validate install-clang-lld
+      shell: bash
+      env:
+        SR_INSTALL_CLANG_LLD: ${{ inputs.install-clang-lld }}
+      run: |
+        set -euo pipefail
+        case "$SR_INSTALL_CLANG_LLD" in
+          true|false) ;;
+          *)
+            echo "::error::install-clang-lld must be true or false" >&2
             exit 1
             ;;
         esac
@@ -316,6 +343,37 @@ runs:
       run: |
         echo "::notice title=setup-rust mold::mold is Linux-only; skipped on $RUNNER_OS, where the platform linker is used"
         echo "metric setup-rust.mold=skipped"
+        echo "status=skipped" >> "$GITHUB_OUTPUT"
+    # Plain apt install, unlike mold: clang and lld are Ubuntu-archive
+    # packages with no cross-architecture download or digest to pin, so there
+    # is nothing here for a checksum table to verify. The action sets no
+    # linker flag; the consumer's Cargo configuration selects clang/lld, the
+    # way install-mold leaves mold selection to the consumer.
+    - name: Install clang and lld
+      id: clang-lld
+      if: ${{ inputs.install-clang-lld == 'true' && runner.os == 'Linux' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+        sudo apt-get update
+        sudo apt-get install --yes --no-install-recommends clang lld
+        missing=()
+        command -v clang >/dev/null 2>&1 || missing+=(clang)
+        command -v ld.lld >/dev/null 2>&1 || missing+=(ld.lld)
+        if [ "${#missing[@]}" -gt 0 ]; then
+          echo "::error title=setup-rust clang-lld::missing on PATH after install: ${missing[*]}" >&2
+          exit 1
+        fi
+        echo "metric setup-rust.clang-lld=installed"
+        echo "status=installed" >> "$GITHUB_OUTPUT"
+    - name: Skip clang and lld off Linux
+      id: clang-lld-skip
+      if: ${{ inputs.install-clang-lld == 'true' && runner.os != 'Linux' }}
+      shell: bash
+      run: |
+        echo "::notice title=setup-rust clang-lld::clang and lld are Linux-only; skipped on $RUNNER_OS, where the platform compiler and linker are used"
+        echo "metric setup-rust.clang-lld=skipped"
         echo "status=skipped" >> "$GITHUB_OUTPUT"
     - name: Install nightly toolchain (needed for OpenBSD cross-compilation)
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}

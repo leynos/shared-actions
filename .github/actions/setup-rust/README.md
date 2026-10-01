@@ -8,25 +8,26 @@ require them, and set up macOS or OpenBSD cross-compilers.
 
 <!-- markdownlint-disable MD013 -->
 
-| Name                        | Description                                                                                                                                                                  | Required | Default                               |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------- |
-| toolchain                   | Rust toolchain to install (e.g., `stable`, `nightly`, `1.70.0`). If omitted, uses `.rust-toolchain.toml` when present, otherwise `stable`.                                   | no       | _see description_                     |
-| install-postgres-deps       | Install PostgreSQL system dependencies                                                                                                                                       | no       | `false`                               |
-| workspaces                  | Cargo workspace to target mappings for `Swatinem/rust-cache`. Each non-empty line must use the format `workspace -> target`; leave empty to cache the default `. -> target`. | no       | _(empty)_ (defaults to `. -> target`) |
-| install-sqlite-deps         | Install SQLite dev libraries (Windows)                                                                                                                                       | no       | `false`                               |
-| use-sccache                 | Enable sccache for non-release runs                                                                                                                                          | no       | `true`                                |
-| cache-provider              | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner                                                                          | no       | `github`                              |
-| save-cache                  | Whether this job writes the Cargo archive cache, or only reads it. Each resolved key has one owner, so set `false` in every job but that one.                                | no       | `true`                                |
-| install-binstall            | Install cargo-binstall for faster binary crate installations                                                                                                                 | no       | `true`                                |
-| with-darwin                 | Install macOS cross build toolchain                                                                                                                                          | no       | `false`                               |
-| darwin-sdk-version          | macOS SDK version for osxcross                                                                                                                                               | no       | `12.3`                                |
-| with-openbsd                | Build OpenBSD std library for cross-compilation                                                                                                                              | no       | `false`                               |
-| openbsd-nightly             | Pinned nightly Rust for OpenBSD                                                                                                                                              | no       | `nightly-2025-07-20`                  |
-| rustflags                   | `RUSTFLAGS` exported by the toolchain setup step. Set to the empty string to leave `RUSTFLAGS` unset, so an inherited value or the project's `build.rustflags` applies.      | no       | `-D warnings`                         |
-| sccache-cache-discriminator | Separates this job's sccache directory cache from other jobs on the same OS, architecture and compiler. Used only on a GitHub-hosted runner the action owns.                 | no       | the job id                            |
-| expect-cache                | The sccache backend the job requires: `ubicloud`, `github` or `any`. Anything but `any` fails the job when the selected backend differs, after caller settings apply.        | no       | `any`                                 |
-| install-mold                | Install the pinned, digest-verified mold linker on Linux and put `mold` and `ld.mold` on `PATH`. A notice-only no-op on macOS and Windows. Sets no linker flag.              | no       | `false`                               |
-| mold-version                | mold release to install. Only versions whose digests the action records are accepted.                                                                                        | no       | `2.41.0`                              |
+| Name                        | Description                                                                                                                                                                                             | Required | Default                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------- |
+| toolchain                   | Rust toolchain to install (e.g., `stable`, `nightly`, `1.70.0`). If omitted, uses `.rust-toolchain.toml` when present, otherwise `stable`.                                                              | no       | _see description_                     |
+| install-postgres-deps       | Install PostgreSQL system dependencies                                                                                                                                                                  | no       | `false`                               |
+| workspaces                  | Cargo workspace to target mappings for `Swatinem/rust-cache`. Each non-empty line must use the format `workspace -> target`; leave empty to cache the default `. -> target`.                            | no       | _(empty)_ (defaults to `. -> target`) |
+| install-sqlite-deps         | Install SQLite dev libraries (Windows)                                                                                                                                                                  | no       | `false`                               |
+| use-sccache                 | Enable sccache for non-release runs                                                                                                                                                                     | no       | `true`                                |
+| cache-provider              | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner                                                                                                     | no       | `github`                              |
+| save-cache                  | Whether this job writes the Cargo archive cache, or only reads it. Each resolved key has one owner, so set `false` in every job but that one.                                                           | no       | `true`                                |
+| install-binstall            | Install cargo-binstall for faster binary crate installations                                                                                                                                            | no       | `true`                                |
+| with-darwin                 | Install macOS cross build toolchain                                                                                                                                                                     | no       | `false`                               |
+| darwin-sdk-version          | macOS SDK version for osxcross                                                                                                                                                                          | no       | `12.3`                                |
+| with-openbsd                | Build OpenBSD std library for cross-compilation                                                                                                                                                         | no       | `false`                               |
+| openbsd-nightly             | Pinned nightly Rust for OpenBSD                                                                                                                                                                         | no       | `nightly-2025-07-20`                  |
+| rustflags                   | `RUSTFLAGS` exported by the toolchain setup step. Set to the empty string to leave `RUSTFLAGS` unset, so an inherited value or the project's `build.rustflags` applies.                                 | no       | `-D warnings`                         |
+| sccache-cache-discriminator | Separates this job's sccache directory cache from other jobs on the same OS, architecture and compiler. Used only on a GitHub-hosted runner the action owns.                                            | no       | the job id                            |
+| expect-cache                | The sccache backend the job requires: `ubicloud`, `github` or `any`. Anything but `any` fails the job when the selected backend differs, after caller settings apply.                                   | no       | `any`                                 |
+| export-rustc-wrapper        | Export `RUSTC_WRAPPER` (naming sccache) to the rest of the job. `true` (the default) wraps every later cargo invocation; `false` leaves it to the caller, who scopes it from the `sccache-path` output. | no       | `true`                                |
+| install-mold                | Install the pinned, digest-verified mold linker on Linux and put `mold` and `ld.mold` on `PATH`. A notice-only no-op on macOS and Windows. Sets no linker flag.                                         | no       | `false`                               |
+| mold-version                | mold release to install. Only versions whose digests the action records are accepted.                                                                                                                   | no       | `2.41.0`                              |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -36,6 +37,7 @@ require them, and set up macOS or OpenBSD cross-compilers.
 
 | Name           | Description                                                                                                                                                                    |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| sccache-path   | Absolute path of the installed sccache binary, for a caller scoping `RUSTC_WRAPPER` itself. Empty when sccache is not in use or the caller owns the wrapper.                   |
 | cache-backend  | The sccache backend selected: `ubicloud`, `github` or `local`. Empty when sccache is not in use.                                                                               |
 | sccache-status | `started` when the action started the sccache server, `fallback` when it would not start and the job compiles without the cache. Empty when the action did not start a server. |
 | mold-status    | `installed`, `cached` or `skipped` (off Linux). Empty when `install-mold` is not `true`.                                                                                       |
@@ -264,6 +266,34 @@ to local disk. Each run sets the `cache-backend` output and reports
 
 A caller that has already set `RUSTC_WRAPPER` keeps its value, and the action
 says so in a notice.
+
+### Declining the job-wide wrapper
+
+The wrapper is exported through `GITHUB_ENV`, so every later step inherits it,
+including processes that cannot use it. Two cases have been seen. A root lane
+run as `sudo -E make test` carries it into root's cargo, whose `rustc` then
+talks to an sccache server that belongs to the runner user and fails with
+"Permission denied" writing into the target directory root created. Nested
+cargo builds, such as trybuild fixtures that compile a crate afresh, inherit it
+too and have been seen to run several times slower under it.
+
+Set `export-rustc-wrapper: 'false'` to leave `RUSTC_WRAPPER` unset for the job.
+The server still starts and `SCCACHE_PATH` stays exported, and the
+`sccache-path` output names the binary, so a job wraps only the commands that
+should use it:
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/setup-rust@<sha>
+  id: setup-rust
+  with:
+    export-rustc-wrapper: 'false'
+- run: RUSTC_WRAPPER="${{ steps.setup-rust.outputs.sccache-path }}" cargo build
+```
+
+A job that keeps the default can decline for one step instead. For a nested
+build, set `RUSTC_WRAPPER: ''` in the step's `env:` (an empty value counts as
+unset for Cargo). For a root lane, put `RUSTC_WRAPPER=` inside the `sudo`
+command, after `-E`: `sudo -E env RUSTC_WRAPPER= make test`.
 
 ### Who starts the server, and when
 

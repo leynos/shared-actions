@@ -282,6 +282,27 @@ class TestBehaviour:
         assert not (fake_sccache.parent / "args.log").exists()
         assert _reported(completed) == "caller-set"
 
+    def test_starts_a_server_when_the_wrapper_is_left_to_the_caller(
+        self, fake_sccache: Path
+    ) -> None:
+        """`export-rustc-wrapper: false` still gets its server.
+
+        A caller that scopes the wrapper to its own commands finds the server
+        running, so the start must not treat `not-exported` as a deferral.
+        """
+        workdir = fake_sccache.parent
+        completed = _run_server(
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                wrapper_state="not-exported",
+            )
+        )
+
+        assert completed.returncode == 0, completed.stderr
+        assert "--start-server" in (workdir / "args.log").read_text().split()
+        assert _reported(completed) == "started"
+
     def test_leaves_an_inherited_wrapper_naming_this_sccache_alone(
         self, fake_sccache: Path
     ) -> None:

@@ -166,6 +166,26 @@ So leave `use-sccache: 'true'` on either kind of runner. On Ubicloud
 a local sccache directory and its cache, as described under
 [Rust cache ownership](#rust-cache-ownership).
 
+### Declining the job-wide wrapper
+
+`setup-rust` exports `RUSTC_WRAPPER` to the whole job, so every later step
+inherits it, including a root lane run through `sudo -E` (root's `rustc` cannot
+write through the runner-owned sccache server and fails with "Permission
+denied") and nested cargo builds such as trybuild fixtures (observed several
+times slower under the wrapper). Two ways to decline it:
+
+- **For the whole job:** set `export-rustc-wrapper: 'false'`. The server still
+  starts and `SCCACHE_PATH` stays exported; the `sccache-path` output names the
+  binary, and the job wraps only the commands that should use it, for example
+  `RUSTC_WRAPPER="${{ steps.setup-rust.outputs.sccache-path }}" cargo build`.
+- **For one step:** keep the default and set `RUSTC_WRAPPER: ''` in that step's
+  `env:` (an empty value counts as unset for Cargo). For a root lane, put it
+  inside the `sudo` command: `sudo -E env RUSTC_WRAPPER= make test`.
+
+The default is unchanged, so existing callers need do nothing. A
+`RUSTC_WRAPPER` the caller already set is never overridden, whichever way the
+input is set.
+
 ### Reserved `ACTIONS_*` variables, once
 
 The rule behind all of this is worth stating once, because it is not written

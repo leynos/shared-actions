@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import typing as typ
 from pathlib import Path
 
@@ -19,6 +20,14 @@ import yaml
 
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
 STEP = "Report sccache statistics"
+
+#: The behaviour tests run the shipped script under a POSIX `bash` against a
+#: stub executable. On a Windows host `bash` resolves to WSL's launcher, not
+#: the Git Bash the action's `shell: bash` uses, so they run on POSIX hosts only;
+#: the manifest tests below run everywhere.
+posix_only = pytest.mark.skipif(
+    sys.platform == "win32", reason="runs the script under a POSIX bash"
+)
 
 
 #: A callable that runs the shipped script with overrides and returns its result.
@@ -100,6 +109,7 @@ def _calls(run: Run) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
+@posix_only
 class TestFallback:
     """A fallen-back server has no statistics, so nothing may ask for them."""
 
@@ -129,6 +139,7 @@ class TestFallback:
         assert "metric sccache-report.outcome=fallback" in result.completed.stdout
 
 
+@posix_only
 class TestReporting:
     """Any other status reports, in the log, the files and the summary."""
 
@@ -168,6 +179,7 @@ class TestReporting:
         assert "--show-stats --stats-format json" in calls
 
 
+@posix_only
 class TestNoSccache:
     """A job that failed before sccache existed must not gain a second failure."""
 

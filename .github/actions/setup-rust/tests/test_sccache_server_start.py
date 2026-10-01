@@ -584,6 +584,38 @@ class TestStartupTimeout:
 
         assert _written_conf(workdir) == "server_startup_timeout_ms = 60000\n" + text
 
+    @pytest.mark.parametrize(
+        ("preamble", "case"),
+        [
+            ('# Example delimiter: """', "a comment naming a basic delimiter"),
+            ("# Example delimiter: '''", "a comment naming a literal delimiter"),
+            ('alpha = "a # b"', "a string holding a hash"),
+            ('alpha = "say \\"""\\""', "a basic string with escaped quotes"),
+        ],
+    )
+    def test_a_delimiter_outside_a_multiline_string_opens_nothing(
+        self, fake_sccache: Path, preamble: str, case: str
+    ) -> None:
+        """Only a real opener starts a multi-line string.
+
+        A delimiter inside a comment or a one-line string is not one, and
+        treating it as one would swallow the caller's own timeout and prepend a
+        duplicate key, which makes the file invalid TOML.
+        """
+        workdir = fake_sccache.parent
+        theirs = workdir / "theirs.toml"
+        text = f"{preamble}\nserver_startup_timeout_ms = 5000\n"
+        theirs.write_text(text, encoding="utf-8")
+        _run_server(
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                caller_conf=str(theirs),
+            )
+        )
+
+        assert _written_conf(workdir) == text, case
+
     def test_the_merged_config_is_private(self, fake_sccache: Path) -> None:
         """A caller's config may hold backend credentials.
 

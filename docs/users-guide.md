@@ -24,6 +24,9 @@ documents how to use the `install-nixie` action.
 - [Migrating to verified prebuilt CI tools](./migrating-to-verified-prebuilt-tools.md)
   – upgrade guidance for the `install-whitaker` and `generate-coverage`
   verified prebuilt tool installation.
+- [Migrating to `install-clang-lld`](./migrating-to-setup-rust-clang-lld.md)
+  – replacing a handwritten `apt-get install clang lld` step with
+  `setup-rust`'s input.
 
 ## Node.js 24 action dependencies
 

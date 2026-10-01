@@ -29,7 +29,10 @@ _BLANKS = st.sampled_from(["", " ", "\t", "  "])
 _KEYS = ("alpha", "beta", "gamma", "delta", "epsilon")
 _TABLES = ("cache.multilevel", "cache.s3", "dist", "extra")
 
-_COMMENT = st.text("abc ", max_size=8).map(lambda text: f"# {text}")
+_COMMENT = st.one_of(
+    st.text("abc ", max_size=8).map(lambda text: f"# {text}"),
+    st.sampled_from(['# delimiter: """', "# delimiter: '''", "# a # b"]),
+)
 _FILLER = st.one_of(st.just(""), _COMMENT)
 
 

@@ -1006,19 +1006,53 @@ runs:
         conf="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/setup-rust-sccache.toml"
         if [[ -n "${SCCACHE_CONF:-}" && -f "$SCCACHE_CONF" ]] \
           && awk '
-            function count(text, delimiter,   n, at) {
-              n = 0
-              while ((at = index(text, delimiter)) > 0) {
-                n++
-                text = substr(text, at + length(delimiter))
+            # Reads one line the way TOML does, only to learn whether a
+            # multi-line string is still open at its end. A comment ends the
+            # scan, and a delimiter inside a one-line string or a comment is
+            # not an opener. `ml` holds the open delimiter kind, or "".
+            function scan(line,   i, n, c) {
+              n = length(line)
+              i = 1
+              while (i <= n) {
+                c = substr(line, i, 1)
+                if (ml == "dq") {
+                  if (c == "\\") { i += 2; continue }
+                  if (substr(line, i, 3) == dq3) { ml = ""; i += 3; continue }
+                  i++; continue
+                }
+                if (ml == "sq") {
+                  if (substr(line, i, 3) == sq3) { ml = ""; i += 3; continue }
+                  i++; continue
+                }
+                if (c == "#") return
+                if (substr(line, i, 3) == dq3) { ml = "dq"; i += 3; continue }
+                if (substr(line, i, 3) == sq3) { ml = "sq"; i += 3; continue }
+                if (c == dq1) {
+                  i++
+                  while (i <= n) {
+                    c = substr(line, i, 1)
+                    if (c == "\\") { i += 2; continue }
+                    if (c == dq1) break
+                    i++
+                  }
+                  i++; continue
+                }
+                if (c == sq1) {
+                  i++
+                  while (i <= n && substr(line, i, 1) != sq1) i++
+                  i++; continue
+                }
+                i++
               }
-              return n
             }
-            BEGIN { dq = "\"\"\""; sq = sprintf("%c%c%c", 39, 39, 39); multiline = "" }
-            multiline != "" { if (count($0, multiline) % 2 == 1) multiline = ""; next }
+            BEGIN {
+              dq1 = sprintf("%c", 34); sq1 = sprintf("%c", 39)
+              dq3 = dq1 dq1 dq1; sq3 = sq1 sq1 sq1; ml = ""
+            }
+            ml != "" { scan($0); next }
             /^[[:space:]]*\[/ { exit }
             /^[[:space:]]*("server_startup_timeout_ms"|'"'"'server_startup_timeout_ms'"'"'|server_startup_timeout_ms)[[:space:]]*=/ { found = 1; exit }
-            { if (count($0, dq) % 2 == 1) multiline = dq; else if (count($0, sq) % 2 == 1) multiline = sq }
+            { scan($0) }
             END { exit !found }
           ' "$SCCACHE_CONF"; then
           conf="$SCCACHE_CONF"

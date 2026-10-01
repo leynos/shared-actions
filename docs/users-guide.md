@@ -121,7 +121,8 @@ exports it as `SCCACHE_CONF`. If the caller already names a config, the step
 keeps its contents and places the timeout ahead of them; a root
 `server_startup_timeout_ms` set by the caller, bare or quoted, wins, and the
 same name nested under a table header or inside a multi-line string does not
-count. The merged copy is private to the runner account.
+count. A comment or a one-line string that merely mentions a multi-line
+delimiter opens nothing. The merged copy is private to the runner account.
 
 A cache is an optimization, so a server that still will not start does not fail
 the job. The step clears `RUSTC_WRAPPER`, Cargo compiles without the cache, and

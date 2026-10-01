@@ -724,6 +724,7 @@ def _raw_inputs(run_rust: ModuleType, **overrides: RawInputValue) -> object:
         "all_features": None,
         "all_targets": None,
         "doctests": None,
+        "allow_no_tests": None,
         "baseline_file": None,
     }
     return run_rust._RawInputs(**{**defaults, **overrides})

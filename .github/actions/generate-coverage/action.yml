@@ -16,6 +16,16 @@ inputs:
       enables everything the list could name.
     required: false
     default: "false"
+  allow-no-tests:
+    description: >
+      Let a workspace with no tests report zero coverage instead of failing.
+      cargo-nextest exits 4 when it finds nothing to run, so with
+      use-cargo-nextest enabled a crate without tests fails the run. This
+      passes --no-tests=pass to nextest. Leave it false for a repository that
+      has tests: an empty test selection caused by a wrong filter would then
+      pass silently. It has no effect when use-cargo-nextest is false.
+    required: false
+    default: "false"
   all-targets:
     description: >
       Pass --all-targets to the coverage run so benches, examples, and every
@@ -292,6 +302,7 @@ runs:
         INPUT_WITH_DEFAULT_FEATURES: ${{ inputs.with-default-features }}
         INPUT_ALL_FEATURES: ${{ inputs.all-features }}
         INPUT_ALL_TARGETS: ${{ inputs.all-targets }}
+        INPUT_ALLOW_NO_TESTS: ${{ inputs.allow-no-tests }}
         INPUT_DOCTESTS: ${{ inputs.doctests }}
         INPUT_USE_CARGO_NEXTEST: ${{ inputs.use-cargo-nextest }}
         INPUT_WITH_CUCUMBER_RS: ${{ inputs.with-cucumber-rs }}

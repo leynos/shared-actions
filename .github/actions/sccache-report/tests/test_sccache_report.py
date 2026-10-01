@@ -10,6 +10,7 @@ shipped script against a stub sccache.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import typing as typ
@@ -21,13 +22,33 @@ import yaml
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
 STEP = "Report sccache statistics"
 
-#: The behaviour tests run the shipped script under a POSIX `bash` against a
-#: stub executable. On a Windows host `bash` resolves to WSL's launcher, not
-#: the Git Bash the action's `shell: bash` uses, so they run on POSIX hosts only;
-#: the manifest tests below run everywhere.
-posix_only = pytest.mark.skipif(
-    sys.platform == "win32", reason="runs the script under a POSIX bash"
+GIT_BASH_CANDIDATES = (
+    r"C:\Program Files\Git\bin\bash.exe",
+    r"C:\Program Files (x86)\Git\bin\bash.exe",
 )
+
+
+def _bash() -> str:
+    """Return the Bash the action's `shell: bash` uses on this host.
+
+    On GitHub's Windows images that is Git Bash. A plain `bash` lookup there
+    can find WSL's launcher in System32 instead, which is a different shell
+    over a different filesystem, so the candidates are tried explicitly and
+    any System32 hit is ignored. The behaviour tests skip only when no Git
+    Bash exists, naming every path tried.
+    """
+    if sys.platform != "win32":
+        return shutil.which("bash") or "bash"
+    tried = list(GIT_BASH_CANDIDATES)
+    for candidate in tried:
+        if Path(candidate).is_file():
+            return candidate
+    found = shutil.which("bash")
+    if found and "system32" not in found.lower():
+        return found
+    tried.append(f"shutil.which('bash') -> {found}")
+    pytest.skip(f"no Git Bash found; tried {', '.join(tried)}")
+    return ""  # pragma: no cover - pytest.skip raises
 
 
 #: A callable that runs the shipped script with overrides and returns its result.
@@ -79,7 +100,17 @@ def run_report(tmp_path: Path) -> typ.Callable[..., Run]:
     stub.chmod(0o755)
 
     def run(*, with_stub: bool = True, **env: str) -> Run:
-        path = f"{stub_dir}:{os.environ['PATH']}" if with_stub else "/usr/bin:/bin"
+        bash = _bash()
+        # Without the stub, only the shell's own tools are on PATH, so a real
+        # sccache on the host cannot answer.
+        system_tools = (
+            str(Path(bash).parent.parent / "usr" / "bin")
+            if sys.platform == "win32"
+            else "/usr/bin:/bin"
+        )
+        path = (
+            f"{stub_dir}{os.pathsep}{os.environ['PATH']}" if with_stub else system_tools
+        )
         environment = {
             "PATH": path,
             "SR_STATUS": "",
@@ -92,7 +123,7 @@ def run_report(tmp_path: Path) -> typ.Callable[..., Run]:
             **env,
         }
         completed = subprocess.run(  # noqa: S603,TID251 - the script under test.
-            ["bash", "-c", _step()["run"]],  # noqa: S607
+            [bash, "-c", _step()["run"]],
             capture_output=True,
             check=False,
             env=environment,
@@ -109,7 +140,6 @@ def _calls(run: Run) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
-@posix_only
 class TestFallback:
     """A fallen-back server has no statistics, so nothing may ask for them."""
 
@@ -139,7 +169,6 @@ class TestFallback:
         assert "metric sccache-report.outcome=fallback" in result.completed.stdout
 
 
-@posix_only
 class TestReporting:
     """Any other status reports, in the log, the files and the summary."""
 
@@ -179,7 +208,6 @@ class TestReporting:
         assert "--show-stats --stats-format json" in calls
 
 
-@posix_only
 class TestNoSccache:
     """A job that failed before sccache existed must not gain a second failure."""
 

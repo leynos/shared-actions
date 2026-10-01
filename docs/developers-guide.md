@@ -487,6 +487,26 @@ that does call `export-ubicloud-cache-credentials` must still call it **before**
 `setup-rust`: the GitHub Actions backend reads its endpoint when the sccache
 server starts, so credentials published afterwards arrive too late.
 
+## `sccache-report` and the fallback-statistics trap
+
+Since `setup-rust` fails open (a server that will not start falls back to an
+uncached build and reports `sccache-status` `fallback`), any step that reads
+sccache's statistics after the build must stand down on a fallback: the dead
+server has none, and `sccache --show-stats` would start it again, wait out the
+startup timeout and fail the step. whitaker, netsuke and podbot each needed the
+same guard added by hand.
+
+The `sccache-report` action owns it once. It cannot be part of `setup-rust`,
+whose work ends before the build and which, as a composite action, has no post
+step; and a shim replacing `sccache --show-stats` was rejected because it
+changes a binary callers also run directly. A consumer calls the action after
+the build under `if: always()`, passing `status` and `backend` from
+`setup-rust`'s outputs, and conditions its health check on the `reported`
+output. `test_sccache_report.py` runs the shipped script against a stub
+sccache: a fallback never invokes sccache, reports `false` and writes nothing;
+any other status writes text and JSON and the summary; a missing binary stands
+down instead of failing. Seven mutations each fail a named case.
+
 ## `setup-rust` and the mold linker
 
 `install-mold` installs a pinned mold release on Linux runners so that the

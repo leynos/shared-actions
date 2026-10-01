@@ -37,13 +37,15 @@ when `setup-rust` has long finished, and a composite action has no post step.
 
 ## Inputs
 
-| Name       | Description                                                                                          | Default              |
-| ---------- | ---------------------------------------------------------------------------------------------------- | -------------------- |
-| status     | The `sccache-status` output of setup-rust. `fallback` stands the action down; anything else reports. | `''`                 |
-| backend    | The `cache-backend` output of setup-rust, named in the summary.                                      | `''`                 |
-| stats-file | Path the JSON statistics are written to.                                                             | `sccache-stats.json` |
-| text-file  | Path the human-readable statistics are written to.                                                   | `sccache-stats.txt`  |
-| summary    | `true` appends the statistics to the job summary.                                                    | `true`               |
+All inputs are strings and all are optional.
+
+| Name       | Type   | Required? | Description                                                                                          | Default              |
+| ---------- | ------ | --------- | ---------------------------------------------------------------------------------------------------- | -------------------- |
+| status     | string | no        | The `sccache-status` output of setup-rust. `fallback` stands the action down; anything else reports. | `''`                 |
+| backend    | string | no        | The `cache-backend` output of setup-rust, named in the summary.                                      | `''`                 |
+| stats-file | string | no        | Path the JSON statistics are written to. Must not contain a line break.                              | `sccache-stats.json` |
+| text-file  | string | no        | Path the human-readable statistics are written to. Must not contain a line break.                    | `sccache-stats.txt`  |
+| summary    | string | no        | `true` appends the statistics to the job summary.                                                    | `true`               |
 
 ## Outputs
 

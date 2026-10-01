@@ -126,6 +126,7 @@ def run_report(tmp_path: Path) -> typ.Callable[..., Run]:
             [bash, "-c", _step()["run"]],
             capture_output=True,
             check=False,
+            cwd=tmp_path,
             env=environment,
             text=True,
             timeout=30,
@@ -206,6 +207,38 @@ class TestReporting:
         calls = _calls(result).splitlines()
         assert "--show-stats" in calls
         assert "--show-stats --stats-format json" in calls
+
+
+class TestPathInputs:
+    """The paths are caller input, so they are validated and not parsed."""
+
+    @pytest.mark.parametrize("name", ["SR_STATS_FILE", "SR_TEXT_FILE"])
+    @pytest.mark.parametrize("separator", ["\n", "\r"])
+    def test_a_path_with_a_line_break_is_refused(
+        self, run_report: Runner, name: str, separator: str
+    ) -> None:
+        """A path ending in `reported=false` would otherwise add an output record."""
+        result = run_report(
+            SR_STATUS="started", **{name: f"x{separator}reported=false"}
+        )
+
+        assert result.completed.returncode != 0
+        assert "must not contain line breaks" in result.completed.stderr
+        assert result.read("github_output") == ""
+
+    def test_an_option_like_text_path_is_a_file_name(
+        self, run_report: Runner, tmp_path: Path
+    ) -> None:
+        """`tee --help` would exit successfully and write nothing."""
+        result = run_report(
+            SR_STATUS="started",
+            SR_TEXT_FILE="-a",
+            SR_STATS_FILE=str(tmp_path / "s.json"),
+        )
+
+        assert result.completed.returncode == 0, result.completed.stderr
+        assert result.outputs()["reported"] == "true"
+        assert "Compile requests 7" in (tmp_path / "-a").read_text(encoding="utf-8")
 
 
 class TestNoSccache:

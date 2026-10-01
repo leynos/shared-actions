@@ -29,6 +29,9 @@ documents how to use the `install-nixie` action.
 - [Migrating to `sccache-report`](./migrating-to-sccache-report.md)
   – replacing a handwritten `sccache --show-stats` step with the fallback-aware
   action.
+- [Migrating to `install-clang-lld`](./migrating-to-setup-rust-clang-lld.md)
+  – replacing a handwritten `apt-get install clang lld` step with
+  `setup-rust`'s input.
 
 ## Node.js 24 action dependencies
 

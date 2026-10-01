@@ -156,8 +156,9 @@ def test_the_generator_reaches_the_cases_the_property_is_about() -> None:
     draw()
 
     assert any(doc.root_timeout is not None for doc in seen)
-    assert any(doc.root_timeout is None and '"""' in doc.text for doc in seen)
-    assert any(doc.root_timeout is None and "'''" in doc.text for doc in seen)
+    for delimiter in ('"""', "'''"):
+        decoy = f" = {delimiter}\n{TIMEOUT_KEY} = 123\n{delimiter}"
+        assert any(doc.root_timeout is None and decoy in doc.text for doc in seen)
     assert any(
         doc.root_timeout is None and TIMEOUT_KEY in "".join(doc.text.partition("[")[2:])
         for doc in seen

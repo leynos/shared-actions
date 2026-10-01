@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import subprocess
+import tomllib
 import typing as typ
 from pathlib import Path
 
@@ -590,7 +591,7 @@ class TestStartupTimeout:
             ('# Example delimiter: """', "a comment naming a basic delimiter"),
             ("# Example delimiter: '''", "a comment naming a literal delimiter"),
             ('alpha = "a # b"', "a string holding a hash"),
-            ('alpha = "say \\"""\\""', "a basic string with escaped quotes"),
+            ('alpha = "say \\"\\"\\""', "a basic string with escaped quotes"),
         ],
     )
     def test_a_delimiter_outside_a_multiline_string_opens_nothing(
@@ -605,6 +606,7 @@ class TestStartupTimeout:
         workdir = fake_sccache.parent
         theirs = workdir / "theirs.toml"
         text = f"{preamble}\nserver_startup_timeout_ms = 5000\n"
+        assert tomllib.loads(text)["server_startup_timeout_ms"] == 5000, case
         theirs.write_text(text, encoding="utf-8")
         _run_server(
             Scenario(
@@ -615,6 +617,71 @@ class TestStartupTimeout:
         )
 
         assert _written_conf(workdir) == text, case
+
+    @pytest.mark.parametrize(
+        "array",
+        [
+            'alpha = ["""x"""", """\ntext\n"""]',
+            "alpha = ['''x'''', '''\ntext\n''']",
+            'alpha = ["""x""""", """y"""]',
+        ],
+        ids=["basic-four-quotes", "literal-four-quotes", "basic-five-quotes"],
+    )
+    def test_content_quotes_before_a_closing_delimiter_are_consumed(
+        self, fake_sccache: Path, array: str
+    ) -> None:
+        """TOML allows one or two content quotes just before a closing delimiter.
+
+        A run of four or five quotes closes the string at its end. Consuming
+        only the first three leaves a stray quote that opens a one-line string
+        over the next opener, so the scanner would take that opener's closing
+        delimiter for a new opener and skip the caller's own timeout, which
+        then gets a duplicate prepended and the file stops being valid TOML.
+        """
+        workdir = fake_sccache.parent
+        theirs = workdir / "theirs.toml"
+        text = f"{array}\nserver_startup_timeout_ms = 5000\n"
+        assert tomllib.loads(text)["server_startup_timeout_ms"] == 5000
+        theirs.write_text(text, encoding="utf-8")
+        _run_server(
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                caller_conf=str(theirs),
+            )
+        )
+
+        assert _written_conf(workdir) == text
+
+    @pytest.mark.parametrize(
+        ("caller_config", "expected"),
+        [
+            (None, "default"),
+            ('[cache.gha]\nversion = "x"\n', "merged"),
+            ("server_startup_timeout_ms = 5000\n", "caller"),
+        ],
+        ids=["no-config", "caller-config-without-timeout", "caller-timeout"],
+    )
+    def test_the_timeout_decision_is_reported(
+        self, fake_sccache: Path, caller_config: str | None, expected: str
+    ) -> None:
+        """Which branch chose the startup timeout is visible in the log."""
+        workdir = fake_sccache.parent
+        theirs = None
+        if caller_config is not None:
+            theirs = workdir / "theirs.toml"
+            theirs.write_text(caller_config, encoding="utf-8")
+        completed = _run_server(
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                caller_conf=str(theirs) if theirs else None,
+            )
+        )
+
+        assert f"metric setup-rust.sccache.timeout={expected}" in (
+            completed.stdout.splitlines()
+        )
 
     def test_the_merged_config_is_private(self, fake_sccache: Path) -> None:
         """A caller's config may hold backend credentials.

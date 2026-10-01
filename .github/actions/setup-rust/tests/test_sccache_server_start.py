@@ -282,6 +282,44 @@ class TestBehaviour:
         assert not (fake_sccache.parent / "args.log").exists()
         assert _reported(completed) == "caller-set"
 
+    def test_the_path_is_published_after_a_successful_start(
+        self, fake_sccache: Path
+    ) -> None:
+        """A caller scoping the wrapper reads the binary from this step."""
+        workdir = fake_sccache.parent
+        _run_server(Scenario(workdir=workdir, sccache_path=str(fake_sccache)))
+
+        outputs = (workdir / "github_output").read_text(encoding="utf-8").splitlines()
+        assert f"path={fake_sccache}" in outputs
+
+    def test_no_path_is_published_after_a_fallback(self, fake_sccache: Path) -> None:
+        """Wrapping with it would restart the dead server and hang or fail."""
+        workdir = fake_sccache.parent
+        _run_server(
+            Scenario(workdir=workdir, sccache_path=str(fake_sccache), start_exit=1)
+        )
+
+        outputs = (workdir / "github_output").read_text(encoding="utf-8").splitlines()
+        assert not any(line.startswith("path=") for line in outputs)
+        assert "status=fallback" in outputs
+
+    def test_no_path_is_published_when_the_caller_owns_the_wrapper(
+        self, fake_sccache: Path
+    ) -> None:
+        """A caller-owned wrapper means the action started nothing."""
+        workdir = fake_sccache.parent
+        _run_server(
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                wrapper_state="caller-set",
+            )
+        )
+
+        assert not (workdir / "github_output").exists() or "path=" not in (
+            workdir / "github_output"
+        ).read_text(encoding="utf-8")
+
     def test_starts_a_server_when_the_wrapper_is_left_to_the_caller(
         self, fake_sccache: Path
     ) -> None:
@@ -437,7 +475,7 @@ class TestFallbackSignals:
 
         assert "sccache-fallback" not in completed.stdout
         assert _read(workdir, "summary") == ""
-        assert _read(workdir, "github_output").splitlines() == ["status=started"]
+        assert _read(workdir, "github_output").splitlines()[0] == "status=started"
 
     def test_a_caller_owned_wrapper_sets_no_status(self, fake_sccache: Path) -> None:
         """When the action starts no server, the output stays empty."""

@@ -131,9 +131,11 @@ outputs:
   sccache-path:
     description: >
       Absolute path of the sccache binary the action installed, for a caller
-      that scopes RUSTC_WRAPPER itself (export-rustc-wrapper: "false"). Empty
-      when sccache is not in use, or when the caller owns the wrapper.
-    value: ${{ steps.rustc-wrapper.outputs.path }}
+      that scopes RUSTC_WRAPPER itself (export-rustc-wrapper: "false"). Set only
+      once the server has started, so it is empty when the server fell back to
+      an uncached build (a caller wrapping with it then would restart a dead
+      server), when sccache is not in use, and when the caller owns the wrapper.
+    value: ${{ steps.sccache-server.outputs.path }}
   mold-status:
     description: >
       "installed", "cached" or "skipped" (install-mold on a runner other than
@@ -972,11 +974,10 @@ runs:
           echo "::error title=setup-rust sccache::sccache-action did not export SCCACHE_PATH" >&2
           exit 1
         fi
-        echo "path=${SCCACHE_PATH}" >> "$GITHUB_OUTPUT"
         # A job that must not inherit the wrapper (a root lane, nested cargo
         # builds) opts out and scopes it itself from the `sccache-path` output.
         # The server still starts below, so a scoped wrapper finds it running.
-        if [[ "${EXPORT_WRAPPER:-true}" != true ]]; then
+        if [[ "${EXPORT_WRAPPER-true}" != true ]]; then
           report not-exported
           echo "::notice title=setup-rust sccache::export-rustc-wrapper is not true; RUSTC_WRAPPER left to the caller"
           exit 0
@@ -1070,6 +1071,7 @@ runs:
           exit 0
         fi
         echo "status=started" >> "$GITHUB_OUTPUT"
+        echo "path=${SCCACHE_PATH}" >> "$GITHUB_OUTPUT"
         # A server this step started has zero counters already. Zeroing is
         # belt and braces against a --start-server that adopted one, and it
         # costs a baseline rather than the cache, so it warns rather than

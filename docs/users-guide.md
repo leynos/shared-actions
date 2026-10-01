@@ -51,8 +51,8 @@ measures the caller's own build; if zeroing fails the wrapper still stands and
 the action warns.
 
 Each run reports one bounded `metric setup-rust.sccache.wrapper=<state>` line,
-over `exported`, `exported-stats-not-zeroed`, `caller-set`, and
-`missing-sccache-path`.
+over `exported`, `not-exported` (`export-rustc-wrapper` is not `true`),
+`exported-stats-not-zeroed`, `caller-set`, and `missing-sccache-path`.
 
 The action also selects the cache backend before sccache starts, and it selects
 by runner. Without a backend sccache writes to local disk, which nothing
@@ -175,8 +175,10 @@ denied") and nested cargo builds such as trybuild fixtures (observed several
 times slower under the wrapper). Two ways to decline it:
 
 - **For the whole job:** set `export-rustc-wrapper: 'false'`. The server still
-  starts and `SCCACHE_PATH` stays exported; the `sccache-path` output names the
-  binary, and the job wraps only the commands that should use it, for example
+  starts and `SCCACHE_PATH` stays exported; the `sccache-path` output (set once
+  the server has started, so empty after a fallback; gate any use of it on
+  `sccache-status`) names the binary, and the job wraps only the commands that
+  should use it, for example
   `RUSTC_WRAPPER="${{ steps.setup-rust.outputs.sccache-path }}" cargo build`.
 - **For one step:** keep the default and set `RUSTC_WRAPPER: ''` in that step's
   `env:` (an empty value counts as unset for Cargo). For a root lane, put it

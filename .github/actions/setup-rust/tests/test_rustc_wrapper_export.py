@@ -96,18 +96,6 @@ def _published_state(tmp_path: Path) -> str | None:
     return states[0] if states else None
 
 
-def _published_path(tmp_path: Path) -> str | None:
-    """Return the `path` output the fragment published, if any."""
-    raw = (tmp_path / "github-output").read_text(encoding="utf-8")
-    paths = [
-        line.removeprefix("path=")
-        for line in raw.splitlines()
-        if line.startswith("path=")
-    ]
-    assert len(paths) <= 1, f"more than one path output: {paths}"
-    return paths[0] if paths else None
-
-
 def _reported_metric(completed: subprocess.CompletedProcess[str]) -> str | None:
     """Return the bounded wrapper outcome the fragment reported."""
     prefix = "metric setup-rust.sccache.wrapper="
@@ -161,16 +149,20 @@ class TestManifest:
             "${{ inputs.export-rustc-wrapper }}"
         )
 
-    def test_the_path_output_reads_the_export_step(self) -> None:
-        """A caller scoping the wrapper reads the binary from this step."""
+    def test_the_path_output_reads_the_server_step(self) -> None:
+        """The path is published only once the server has started.
+
+        A caller wrapping with it after a fallback would restart a dead server,
+        so the step that knows whether the server started owns the output.
+        """
         import yaml
 
         manifest = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
 
         assert manifest["outputs"]["sccache-path"]["value"] == (
-            "${{ steps.rustc-wrapper.outputs.path }}"
+            "${{ steps.sccache-server.outputs.path }}"
         )
-        assert get_step(EXPORT_STEP)["id"] == "rustc-wrapper"
+        assert get_step("Start the sccache server")["id"] == "sccache-server"
 
     def test_the_export_is_gated_on_the_same_conditions(self) -> None:
         """Exporting when sccache never ran would name a binary that is absent.
@@ -271,11 +263,15 @@ class TestExportInput:
 
         assert f"RUSTC_WRAPPER={fake_sccache}" in written
 
-    @pytest.mark.parametrize("value", ["false", "no", "0"])
+    @pytest.mark.parametrize("value", ["false", "no", "0", ""])
     def test_anything_but_true_leaves_the_wrapper_out(
         self, tmp_path: Path, fake_sccache: Path, value: str
     ) -> None:
-        """Only the exact default opts in, so a typo cannot export by accident."""
+        """Only the exact default opts in, so a typo cannot export by accident.
+
+        An explicitly empty value is a deliberate choice and opts out too; only
+        an unset variable takes the default.
+        """
         completed, written = _run_export(
             tmp_path, sccache_path=str(fake_sccache), export_wrapper=value
         )
@@ -284,18 +280,6 @@ class TestExportInput:
         assert "RUSTC_WRAPPER" not in written
         assert _published_state(tmp_path) == "not-exported"
         assert _reported_metric(completed) == "not-exported"
-
-    def test_the_path_is_published_either_way(
-        self, tmp_path: Path, fake_sccache: Path
-    ) -> None:
-        """A caller scoping the wrapper needs the binary in both modes."""
-        opted_out = tmp_path / "opted-out"
-        opted_out.mkdir()
-        _run_export(opted_out, sccache_path=str(fake_sccache), export_wrapper="false")
-        _run_export(tmp_path, sccache_path=str(fake_sccache))
-
-        assert _published_path(opted_out) == str(fake_sccache)
-        assert _published_path(tmp_path) == str(fake_sccache)
 
     def test_a_caller_set_wrapper_still_wins(
         self, tmp_path: Path, fake_sccache: Path
@@ -310,7 +294,6 @@ class TestExportInput:
 
         assert written == ""
         assert _reported_metric(completed) == "caller-set"
-        assert _published_path(tmp_path) is None
 
     def test_the_path_is_missing_loudly_when_opted_out(self, tmp_path: Path) -> None:
         """Opting out of the wrapper does not excuse a missing binary."""
@@ -320,6 +303,42 @@ class TestExportInput:
 
         assert completed.returncode != 0
         assert "did not export SCCACHE_PATH" in completed.stderr
+
+
+class TestExportInputProperty:
+    """Only the exact string `true`, or an unset input, exports the wrapper."""
+
+    @given(
+        value=st.one_of(
+            st.just("true"),
+            st.just(""),
+            st.text(st.sampled_from("abcdefghijklmnopqrstuvwxyzTRUE01 "), max_size=8),
+        )
+    )
+    @settings(max_examples=60, derandomize=True, deadline=None)
+    def test_only_true_exports(self, value: str, tmp_path_factory: object) -> None:
+        """Every other value, the empty string included, opts out."""
+        root = typ.cast("pytest.TempPathFactory", tmp_path_factory).mktemp("exp")
+        binary = root / "sccache"
+        binary.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        binary.chmod(0o755)
+
+        completed, written = _run_export(
+            root, sccache_path=str(binary), export_wrapper=value
+        )
+
+        assert completed.returncode == 0, completed.stderr
+        exported = f"RUSTC_WRAPPER={binary}" in written
+        assert exported == (value == "true")
+        assert _reported_metric(completed) == (
+            "exported" if exported else "not-exported"
+        )
+
+    def test_an_unset_input_exports(self, tmp_path: Path, fake_sccache: Path) -> None:
+        """The default for a caller that never set the input."""
+        _completed, written = _run_export(tmp_path, sccache_path=str(fake_sccache))
+
+        assert f"RUSTC_WRAPPER={fake_sccache}" in written
 
 
 class TestPublishedState:

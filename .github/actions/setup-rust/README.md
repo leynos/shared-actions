@@ -35,13 +35,13 @@ require them, and set up macOS or OpenBSD cross-compilers.
 
 <!-- markdownlint-disable MD013 -->
 
-| Name           | Description                                                                                                                                                                    |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| sccache-path   | Absolute path of the installed sccache binary, for a caller scoping `RUSTC_WRAPPER` itself. Empty when sccache is not in use or the caller owns the wrapper.                   |
-| cache-backend  | The sccache backend selected: `ubicloud`, `github` or `local`. Empty when sccache is not in use.                                                                               |
-| sccache-status | `started` when the action started the sccache server, `fallback` when it would not start and the job compiles without the cache. Empty when the action did not start a server. |
-| mold-status    | `installed`, `cached` or `skipped` (off Linux). Empty when `install-mold` is not `true`.                                                                                       |
-| mold-version   | The mold version now on `PATH`. Empty when mold was skipped or not requested.                                                                                                  |
+| Name           | Description                                                                                                                                                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| sccache-path   | Absolute path of the installed sccache binary, for a caller scoping `RUSTC_WRAPPER` itself. Set once the server has started, so empty after a fallback, when sccache is not in use, or when the caller owns the wrapper. |
+| cache-backend  | The sccache backend selected: `ubicloud`, `github` or `local`. Empty when sccache is not in use.                                                                                                                         |
+| sccache-status | `started` when the action started the sccache server, `fallback` when it would not start and the job compiles without the cache. Empty when the action did not start a server.                                           |
+| mold-status    | `installed`, `cached` or `skipped` (off Linux). Empty when `install-mold` is not `true`.                                                                                                                                 |
+| mold-version   | The mold version now on `PATH`. Empty when mold was skipped or not requested.                                                                                                                                            |
 
 <!-- markdownlint-enable MD013 -->
 

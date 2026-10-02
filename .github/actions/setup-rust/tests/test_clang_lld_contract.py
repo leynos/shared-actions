@@ -21,6 +21,8 @@ from setup_rust_test_helpers import ACTION_PATH, get_step, requires_bash
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
+    from conftest import InstallStepRunner
+
 INSTALL_STEP = "Install clang and lld"
 SKIP_STEP = "Skip clang and lld off Linux"
 VALIDATE_STEP = "Validate install-clang-lld"
@@ -138,78 +140,6 @@ def test_install_clang_lld_accepts_only_true_or_false(
     )
 
 
-def _write_apt_stub(stubs_dir: Path, bash: str, *, fail_on: str | None = None) -> Path:
-    """Write a ``sudo`` stub that records each call and optionally fails one.
-
-    The real step shells out to ``sudo apt-get``; the stub appends every
-    argument list to a log, so a test can assert the order of the calls, and
-    exits non-zero when the second word of the call is *fail_on*. Returns the
-    log's path.
-    """
-    stubs_dir.mkdir(parents=True, exist_ok=True)
-    log = stubs_dir / "sudo.log"
-    sudo = stubs_dir / "sudo"
-    # An absolute shebang: the restricted PATH cannot resolve ``env bash``.
-    lines = [f"#!{bash}", f'echo "$*" >> "{log}"']
-    if fail_on:
-        lines.append(f'[ "$2" = "{fail_on}" ] && exit 100')
-    lines.append("exit 0")
-    sudo.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    sudo.chmod(0o755)
-    return log
-
-
-def _make_tools(tool_dir: Path, names: typ.Iterable[str]) -> Path:
-    """Create stand-in executables named *names* in *tool_dir*."""
-    tool_dir.mkdir(parents=True, exist_ok=True)
-    for name in names:
-        stub = tool_dir / name
-        stub.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-        stub.chmod(0o755)
-    return tool_dir
-
-
-def _run_install_step(
-    tmp_path: Path,
-    *,
-    tool_path: Path | None,
-    fail_on: str | None = None,
-) -> subprocess.CompletedProcess[str]:
-    """Run the install step's fragment with a stubbed ``sudo`` on PATH.
-
-    PATH is set to exactly the stub directory, plus *tool_path* when given,
-    with the host's own PATH deliberately excluded. A host that happens to
-    ship a real ``clang``/``ld.lld`` (common on Linux dev images) would
-    otherwise make the "missing" case pass only by accident.
-
-    *tool_path* is prepended ahead of the stub directory so stand-in
-    ``clang``/``ld.lld`` binaries are found; *fail_on* makes the stubbed
-    ``apt-get`` subcommand of that name exit non-zero.
-    """
-    bash = requires_bash()
-    stubs_dir = tmp_path / "stubs"
-    _write_apt_stub(stubs_dir, bash, fail_on=fail_on)
-    github_output = tmp_path / "github-output"
-    github_output.touch()
-    path_entries = [str(stubs_dir)]
-    if tool_path is not None:
-        path_entries.insert(0, str(tool_path))
-    env = {
-        **os.environ,
-        "PATH": os.pathsep.join(path_entries),
-        "GITHUB_OUTPUT": str(github_output),
-    }
-    run_script = str(get_step(INSTALL_STEP)["run"])
-    return subprocess.run(  # noqa: S603,TID251 - exercise the action fragment.
-        [bash, "-c", run_script],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-
 def _metrics(stdout: str) -> set[str]:
     """Return the ``metric setup-rust.clang-lld`` lines in *stdout*."""
     return {
@@ -219,37 +149,27 @@ def _metrics(stdout: str) -> set[str]:
     }
 
 
-def _github_output(tmp_path: Path) -> list[str]:
-    """Return the lines the step wrote to ``GITHUB_OUTPUT``."""
-    return (tmp_path / "github-output").read_text(encoding="utf-8").splitlines()
-
-
 def test_the_install_step_reports_installed_once_both_tools_are_on_path(
-    tmp_path: Path,
+    run_install_step: InstallStepRunner,
 ) -> None:
     """A successful apt install, reflected on PATH, reports ``installed``."""
-    tool_dir = _make_tools(tmp_path / "tools", ("clang", "ld.lld"))
+    run = run_install_step()
 
-    result = _run_install_step(tmp_path, tool_path=tool_dir)
-
-    assert result.returncode == 0, result.stderr
-    assert "status=installed" in _github_output(tmp_path)
-    assert "metric setup-rust.clang-lld=installed" in result.stdout.splitlines()
-    assert _metrics(result.stdout) <= ALLOWED_METRICS
-    assert not any(".failure=" in line for line in result.stdout.splitlines())
+    assert run.result.returncode == 0, run.result.stderr
+    assert "status=installed" in run.github_output
+    assert "metric setup-rust.clang-lld=installed" in run.result.stdout.splitlines()
+    assert _metrics(run.result.stdout) <= ALLOWED_METRICS
+    assert not any(".failure=" in line for line in run.result.stdout.splitlines())
 
 
 def test_the_install_step_refreshes_the_index_before_installing(
-    tmp_path: Path,
+    run_install_step: InstallStepRunner,
 ) -> None:
     """The recorded ``sudo`` calls are ``apt-get update`` then ``apt-get install``."""
-    tool_dir = _make_tools(tmp_path / "tools", ("clang", "ld.lld"))
+    run = run_install_step()
 
-    result = _run_install_step(tmp_path, tool_path=tool_dir)
-
-    assert result.returncode == 0, result.stderr
-    calls = (tmp_path / "stubs" / "sudo.log").read_text(encoding="utf-8").splitlines()
-    assert calls == [
+    assert run.result.returncode == 0, run.result.stderr
+    assert run.sudo_calls == [
         "apt-get update",
         "apt-get install --yes --no-install-recommends clang lld",
     ]
@@ -264,45 +184,43 @@ def test_the_install_step_refreshes_the_index_before_installing(
     ],
 )
 def test_the_install_step_fails_naming_each_missing_tool(
-    tmp_path: Path, present: tuple[str, ...], missing: tuple[str, ...]
+    run_install_step: InstallStepRunner,
+    present: tuple[str, ...],
+    missing: tuple[str, ...],
 ) -> None:
     """Either tool absent after install fails, names exactly the absent tools."""
-    tool_dir = _make_tools(tmp_path / "tools", present)
+    run = run_install_step(present=present)
 
-    result = _run_install_step(tmp_path, tool_path=tool_dir)
-
-    assert result.returncode != 0
+    assert run.result.returncode != 0
     error = next(
         line
-        for line in result.stderr.splitlines()
+        for line in run.result.stderr.splitlines()
         if line.startswith("::error title=setup-rust clang-lld::missing on PATH")
     )
     reported = error.split("install: ", 1)[1].split()
     assert reported == list(missing)
-    assert "status=installed" not in _github_output(tmp_path)
-    assert "metric setup-rust.clang-lld=installed" not in result.stdout
-    assert "metric setup-rust.clang-lld.failure=missing-tool" in result.stdout
+    assert "status=installed" not in run.github_output
+    assert "metric setup-rust.clang-lld=installed" not in run.result.stdout
+    assert "metric setup-rust.clang-lld.failure=missing-tool" in run.result.stdout
 
 
 @pytest.mark.parametrize("failing", ["update", "install"])
 def test_an_apt_failure_is_reported_with_its_own_category(
-    tmp_path: Path, failing: str
+    run_install_step: InstallStepRunner, failing: str
 ) -> None:
     """A failed ``apt-get`` call fails the step even when the tools are on PATH.
 
     The failure names the operation in its annotation and metric, and neither
     the installed status nor the installed metric is emitted.
     """
-    tool_dir = _make_tools(tmp_path / "tools", ("clang", "ld.lld"))
+    run = run_install_step(fail_on=failing)
 
-    result = _run_install_step(tmp_path, tool_path=tool_dir, fail_on=failing)
-
-    assert result.returncode == 1
-    assert f"metric setup-rust.clang-lld.failure=apt-{failing}" in result.stdout
-    assert f"::error title=setup-rust clang-lld::apt-get {failing}" in result.stderr
-    assert "metric setup-rust.clang-lld=installed" not in result.stdout
-    assert _metrics(result.stdout) <= ALLOWED_METRICS
-    assert "status=installed" not in _github_output(tmp_path)
+    assert run.result.returncode == 1
+    assert f"metric setup-rust.clang-lld.failure=apt-{failing}" in run.result.stdout
+    assert f"::error title=setup-rust clang-lld::apt-get {failing}" in run.result.stderr
+    assert "metric setup-rust.clang-lld=installed" not in run.result.stdout
+    assert _metrics(run.result.stdout) <= ALLOWED_METRICS
+    assert "status=installed" not in run.github_output
 
 
 def test_the_off_linux_arm_reports_skipped_and_exits_zero(tmp_path: Path) -> None:

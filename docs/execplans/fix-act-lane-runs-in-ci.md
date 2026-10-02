@@ -392,6 +392,7 @@ replay produces, and `gh stack submit` pushes it with `--force-with-lease`.
 | F12 | the heaviest fixture exceeds the harness's 300 s act budget on a cold CI runner        | see F12  |
 | F13 | CodeRabbit: dispatch skip read as act, silent version abort, D3 wording, pinned error  | see F13  |
 | F14 | bash 3.2 ignores errexit for `[[ ]]`, so the assertion refused nothing on macOS        | see F14  |
+| F15 | the act version assertion matched as a substring, accepting 0.2.890 / 10.2.89 / -rc.1  | see F15  |
 
 ## The stack, once the rebase lands
 
@@ -880,3 +881,35 @@ PR bodies were updated for this cycle: #583 gains the dispatch-skip fix, the
 loud version assertion, and the bash 3.2 portability fix, with the lane result
 refreshed to 1099 passed / 108 skipped; #516 gains the F12 timeout and the IPC
 error pair.
+
+### The sixth CI run, the review, and F15
+
+Run 37055384862 (bottom `f48b87f7`) and run 37055411936 (top `33157c0d`) are
+both fully green: all five jobs on each, `act-workflows` included, macOS
+included. The record commit's own replay did not disturb anything — the
+`range-diff` audit had already shown the series patch-identical.
+
+CodeRabbit was then run over the delta the previous review had not seen: the
+bottom's F13/F14 work (base `main`, head `f48b87f7`) and the top's F12/IPC work
+(base `fix/act-lane-runs-in-ci`, head `33157c0d`). The top returned zero
+findings. The bottom returned two, both on the same line of `ci.yml`:
+
+**F15 — the act version assertion matched the pinned version as a substring, so
+it failed open on exactly the case it exists for.** The step asked whether
+`act --version`'s output *contained* `0.2.89`, which accepts `0.2.890`,
+`10.2.89` and `0.2.89-rc.1` — each a version nobody pinned, and each a runner
+the gate is meant to stop. Reproduced directly in bash: the substring form
+accepts all three; only `0.2.88` is refused. The fix splices spaces around the
+output and matches `*[[:space:]]"${ACT_VERSION}"[[:space:]]*`, which gives the
+version a left and right boundary, so no leading or trailing character can
+extend it. Verified in `docker.io/library/bash:3.2` and the host's bash 5.2:
+both accept `act version 0.2.89` and a trailing-detail form, and both refuse
+all four near misses. The near misses are now cases in
+`test_act_job_version_assertion.py` — mutation-checked against the old form,
+which fails exactly those three and passes the rest.
+
+This is the same class as F14 but caught by review rather than by a runner: the
+substring check is *portable* and *deterministic*, so no shell and no leg would
+have failed. A gate that only ever sees the version it expects is a gate whose
+discrimination is never exercised; the contract's near-miss cases are what make
+the assertion's refusal checkable at all.

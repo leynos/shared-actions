@@ -38,7 +38,7 @@ command interception is intentionally avoided; containers execute in isolation.
 - Optional but recommended: pin an image to reduce drift:
 
   ```bash
-  act pull_request -P ubuntu-latest=catthehacker/ubuntu:act-latest --list
+  act pull_request -P ubuntu-latest=catthehacker/ubuntu:rust-latest --list
   ```
 
 ## Minimal layout
@@ -136,7 +136,7 @@ def run_act(
         "-e",
         str(event_path),
         "-P",
-        "ubuntu-latest=catthehacker/ubuntu:act-latest",
+        "ubuntu-latest=catthehacker/ubuntu:rust-latest",
         "--artifact-server-path",
         str(artifact_dir),
         "--json",  # machine-parseable log stream
@@ -257,7 +257,11 @@ loop:
 
 ## Useful `act` flags in this setup
 
-- `-P ubuntu-latest=catthehacker/ubuntu:act-latest`: pin a close runner image.
+- `-P ubuntu-latest=catthehacker/ubuntu:rust-latest`: pin a close runner image.
+  The repository's own harness uses the same image, and it is the `rust-` one
+  because the lane exercises `install-whitaker`, which verifies the extracted
+  `cargo-dylint` by running `cargo dylint --version`; `act-latest` ships no
+  cargo, so that probe fails there.
 - `-b/--bind`: bind mount the repository; enables checking file side effects.
 - `--artifact-server-path <dir>`: export uploaded artefacts to a host
   directory.

@@ -17,11 +17,16 @@ jobs:
         with:
           persist-credentials: false
 
+      # `env.ACT` is set by nektos/act and by nothing else; GitHub sets it
+      # nowhere. So this step runs under act and is skipped on a real dispatch,
+      # which is what keeps the two branches the fixture exercises disjoint.
       - name: Resolve (act short-circuit)
         id: act-branch
+        if: ${{ env.ACT == 'true' }}
         uses: ./.github/actions/resolve-workflow-source
 
       - name: Assert act branch outputs
+        if: ${{ env.ACT == 'true' }}
         shell: bash
         env:
           CHECKOUT: ${{ steps.act-branch.outputs.checkout }}
@@ -36,18 +41,45 @@ jobs:
           [[ -z "${REF_OUT}" ]]
           echo "resolve_act_branch=ok"
 
+      # No `env:` here on purpose. Act forces `ACT=true` in the composite's own
+      # environment whatever an outer step declares, so under act this step can
+      # only be skipped, which the `if:` below does. On a dispatch `ACT` is
+      # unset, the step runs, and the action's own `${ACT:-}` test falls
+      # through to the missing token endpoint and exits 1.
+      #
+      # Setting `env: ACT:` here would be worse than useless: act feeds a
+      # step's own `env` to that step's `if:`, so the guard would read the
+      # value meant to reach the composite and select the step it was meant to
+      # skip.
       - name: Resolve (OIDC fail-fast without token endpoint)
         id: oidc-branch
+        if: ${{ env.ACT != 'true' }}
         continue-on-error: true
-        env:
-          ACT: "false"
         uses: ./.github/actions/resolve-workflow-source
 
-      - name: Assert OIDC branch failed fast
+      - name: Assert one branch ran and the other did not
         shell: bash
         env:
+          ACT_OUTCOME: ${{ steps.act-branch.outcome }}
           OUTCOME: ${{ steps.oidc-branch.outcome }}
         run: |
           set -euo pipefail
-          [[ "${OUTCOME}" == "failure" ]]
-          echo "resolve_oidc_failfast=ok"
+          # Under act the act branch succeeds and the fail-fast branch is
+          # skipped; on a dispatch the reverse. A skipped step reports the
+          # outcome "skipped", so requiring the one and refusing the other is
+          # what proves exactly one guard fired.
+          if [[ -n "${ACT_OUTCOME}" ]]; then
+            [[ "${ACT_OUTCOME}" == "success" && "${OUTCOME}" == "skipped" ]]
+          else
+            [[ "${OUTCOME}" == "failure" ]]
+          fi
+          if [[ "${ACT_OUTCOME}" == "success" ]]; then
+            echo "resolve_act_branch=ok"
+          else
+            echo "resolve_act_branch=skipped"
+          fi
+          if [[ "${OUTCOME}" == "failure" ]]; then
+            echo "resolve_oidc_failfast=ok"
+          else
+            echo "resolve_oidc_failfast=skipped"
+          fi

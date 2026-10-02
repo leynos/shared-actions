@@ -385,6 +385,10 @@ replay produces, and `gh stack submit` pushes it with `--force-with-lease`.
 | F5  | a failed runtime probe made the whole lane exit 0 having run nothing                   | D6       |
 | F6  | the rust image's baked toolchain cannot be renamed across overlay layers               | D7       |
 | F7  | the resolve case's expectation outlived the fixture it describes                       | D8       |
+| F8  | install-tool cannot verify act: act prints `act version 0.2.89`, not `act 0.2.89`      | see F8   |
+| F9  | the worktree test asserted about the live checkout, not one it builds                  | see F9   |
+| F10 | `Install nfpm` `curl: (22) … 500` on one PR's linux leg, transient upstream            | none     |
+| F11 | github-script validates `github-token` before the script, and act leaves it empty      | D9       |
 
 ## The stack, once the rebase lands
 
@@ -572,3 +576,67 @@ same SSH-with-explicit-leases bypass.
 One more replay follows this record's own edit, as before: the top head is
 whatever that replay produces, and `gh stack submit`/`push` publishes it with
 `--force-with-lease`.
+
+### What the second CI run found
+
+The bottom (`ac4c992d`) went fully green, `act-workflows` included: the lane is
+now *actually run*, which is the request's own acceptance test. The top
+(`a2ccc33c`) failed `act-workflows` on exactly one fixture, the top-only
+`test-generate-coverage-out-no-suffix` (1 failed / 1088 passed / 108 skipped,
+780.38s).
+
+**F11 — `actions/github-script` validates `github-token` before it runs the
+script, and act leaves `github.token` empty.** The step dies at input
+validation, before the act-aware script can select local disk:
+
+```text
+::error::Unhandled error: Error: Input required and not supplied: github-token
+    at main (/run/act/actions/actions-github-script@d746ffe…/dist/index.js:65071:24)
+Error: Job 'test-generate-coverage-out-no-suffix' failed
+assert 1 == 0
+```
+
+Root cause, read from the pinned `dist/index.js`: `main()` runs
+`core.getInput('github-token', { required: true })` before `callAsyncFunction`
+executes the user script, and the manifest's declared default is
+`${{ github.token }}`, which act leaves empty. This contradicts ADR 0005's
+explicit promise — "**Local.** Under nektos/act, or with no runtime token,
+there is no service sccache can use. Local disk is selected, never a failed
+build."
+
+This fixture is the only act-driven workflow leaving `use-sccache` at its
+default `true`: `test-rustflags-export.yml` and `test-setup-rust-mold.yml` pass
+`use-sccache: "false"`, and the sccache-specific fixtures are not driven by the
+pytest act lane. So the failure is the fixture finding a real defect, which is
+what the lane exists for.
+
+**D9 — the selection step gets a `github-token` fallback, and a manifest test
+holds it.** `github-token: ${{ github.token || 'unused-by-this-step' }}` in the
+step's `with:` block. On a real runner the expression yields the runner's own
+token, unchanged — byte-identical to the value github-script's own default
+would have supplied. Under act it yields a placeholder that satisfies input
+validation; nothing authenticates with it, and the script never touches the
+client the action builds. Not an expected-failure workaround: the failure is
+removed at its cause, the input validation, and the step then selects the
+backend ADR 0005 promises. A manifest test
+(`test_the_token_input_never_blocks_the_selection`) pins the fallback, because
+the Node harness stubs `@actions/core` and structurally cannot observe
+github-script's own validation.
+
+Verified locally, end to end: the harness fixture passes (269.81s), and a
+direct act run reports `metric setup-rust.sccache.backend=local`,
+`::notice title=setup-rust sccache::selected local disk (action)`,
+`sccache: Starting the server...`, `Post Run sccache` ✅, `jobResult: success`,
+and the coverage outputs the fixture asserts (`file=coverage.xml`,
+`format=cobertura`,
+`artefact-name=cobertura-test-generate-coverage-out-no-suffix-0-linux-x86_64`).
+
+Placement: the fix belongs on the bottom, with F8 and F9, for the same reasons
+— the fixture lives only on the top, but the defect it found is setup-rust's,
+and the bottom is the PR whose charter is "run the lane and fix what it finds".
+The file is byte-identical on both branches, so the edit moved down with a
+branch switch. The top's next replay is a no-op against this change; only the
+new bottom commit needs publishing.
+
+Logs: `/tmp/act-fixture-repro-…out` (before), `/tmp/act-fixture-after-fix-…out`
+(harness pass), `/tmp/act-direct-…out` (direct act run).

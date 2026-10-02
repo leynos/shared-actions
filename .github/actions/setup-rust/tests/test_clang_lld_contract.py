@@ -25,6 +25,21 @@ INSTALL_STEP = "Install clang and lld"
 SKIP_STEP = "Skip clang and lld off Linux"
 VALIDATE_STEP = "Validate install-clang-lld"
 
+#: The whole metric vocabulary: bounded, with no path or package output in it.
+ALLOWED_METRICS = frozenset(
+    {
+        "metric setup-rust.clang-lld=installed",
+        "metric setup-rust.clang-lld=skipped",
+        "metric setup-rust.clang-lld.seconds=lt5s",
+        "metric setup-rust.clang-lld.seconds=lt30s",
+        "metric setup-rust.clang-lld.seconds=lt120s",
+        "metric setup-rust.clang-lld.seconds=ge120s",
+        "metric setup-rust.clang-lld.failure=apt-update",
+        "metric setup-rust.clang-lld.failure=apt-install",
+        "metric setup-rust.clang-lld.failure=missing-tool",
+    }
+)
+
 
 def _manifest() -> dict[str, typ.Any]:
     """Return the parsed setup-rust manifest."""
@@ -57,14 +72,13 @@ def test_each_clang_lld_arm_runs_only_when_asked_on_its_platform(
     assert " ".join(str(get_step(step_name)["if"]).split()) == guard
 
 
-def test_the_install_step_updates_then_installs_with_apt() -> None:
-    """The step refreshes the package index before installing, non-interactively."""
+def test_the_install_step_runs_apt_non_interactively() -> None:
+    """The step exports ``DEBIAN_FRONTEND`` and installs only the two packages."""
     run = str(get_step(INSTALL_STEP)["run"])
     lines = [line.strip() for line in run.splitlines()]
 
     assert "export DEBIAN_FRONTEND=noninteractive" in lines
-    assert "sudo apt-get update" in lines
-    assert "sudo apt-get install --yes --no-install-recommends clang lld" in lines
+    assert "sudo apt-get install --yes --no-install-recommends clang lld \\" in lines
 
 
 def test_the_off_linux_arm_notices_and_never_fails() -> None:
@@ -196,6 +210,15 @@ def _run_install_step(
     )
 
 
+def _metrics(stdout: str) -> set[str]:
+    """Return the ``metric setup-rust.clang-lld`` lines in *stdout*."""
+    return {
+        line
+        for line in stdout.splitlines()
+        if line.startswith("metric setup-rust.clang-lld")
+    }
+
+
 def _github_output(tmp_path: Path) -> list[str]:
     """Return the lines the step wrote to ``GITHUB_OUTPUT``."""
     return (tmp_path / "github-output").read_text(encoding="utf-8").splitlines()
@@ -211,6 +234,9 @@ def test_the_install_step_reports_installed_once_both_tools_are_on_path(
 
     assert result.returncode == 0, result.stderr
     assert "status=installed" in _github_output(tmp_path)
+    assert "metric setup-rust.clang-lld=installed" in result.stdout.splitlines()
+    assert _metrics(result.stdout) <= ALLOWED_METRICS
+    assert not any(".failure=" in line for line in result.stdout.splitlines())
 
 
 def test_the_install_step_refreshes_the_index_before_installing(
@@ -254,18 +280,28 @@ def test_the_install_step_fails_naming_each_missing_tool(
     reported = error.split("install: ", 1)[1].split()
     assert reported == list(missing)
     assert "status=installed" not in _github_output(tmp_path)
+    assert "metric setup-rust.clang-lld=installed" not in result.stdout
+    assert "metric setup-rust.clang-lld.failure=missing-tool" in result.stdout
 
 
 @pytest.mark.parametrize("failing", ["update", "install"])
-def test_an_apt_failure_stops_the_step_before_it_reports_installed(
+def test_an_apt_failure_is_reported_with_its_own_category(
     tmp_path: Path, failing: str
 ) -> None:
-    """A failed ``apt-get`` call fails the step even when the tools are on PATH."""
+    """A failed ``apt-get`` call fails the step even when the tools are on PATH.
+
+    The failure names the operation in its annotation and metric, and neither
+    the installed status nor the installed metric is emitted.
+    """
     tool_dir = _make_tools(tmp_path / "tools", ("clang", "ld.lld"))
 
     result = _run_install_step(tmp_path, tool_path=tool_dir, fail_on=failing)
 
-    assert result.returncode == 100
+    assert result.returncode == 1
+    assert f"metric setup-rust.clang-lld.failure=apt-{failing}" in result.stdout
+    assert f"::error title=setup-rust clang-lld::apt-get {failing}" in result.stderr
+    assert "metric setup-rust.clang-lld=installed" not in result.stdout
+    assert _metrics(result.stdout) <= ALLOWED_METRICS
     assert "status=installed" not in _github_output(tmp_path)
 
 
@@ -286,4 +322,5 @@ def test_the_off_linux_arm_reports_skipped_and_exits_zero(tmp_path: Path) -> Non
     assert result.returncode == 0, result.stderr
     assert "::notice title=setup-rust clang-lld::" in result.stdout
     assert "skipped on macOS" in result.stdout
+    assert _metrics(result.stdout) == {"metric setup-rust.clang-lld=skipped"}
     assert github_output.read_text(encoding="utf-8").splitlines() == ["status=skipped"]

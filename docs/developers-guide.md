@@ -552,20 +552,27 @@ Rules to keep:
 - **PATH verification.** After the install, the step checks that both `clang`
   and `ld.lld` resolve on `PATH` and fails with one
   `::error title=setup-rust clang-lld::` annotation naming every missing tool.
-- **One status, one metric.** `clang-lld-status` is `installed` or `skipped`,
-  and empty when the input is not `true`. The step prints
-  `metric setup-rust.clang-lld=installed` or `=skipped` beside it.
+- **A closed failure vocabulary.** Every failure prints one annotation naming
+  the operation and one `metric setup-rust.clang-lld.failure=<category>`, where
+  the category is `apt-update`, `apt-install` or `missing-tool`. The step never
+  reports `installed` after a failure.
+- **One status, bounded metrics.** `clang-lld-status` is `installed` or
+  `skipped`, and empty when the input is not `true`. The step prints
+  `metric setup-rust.clang-lld=installed` or `=skipped` beside it, and, after
+  the apt calls,
+  `metric setup-rust.clang-lld.seconds=<lt5s|lt30s|lt120s|ge120s>` with the
+  same buckets as `install-mold`. No path or package output reaches a metric.
 - **No linker flag.** Selecting clang and lld is the consumer's Cargo
   configuration, or `CARGO_TARGET_<triple>_LINKER` and `RUSTFLAGS`, the same
   boundary as `install-mold`.
 
 `tests/test_clang_lld_contract.py` holds the guards, outputs, default and input
 validation, and runs both arms' shell fragments against a stubbed `sudo`: the
-order of the `apt-get` calls, a failure of either call, each tool missing alone
-and together, and the off-Linux skip's output file.
-`.github/workflows/test-setup-rust-clang-lld.yml` runs the real action on Linux
-(the install, both tools on `PATH`, and a toy app linked by lld) and on macOS
-and Windows (the skip).
+order of the `apt-get` calls, a failure of either call with its category, each
+tool missing alone and together, the whole metric vocabulary, and the off-Linux
+skip's output file. `.github/workflows/test-setup-rust-clang-lld.yml` runs the
+real action on Linux (the install, both tools on `PATH`, and a toy app linked
+by lld) and on macOS and Windows (the skip).
 
 ## Rust action cache ownership
 

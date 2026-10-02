@@ -24,6 +24,9 @@ documents how to use the `install-nixie` action.
 - [Migrating to verified prebuilt CI tools](./migrating-to-verified-prebuilt-tools.md)
   – upgrade guidance for the `install-whitaker` and `generate-coverage`
   verified prebuilt tool installation.
+- [Migrating to `sccache-report`](./migrating-to-sccache-report.md)
+  – replacing a handwritten `sccache --show-stats` step with the fallback-aware
+  action.
 
 ## Node.js 24 action dependencies
 

@@ -28,16 +28,19 @@ SCCACHE_ACTION_PREFIX = "mozilla-actions/sccache-action@"
 INPUT = "disable_annotations"
 
 
+def _children(node: object) -> list[object]:
+    """Return the values and items directly below a mapping or sequence node."""
+    if isinstance(node, dict):
+        return list(node.values())
+    return list(node) if isinstance(node, list) else []
+
+
 def _step_lists(node: object) -> typ.Iterator[list[object]]:
     """Yield every ``steps`` list in a parsed workflow or action manifest."""
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if key == "steps" and isinstance(value, list):
-                yield value
-            yield from _step_lists(value)
-    elif isinstance(node, list):
-        for item in node:
-            yield from _step_lists(item)
+    if isinstance(node, dict) and isinstance(node.get("steps"), list):
+        yield node["steps"]
+    for child in _children(node):
+        yield from _step_lists(child)
 
 
 def sccache_action_uses(document: object) -> list[dict[str, object]]:

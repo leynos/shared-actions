@@ -258,9 +258,9 @@ is an established pattern in this repository.
    tables) and `docs/local-validation-of-github-actions-with-act-and-pytest.md`
    (the three `-P ubuntu-latest=…` snippets).~~ Done (`3ed15d02`).
 6. **Rebase the top branch (`issue-515-…`) onto this one, then `gh stack` the
-   two branches.** Rebased: `7bc53417` → `ef0a3dbc`, 21 commits, both
-   conflicts resolved as surveyed and the duplicate replayed empty. The
-   `gh stack` half is next; the outcome is recorded below.
+   two branches.** Rebased, then restacked onto this record's own commit; 21
+   commits replay patch-identically each time. The `gh stack` half is next; the
+   outcome is recorded below.
 
 ### The top-branch rebase, surveyed
 
@@ -306,28 +306,32 @@ Two conflicts, both resolved as surveyed:
   `tests/workflows/test_makefile_act_lane_runs_once.py`).** Stage 2 was the
   bottom's `2bb808f8`, stage 3 the duplicate's earlier `4af239d4`. Resolved to
   `2bb808f8`; the Makefile auto-merged to the bottom's blob. The commit then
-  replayed **empty** and was dropped at `--continue`, exactly as surveyed —
-  the whole change it carried is already in the bottom, so an empty replay is
-  the honest outcome and nothing was forced through. Its later top-side
-  refinements (`7bc53417`) survive, since that commit's content is already the
-  bottom's blob.
+  replayed **empty** and was dropped at `--continue`, exactly as surveyed — the
+  whole change it carried is already in the bottom, so an empty replay is the
+  honest outcome and nothing was forced through. Its later top-side refinements
+  (`7bc53417`) survive, since that commit's content is already the bottom's
+  blob.
 
 Range-diff audit: 18 of the 21 entries are patch-identical; the three that
 differ — 3, 11, and the old tip's replay (`7bc53417` → `ef0a3dbc`) — differ
 only by hunks the bottom already carries. No commit is missing other than the
-dropped duplicate. Every bottom-only file (24 of them) is byte-identical at
-the new head; the top's six new files are all present; no unexplained
-deletions; `git diff --check` clean. Both sides' content is present in each
-overlap file: `test_job_ceilings.py` carries `act-workflows` *and*
+dropped duplicate. Every bottom-only file (24 of them) is byte-identical at the
+new head; the top's six new files are all present; no unexplained deletions;
+`git diff --check` clean. Both sides' content is present in each overlap file:
+`test_job_ceilings.py` carries `act-workflows` *and*
 `test-generate-coverage-out-no-suffix`, `developers-guide.md` carries the
 placement rule and the lane's ceiling, and the act guide carries both the
 opt-in prose and the `-P ubuntu-latest=catthehacker/ubuntu:rust-latest`
 snippets.
 
-The new head is a linear descendant of the bottom (`git merge-base
---is-ancestor 5bc9e743 ef0a3dbc`), which is what the stack requires. The top
-touches no `docs/execplans/` file, so this record can be amended on the bottom
-without disturbing it.
+The new head is a linear descendant of the bottom
+(`git merge-base --is-ancestor 5bc9e743 ef0a3dbc`), which is what the stack
+requires. The top touches no `docs/execplans/` file, so this record can be
+amended on the bottom without disturbing it. Amending it did move the bottom,
+and the top was replayed once more onto the new tip; all 21 entries came out
+patch-identical, and the only tree difference was this record. Expect one more
+replay after this file's final edit: the top head is whatever the last such
+replay produces, and `gh stack submit` pushes it with `--force-with-lease`.
 
 ## Evidence kept
 

@@ -65,6 +65,63 @@ placement. Fixed: with the opt-in set, a failed probe now `pytest.fail`s;
 without it, the plain suite still skips as before. Both arms are contracted in
 `test_conftest_runtime.py`.
 
+### F6 — the rust image's baked toolchain makes `setup-rust` fail under overlayfs
+
+Found by the first full lane run under D3 (the image change). Two cases in
+`test_rustflags_export_workflow.py` that passed on `act-latest` began failing
+with `AssertionError: act failed:`.
+
+`catthehacker/ubuntu:rust-latest` bakes its toolchain into
+`/usr/share/rust/.rustup` (`RUSTUP_HOME` is set to it in the image's own
+environment), and under act that path is a **lower** layer of the container's
+overlay filesystem. The image's stable is rustc 1.97.1; upstream stable had
+moved to 1.99.0 on 2026-10-01, so the nested
+`actions-rust-lang/setup-rust-toolchain` took its *update* path and rustup
+swapped the old toolchain's component directories by rename. Overlayfs refuses
+a rename that crosses layers (this mount has no `redirect_dir`) and rustup
+rolled back:
+
+```
+error: could not rename 'component' file from
+'/usr/share/rust/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/share/doc/clippy'
+to '/usr/share/rust/.rustup/tmp/.../bk':
+Invalid cross-device link (os error 18)
+```
+
+Reproduced directly in the image (583 ms, same error). **This is
+time-dependent**: it appears whenever upstream stable is newer than the rolling
+image's baked one, so it would have arrived on `act-latest` too, at the next
+Rust release.
+
+The failing job is `setup-rust-exports`; `setup-rust-toolchain-available` passes
+because it uninstalls the baked toolchain first, so its install lands wholly in
+the writable layer. That asymmetry is the evidence that the layer, not the
+action, is at fault.
+
+Fix: `RUSTUP_PERMIT_COPY_RENAME=1` in the lane's container environment
+(`_LANE_CONTAINER_ENV` in `tests/workflows/conftest.py`, merged by
+`_build_container_env` and overridable per case). It is rustup's own opt-in to
+copy-and-delete instead of rename, present in the 1.29.0 binary. Measured:
+without it the update fails in 583 ms; with it the same update completes
+(1.97.1 → 1.99.0) and the job exits 0 with the expected
+`setup_rust_rustflags=[-D warnings -C debuginfo=0]`.
+
+### F7 — the resolve case's expectation outlived the fixture it describes
+
+`test_resolve_workflow_source.py` still asserted `resolve_oidc_failfast=ok`,
+which was the pre-D4 shape. Under D4 the OIDC half is *deliberately* skipped
+under act, so the fixture prints `resolve_oidc_failfast=skipped` and the test
+failed on a working fixture. Updated to assert the skip, and to assert the
+fail-fast's diagnostic is *absent*: under act the branch is unreachable, so
+its presence would mean the guards had stopped separating the halves.
+
+A trap met while diagnosing: `grep -oE 'resolve_…'` over the pytest traceback
+matches the *echoed assertion source*, not the logs, and appears to confirm
+either marker. The logs in the traceback were also truncated mid-stream. The
+direct `act` run was what settled it — and it also re-showed F5's shape from
+the outside: invoked without `-P` for the job's label, act printed
+`Skipping unsupported platform` and exited **0**.
+
 ### F2 — the OIDC half of `test-resolve-workflow-source.yml` is dead everywhere
 
 Not just under act. On a real `workflow_dispatch`:
@@ -169,6 +226,18 @@ podman there is an established pattern in this repository.
   failed runtime probe fails the run instead of skipping it. Without it, the
   plain suite skips as before, so a machine with no container runtime can still
   run the full suite.
+- **D7 — the lane's containers run with `RUSTUP_PERMIT_COPY_RENAME=1`** (F6).
+  The variable is set for every fixture through `_LANE_CONTAINER_ENV`, and a
+  case may override it through `ActConfig.container_env` as before. It is
+  rustup's own fallback for a filesystem that cannot rename across devices,
+  which is what the image's baked toolchain sits on under act. The alternative
+  — moving `RUSTUP_HOME` to a writable path — would change what the fixtures
+  test by giving the container a rustup the action under test never sees.
+- **D8 — the resolve case asserts the skip, not the fail-fast** (F7). The
+  fail-fast is unreachable under act by construction (act sets `ACT=true`,
+  which is the condition it is guarded against), so the case asserts the skip
+  marker and the *absence* of the fail-fast's diagnostic. Both are evidence
+  that exactly one half fired, which is what D4 and its contract require.
 
 ## Open questions / next steps
 

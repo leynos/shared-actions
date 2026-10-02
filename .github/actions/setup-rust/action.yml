@@ -540,6 +540,15 @@ runs:
         SR_CACHE_PROVIDER: ${{ inputs.cache-provider }}
         SR_SCCACHE_DIR: ${{ runner.temp }}/sccache
       with:
+        # actions/github-script validates this input as required before it
+        # runs any script, even though this step's script never touches the
+        # client it builds. nektos/act leaves github.token empty, so without
+        # a fallback the step would die at input validation before the script
+        # could select local disk, the backend ADR 0005 promises under act.
+        # The fallback is a placeholder, not a credential: nothing here
+        # authenticates, and on a real runner the expression yields the
+        # runner's own token unchanged.
+        github-token: ${{ github.token || 'unused-by-this-step' }}
         script: |
           // The private-address check from export-ubicloud-cache-credentials,
           // kept identical: a contract drives both copies over the same hosts.

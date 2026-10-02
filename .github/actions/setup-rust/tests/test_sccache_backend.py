@@ -104,6 +104,22 @@ class TestManifest:
             "the selection must run in the pinned actions/github-script"
         )
 
+    def test_the_token_input_never_blocks_the_selection(self) -> None:
+        """github-script validates `github-token` before it runs the script.
+
+        The input is required by the action even though this script never
+        touches the client it builds, and its declared default is
+        `${{ github.token }}`, which nektos/act leaves empty. Without a
+        fallback the step dies at input validation before it can select
+        local disk, the backend ADR 0005 promises under act. The harness
+        stubs `@actions/core`, so only a manifest test can hold this.
+        """
+        step = get_step(BACKEND_STEP)
+
+        assert step["with"]["github-token"] == (
+            "${{ github.token || 'unused-by-this-step' }}"
+        ), "the selection must survive an empty github.token, as under act"
+
     def test_the_output_is_the_selection_steps(self) -> None:
         """`cache-backend` reads the step that decides, not a copy of it."""
         step = get_step(BACKEND_STEP)

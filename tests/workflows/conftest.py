@@ -319,13 +319,29 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
-    """Skip act tests when the runtime probe fails."""
+    """Skip the act cases only when the lane was not asked for.
+
+    Skipping is right when the lane was not requested: the plain suite
+    collects these modules on machines that have no container runtime at
+    all, and they must not fail there. It is wrong when the lane *was*
+    requested, because a skipped case reports success for a run that
+    executed nothing: `make test-act` would exit zero having run none of
+    the fixtures it exists to run. So a missing runtime fails the lane
+    rather than emptying it.
+    """
     if "skip_unless_act" not in item.keywords:
         return
     _get_act_runtime_status.cache_clear()
     status = _get_act_runtime_status()
-    if not status.available:
-        pytest.skip(status.reason or "act or container runtime not available")
+    if status.available:
+        return
+    reason = status.reason or "act or container runtime not available"
+    if _workflow_tests_enabled():
+        pytest.fail(
+            f"the act lane was requested but cannot run here: {reason}",
+            pytrace=False,
+        )
+    pytest.skip(reason)
 
 
 @pytest.fixture

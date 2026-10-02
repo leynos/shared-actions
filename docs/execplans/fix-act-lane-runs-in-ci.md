@@ -17,8 +17,8 @@ which becomes PR #516 re-targeted onto this branch. This branch's PR targets
 ## Commit gateways
 
 Every commit must pass the full gateway set, run by `scrutineer` (the exclusive
-gate-runner): `make check-fmt`, `make typecheck`, `make lint`, `make test`,
-plus `make markdownlint` and `make nixie` for docs. CodeRabbit review via
+gate-runner): `make check-fmt`, `make typecheck`, `make lint`, `make test`, plus
+`make markdownlint` and `make nixie` for docs. CodeRabbit review via
 `coderabbit review --agent` after each major milestone; on rate limit, sleep
 `$(shuf -i 45-90 -n 1)` minutes with `vsleep` and retry.
 
@@ -42,9 +42,9 @@ What is true, measured with scratch workflows under act 0.2.89:
   on the guarded steps.
 - A **composite's** inner environment is rebuilt fresh and act re-stamps
   `ACT=true` unconditionally. Proven with a scratch composite: outer step
-  `env: {ACT: "false", PROBE_TOKEN: "from-step"}` gave inner
-  `INNER_ACT=[true]` but `INNER_TOK=[from-step]`. So an outer step's
-  `env: ACT:` cannot reach the composite's script; other env values can.
+  `env: {ACT: "false", PROBE_TOKEN: "from-step"}` gave inner `INNER_ACT=[true]`
+  but `INNER_TOK=[from-step]`. So an outer step's `env: ACT:` cannot reach the
+  composite's script; other env values can.
 - A plain step with **no** `env:` sees `env.ACT == 'true'` under act.
 
 GitHub sets no `ACT` anywhere, so `env.ACT == 'true'` is true under act and
@@ -53,8 +53,8 @@ false on GitHub — which is what makes it usable as the branch selector.
 ### F5 — a missing container runtime made the whole lane pass
 
 `pytest_runtest_setup` (tests/workflows/conftest.py) skipped every
-`@skip_unless_act` case when the runtime probe failed, and pytest exits 0 for
-a run that skipped everything. Reproduced: with
+`@skip_unless_act` case when the runtime probe failed, and pytest exits 0 for a
+run that skipped everything. Reproduced: with
 `DOCKER_HOST=unix:///nonexistent/podman.sock` and `ACT_WORKFLOW_TESTS=1`, the
 lane reported `1 skipped` and **exit 0**.
 
@@ -81,7 +81,7 @@ swapped the old toolchain's component directories by rename. Overlayfs refuses
 a rename that crosses layers (this mount has no `redirect_dir`) and rustup
 rolled back:
 
-```
+```text
 error: could not rename 'component' file from
 '/usr/share/rust/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/share/doc/clippy'
 to '/usr/share/rust/.rustup/tmp/.../bk':
@@ -93,10 +93,10 @@ time-dependent**: it appears whenever upstream stable is newer than the rolling
 image's baked one, so it would have arrived on `act-latest` too, at the next
 Rust release.
 
-The failing job is `setup-rust-exports`; `setup-rust-toolchain-available` passes
-because it uninstalls the baked toolchain first, so its install lands wholly in
-the writable layer. That asymmetry is the evidence that the layer, not the
-action, is at fault.
+The failing job is `setup-rust-exports`; `setup-rust-toolchain-available`
+passes because it uninstalls the baked toolchain first, so its install lands
+wholly in the writable layer. That asymmetry is the evidence that the layer,
+not the action, is at fault.
 
 Fix: `RUSTUP_PERMIT_COPY_RENAME=1` in the lane's container environment
 (`_LANE_CONTAINER_ENV` in `tests/workflows/conftest.py`, merged by
@@ -112,8 +112,8 @@ without it the update fails in 583 ms; with it the same update completes
 which was the pre-D4 shape. Under D4 the OIDC half is *deliberately* skipped
 under act, so the fixture prints `resolve_oidc_failfast=skipped` and the test
 failed on a working fixture. Updated to assert the skip, and to assert the
-fail-fast's diagnostic is *absent*: under act the branch is unreachable, so
-its presence would mean the guards had stopped separating the halves.
+fail-fast's diagnostic is *absent*: under act the branch is unreachable, so its
+presence would mean the guards had stopped separating the halves.
 
 A trap met while diagnosing: `grep -oE 'resolve_…'` over the pytest traceback
 matches the *echoed assertion source*, not the logs, and appears to confirm
@@ -124,12 +124,12 @@ the outside: invoked without `-P` for the job's label, act printed
 
 ### F2 — the OIDC half of `test-resolve-workflow-source.yml` is dead everywhere
 
-Not just under act. On a real `workflow_dispatch`:
-`actions/checkout` needs a token (job has `permissions: contents: read`, so it
-has one), then step 1 `Resolve (act short-circuit)` runs with `ACT` unset hits
-the OIDC branch, has no `ACTIONS_ID_TOKEN_REQUEST_URL` (job permissions are
-`contents: read`, no `id-token: write`), and **fails the job** — so step 2 and
-the OIDC assertion are never reached.
+Not just under act. On a real `workflow_dispatch`: `actions/checkout` needs a
+token (job has `permissions: contents: read`, so it has one), then step 1
+`Resolve (act short-circuit)` runs with `ACT` unset hits the OIDC branch, has no
+`ACTIONS_ID_TOKEN_REQUEST_URL` (job permissions are `contents: read`, no
+`id-token: write`), and **fails the job** — so step 2 and the OIDC assertion
+are never reached.
 
 Independently confirmed this session by driving the real manifest fragment
 through `composite_fragments.run_step` with `ACT` unset: `rc=1`, stderr
@@ -155,23 +155,26 @@ failed verification"*.
 
 Decisive experiment (`/tmp/wi_probe.py`, exit 0, 114.9 s): monkey-patching
 `conftest._ACT_IMAGE` to the rust image made `install-whitaker` **pass** —
-`whitaker_test_installation=complete`, `Whitaker installer::status=complete
-version=0.2.9 suite=default-branch-tip suite-source=prebuilt`, no
-`::error title=Whitaker`.
+`whitaker_test_installation=complete`,
+`Whitaker installer::status=complete
+version=0.2.9 suite=default-branch-tip suite-source=prebuilt`,
+no `::error title=Whitaker`.
 
 ### F4 — CI can obtain a container runtime where it matters
 
 `rust-toy-app.yml` runs `validate-linux-packages` on the **Ubicloud** arm,
-whose first step is `sudo apt update -y && sudo apt install -y podman
-bubblewrap proot mmdebstrap` (`.github/actions/validate-linux-packages/action.yml:79`).
-So the Ubicloud image is Ubuntu 24.04 with sudo and apt, and installing rootless
-podman there is an established pattern in this repository.
+whose first step is
+`sudo apt update -y && sudo apt install -y podman bubblewrap proot mmdebstrap`
+(`.github/actions/validate-linux-packages/action.yml:79`). So the Ubicloud
+image is Ubuntu 24.04 with sudo and apt, and installing rootless podman there
+is an established pattern in this repository.
 
 ## Decisions
 
 - **D1 — the act lane becomes its own `ci.yml` job**, `act-workflows`:
   `runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' ||
-  'ubicloud-standard-2' }}`, `timeout-minutes: 30`.
+  'ubicloud-standard-2' }}`,
+  `timeout-minutes: 30`.
   - The fork-fallback shape is required by `TestLinuxPlacementRule` because
     `ci.yml` carries `on: pull_request`; the Ubicloud arm is the one that can
     install podman, and the hosted arm is the fallback a fork lands on.
@@ -184,8 +187,8 @@ podman there is an established pattern in this repository.
 - **D2 — the job installs act v0.2.89 through the repository's own
   `install-tool` action**, from a new `act` entry in
   `.github/tool-manifest.toml` (digests independently re-downloaded and
-  verified this session, and they agree with upstream `checksums.txt`).
-  Pinning v0.2.89 also neutralises the Makefile's `ACT ?=` preference for
+  verified this session, and they agree with upstream `checksums.txt`). Pinning
+  v0.2.89 also neutralizes the Makefile's `ACT ?=` preference for
   `~/go/bin/act` (0.2.88) on a runner that has neither.
   - `install-tool` appends its bin directory to `GITHUB_PATH`; the Makefile's
     `ACT ?=` uses `wildcard`, which cannot see it. So the job passes
@@ -197,11 +200,11 @@ podman there is an established pattern in this repository.
   approximation either way, and this is the one that lets the lane test what it
   claims to.
 - **D4 — the `resolve` fixture is repaired by making its two halves
-  mutually exclusive on `env.ACT`, not worked around.** The standing
-  constraint forbids an expected-failure workaround, and F2 shows the OIDC
-  branch was unreachable in *every* environment, so the fix belongs in the
-  fixture. Implemented shape (differs from the earlier draft, which proposed
-  an empty-token-endpoint `env:` guard — F1's correction explains why that was
+  mutually exclusive on `env.ACT`, not worked around.** The standing constraint
+  forbids an expected-failure workaround, and F2 shows the OIDC branch was
+  unreachable in *every* environment, so the fix belongs in the fixture.
+  Implemented shape (differs from the earlier draft, which proposed an
+  empty-token-endpoint `env:` guard — F1's correction explains why that was
   both unnecessary and dangerous):
   - the short-circuit half is guarded `if: ${{ env.ACT == 'true' }}`, so it
     runs under act and is skipped on a dispatch;
@@ -241,25 +244,70 @@ podman there is an established pattern in this repository.
 
 ## Open questions / next steps
 
-1. Write the `act` tool-manifest entry, then run
-   `.github/actions/install-tool/tests/`.
-2. Apply D3 (image), D4 (fixture), D5 (contract).
-3. Add the `ci.yml` job per D1/D2; register `JOB_TIERS` and any policy maps the
-   contracts demand.
-4. Run the full lane to green; then the full gateway set via `scrutineer`.
-5. Update docs: `docs/developers-guide.md` (runner-placement and ceiling
+1. ~~Write the `act` tool-manifest entry, then run
+   `.github/actions/install-tool/tests/`.~~ Done (`c82c629e`).
+2. ~~Apply D3 (image), D4 (fixture), D5 (contract).~~ Done (`c82c629e`,
+   `f25d458e`).
+3. ~~Add the `ci.yml` job per D1/D2; register `JOB_TIERS` and any policy maps
+   the contracts demand.~~ Done (`321534bc`).
+4. ~~Run the full lane to green; then the full gateway set via `scrutineer`.~~
+   **Lane green: `1079 passed, 104 skipped`, no failures** (823.69 s, log
+   `/tmp/test-act-fix-act-lane-runs-in-ci.out`). Gateway set delegated to
+   `scrutineer` at commit `4a904bc2`.
+5. ~~Update docs: `docs/developers-guide.md` (runner-placement and ceiling
    tables) and `docs/local-validation-of-github-actions-with-act-and-pytest.md`
-   (the three `-P ubuntu-latest=…` snippets).
-6. Rebase the top branch (`issue-515-…`) onto this one — a `conftest.py`
-   collision is expected — then `gh stack` the two branches, targeting `main`
-   under this one and re-targeting #516 onto it.
+   (the three `-P ubuntu-latest=…` snippets).~~ Done (`3ed15d02`).
+6. **Rebase the top branch (`issue-515-…`) onto this one, then `gh stack` the
+   two branches.** Surveyed, not yet done. See the section below.
+
+### The top-branch rebase, surveyed
+
+The two branches were written against different `main` tips (bottom from
+`ff1dd759`, top from `abf0dcf2`) and **independently contain the same Makefile
+work**: bottom's `9c829353` and top's `21444c3e` share the title *"Gate the
+plain suite off the act lane, and hold the recipes to it"*, and
+`tests/workflows/test_makefile_act_lane_runs_once.py` is **byte-identical** on
+both (235 lines, no diff). `git cherry` finds no patch-equivalent, so all 22
+top commits will replay; the duplicates are textual, not detected.
+
+Collisions by file, with the top's reason for touching each:
+
+| File                                                             | Top commits                        | Expected shape                                                                                                                                             |
+| ---------------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Makefile`                                                       | `21444c3e`, `3179704b`, `ba8cedc6` | `21444c3e` is the duplicate; the other two build on it. Bottom's version is the superset (it also carries main's `TYPOS_CONFIG_BUILDER_VERSION` `v0.1.3`). |
+| `test_makefile_act_lane_runs_once.py`                            | `21444c3e`, `7bc53417`             | add/add, **identical blobs** — resolves to either side unchanged.                                                                                          |
+| `test_job_ceilings.py`                                           | `d6ae259e`                         | disjoint: top adds the generate-coverage fixture's tier, bottom adds `act-workflows`.                                                                      |
+| `docs/developers-guide.md`                                       | `d6ae259e`                         | disjoint regions (placement rule vs skip markers).                                                                                                         |
+| `docs/local-validation-of-github-actions-with-act-and-pytest.md` | 4 commits                          | top edits the opt-in prose; bottom edits the `-P` image snippets. Both are wanted.                                                                         |
+
+The duplicate commit is the one to watch: replaying it onto a tree that already
+has the change should go empty, and an empty replay is a decision to record
+rather than to force through (`--empty=stop` per the rebase skill).
 
 ## Evidence kept
 
-- `/tmp/act-image-lane.out` — full lane against the rust image (first run, 20
-  failures: 4 act cases plus 16 caused by running pytest through `.venv`
-  directly instead of `uv run --with …`, which mismatched `hypothesis`).
-  The 16 are an artefact of the invocation, not the code.
 - `/tmp/act-lane-plain.txt` — the baseline lane on `act-latest`
-  (`2 failed, 1062 passed, 102 skipped in 822.03s`).
+  (`2 failed, 1062 passed, 102 skipped in 822.03s`), failing
+  `test_simple_workflow_validation[install-whitaker]` and
+  `test_resolve_workflow_source_branches`.
+- `/tmp/test-act-fix-act-lane-runs-in-ci.out` — the green lane
+  (`1079 passed, 104 skipped in 823.69s`).
+- `/tmp/act-image-lane.out` — first lane against the rust image (20 failures:
+  4 act cases plus 16 caused by running pytest through `.venv` directly instead
+  of `uv run --with …`, which mismatched `hypothesis`; the 16 are an artefact
+  of the invocation, not the code).
+- `/tmp/test-rustflags-after-fix.out` — the rustflags module green (6 passed).
+- `/tmp/test-resolve-after-fix.out` — the resolve case green.
 - `/tmp/act-src/act-0.2.89/` — extracted act source, authority for F1.
+
+## Findings and decisions index
+
+| #   | Finding                                                                                | Decision |
+| --- | -------------------------------------------------------------------------------------- | -------- |
+| F1  | act exports `ACT=true` into a composite, and feeds a step's own `env` to its own `if:` | D4, D5   |
+| F2  | the resolve fixture's OIDC half is dead in every environment                           | D4, D5   |
+| F3  | `act-latest` ships no Rust toolchain                                                   | D3       |
+| F4  | Ubicloud runners can install a container runtime                                       | D1       |
+| F5  | a failed runtime probe made the whole lane exit 0 having run nothing                   | D6       |
+| F6  | the rust image's baked toolchain cannot be renamed across overlay layers               | D7       |
+| F7  | the resolve case's expectation outlived the fixture it describes                       | D8       |

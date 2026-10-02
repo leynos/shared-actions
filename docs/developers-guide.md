@@ -2195,10 +2195,10 @@ inheriting it so the outcome does not depend on the developer's shell.
 ### Skip Markers
 
 <!-- markdownlint-disable MD013 -->
-| Marker                       | Condition                                                    |
-| ---------------------------- | ------------------------------------------------------------ |
+| Marker                       | Condition                                                                                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `skip_unless_act`            | Skip when `_get_act_runtime_status().available` is `False` **and** the lane was not requested; fail instead when `ACT_WORKFLOW_TESTS` is truthy. |
-| `skip_unless_workflow_tests` | Skip when `ACT_WORKFLOW_TESTS` is not set to a truthy value. |
+| `skip_unless_workflow_tests` | Skip when `ACT_WORKFLOW_TESTS` is not set to a truthy value.                                                                                     |
 <!-- markdownlint-enable MD013 -->
 
 The two arms of `skip_unless_act` are deliberate. Skipping is right in the

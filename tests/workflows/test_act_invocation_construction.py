@@ -185,21 +185,30 @@ class TestGitRepositoryMount:
         assert conftest._git_common_dir(tmp_path) is None
         assert conftest._git_common_dir_mount(tmp_path) is None
 
-    def test_an_ordinary_checkout_is_not_given_one(self) -> None:
+    def test_an_ordinary_checkout_is_not_given_one(self, tmp_path: Path) -> None:
         """A `.git` directory inside the checkout needs no mount.
 
         Mounting the store over the checkout's own `.git` directory would
         shadow the working repository with the bare one, which is at best
-        noise and at worst a different repository's history.
+        noise and at worst a different repository's history. The checkout is
+        built here rather than read from this repository's own root, because
+        the host this suite is developed on lives in a linked worktree while
+        a GitHub runner checks out ordinarily, and the assertion has to hold
+        where it runs: on the runner, which is the case being pinned.
         """
-        common_dir = conftest._git_common_dir(conftest._REPOSITORY_ROOT)
+        checkout = tmp_path / "ordinary"
+        _git("init", str(checkout))
 
-        assert common_dir is None or not common_dir.is_relative_to(
-            conftest._REPOSITORY_ROOT
-        ), (
-            "this repository is meant to be lived in as a linked worktree; if "
-            "it is not, the mount cannot be mounted and must be absent rather "
-            f"than shadowing the checkout's own .git: got {common_dir}"
+        common_dir = conftest._git_common_dir(checkout)
+
+        assert common_dir is not None, "git did not answer for its own checkout"
+        assert common_dir.is_relative_to(checkout), (
+            "an ordinary checkout's object store lives inside it: "
+            f"got {common_dir} for {checkout}"
+        )
+        assert conftest._git_common_dir_mount(checkout) is None, (
+            "an ordinary checkout must not be handed a mount that would "
+            "shadow its own .git directory"
         )
 
     def test_the_option_is_carried_by_the_command_line_once(

@@ -82,10 +82,14 @@ root, while cargo-audit, dylint and sccache put it under one directory.
 
 The **installed binary** is asked its own version, on the cached path as well
 as the fresh one. A digest proves the bytes arrived intact; only running it
-proves the right thing is where the caller will look. One tool cannot be asked:
-`dylint-link` refuses every argument unless `RUSTUP_TOOLCHAIN` is set, so its
-entry records that and the action reports `install-tool.verify=unsupported`
-rather than passing a check it never made.
+proves the right thing is where the caller will look. The expectation is
+`<binary> <version>`, except for a tool whose output has another shape: act
+prints `act version 0.2.89`, so its entry records
+`version-lead = "act version"` and the expected string is composed from the
+lead and the version. One tool cannot be asked: `dylint-link` refuses every
+argument unless `RUSTUP_TOOLCHAIN` is set, so its entry records that and the
+action reports `install-tool.verify=unsupported` rather than passing a check it
+never made.
 
 The archive extractor is chosen by the asset's **extension**, never by probing
 what `tar` resolves to. Git Bash puts MSYS GNU tar ahead of the system bsdtar
@@ -135,6 +139,11 @@ archive, compute its SHA-256, compare against the upstream sidecar where one
 exists, and record the result in `sidecar-verified`. Never copy a digest out of
 a sidecar without downloading the archive, because that records only that the
 sidecar agrees with itself.
+
+Run the installed binary once and read what `--version` actually prints. If it
+is not `<binary> <version>` — act prints `act version 0.2.89` — record
+`version-lead` with the words in front of the version, or verification will
+fail on the runner and nowhere earlier.
 
 ## bin-dir
 

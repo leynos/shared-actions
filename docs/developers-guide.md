@@ -740,6 +740,16 @@ its empty list records. Every one of these was found by running the binary
 rather than by assuming, and an assumption here fails on a runner and nowhere
 earlier.
 
+`version-lead` is the optional counterpart to `version-args` for the shape of
+what comes back. The action verifies the installed binary by looking for the
+string `<binary> <version>` in its output, which is what every tool prints
+except act: act prints `act version 0.2.89`, so its entry records
+`version-lead = "act version"` and the expectation becomes `<lead> <version>`.
+An entry that needs a lead and lacks one fails verification on whichever runner
+runs the act-workflows job — which is how #583 and #516 found it — so
+`test_the_tools_whose_output_is_not_their_name_are_the_expected_ones` records
+act as the sole exception and fails when another appears.
+
 `merman-cli` 0.7.0 illustrates an entry built from a release archive rather than
 `cargo install`. It carries `x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`
 and `aarch64-apple-darwin`, each a `.tar.xz` archive with the binary under

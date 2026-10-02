@@ -913,3 +913,44 @@ substring check is *portable* and *deterministic*, so no shell and no leg would
 have failed. A gate that only ever sees the version it expects is a gate whose
 discrimination is never exercised; the contract's near-miss cases are what make
 the assertion's refusal checkable at all.
+
+### The seventh restack, and publication
+
+F15's fix landed on the bottom as `36911dbc`, "Match the pinned act version as
+a token, not a substring", carrying `ci.yml`, the contract, and this file.
+Gated locally before the commit: `check-fmt` needed one mechanical fix (ruff
+collapsed a wrapped assertion), after which all six gates were green on the
+same tree — `test` 3640 passed / 141 skipped, the extra four over the previous
+count being the new parametrized cases.
+
+The bottom's push took the SSH bypass again (`ci.yml` is in the range), a
+fast-forward from `f48b87f7`. The top was replayed with the same explicit
+invocation, boundary `f48b87f7` onto target `36911dbc`:
+
+```text
+git -c merge.conflictStyle=zdiff3 rebase --merge --no-fork-point \
+  --no-update-refs --no-autostash --reapply-cherry-picks --keep-empty \
+  --empty=stop --onto 36911dbc f48b87f7 issue-515-…
+```
+
+All 23 commits replayed with zero conflicts; new head `2850c782`. Recovery refs
+`refs/recovery/issue515-r7-old-head-20261002-222419` (`33157c0d`),
+`…-old-base-…` (`f48b87f7`) and `…-target-…` (`36911dbc`) are retained. Audit:
+`range-diff f48b87f7..33157c0d 36911dbc..2850c782` reports all 23 entries
+patch-identical, no non-matching entries at all; `git diff --check` clean.
+
+The top's six gates were green on `2850c782` (`test` 3665 passed / 146
+skipped), and its push took the bypass with its lease bound to `33157c0d`.
+Tracking refs were force-refreshed and `gh stack submit --auto` reported the
+stack up to date; `gh stack view --json` confirms `36911dbc` ← `2850c782`, both
+`needsRebase=False`. #583's body gained the F15 bullet; #516's already named
+its base correctly and needed no edit.
+
+**Both reviews are now clear.** The bottom's re-review at `36911dbc` returned
+zero findings, and the top's at `33157c0d` had already returned zero.
+
+**Both PRs are green at the F15 heads.** Run 37060360264 (bottom `36911dbc`)
+and run 37060954668 (top `2850c782`) both completed with all five jobs success —
+`act-workflows`, `coverage`, both `python-tests` legs, and Windows included.
+The macOS leg passing is what keeps F14 closed, and the `act-workflows` leg is
+the lane this stack exists to make run.

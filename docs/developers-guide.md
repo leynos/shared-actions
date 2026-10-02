@@ -2326,6 +2326,15 @@ Adding a module with examples therefore needs one line in `DOCTEST_PATHS`, and
 forgetting it fails a test that says which file and which variable, rather than
 passing quietly.
 
+Two more modules hold the rule itself to account.
+`tests/workflows/test_doctest_target.py` runs `make -f Makefile doctest` in a
+temporary workspace with the `uv` boundary stubbed, so it asserts the recipe
+passes `--doctest-modules` and every `DOCTEST_PATHS` word to pytest, and that a
+wrong example in that workspace exits non-zero.
+`tests/workflows/test_doctest_reachability_property.py` generates modules with
+nested scopes, redefined names and constant or undecidable conditions, and
+checks the reachability model against `doctest.DocTestFinder` as the oracle.
+
 ### Writing an example that can run
 
 Three habits account for every failure found here.

@@ -173,7 +173,14 @@ def _live(nodes: cabc.Iterable[ast.AST]) -> cabc.Iterator[ast.AST]:
             yield node
 
 
-def _bind(node: ast.AST, bound: dict[str, list[str]]) -> None:
+#: One docstring the finder can reach, with the definition that carries it.
+#: The definition is kept so two arms of an `if` that both leave the same
+#: earlier definition bound count it once, while two distinct definitions
+#: with identical text still count twice.
+type _Entry = tuple[ast.AST, str]
+
+
+def _bind(node: ast.AST, bound: dict[str, list[_Entry]]) -> None:
     """Record into *bound* what the scope rooted at *node* finally binds."""
     for child in _live_children(node):
         if isinstance(child, _DEFINITIONS):
@@ -184,7 +191,21 @@ def _bind(node: ast.AST, bound: dict[str, list[str]]) -> None:
             _bind(child, bound)
 
 
-def _bind_alternatives(branch: ast.If, bound: dict[str, list[str]]) -> None:
+def _merge_entries(
+    left: list[_Entry] | None, right: list[_Entry] | None
+) -> list[_Entry]:
+    """Return the entries of *left* then those of *right* not already in it.
+
+    Identity decides, not text: an arm that leaves an earlier definition
+    untouched hands the same entry to the merge as the arm that rebinds
+    beside it, and that one definition must count once.
+    """
+    first = left or []
+    seen = {id(node) for node, _ in first}
+    return [*first, *(entry for entry in right or [] if id(entry[0]) not in seen)]
+
+
+def _bind_alternatives(branch: ast.If, bound: dict[str, list[_Entry]]) -> None:
     """Bind both arms of an undecidable `if` into *bound* as alternatives.
 
     `_live_children` has already decided every constant condition, so an
@@ -195,7 +216,7 @@ def _bind_alternatives(branch: ast.If, bound: dict[str, list[str]]) -> None:
     whole `if` still replaces the merged entry, as it replaces whichever
     arm ran.
     """
-    arms: list[dict[str, list[str]]] = []
+    arms: list[dict[str, list[_Entry]]] = []
     for statements in (branch.body, branch.orelse):
         arm = dict(bound)
         _bind(ast.Module(body=statements, type_ignores=[]), arm)
@@ -203,27 +224,28 @@ def _bind_alternatives(branch: ast.If, bound: dict[str, list[str]]) -> None:
     first, second = arms
     for name in [*first, *(name for name in second if name not in first)]:
         left, right = first.get(name), second.get(name)
-        bound[name] = left if left is right else [*(left or []), *(right or [])]
+        bound[name] = left if left is right else _merge_entries(left, right)
 
 
-def _definition_docstrings(node: ast.AST) -> list[str]:
+def _definition_docstrings(node: ast.AST) -> list[_Entry]:
     """Return the docstrings one definition contributes to its scope."""
-    found = [text] if (text := ast.get_docstring(node, clean=False)) else []
+    text = ast.get_docstring(node, clean=False)
+    found: list[_Entry] = [(node, text)] if text else []
     if isinstance(node, _NAMED_TRANSPARENT):
-        found.extend(_scope_docstrings(node))
+        found.extend(_scope_entries(node))
     return found
 
 
-def _scope_docstrings(scope: ast.AST) -> list[str]:
+def _scope_entries(scope: ast.AST) -> list[_Entry]:
     """Return the docstrings *scope* binds, in the order it binds them.
 
     Keyed by name, so a definition that a later one of the same name
     replaces contributes nothing: only the last binding is an attribute
     of the finished module or class.
     """
-    bound: dict[str, list[str]] = {}
+    bound: dict[str, list[_Entry]] = {}
     _bind(scope, bound)
-    return [text for entry in bound.values() for text in entry]
+    return [entry for entries in bound.values() for entry in entries]
 
 
 def _docstrings(tree: ast.Module) -> list[str]:
@@ -243,7 +265,7 @@ def _docstrings(tree: ast.Module) -> list[str]:
     neither is collected however plainly it is written.
     """
     found = [text] if (text := ast.get_docstring(tree, clean=False)) else []
-    found.extend(_scope_docstrings(tree))
+    found.extend(text for _, text in _scope_entries(tree))
     return found
 
 

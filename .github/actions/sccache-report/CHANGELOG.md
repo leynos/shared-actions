@@ -9,5 +9,5 @@ file.
   to the job summary under the backend `setup-rust` chose, and stands down,
   with a notice and `reported=false`, when `setup-rust` reports `sccache-status`
   `fallback` or sccache is not on `PATH`. A consumer's health check conditions
-  on `reported` instead of repeating the guard that keeps a fallback from
-  turning red.
+  on `reported` instead of repeating the guard that keeps an uncached job from
+  publishing a table of zeros.

@@ -2,8 +2,9 @@
 
 A consumer used to repeat `sccache --show-stats` after its build. With
 `setup-rust` failing open (shared-actions #546), a server that never started has
-no statistics, and asking for them starts it again and fails the job the
-fallback had just saved. This action owns that guard once; the tests run its
+no statistics: with no server `sccache --show-stats` prints empty defaults
+rather than starting one, so an unguarded report publishes a table of zeros for
+an uncached job. This action owns that guard once; the tests run its
 shipped script against a stub sccache.
 """
 
@@ -145,7 +146,7 @@ class TestFallback:
     """A fallen-back server has no statistics, so nothing may ask for them."""
 
     def test_a_fallback_never_calls_sccache(self, run_report: Runner) -> None:
-        """Calling sccache would start the dead server again."""
+        """Calling sccache would publish empty statistics for an uncached job."""
         result = run_report(SR_STATUS="fallback")
 
         assert result.completed.returncode == 0, result.completed.stderr

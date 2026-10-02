@@ -140,8 +140,11 @@ step can act on the output:
 This adds an output and changes a failure into a warning; no input changes, so
 existing callers need do nothing. A caller that itself runs
 `sccache --show-stats` after the build should skip it when the status is
-`fallback`, since asking a server that never started would try to start it
-again.
+`fallback`, since a server that never started has no statistics: with no server
+`sccache --show-stats` prints empty defaults rather than starting one. The
+command that does start a server when none is running is
+`sccache --zero-stats`, so a caller that zeroes the counters itself after a
+failed start can see it fail.
 
 Some exports have to be put back rather than made, and that is the reason
 `use-sccache: 'true'` used to be unusable on Ubicloud. The last thing
@@ -170,8 +173,8 @@ a local sccache directory and its cache, as described under
 
 When the server fell back to an uncached build (`sccache-status` is
 `fallback`), it never started and has no statistics: `sccache --show-stats`
-would start it again, wait out the startup timeout and fail the step, turning
-the fail-open back into a red job. A step that reports statistics, or runs a
+prints empty defaults instead of starting one, so an unguarded report publishes
+a table of zeros for an uncached job. A step that reports statistics, or runs a
 health check on them, should call the
 [`sccache-report`](../.github/actions/sccache-report) action after the build,
 under `if: always()`, rather than call `sccache --show-stats` itself:

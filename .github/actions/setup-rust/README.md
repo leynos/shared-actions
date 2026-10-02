@@ -268,7 +268,8 @@ says so in a notice.
 A step that reads sccache's statistics after the build should use
 [`sccache-report`](../sccache-report) rather than call `sccache --show-stats`
 itself: a server that fell back never started, and asking it for statistics
-would start it again and fail the job.
+returns empty defaults, a table of zeros that reads as a broken integration.
+(`sccache --zero-stats`, by contrast, starts a server when none is running.)
 
 ### Who starts the server, and when
 

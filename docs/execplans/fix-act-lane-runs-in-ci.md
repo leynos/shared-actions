@@ -258,7 +258,9 @@ is an established pattern in this repository.
    tables) and `docs/local-validation-of-github-actions-with-act-and-pytest.md`
    (the three `-P ubuntu-latest=…` snippets).~~ Done (`3ed15d02`).
 6. **Rebase the top branch (`issue-515-…`) onto this one, then `gh stack` the
-   two branches.** Surveyed, not yet done. See the section below.
+   two branches.** Rebased: `7bc53417` → `ef0a3dbc`, 21 commits, both
+   conflicts resolved as surveyed and the duplicate replayed empty. The
+   `gh stack` half is next; the outcome is recorded below.
 
 ### The top-branch rebase, surveyed
 
@@ -284,6 +286,49 @@ The duplicate commit is the one to watch: replaying it onto a tree that already
 has the change should go empty, and an empty replay is a decision to record
 rather than to force through (`--empty=stop` per the rebase skill).
 
+### The top-branch rebase, done
+
+Old head `7bc53417` → new head `ef0a3dbc`; exclusive boundary `abf0dcf2` →
+target `5bc9e743`; 22 replayed, 21 committed, zero merges. Recovery refs
+`refs/recovery/act-lane-top-{old-head,old-base}` and
+`refs/recovery/act-lane-bottom-target` are retained. Logs:
+`/tmp/rebase-shared-actions-fix-act-lane-runs-in-ci.out` and
+`/tmp/range-diff-shared-actions-fix-act-lane-runs-in-ci.out`.
+
+Two conflicts, both resolved as surveyed:
+
+- **3/22, `ba8cedc6` (Makefile).** The incoming commit's inline pytest recipe
+  collided with the bottom's `test: test-act` prerequisite. Took the bottom's
+  superset; the commit's unique contribution
+  (`tests/workflows/test_action_behaviours.py`) was untouched and replayed as
+  `858c19e9` (1 file changed, 26 insertions).
+- **21/22, `21444c3e` (add/add on
+  `tests/workflows/test_makefile_act_lane_runs_once.py`).** Stage 2 was the
+  bottom's `2bb808f8`, stage 3 the duplicate's earlier `4af239d4`. Resolved to
+  `2bb808f8`; the Makefile auto-merged to the bottom's blob. The commit then
+  replayed **empty** and was dropped at `--continue`, exactly as surveyed —
+  the whole change it carried is already in the bottom, so an empty replay is
+  the honest outcome and nothing was forced through. Its later top-side
+  refinements (`7bc53417`) survive, since that commit's content is already the
+  bottom's blob.
+
+Range-diff audit: 18 of the 21 entries are patch-identical; the three that
+differ — 3, 11, and the old tip's replay (`7bc53417` → `ef0a3dbc`) — differ
+only by hunks the bottom already carries. No commit is missing other than the
+dropped duplicate. Every bottom-only file (24 of them) is byte-identical at
+the new head; the top's six new files are all present; no unexplained
+deletions; `git diff --check` clean. Both sides' content is present in each
+overlap file: `test_job_ceilings.py` carries `act-workflows` *and*
+`test-generate-coverage-out-no-suffix`, `developers-guide.md` carries the
+placement rule and the lane's ceiling, and the act guide carries both the
+opt-in prose and the `-P ubuntu-latest=catthehacker/ubuntu:rust-latest`
+snippets.
+
+The new head is a linear descendant of the bottom (`git merge-base
+--is-ancestor 5bc9e743 ef0a3dbc`), which is what the stack requires. The top
+touches no `docs/execplans/` file, so this record can be amended on the bottom
+without disturbing it.
+
 ## Evidence kept
 
 - `/tmp/act-lane-plain.txt` — the baseline lane on `act-latest`
@@ -299,6 +344,12 @@ rather than to force through (`--empty=stop` per the rebase skill).
 - `/tmp/test-rustflags-after-fix.out` — the rustflags module green (6 passed).
 - `/tmp/test-resolve-after-fix.out` — the resolve case green.
 - `/tmp/act-src/act-0.2.89/` — extracted act source, authority for F1.
+- `/tmp/rebase-shared-actions-fix-act-lane-runs-in-ci.out` — the top-branch
+  rebase: both conflicts and their resolutions, and the drop of the empty
+  duplicate.
+- `/tmp/range-diff-shared-actions-fix-act-lane-runs-in-ci.out` — the
+  old-series/new-series audit (21 entries; 3, 11 and 21 differ only by hunks
+  the bottom already carries).
 
 ## Findings and decisions index
 
@@ -311,3 +362,21 @@ rather than to force through (`--empty=stop` per the rebase skill).
 | F5  | a failed runtime probe made the whole lane exit 0 having run nothing                   | D6       |
 | F6  | the rust image's baked toolchain cannot be renamed across overlay layers               | D7       |
 | F7  | the resolve case's expectation outlived the fixture it describes                       | D8       |
+
+## The stack, once the rebase lands
+
+`gh stack link` pushes its branch arguments **non-force** and keeps no local
+tracking, so on its own it cannot publish the rewritten top layer — that push
+would be rejected. `gh stack submit` pushes every branch with
+`--force-with-lease`, which is what a rewritten layer needs. The path is:
+
+1. `gh stack init fix/act-lane-runs-in-ci issue-515-…` — adopt both branches
+   into local tracking, bottom first. No push.
+2. `gh stack submit --auto --open` — push both layers (the top with
+   `--force-with-lease`), create the bottom PR against `main`, correct #516's
+   base onto the bottom branch, and create the stack object.
+3. `gh stack view --json` — verify the chaining.
+
+Never a hand-rolled `git push --force`: `submit` and `push` bind each lease to
+the head the remote actually has. The rebased top is ungated so far; run the
+full gateway set on the final head before `submit` publishes it.

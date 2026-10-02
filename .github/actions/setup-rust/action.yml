@@ -379,14 +379,29 @@ runs:
       run: |
         set -euo pipefail
         export DEBIAN_FRONTEND=noninteractive
-        sudo apt-get update
-        sudo apt-get install --yes --no-install-recommends clang lld
+        # One closed failure vocabulary, matching install-mold's shape: a
+        # category metric and an error annotation naming the operation.
+        fail() {
+          echo "::error title=setup-rust clang-lld::$2" >&2
+          echo "metric setup-rust.clang-lld.failure=$1"
+          exit 1
+        }
+        started=$SECONDS
+        sudo apt-get update || fail apt-update "apt-get update failed"
+        sudo apt-get install --yes --no-install-recommends clang lld \
+          || fail apt-install "apt-get install of clang and lld failed"
+        elapsed=$((SECONDS - started))
+        if [ "$elapsed" -lt 5 ]; then bucket=lt5s
+        elif [ "$elapsed" -lt 30 ]; then bucket=lt30s
+        elif [ "$elapsed" -lt 120 ]; then bucket=lt120s
+        else bucket=ge120s
+        fi
+        echo "metric setup-rust.clang-lld.seconds=$bucket"
         missing=()
         command -v clang >/dev/null 2>&1 || missing+=(clang)
         command -v ld.lld >/dev/null 2>&1 || missing+=(ld.lld)
         if [ "${#missing[@]}" -gt 0 ]; then
-          echo "::error title=setup-rust clang-lld::missing on PATH after install: ${missing[*]}" >&2
-          exit 1
+          fail missing-tool "missing on PATH after install: ${missing[*]}"
         fi
         echo "metric setup-rust.clang-lld=installed"
         echo "status=installed" >> "$GITHUB_OUTPUT"

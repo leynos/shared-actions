@@ -20,7 +20,7 @@ input is not `true`.
 
 The action sets no linker flag. Select clang and lld through the project's
 Cargo configuration, or through `CARGO_TARGET_<triple>_LINKER` and `RUSTFLAGS`,
-exactly as before. The coverage environment you already set stays as it is.
+exactly as before. An existing coverage environment stays as it is.
 
 ## How to migrate
 
@@ -45,4 +45,4 @@ After:
 ```
 
 Delete the `apt-get` step, and pin `setup-rust` to a commit that includes
-`install-clang-lld`. Keep any linker selection you already have.
+`install-clang-lld`. Keep any existing linker selection.

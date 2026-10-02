@@ -42,6 +42,12 @@ class EnvOverrideTestCase:
     job: str
     container_env_template: dict[str, str]
     expected_patterns: list[tuple[str, str]]
+    #: Seconds act may run before the harness kills it. The default suits a
+    #: fixture that mostly starts containers; a fixture that installs a Rust
+    #: toolchain and builds on a cold runner needs the larger budget, and a
+    #: measured CI run of `generate-coverage-out-no-suffix` was killed at 300 s
+    #: while still working. Same shape as `test_rustflags_export_workflow`.
+    timeout: int = 300
 
 
 @dataclasses.dataclass(slots=True)
@@ -64,6 +70,7 @@ def _run_act_and_get_logs(
     artefact_dir: Path,
     *,
     container_env: dict[str, str] | None = None,
+    timeout: int = 300,
 ) -> str:
     """Run act with the given workflow specification and return logs.
 
@@ -75,13 +82,17 @@ def _run_act_and_get_logs(
         Directory to store artefacts.
     container_env
         Optional environment variables to pass into the act container.
+    timeout
+        Seconds act may run before the harness kills it.
 
     Returns
     -------
     str
         Combined stdout/stderr logs from the act run.
     """
-    config = ActConfig(artefact_dir=artefact_dir, container_env=container_env)
+    config = ActConfig(
+        artefact_dir=artefact_dir, container_env=container_env, timeout=timeout
+    )
     code, logs = run_act(run.workflow, run.event, run.job, config)
     assert code == 0, f"act failed:\n{logs}"
     return logs
@@ -180,6 +191,40 @@ def _resolve_container_env(
             ),
             id="upload-release-assets",
         ),
+        pytest.param(
+            EnvOverrideTestCase(
+                workflow="test-generate-coverage.yml",
+                job="test-generate-coverage-out-no-suffix",
+                # Deliberately empty. The collision act causes needs nothing
+                # injected: act exports every declared composite input into the
+                # step environment under its dashed name, and the step's own
+                # `env:` mapping supplied the underscored one, so a Cyclopts
+                # `Env("INPUT_")` binding resolved one parameter from two
+                # matching variables. Verified by running this case against the
+                # state before the fix with the template empty -- it still
+                # fails with "Parameter INPUT_ARTEFACT_NAME_SUFFIX specified
+                # multiple times" -- and against the fix, where it passes. A
+                # populated template would test act's `--env` plumbing rather
+                # than the collision, and would hard-code a pair the workflow
+                # no longer sets.
+                container_env_template={},
+                expected_patterns=[
+                    (r'file["\s]*[:=]["\s]*\S+\.xml', "file= missing from logs"),
+                    (r'format["\s]*[:=]["\s]*cobertura', "format= missing from logs"),
+                    (
+                        r'artefact[-_]name["\s]*[:=]["\s]*\S+',
+                        "artefact-name= missing or empty in logs",
+                    ),
+                ],
+                # This fixture is the lane's heaviest: it installs a Rust
+                # toolchain and runs `cargo llvm-cov` on a cold runner. A
+                # measured CI run was killed at the 300 s default while still
+                # working, so it carries the same doubled budget the rustflags
+                # fixture uses.
+                timeout=600,
+            ),
+            id="generate-coverage-out-no-suffix",
+        ),
     ],
 )
 def test_env_overrides_normalize_inputs(
@@ -197,6 +242,7 @@ def test_env_overrides_normalize_inputs(
         ),
         artefact_dir=artefact_dir,
         container_env=container_env,
+        timeout=test_case.timeout,
     )
 
     _assert_log_patterns(logs, test_case.expected_patterns, flags=re.IGNORECASE)

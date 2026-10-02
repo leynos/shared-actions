@@ -82,6 +82,160 @@ def _enable_cmd_mox_replay_idempotence() -> None:
     CmdMoxController.replay = _replay_with_phase_guard
 
 
+class _WritableStream(typ.Protocol):
+    """Minimal output-stream contract the reply writer relies on."""
+
+    def write(self, data: bytes) -> int:
+        """Write *data* and return the number of bytes accepted."""
+        ...
+
+
+class _DisconnectTolerantWriter:
+    """Reply stream that ignores a client which has already gone away.
+
+    ``_IPCHandler.handle`` writes the reply to ``self.wfile`` with no guard.
+    When the client has already closed its read side, that write raises
+    :class:`BrokenPipeError`, which escapes the handler and reaches
+    ``socketserver.ThreadingMixIn.process_request_thread``. Its default
+    ``handle_error`` prints a full server-side traceback — noise that reads
+    like a crash even though a client walking away mid-request is ordinary.
+
+    Wrapping the writer keeps the reply path working exactly as before for a
+    connected client and turns the disconnect into a silent no-op. The
+    swallowed error is not hidden from the connection itself: the write never
+    completed, so there is nobody left to receive an error.
+    """
+
+    __slots__ = ("_wrapped",)
+
+    def __init__(self, wrapped: _WritableStream) -> None:
+        self._wrapped = wrapped
+
+    def write(self, data: bytes) -> int:
+        """Write *data*, treating a vanished client as an empty write."""
+        try:
+            return self._wrapped.write(data)
+        except ConnectionError:
+            # BrokenPipeError, ConnectionResetError and ConnectionAbortedError
+            # all mean the peer is gone. A genuine local fault such as ENOSPC
+            # is a plain OSError and deliberately still propagates.
+            return 0
+
+    def __getattr__(self, name: str) -> object:
+        """Forward every other stream attribute to the wrapped writer."""
+        return getattr(self._wrapped, name)
+
+
+class _RequestHandler(typ.Protocol):
+    """The slice of ``socketserver.StreamRequestHandler`` the guard touches."""
+
+    wfile: _WritableStream
+
+    def setup(self) -> None:
+        """Prepare the per-connection read and write streams."""
+        ...
+
+
+def _enable_cmd_mox_ipc_disconnect_tolerance() -> None:
+    """Stop a disconnected IPC client from printing a server traceback.
+
+    See :class:`_DisconnectTolerantWriter` for the failure this normalizes.
+    The guard wraps the handler's output stream once, at connection setup,
+    rather than editing upstream source: cmd-mox is a pinned external
+    dependency, so the override is applied at this repository's test boundary
+    and disappears with the dependency.
+    """
+    if sys.platform == "win32":  # pragma: no cover - cmd-mox unavailable
+        return
+    try:
+        from cmd_mox.ipc.server import _IPCHandler
+    except (ModuleNotFoundError, ImportError):  # pragma: no cover - private API
+        return
+
+    setup = getattr(_IPCHandler, "setup", None)
+    if setup is None or getattr(setup, "__cmd_mox_disconnect_guard__", False):
+        return
+
+    def setup_with_disconnect_guard(self: _RequestHandler) -> None:
+        original_setup(self)
+        self.wfile = _DisconnectTolerantWriter(self.wfile)
+
+    original_setup = setup
+    setup_with_disconnect_guard.__cmd_mox_disconnect_guard__ = True
+    _IPCHandler.setup = setup_with_disconnect_guard
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _cmd_mox_ipc_disconnect_tolerance() -> None:
+    """Apply the cmd-mox disconnect guard once per test session."""
+    _enable_cmd_mox_ipc_disconnect_tolerance()
+
+
+class _PayloadParser(typ.Protocol):
+    """The slice of ``cmd_mox.ipc.server._parse_payload`` the guard wraps."""
+
+    def __call__(self, raw: bytes) -> tuple[dict[str, object], str] | None:
+        """Decode *raw* into a payload and kind, or ``None`` if unusable."""
+        ...
+
+
+def _enable_cmd_mox_empty_probe_tolerance() -> None:
+    """Stop cmd-mox's readiness probe logging a malformed-JSON traceback.
+
+    ``socket_utils._try_socket_connection`` and ``socket_utils.
+    cleanup_stale_socket`` both connect and close without writing a single
+    byte, because the only question they ask is whether the socket accepts a
+    connection. ``_parse_payload`` then decodes zero bytes, ``json.loads(b"")``
+    raises ``JSONDecodeError``, and ``logger.exception`` reports that expected
+    handshake as malformed input -- with a full traceback, once per server
+    start, on every run, healthy or not.
+
+    An empty read is unambiguous. A client with a request to make always sends
+    one, so no bytes at all can only be the readiness probe. The override
+    returns ``None`` for it, which is already the answer the server gives every
+    unusable request: ``_IPCHandler.handle`` returns before writing whenever
+    the payload does not decode. The probe is therefore answered exactly as
+    before, and merely stops being recorded as a fault.
+
+    Apply this alongside :func:`_enable_cmd_mox_ipc_disconnect_tolerance`. The
+    two are separate because they are separate connections: this one sends
+    nothing and never reaches the reply, while that one sends a valid request
+    and reaches the reply after the client has gone.
+    """
+    if sys.platform == "win32":  # pragma: no cover - cmd-mox unavailable
+        return
+    try:
+        from cmd_mox.ipc import server as ipc_server
+    except (ModuleNotFoundError, ImportError):  # pragma: no cover - private API
+        return
+
+    parse = getattr(ipc_server, "_parse_payload", None)
+    if parse is None or getattr(parse, "__cmd_mox_empty_probe_guard__", False):
+        return
+
+    def parse_without_a_probe_fault(
+        raw: bytes,
+    ) -> tuple[dict[str, object], str] | None:
+        # Zero bytes is the readiness probe, not malformed input.
+        if not raw:
+            return None
+        return original_parse(raw)
+
+    original_parse = parse
+    parse_without_a_probe_fault.__cmd_mox_empty_probe_guard__ = True
+    # Kept reachable so a regression test can put the unguarded parser back and
+    # show the traceback really is what the guard prevents, rather than
+    # asserting a silence that was never at risk.
+    parse_without_a_probe_fault.__cmd_mox_unguarded__ = original_parse
+    ipc_server._parse_payload = parse_without_a_probe_fault
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _cmd_mox_empty_probe_tolerance() -> None:
+    """Apply the cmd-mox readiness-probe guard once per test session."""
+    _enable_cmd_mox_empty_probe_tolerance()
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _cmd_mox_replay_idempotence() -> None:
     """Apply cmd-mox replay compatibility patch once per test session."""

@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- Fix the `out` step aborting under nektos/act with "Parameter
+  INPUT_ARTEFACT_NAME_SUFFIX specified multiple times". act exports every
+  composite input into the step environment under its dashed name, so
+  `INPUT_ARTEFACT-NAME-SUFFIX` arrived alongside the underscored
+  `INPUT_ARTEFACT_NAME_SUFFIX` the step's own `env:` block set. Cyclopts
+  normalizes both spellings onto one parameter, so the blanket `Env("INPUT_")`
+  binding resolved that parameter twice and aborted before the outputs were
+  written. The step now passes `output-path` and `artefact-name-suffix` as
+  explicit command-line arguments, and `set_outputs.py` no longer binds
+  `Env("INPUT_")`. An argument cannot collide with an environment variable, so
+  the step behaves identically under act and on GitHub-hosted runners; no
+  exception is caught or suppressed. The step carries those values in
+  `GC_`-prefixed variables, not `INPUT_`-prefixed ones, so that act's dashed
+  copy of an input never sits beside a variable this action sets. The `file`,
+  `format`, and `artefact-name` outputs are unchanged, as is the
+  `publish-artefact` default of `"true"`.
+- Guard that fix with an act fixture of its own,
+  `.github/workflows/test-generate-coverage.yml`, driven by the pytest harness
+  under `ACT_WORKFLOW_TESTS=1`. The lane is `workflow_dispatch`-only and stays
+  GitHub-hosted: act ignores a workflow's `on:` clause, so the trigger claims
+  nothing about where the job runs, and the harness maps only the
+  `ubuntu-latest` image, so the Ubicloud label the repository's other
+  self-tests take would make act print "Skipping unsupported platform" and run
+  no step. It reaches cargo through `cargo-manifest`, so it states both a
+  `cargo-wait-timeout` and a `timeout-minutes` the watchdog cannot pre-empt:
+  240 s against the `coverage` tier's 30 minutes, which is the smallest tier
+  the 600 s outside-window allowance and 900 s margin leave available.
 - Stop a warm Python dependency cache from breaking `uv venv`, on the suspected
   cause that restored `~/.cache/uv/environments-v2` script environments, bound
   to the interpreter and runner that built them, were unusable elsewhere. The

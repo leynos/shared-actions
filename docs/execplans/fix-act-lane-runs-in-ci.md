@@ -391,6 +391,7 @@ replay produces, and `gh stack submit` pushes it with `--force-with-lease`.
 | F11 | github-script validates `github-token` before the script, and act leaves it empty      | D9       |
 | F12 | the heaviest fixture exceeds the harness's 300 s act budget on a cold CI runner        | see F12  |
 | F13 | CodeRabbit: dispatch skip read as act, silent version abort, D3 wording, pinned error  | see F13  |
+| F14 | bash 3.2 ignores errexit for `[[ ]]`, so the assertion refused nothing on macOS        | see F14  |
 
 ## The stack, once the rebase lands
 
@@ -747,3 +748,96 @@ the top: `test_action_behaviours.py` and `test_cmd_mox_ipc_disconnect.py` are
 changed only there, and the timeout is the top's fixture (the generate-coverage
 case exists only on the top; the bottom's copy of `test_action_behaviours.py`
 has no such case at all).
+
+### The fourth restack, and publication
+
+The F13 fixes landed in two commits, one per layer. On the top, `04570bfb`
+(F12's timeout) and `60ce6f38` (the IPC error pair) — both committed first, so
+the top could be replayed without carrying uncommitted work across a branch
+switch. On the bottom, `c8066cd5`, "Read a dispatch's skip as a skip, and say
+what the version check found", carrying the resolve fixture, `ci.yml`, both new
+contracts, and this file.
+
+All six gates were green on the bottom candidate before the commit (check-fmt,
+typecheck, lint, test 3636 passed / 141 skipped, markdownlint, nixie), and the
+two new contracts executed rather than being skipped: three cases in
+`test_act_job_version_assertion.py` and eleven in
+`test_resolve_workflow_source_fixture.py`. `make test-act` was deliberately
+excluded from the gate pass and run separately afterwards.
+
+The bottom's push needed the SSH-with-explicit-leases bypass for the first time:
+`c8066cd5` is the first bottom commit whose range touches
+`.github/workflows/*` (ci.yml and the resolve fixture), and the OAuth token has
+no `workflow` scope. The push was a fast-forward from `7b02bf83` over
+`git@github.com:`, with every injected `GIT_CONFIG_*` variable unset.
+
+The top was replayed with the same explicit invocation, boundary `7b02bf83`
+onto target `c8066cd5`:
+
+```text
+git -c merge.conflictStyle=zdiff3 rebase --merge --no-fork-point \
+  --no-update-refs --no-autostash --reapply-cherry-picks --keep-empty \
+  --empty=stop --onto c8066cd5 7b02bf83 issue-515-…
+```
+
+All 23 commits replayed with zero conflicts; new head `6ba0c160`. The bottom
+commit touches five files and the top's 23 commits touch twenty-two; the two
+sets are disjoint, so no replay could conflict. Recovery refs
+`refs/recovery/issue515-r4-old-head-20261002-202039` (`60ce6f38`),
+`…-old-base-…` (`7b02bf83`), `…-target-…` (`c8066cd5`) and `…-remote-head-…`
+(`c9d7ce6c`) are retained. Audit:
+`range-diff 7b02bf83..60ce6f38 c8066cd5..6ba0c160` reports all 23 entries
+patch-identical; 23 commits, no merges, `git diff --check` clean.
+
+The top's push also took the bypass, its lease bound to the head published
+before the operation (`c9d7ce6c`). The tracking ref was force-refreshed to the
+pushed head, and `gh stack submit --auto` then reported both PRs up to date and
+synced the stack object (#584). Verified topology: PR #583
+`fix/act-lane-runs-in-ci → main`, PR #516
+`issue-515-… → fix/act-lane-runs-in-ci`, heads `c8066cd5` and `6ba0c160`,
+`needsRebase: false` on both.
+
+### The act lane, green on the restacked top
+
+`make test-act` ran to completion on the restacked top: **1099 passed, 108
+skipped in 1386 s (23:06)**, zero failures and zero errors. Log:
+`/tmp/test-act-shared-actions-fix-act-lane-runs-in-ci.out`.
+
+The two fixtures this cycle fixed both passed: the F12 case
+(`test_env_overrides_normalize_inputs[generate-coverage-out-no-suffix]`) under
+its 600 s budget, and all twelve resolve-fixture cases, including the two new
+executed pairs. The whole lane also passed on the pre-restack bottom
+(`7b02bf83`) in CI in 11m01s, so the local run agrees with CI on the lane's
+outcome for this change surface.
+
+### What the fourth CI run found: F14, and the lane's blind spot
+
+Both heads (`c8066cd5`, `6ba0c160`) went green everywhere except
+`python-tests (macos)`, which failed the same four cases on each: the new
+`test_the_assertion_refuses_any_other_pair` rows, each reporting the assertion
+had *accepted* a pair it must refuse. `act-workflows` passed on both heads.
+
+**F14 — bash 3.2 does not treat a failing `[[ ]]` as fatal under errexit, so
+the fixture's refusal depended on the host shell.** macOS still ships bash 3.2
+as `/bin/bash`, which is the `bash` the macOS job's tests resolve; there,
+`set -e` aborts on a failing `[ ]` or `test` but not on a failing `[[ ]]`. The
+assertion step's refusals were bare `[[ ]]` statements, so on macOS they were
+no-ops: the step fell through to its diagnostic `echo`s and exited 0 for every
+pair. The Linux job and act (Ubuntu, bash 5) never saw it, which is why the
+lane passed while macOS failed — the lane is Linux-only, so this is the first
+defect in this cycle the lane could not have caught and the plain macOS suite
+could. Reproduced in `docker.io/library/bash:3.2` under podman: the old script
+exits 0 for all four refusal pairs, the new one exits 1 for all ten non-real
+pairs and 0 for the two real ones, in both 3.2 and 5.2.
+
+The fix spells the refusal as nested `if` / `exit 1`, which both shells honour,
+and the contract's module docstring now records why the explicit form is
+required. The assertion is the one this cycle already rewrote once (F13's first
+finding) — that rewrite fixed the *logic* for a dispatch and this one fixes its
+*portability*, and the executed cases caught each.
+
+Worth recording for the next cycle: the act lane cannot see this class of
+defect. It runs on Linux with bash 5, so any assertion whose behaviour differs
+by shell is invisible to it; the macOS leg of `python-tests` is the only place
+such a defect shows, and it only shows when a contract executes the script
+rather than matching its text.

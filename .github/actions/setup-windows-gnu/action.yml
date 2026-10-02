@@ -44,7 +44,7 @@ runs:
     - name: Install MinGW toolchains
       # Consumers can add extra cross linkers in their workflows if they
       # require GCC-based aarch64 binaries. llvm-mingw provides clang by default.
-      uses: msys2/setup-msys2@fb197b72ce45fb24f17bf3f807a388985654d1f2
+      uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884
       with:
         msystem: MINGW64
         update: true

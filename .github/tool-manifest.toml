@@ -305,3 +305,48 @@ version-args = ["--version"]
   sha256 = "51f4898058d7bae48255a15663cafc14fcee3e352f271a916b2c057587070977"
   member = "merman-cli.exe"
   sidecar-verified = "true"
+
+# act runs the repository's act lane, the workflow fixtures under
+# `tests/workflows` that execute a real GitHub Actions runner locally. It is a
+# Go project, and its archives carry the binary and its documentation at the
+# archive root rather than under a versioned directory.
+[[tool]]
+name = "act"
+version = "0.2.89"
+binary = "act"
+version-args = ["--version"]
+
+  [[tool.target]]
+  triple = "x86_64-unknown-linux-gnu"
+  url = "https://github.com/nektos/act/releases/download/v0.2.89/act_Linux_x86_64.tar.gz"
+  sha256 = "0191d6f1f3b716b5c55820032605d05fc3c1cdbf581ebeff655019e5dd1524c0"
+  member = "act"
+  sidecar-verified = "true"
+
+  [[tool.target]]
+  triple = "aarch64-unknown-linux-gnu"
+  url = "https://github.com/nektos/act/releases/download/v0.2.89/act_Linux_arm64.tar.gz"
+  sha256 = "daa8679ba9615a74d2d0cec321dc593f21948a2a11bb65862b063d8b930f4bcb"
+  member = "act"
+  sidecar-verified = "true"
+
+  [[tool.target]]
+  triple = "x86_64-apple-darwin"
+  url = "https://github.com/nektos/act/releases/download/v0.2.89/act_Darwin_x86_64.tar.gz"
+  sha256 = "41b31488e7c254baec31cce12c7dade3e35973b8a31b9486206ad43f233d814e"
+  member = "act"
+  sidecar-verified = "true"
+
+  [[tool.target]]
+  triple = "aarch64-apple-darwin"
+  url = "https://github.com/nektos/act/releases/download/v0.2.89/act_Darwin_arm64.tar.gz"
+  sha256 = "48ae218af96725f7635a66de2b87e1e346893b02add0f16b92f560296b2151fc"
+  member = "act"
+  sidecar-verified = "true"
+
+  [[tool.target]]
+  triple = "x86_64-pc-windows-msvc"
+  url = "https://github.com/nektos/act/releases/download/v0.2.89/act_Windows_x86_64.zip"
+  sha256 = "0f8cf866ad7e32421a219fc551a0a0ea5d12ead464de12ebfeafd334a5973b50"
+  member = "act.exe"
+  sidecar-verified = "true"

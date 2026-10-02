@@ -124,11 +124,21 @@ class TestPlatformImages:
         )
 
     def test_every_image_is_the_same_ubuntu_shape(self) -> None:
-        """The image is act's Ubuntu shape, named once."""
+        """The image is act's Ubuntu shape, named once.
+
+        The suite exercises `install-whitaker`, so the image has to carry a
+        Rust toolchain: the action verifies the extracted `cargo-dylint` with
+        `cargo dylint --version` before installing it. This is the clause that
+        keeps the image from drifting back to one the lane cannot pass on.
+        """
         images = conftest._platform_images()
         assert images, "the map must not be empty: act would skip every job"
         assert {image.split("=", 1)[1] for image in images} == {conftest._ACT_IMAGE}, (
             f"one image per label, all of them {conftest._ACT_IMAGE}: got {images}"
+        )
+        assert conftest._ACT_IMAGE.endswith(":rust-latest"), (
+            f"{conftest._ACT_IMAGE} carries no Rust toolchain, so the "
+            "install-whitaker cases would fail the dylint verification probe"
         )
 
     def test_the_platform_flag_is_repeated_per_label(self, tmp_path: Path) -> None:

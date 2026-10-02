@@ -107,12 +107,14 @@ def selects(condition: object, environment: cabc.Mapping[str, str]) -> bool:
     return equal if match["operator"] == "==" else not equal
 
 
-def _environment(step: cabc.Mapping[str, object], ambient: dict[str, str]) -> dict[str, str]:
+def _environment(
+    step: cabc.Mapping[str, object], ambient: dict[str, str]
+) -> dict[str, str]:
     """Return *ambient* with the step's own `env` merged over it."""
     declared = step.get("env") or {}
     if not isinstance(declared, dict):  # pragma: no cover - malformed fixture
         msg = f"{WORKFLOW}: step env is not a mapping: {declared!r}"
-        raise AssertionError(msg)
+        raise TypeError(msg)
     return {**ambient, **{str(name): str(value) for name, value in declared.items()}}
 
 
@@ -139,7 +141,9 @@ def test_each_runner_selects_exactly_one_half(
     reaches, and act's own `ACT` write happens below it.
     """
     selected = {
-        identifier: selects(_step(identifier).get("if"), _environment(_step(identifier), ambient))
+        identifier: selects(
+            _step(identifier).get("if"), _environment(_step(identifier), ambient)
+        )
         for identifier in (ACT_STEP, OIDC_STEP)
     }
 

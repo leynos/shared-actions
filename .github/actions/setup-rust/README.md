@@ -291,6 +291,15 @@ annotation titled `sccache-fallback`, the line
 `sccache-status=fallback` as an output (`started` otherwise). The annotation
 title is a contract that estate-wide detectors match on; it never changes.
 
+The sccache action's own end-of-job statistics table and notice are switched off
+(`disable_annotations: true` on both of its uses, held by a contract). Despite
+its name the input disables the action's whole post-job report, which runs
+`sccache --show-stats` and fails the job if that errors. After a fallback the
+server is dead and `--show-stats` restarts it, so a second startup timeout
+would turn a lost cache into a red job. Report statistics yourself with a step
+guarded on `sccache-status != 'fallback'`, or with the `sccache-report` action
+once it is available.
+
 Some exports have to be put back rather than made. The last thing
 `mozilla-actions/sccache-action` does is write `ACTIONS_CACHE_SERVICE_V2=on` to
 `GITHUB_ENV`, along with the runner's own `ACTIONS_RESULTS_URL` and

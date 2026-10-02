@@ -143,6 +143,15 @@ existing callers need do nothing. A caller that itself runs
 `fallback`, since asking a server that never started would try to start it
 again.
 
+The sccache action's own end-of-job statistics table and notice are no longer
+produced: `setup-rust` sets `disable_annotations: true` on both of its uses of
+the action. Despite its name that input disables the whole post-job report,
+which runs `sccache --show-stats` and fails the job if it errors. After a
+fallback the server is dead and `--show-stats` restarts it, so a second startup
+timeout would turn a lost cache into a red job. If you want the table, report
+it yourself with a step guarded on `sccache-status != 'fallback'`, or with the
+`sccache-report` action once it is available.
+
 Some exports have to be put back rather than made, and that is the reason
 `use-sccache: 'true'` used to be unusable on Ubicloud. The last thing
 `mozilla-actions/sccache-action` does is write `ACTIONS_CACHE_SERVICE_V2=on` to

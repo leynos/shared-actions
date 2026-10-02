@@ -362,6 +362,20 @@ not from `RUSTC_WRAPPER`: an inherited wrapper may name this very binary, and
 stopping the server behind it would discard the statistics of everything
 compiled so far in the job.
 
+The nested `mozilla-actions/sccache-action` registers a post-job step that runs
+`sccache --show-stats` and calls `setFailed` on an error. After a fallback that
+command restarts the dead server, so it could fail a job whose build had
+already succeeded without the cache. Its only switch is the
+`disable_annotations` input, which despite the name returns before any
+statistics call, so both uses in `setup-rust` set it to `true`. The cost is
+that the action's own table and notice are gone, which is why consumers report
+statistics themselves, guarded on `sccache-status`.
+`.github/actions/tests/test_sccache_action_post_report.py` scans every workflow
+and action manifest in the repository and fails for any use that lacks a literal
+`true`, including one added somewhere other than `setup-rust`; mutation proof
+covers removing it from either use, setting it `false`, adding an unprotected
+use elsewhere, and renaming the action out from under the scan.
+
 The manifest tests hold the whole chain: selection, record, sccache steps,
 restore, wrapper export, start. `GITHUB_ENV` reaches only the next step, so no
 two of these can be merged.

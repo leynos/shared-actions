@@ -810,11 +810,19 @@ runs:
         record ACTIONS_RUNTIME_TOKEN runtime_token secret
 
     # x86_64-apple-darwin binaries were dropped after sccache v0.12.0
+    # `disable_annotations: true` on EVERY sccache-action use, which a contract
+    # enforces. Despite its name the input switches off the action's whole
+    # post-job report, not only annotations. That report runs
+    # `sccache --show-stats` and fails the job when it errors; after the server
+    # fallback below the server is dead, `--show-stats` restarts it, and a
+    # second timeout would turn a lost cache into a red job. Statistics are
+    # the caller's to report, with a step guarded on `sccache-status`.
     - name: Run sccache (x86_64 macOS)
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' && runner.os == 'macOS' && runner.arch == 'X64' }}
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
       with:
         version: v0.12.0
+        disable_annotations: true
     - name: Run sccache
       # Pinned, like its x86_64 macOS sibling. Left unset, the action asks the
       # GitHub API for the latest release on every job: a floating dependency
@@ -829,6 +837,7 @@ runs:
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
       with:
         version: v0.17.0
+        disable_annotations: true
     - name: Restore the caller's cache service selection
       # AFTER both sccache-action steps and BEFORE anything starts a server,
       # deliberately. Undoes what those steps wrote to GITHUB_ENV, so a caller

@@ -2217,6 +2217,27 @@ of this repository needs.
   package, and refuses an anchor that no longer occurs exactly once. A clause
   is proved in both directions: a fixture that fails without it, and a narrow
   case that passes when it is over-broadened.
+- **Artefact paths.** `report_paths.could_hold_the_report(entry, report)`
+  judges one line of a lane's `upload-artifact` `path` by what it could select,
+  so `publish-artefact: 'false'` cannot be defeated by an upload of `.`, a
+  parent directory, a glob or an unresolved expression. Its order is fixed: a
+  negation clears; the report's name refuses; any `${{` is judged before an
+  absolute prefix (`/tmp/${{ x }}` can climb out); an absolute or `~` path
+  clears only under `/tmp/` with no `..`; brace alternatives are each judged as
+  whole entries; `..` refuses; a glob is tried against the report and each
+  directory above it; a plain path refuses when it is the workspace or a prefix
+  of the report. A class the reader cannot compile (`[z-a]`) refuses. The
+  module has no glob dependency: `_glob_regex` translates `*`, `**`, `?` and
+  classes, keeping `-` a range operator. Two helpers are public for reuse.
+  `report_paths.entries_of(path)` takes the step's `path` value (any type, or
+  None) and returns its stripped, non-blank lines, with no lines for None.
+  `expressions.yielded_operands(expression)` takes a whole `${{ }}` expression
+  and returns the last `&&` operand of each top-level `||` alternative, the
+  only values it can produce, and raises `ConditionError` on unbalanced quotes
+  or parentheses. `tests/test_report_paths.py` holds a breaching and a narrow
+  case per reading and four bounded exhaustive properties with built oracles:
+  prefix against sibling, a starred component, scratch traversal and expression
+  results. The origin was chutoro's pre-adoption `report_paths.py`.
 - **Parity exclusion.** The parity rule leaves out environment keys that pin or
   place a tool (`*_VERSION`, `*_REV`, `*_SHA256*`, uv directories, Cargo
   retries) on the ground that `generate-coverage` never reads them.

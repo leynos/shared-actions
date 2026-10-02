@@ -66,12 +66,14 @@ jobs:
           set -euo pipefail
           # Under act the act branch succeeds and the fail-fast branch is
           # skipped; on a dispatch the reverse. A skipped step reports the
-          # outcome "skipped", so requiring the one and refusing the other is
-          # what proves exactly one guard fired.
-          if [[ -n "${ACT_OUTCOME}" ]]; then
-            [[ "${ACT_OUTCOME}" == "success" && "${OUTCOME}" == "skipped" ]]
+          # outcome "skipped", not the empty string, so the runner is told
+          # apart by asking whether the act branch *succeeded*: an emptiness
+          # test would read a dispatch's skip as act and demand the impossible
+          # pair, failing the very run this half exists for.
+          if [[ "${ACT_OUTCOME}" == "success" ]]; then
+            [[ "${OUTCOME}" == "skipped" ]]
           else
-            [[ "${OUTCOME}" == "failure" ]]
+            [[ "${ACT_OUTCOME}" == "skipped" && "${OUTCOME}" == "failure" ]]
           fi
           if [[ "${ACT_OUTCOME}" == "success" ]]; then
             echo "resolve_act_branch=ok"

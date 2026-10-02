@@ -227,6 +227,72 @@ jobs:
           # only published report is the one main uploads to CodeScene.
           publish-artefact: 'false'
 
+  act-workflows:
+    # The act lane, which runs the workflow fixtures in `tests/workflows`
+    # against a real act runner. It is here rather than in a separate workflow
+    # because nothing ran it at all before: the lane is opt-in behind
+    # `ACT_WORKFLOW_TESTS`, so the plain suite skipped it and the failures it
+    # was carrying were visible only to whoever ran it by hand.
+    #
+    # The lane needs a container runtime, and act itself is run by the suite
+    # rather than by this job, so nothing here installs one. That is the point
+    # of the assertion in the lane step below: with the lane requested, a
+    # runtime the probe cannot reach fails the run instead of skipping every
+    # fixture into a green job.
+    name: act-workflows
+    # The lane measures ~13 minutes on an idle six-core host, and each arm
+    # pulls a multi-gigabyte image before it starts. The `coverage` tier,
+    # which is what `JOB_TIERS` records for this job, is the only one that
+    # covers it without pretending to a measurement nobody has taken.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    # Job-level because two steps read it: `install-tool` pins the archive to
+    # this version, and the lane assertion below names it. A step-level `env:`
+    # is visible only to the step that declares it.
+    env:
+      ACT_VERSION: '0.2.89'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Setup uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: '3.13'
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+            **/scripts/*.py
+      # Pinned and digest-verified like every other tool here. It also fixes
+      # the version the lane runs on: without it the suite would take whatever
+      # `act` a runner happened to have, and the Makefile's own resolution
+      # prefers `~/go/bin/act` and `~/.local/bin/act` before PATH.
+      - name: Install act
+        uses: ./.github/actions/install-tool
+        with:
+          tool: act
+          version: ${{ env.ACT_VERSION }}
+      - name: Run the act workflow lane
+        # `install-tool` appends its bin directory to `GITHUB_PATH`, but the
+        # Makefile resolves `ACT` with `wildcard`, which reads the filesystem
+        # rather than PATH and so cannot see it. Passing the resolved path is
+        # what puts the pinned act in the lane's hands, and the assertion is
+        # what proves it did: a runner with its own `act` earlier on PATH would
+        # otherwise run the lane on a version nobody pinned.
+        run: |
+          set -euo pipefail
+          ACT_BIN="$(command -v act)"
+          ACT_FOUND="$("${ACT_BIN}" --version)"
+          [[ "${ACT_FOUND}" == *"${ACT_VERSION}"* ]]
+          echo "running the lane on: ${ACT_FOUND} (${ACT_BIN})"
+          make test-act ACT="${ACT_BIN}"
+        env:
+          PYTHONIOENCODING: utf-8
+        shell: bash
+
   python-tests-windows:
     timeout-minutes: 20
     permissions:

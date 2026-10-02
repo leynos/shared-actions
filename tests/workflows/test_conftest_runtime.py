@@ -354,6 +354,36 @@ def test_skip_marker_uses_act_runtime_probe(monkeypatch: pytest.MonkeyPatch) -> 
     )
     monkeypatch.setattr(conftest, "_probe_act_runtime", lambda: status)
     conftest._get_act_runtime_status.cache_clear()
+    monkeypatch.delenv("ACT_WORKFLOW_TESTS", raising=False)
 
     with pytest.raises(pytest.skip.Exception, match="act unavailable in test"):
+        conftest.pytest_runtest_setup(typ.cast("pytest.Item", MarkedItem()))
+
+
+def test_the_lane_refuses_to_pass_without_a_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An opted-in lane fails rather than skipping when the runtime is gone.
+
+    A skip reports success. In CI that would mean `make test-act` exiting
+    zero without running a single fixture, which is the failure this
+    module's neighbour already records for the runner-labelled workflow:
+    the job looks green and proves nothing. The plain suite is unaffected,
+    because it never asks for the lane.
+    """
+
+    class MarkedItem:
+        def __init__(self) -> None:
+            self.keywords = {"skip_unless_act": object()}
+
+    status = conftest.ActRuntimeStatus(
+        available=False,
+        reason="act unavailable in test",
+        env={},
+    )
+    monkeypatch.setattr(conftest, "_probe_act_runtime", lambda: status)
+    conftest._get_act_runtime_status.cache_clear()
+    monkeypatch.setenv("ACT_WORKFLOW_TESTS", "1")
+
+    with pytest.raises(pytest.fail.Exception, match="the act lane was requested"):
         conftest.pytest_runtest_setup(typ.cast("pytest.Item", MarkedItem()))

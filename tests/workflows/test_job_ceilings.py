@@ -54,6 +54,12 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ("ci.yml", "python-tests"): "suite",
     ("ci.yml", "python-tests-windows"): "suite",
     ("ci.yml", "coverage"): "coverage",
+    # The act lane. Every tier above is a measurement of work this
+    # repository already runs, and this one has none: 13 minutes measured
+    # on an idle six-core host, plus a multi-gigabyte image pull on an arm
+    # whose disk and network are not the same machine. `coverage` is the
+    # only tier that covers that without inventing a new one.
+    ("ci.yml", "act-workflows"): "coverage",
     ("coverage-main.yml", "coverage-upload"): "coverage",
     ("rust-toy-app.yml", "build-release"): "build",
     ("test-determine-release-modes.yml", "test-determine-modes"): "assertion",

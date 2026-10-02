@@ -841,3 +841,42 @@ defect. It runs on Linux with bash 5, so any assertion whose behaviour differs
 by shell is invisible to it; the macOS leg of `python-tests` is the only place
 such a defect shows, and it only shows when a contract executes the script
 rather than matching its text.
+
+### The fifth restack, and both PRs green
+
+F14's fix and its record landed on the bottom as `4e475c52` and `503200f5`,
+gated locally (all six gates green; `make test` 3636 passed / 141 skipped) and
+pushed over the SSH bypass — the fix touches
+`.github/workflows/test-resolve-workflow-source.yml`, so the OAuth token's
+missing `workflow` scope again refused a plain push.
+
+The top was replayed with the same explicit invocation, boundary `c8066cd5`
+onto target `503200f5`:
+
+```text
+git -c merge.conflictStyle=zdiff3 rebase --merge --no-fork-point \
+  --no-update-refs --no-autostash --reapply-cherry-picks --keep-empty \
+  --empty=stop --onto 503200f5 c8066cd5 issue-515-…
+```
+
+All 23 commits replayed with zero conflicts; new head `ef7c4748`. Recovery refs
+`refs/recovery/issue515-r5-old-head-20261002-211952` (`6ba0c160`),
+`…-old-base-…` (`c8066cd5`) and `…-target-…` (`503200f5`) are retained. Audit:
+`range-diff c8066cd5..6ba0c160 503200f5..ef7c4748` reports all 23 entries
+patch-identical; 23 commits, no merges, `git diff --check` clean. The top's
+push took the bypass with its lease bound to `6ba0c160`, the tracking refs were
+force-refreshed, and `gh stack submit --auto` synced the stack object.
+
+**Both PRs are now fully green in CI, macOS included.** Run 37053390324 (bottom
+`503200f5`): all five jobs success, `act-workflows` 11m26s. Run 37053451127 (top
+`ef7c4748`): all five jobs success, `act-workflows` 13m36s — the F12 fixture
+completing inside its 600 s budget on a cold runner, which is what that
+override was for. Both PRs report `mergeable=MERGEABLE`,
+`mergeStateStatus=CLEAN`, no longer drafts. The macOS leg passing on both is
+F14's proof: the same four cases that failed the fourth run pass now, and the
+act lane's own run cannot show the difference because it never runs bash 3.2.
+
+PR bodies were updated for this cycle: #583 gains the dispatch-skip fix, the
+loud version assertion, and the bash 3.2 portability fix, with the lane result
+refreshed to 1099 passed / 108 skipped; #516 gains the F12 timeout and the IPC
+error pair.

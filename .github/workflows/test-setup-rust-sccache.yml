@@ -69,6 +69,52 @@ jobs:
           # hello-world binary proves neither.
           .github/scripts/assert-sccache-cached-a-build.sh "$RUSTC_WRAPPER" "Local disk"
 
+  declines-the-wrapper:
+    # The input end to end on a real runner: with `export-rustc-wrapper: false`
+    # no later step inherits RUSTC_WRAPPER, the server has started, the
+    # `sccache-path` output names an executable, and a command that scopes the
+    # wrapper to itself compiles through sccache. The unit tests run these
+    # pieces separately against a stub.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        id: setup
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'true'
+          export-rustc-wrapper: 'false'
+
+      - name: Verify the wrapper stayed out and the path works
+        shell: bash
+        env:
+          SCCACHE_STATUS: ${{ steps.setup.outputs.sccache-status }}
+          SCCACHE_BINARY: ${{ steps.setup.outputs.sccache-path }}
+        run: |
+          set -euo pipefail
+          if [[ ${RUSTC_WRAPPER+x} ]]; then
+            echo "::error::RUSTC_WRAPPER reached this step: ${RUSTC_WRAPPER}" >&2
+            exit 1
+          fi
+          if [[ "$SCCACHE_STATUS" != started ]]; then
+            echo "::error::the server did not start: status=${SCCACHE_STATUS:-empty}" >&2
+            exit 1
+          fi
+          if [[ -z "$SCCACHE_BINARY" || ! -x "$SCCACHE_BINARY" ]]; then
+            echo "::error::sccache-path is not an executable: ${SCCACHE_BINARY:-empty}" >&2
+            exit 1
+          fi
+          # A command that scopes the wrapper to itself is the documented
+          # pattern; the probe fails unless a cacheable compile reached sccache.
+          RUSTC_WRAPPER="$SCCACHE_BINARY" \
+            .github/scripts/assert-sccache-cached-a-build.sh "$SCCACHE_BINARY" "Local disk"
+
   respects_a_caller_backend_choice:
     # A caller who turned the backend off must stay off, so the action cannot
     # quietly re-enable a cache they declined.

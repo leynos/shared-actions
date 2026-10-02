@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add an `export-rustc-wrapper` input (default `true`, no behaviour change) and
+  a `sccache-path` output. `false` leaves `RUSTC_WRAPPER` unset for the job so
+  a root lane run through `sudo -E` and nested cargo builds such as trybuild
+  fixtures do not inherit a wrapper they cannot use; the server still starts,
+  `SCCACHE_PATH` stays exported, and the caller scopes the wrapper to the
+  commands that should use it. The export step reports a new `not-exported`
+  outcome in `metric setup-rust.sccache.wrapper=<exported|not-exported|...>`.
+
 - Raise sccache's server startup timeout to 60 s through an `SCCACHE_CONF`
   config file, merged into any config the caller already names, and make a
   server that will not start fail open. The 10 s default intermittently expired

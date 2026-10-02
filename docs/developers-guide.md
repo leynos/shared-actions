@@ -276,6 +276,34 @@ set the wrapper itself compiled without it. Chutoro recorded zero compile
 requests, and the cost only became visible once the `target` archive that had
 been masking it was removed.
 
+A job-wide wrapper reaches processes that cannot use it: a root lane run through
+`sudo -E` (root's `rustc` against a server owned by the runner user) and
+nested cargo builds such as trybuild fixtures. The `export-rustc-wrapper` input
+(default `true`, so nothing changes) lets a job decline it: the export step
+then reports `not-exported` and does not write `RUSTC_WRAPPER`; `SCCACHE_PATH`
+stays as the sccache action exported it. The server start treats `not-exported`
+like `exported`, so a scoped wrapper finds a running server, and it publishes
+the `sccache-path` output only after a successful start: after a fallback the
+output is empty, because wrapping with it would restart a dead server. The
+input is read only after the caller-set check, so it can never override a
+caller's wrapper, and only the exact value `true` exports (an explicitly empty
+value opts out; the shell default is `${EXPORT_WRAPPER-true}`, which
+distinguishes unset from empty).
+
+Measured on pg-embed's trybuild `ui` binary with a local-disk store (1,547
+compile requests, 1,265 executed), every executed compile was a miss, on a
+second run as well, so the wrapper added only cost there: 252 s plain, 269 s
+cold, 261 s on the second run. On a networked backend each of those misses also
+pays a store round trip, which is the likely source of the several-fold
+slowdown seen in CI (125 s to past 360 s); that part is inferred, not
+reproduced.
+
+A shim that falls through to plain `rustc` for root was considered and held
+back: it would stop `RUSTC_WRAPPER` naming sccache, which breaks the caller-set
+detection here and contracts in several consumers.
+`test_rustc_wrapper_export.py` holds the input's default, the opt-out, the
+published path and the precedence of a caller's value.
+
 Rules to keep:
 
 - A caller's existing `RUSTC_WRAPPER` wins, including a deliberate empty value,
@@ -290,9 +318,8 @@ Rules to keep:
 
 Every terminal path reports one bounded
 `metric setup-rust.sccache.wrapper=<state>` line over `exported`,
-`exported-stats-not-zeroed`, `caller-set`, and `missing-sccache-path`. Keep the
-name fixed and the values inside that set, with no path or wrapper value in the
-line.
+`not-exported`, `caller-set`, and `missing-sccache-path`. Keep the name fixed
+and the values inside that set, with no path or wrapper value in the line.
 
 The backend is chosen in a separate step **before** the sccache-action steps,
 and that position is the whole point. sccache binds its backend once, when the

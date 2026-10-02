@@ -138,20 +138,23 @@ def _run_main_capturing_cargo(
     return calls
 
 
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [("true", True), ("false", False), (None, False)],
-)
+#: An environment for the Rust step, and whether cargo should then see the flag.
+ENVIRONMENT_CASES = [
+    ({"INPUT_ALLOW_NO_TESTS": "true"}, True),
+    ({"INPUT_ALLOW_NO_TESTS": "false"}, False),
+    ({}, False),
+]
+
+
+@pytest.mark.parametrize("case", ENVIRONMENT_CASES, ids=["true", "false", "unset"])
 def test_environment_input_selects_the_flag_end_to_end(
     run_rust: ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    value: str | None,
-    *,
-    expected: bool,
+    case: tuple[dict[str, str], bool],
 ) -> None:
     """The action's environment variable decides whether cargo sees the flag."""
-    environment = {} if value is None else {"INPUT_ALLOW_NO_TESTS": value}
+    environment, expected = case
     monkeypatch.delenv("INPUT_ALLOW_NO_TESTS", raising=False)
 
     (call,) = _run_main_capturing_cargo(run_rust, tmp_path, monkeypatch, environment)

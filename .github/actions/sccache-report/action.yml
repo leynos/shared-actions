@@ -78,9 +78,11 @@ runs:
           echo "::notice title=sccache-report::$1"
           echo "metric sccache-report.outcome=$2"
         }
-        # A server that fell back never started. `sccache --show-stats` would
-        # start it again, wait out its startup timeout and fail the step, which
-        # would turn the documented fail-open into a red job.
+        # A server that fell back never started. With no server,
+        # `sccache --show-stats` does not start one (that is `--zero-stats`);
+        # it prints empty default statistics. Reporting them would publish a
+        # table of zeros for a job that never used the cache, which reads as a
+        # wrapper that never reached the compiler.
         if [[ "${SR_STATUS}" == fallback ]]; then
           stand_down "sccache fell back to an uncached build; there are no statistics to report" fallback
           exit 0

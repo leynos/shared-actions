@@ -9,11 +9,12 @@ reports that the sccache server fell back to an uncached build.
 With `setup-rust` at shared-actions #546 a server that will not start within
 its 60 s timeout no longer fails the job: the action clears `RUSTC_WRAPPER`,
 raises a `sccache-fallback` annotation and sets its `sccache-status` output to
-`fallback`. A server that never started has no statistics, and
-`sccache --show-stats` would start it again, wait out the startup timeout and
-fail the step, turning the documented fail-open into a red job. Every consumer
-that read statistics after the build needed the same guard. This action owns it
-once.
+`fallback`. A server that never started has no statistics: with no server,
+`sccache --show-stats` does not start one (`sccache --zero-stats` does) and
+prints empty default statistics, a table of zeros for a job that never used the
+cache, which reads as a wrapper that never reached the compiler. Every consumer
+that read statistics after the build carried the same guard by hand. This
+action owns it once.
 
 It cannot live inside `setup-rust`: the statistics exist only after the build,
 when `setup-rust` has long finished, and a composite action has no post step.

@@ -492,9 +492,11 @@ server starts, so credentials published afterwards arrive too late.
 Since `setup-rust` fails open (a server that will not start falls back to an
 uncached build and reports `sccache-status` `fallback`), any step that reads
 sccache's statistics after the build must stand down on a fallback: the dead
-server has none, and `sccache --show-stats` would start it again, wait out the
-startup timeout and fail the step. whitaker, netsuke and podbot each needed the
-same guard added by hand.
+server has none, and with no server `sccache --show-stats` prints empty default
+statistics instead of starting one (`sccache --zero-stats` is the command that
+starts a server), so an unguarded report publishes a table of zeros for a job
+that never used the cache. whitaker, netsuke and podbot each carry the same
+guard added by hand.
 
 The `sccache-report` action owns it once. It cannot be part of `setup-rust`,
 whose work ends before the build and which, as a composite action, has no post

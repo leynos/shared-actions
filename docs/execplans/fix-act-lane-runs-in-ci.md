@@ -535,3 +535,40 @@ temproot/basetemp are resolved.
 **F10 — no change.** The `curl: (22) … 500` on PR #583's linux leg was a
 transient upstream failure; the re-run the fixes trigger is the test of that
 judgement.
+
+### The second restack, done
+
+The top sat on `78d5c2b8`, the remote bottom head, while the local bottom had
+moved twice: `c2c3b4a7` (this record) and `61c75fd5` (the F8/F9 fixes). The
+exclusive boundary is therefore `78d5c2b8` — the last inherited commit — and
+the target `61c75fd5`. Explicit invocation, no autostash, no fork-point:
+
+```text
+git -c merge.conflictStyle=zdiff3 rebase --merge --no-fork-point \
+  --no-update-refs --no-autostash --reapply-cherry-picks --keep-empty \
+  --empty=stop --onto 61c75fd5 78d5c2b8 issue-515-…
+```
+
+All 21 commits replayed with **zero conflicts**; new head `9a08aaa7`. Recovery
+refs `refs/recovery/act-lane-top-old-head-2` (`546bfa9d`) and
+`refs/recovery/act-lane-bottom-new-61c75fd5` are retained. Log:
+`/tmp/restack-shared-actions-fix-act-lane-runs-in-ci.out`.
+
+Audit: `range-diff 78d5c2b8..546bfa9d 61c75fd5..9a08aaa7` reports **all 21
+entries patch-identical**. The new head is a linear descendant of the new
+bottom; 21 commits, no merges, `git diff --check` clean. The top-vs-bottom
+patch is byte-identical except for two hunk *line numbers* in
+`docs/developers-guide.md`, which the bottom's new `version-lead` paragraph
+shifted; the top's own hunk content is unchanged. No bottom-owned file is
+missing or altered at the new head: the 22-file overlap set is identical on
+both tops, and every bottom-only file is byte-identical.
+
+**Push shape.** The bottom's two new commits touch no `.github/workflows/*`
+file, so its push is a plain fast-forward. The top's range contains
+`.github/workflows/test-generate-coverage.yml`, so its push will hit the OAuth
+`workflow`-scope refusal recorded under "The stack, established" and needs the
+same SSH-with-explicit-leases bypass.
+
+One more replay follows this record's own edit, as before: the top head is
+whatever that replay produces, and `gh stack submit`/`push` publishes it with
+`--force-with-lease`.

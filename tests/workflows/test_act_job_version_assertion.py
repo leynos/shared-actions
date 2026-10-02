@@ -11,6 +11,12 @@ assertion exists to explain — a runner with the wrong act — was the one
 that said nothing about what it found. The step now reports the expected
 version, the binary it resolved, and the version that binary printed.
 
+The version is matched as a whole token rather than as a substring. The
+substring form accepted `0.2.890`, `10.2.89` and `0.2.89-rc.1` — each a
+version nobody pinned — so it failed open on precisely the case it exists
+for. The cases below include those near misses; a contract that only
+tested `0.2.88` would have left the fail-open green.
+
 The script is executed here, with stub `act` and `make` binaries, rather
 than matched: the property is what the step does, and only running it
 shows that a mismatch stops before `make` while a match proceeds.
@@ -97,28 +103,56 @@ def _run_step(tmp_path: Path, version_output: str) -> tuple[int, str, bool]:
 @pytest.mark.skipif(
     os.name == "nt", reason="the step is bash; the Windows job runs a different one"
 )
+@pytest.mark.parametrize(
+    "reported",
+    [
+        pytest.param("act version 0.2.88", id="an-older-version"),
+        pytest.param("act version 0.2.890", id="a-longer-version"),
+        pytest.param("act version 10.2.89", id="a-longer-major"),
+        pytest.param("act version 0.2.89-rc.1", id="a-prerelease"),
+    ],
+)
 def test_a_wrong_version_stops_before_make_and_says_what_it_found(
-    tmp_path: Path,
+    tmp_path: Path, reported: str
 ) -> None:
-    """A mismatch fails the step with the expected and found versions named."""
-    code, output, make_ran = _run_step(tmp_path, "act version 0.2.88")
+    """A mismatch fails the step with the expected and found versions named.
 
-    assert code != 0, "a runner with the wrong act must fail the step"
+    The near misses are the point. A substring test accepts all three of
+    `0.2.890`, `10.2.89` and `0.2.89-rc.1`, so a contract that only tested
+    a genuinely older version would pass a step that failed open.
+    """
+    code, output, make_ran = _run_step(tmp_path, reported)
+
+    assert code != 0, f"{reported!r} must fail the step, not run the lane"
     assert not make_ran, (
         "the lane ran on a version nobody pinned; the assertion did not stop it"
     )
     assert PINNED in output, (
         f"the failure does not name the expected version:\n{output}"
     )
-    assert "0.2.88" in output, f"the failure does not name what it found:\n{output}"
+    assert reported in output, f"the failure does not name what it found:\n{output}"
 
 
 @pytest.mark.skipif(
     os.name == "nt", reason="the step is bash; the Windows job runs a different one"
 )
-def test_the_pinned_version_proceeds_to_the_lane(tmp_path: Path) -> None:
-    """The assertion is a gate, not a blocker: the right version runs the lane."""
-    code, output, make_ran = _run_step(tmp_path, f"act version {PINNED}")
+@pytest.mark.parametrize(
+    "reported",
+    [
+        pytest.param(f"act version {PINNED}", id="bare"),
+        pytest.param(
+            f"act version {PINNED} commit 1a2b3c4d", id="with-a-trailing-detail"
+        ),
+    ],
+)
+def test_the_pinned_version_proceeds_to_the_lane(tmp_path: Path, reported: str) -> None:
+    """The assertion is a gate, not a blocker: the right version runs the lane.
+
+    A trailing detail is accepted because act's output may carry more than
+    the version; the token is bounded on both sides, not required to be
+    the whole line.
+    """
+    code, output, make_ran = _run_step(tmp_path, reported)
 
     assert code == 0, f"the pinned version failed the step:\n{output}"
     assert make_ran, "the lane was never handed to make on the pinned version"

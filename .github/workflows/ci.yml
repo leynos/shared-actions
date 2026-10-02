@@ -295,11 +295,18 @@ jobs:
         # what puts the pinned act in the lane's hands, and the assertion is
         # what proves it did: a runner with its own `act` earlier on PATH would
         # otherwise run the lane on a version nobody pinned.
+        #
+        # The version is matched as a whole whitespace-delimited token, not as
+        # a substring: `*"${ACT_VERSION}"*` accepts 0.2.890, 10.2.89 and
+        # 0.2.89-rc.1, every one of which is a version nobody pinned, so the
+        # check would have failed open on exactly the case it exists for. The
+        # spaces spliced around each side give the version a left and right
+        # boundary, so a leading or trailing character cannot extend it.
         run: |
           set -euo pipefail
           ACT_BIN="$(command -v act)"
           ACT_FOUND="$("${ACT_BIN}" --version)"
-          if [[ "${ACT_FOUND}" != *"${ACT_VERSION}"* ]]; then
+          if [[ " ${ACT_FOUND} " != *[[:space:]]"${ACT_VERSION}"[[:space:]]* ]]; then
             echo "act ${ACT_VERSION} expected at ${ACT_BIN}, found: ${ACT_FOUND}"
             exit 1
           fi

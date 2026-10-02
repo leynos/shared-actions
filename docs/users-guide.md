@@ -26,6 +26,9 @@ documents how to use the `install-nixie` action.
   verified prebuilt tool installation.
 - [Declining the job-wide sccache wrapper](./migrating-to-the-export-rustc-wrapper-input.md)
   – the `export-rustc-wrapper` input and `sccache-path` output of `setup-rust`.
+- [Migrating to `sccache-report`](./migrating-to-sccache-report.md)
+  – replacing a handwritten `sccache --show-stats` step with the fallback-aware
+  action.
 
 ## Node.js 24 action dependencies
 

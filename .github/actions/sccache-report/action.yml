@@ -8,8 +8,8 @@ inputs:
   status:
     description: >-
       The `sccache-status` output of setup-rust. `fallback` means the server
-      never started: there are no statistics, and asking for them would start
-      the server again and fail the step, so the action reports nothing and
+      never started: there are no statistics (with no server `sccache
+      --show-stats` prints empty defaults), so the action reports nothing and
       says so. Any other value, including empty, reports.
     required: false
     default: ''

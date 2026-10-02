@@ -259,8 +259,17 @@ def test_abandoned_client_does_not_print_a_server_traceback(
             _abandon_a_request(socket_path)
             watched.done(what="the unguarded request")
         # The thread has ended, so `handle_error` has already printed
-        # whatever it was going to print for this connection.
-        assert "BrokenPipeError" in _stderr(capfd)
+        # whatever it was going to print for this connection. Which of the
+        # two disconnect errors surfaces depends on kernel timing: a write to
+        # a socket whose peer has gone raises BrokenPipeError or
+        # ConnectionResetError, and the guard treats both as a departed
+        # client (see `test_aborted_connection_is_an_empty_write`). Assert
+        # that the unguarded path raised at all rather than pinning the race
+        # to one name, and carry the stderr so a failure shows what it saw.
+        stderr = _stderr(capfd)
+        assert "BrokenPipeError" in stderr or "ConnectionResetError" in stderr, (
+            f"the unguarded write did not raise a disconnect error:\n{stderr}"
+        )
     finally:
         handler.setup = guarded_setup
 

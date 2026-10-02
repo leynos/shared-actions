@@ -22,8 +22,10 @@ documents how to use the `install-nixie` action.
 - [`install-makeutil` README](../.github/actions/install-makeutil/README.md) –
   inputs, outputs, verification and cache behaviour.
 - [Migrating to verified prebuilt CI tools](./migrating-to-verified-prebuilt-tools.md)
-  – upgrade guidance for the `install-whitaker` and `generate-coverage`
-  verified prebuilt tool installation.
+- [Declining the job-wide sccache wrapper](./migrating-to-the-export-rustc-wrapper-input.md)
+  – the `export-rustc-wrapper` input and `sccache-path` output of
+  `setup-rust`. – upgrade guidance for the `install-whitaker` and
+  `generate-coverage` verified prebuilt tool installation.
 
 ## Node.js 24 action dependencies
 
@@ -52,7 +54,7 @@ the action warns.
 
 Each run reports one bounded `metric setup-rust.sccache.wrapper=<state>` line,
 over `exported`, `not-exported` (`export-rustc-wrapper` is not `true`),
-`exported-stats-not-zeroed`, `caller-set`, and `missing-sccache-path`.
+`caller-set`, and `missing-sccache-path`.
 
 The action also selects the cache backend before sccache starts, and it selects
 by runner. Without a backend sccache writes to local disk, which nothing
@@ -171,15 +173,20 @@ a local sccache directory and its cache, as described under
 `setup-rust` exports `RUSTC_WRAPPER` to the whole job, so every later step
 inherits it, including a root lane run through `sudo -E` (root's `rustc` cannot
 write through the runner-owned sccache server and fails with "Permission
-denied") and nested cargo builds such as trybuild fixtures (observed several
-times slower under the wrapper). Two ways to decline it:
+denied") and nested cargo builds such as trybuild fixtures. The second cost is
+measured: on pg-embed-setup-unpriv #314 (run 36998858912), dropping
+`RUSTC_WRAPPER=sccache` from the two test steps took the trybuild UI tests from
+timeouts over 360 s to 91-102 s (unprivileged lane) and 136-148 s (root lane),
+with 799 of 799 tests passing. A repository with trybuild or other nested-cargo
+tests should therefore not export the wrapper job-wide. Two ways to decline it:
 
 - **For the whole job:** set `export-rustc-wrapper: 'false'`. The server still
   starts and `SCCACHE_PATH` stays exported; the `sccache-path` output (set once
   the server has started, so empty after a fallback; gate any use of it on
   `sccache-status`) names the binary, and the job wraps only the commands that
   should use it, for example
-  `RUSTC_WRAPPER="${{ steps.setup-rust.outputs.sccache-path }}" cargo build`.
+  `RUSTC_WRAPPER="${{ steps.setup.outputs.sccache-path }}" cargo build`, where
+  `setup` is the `id` set on the `setup-rust` step.
 - **For one step:** keep the default and set `RUSTC_WRAPPER: ''` in that step's
   `env:` (an empty value counts as unset for Cargo). For a root lane, put it
   inside the `sudo` command: `sudo -E env RUSTC_WRAPPER= make test`.

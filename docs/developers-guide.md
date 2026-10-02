@@ -280,14 +280,15 @@ A job-wide wrapper reaches processes that cannot use it: a root lane run through
 `sudo -E` (root's `rustc` against a server owned by the runner user) and
 nested cargo builds such as trybuild fixtures. The `export-rustc-wrapper` input
 (default `true`, so nothing changes) lets a job decline it: the export step
-then reports `not-exported` and leaves `SCCACHE_PATH` exported. The server
-start treats `not-exported` like `exported`, so a scoped wrapper finds a
-running server, and it publishes the `sccache-path` output only after a
-successful start: after a fallback the output is empty, because wrapping with
-it would restart a dead server. The input is read only after the caller-set
-check, so it can never override a caller's wrapper, and only the exact value
-`true` exports (an explicitly empty value opts out; the shell default is
-`${EXPORT_WRAPPER-true}`, which distinguishes unset from empty).
+then reports `not-exported` and does not write `RUSTC_WRAPPER`; `SCCACHE_PATH`
+stays as the sccache action exported it. The server start treats `not-exported`
+like `exported`, so a scoped wrapper finds a running server, and it publishes
+the `sccache-path` output only after a successful start: after a fallback the
+output is empty, because wrapping with it would restart a dead server. The
+input is read only after the caller-set check, so it can never override a
+caller's wrapper, and only the exact value `true` exports (an explicitly empty
+value opts out; the shell default is `${EXPORT_WRAPPER-true}`, which
+distinguishes unset from empty).
 
 Measured on pg-embed's trybuild `ui` binary with a local-disk store (1,547
 compile requests, 1,265 executed), every executed compile was a miss, on a
@@ -317,9 +318,8 @@ Rules to keep:
 
 Every terminal path reports one bounded
 `metric setup-rust.sccache.wrapper=<state>` line over `exported`,
-`not-exported`, `exported-stats-not-zeroed`, `caller-set`, and
-`missing-sccache-path`. Keep the name fixed and the values inside that set,
-with no path or wrapper value in the line.
+`not-exported`, `caller-set`, and `missing-sccache-path`. Keep the name fixed
+and the values inside that set, with no path or wrapper value in the line.
 
 The backend is chosen in a separate step **before** the sccache-action steps,
 and that position is the whole point. sccache binds its backend once, when the

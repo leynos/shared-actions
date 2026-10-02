@@ -416,7 +416,10 @@ class TestFallbackSignals:
 
         assert "sccache-fallback" not in completed.stdout
         assert _read(workdir, "summary") == ""
-        assert _read(workdir, "github_output").splitlines()[0] == "status=started"
+        assert _read(workdir, "github_output").splitlines() == [
+            "status=started",
+            f"path={fake_sccache}",
+        ]
 
     def test_a_caller_owned_wrapper_sets_no_status(self, fake_sccache: Path) -> None:
         """When the action starts no server, the output stays empty."""

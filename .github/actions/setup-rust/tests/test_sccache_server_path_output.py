@@ -80,5 +80,11 @@ class TestPublishedPath:
         )
 
         assert completed.returncode == 0, completed.stderr
-        assert "--start-server" in (workdir / "args.log").read_text().split()
+        assert "--start-server" in (
+            (workdir / "args.log").read_text(encoding="utf-8").split()
+        )
         assert _reported(completed) == "started"
+        outputs = (workdir / "github_output").read_text(encoding="utf-8").splitlines()
+        assert f"path={fake_sccache}" in outputs, (
+            "a caller that declined the wrapper reads the binary from this output"
+        )

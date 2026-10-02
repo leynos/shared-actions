@@ -316,9 +316,11 @@ class TestExportInputProperty:
         )
     )
     @settings(max_examples=60, derandomize=True, deadline=None)
-    def test_only_true_exports(self, value: str, tmp_path_factory: object) -> None:
+    def test_only_true_exports(
+        self, value: str, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
         """Every other value, the empty string included, opts out."""
-        root = typ.cast("pytest.TempPathFactory", tmp_path_factory).mktemp("exp")
+        root = tmp_path_factory.mktemp("exp")
         binary = root / "sccache"
         binary.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
         binary.chmod(0o755)
@@ -418,10 +420,10 @@ class TestCallerOverrideProperty:
     @given(wrapper=CALLER_WRAPPERS)
     @settings(max_examples=40, derandomize=True, deadline=None)
     def test_any_caller_value_survives(
-        self, wrapper: str, tmp_path_factory: object
+        self, wrapper: str, tmp_path_factory: pytest.TempPathFactory
     ) -> None:
         """No value a caller can set may be replaced, empty included."""
-        root = typ.cast("pytest.TempPathFactory", tmp_path_factory).mktemp("wrap")
+        root = tmp_path_factory.mktemp("wrap")
         binary = root / "sccache"
         binary.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
         binary.chmod(0o755)

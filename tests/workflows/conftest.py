@@ -581,12 +581,14 @@ def _require_an_image_for(workflow: str, job_id: str) -> None:
 
     Raises
     ------
+    TypeError
+        If *job_id* is not a job of *workflow*. That is a defect in the
+        harness's own call rather than a condition that should skip in
+        silence: a listed job that no longer exists would otherwise run
+        nothing and pass.
     ValueError
-        If *job_id* is not a job of *workflow*, or if the job -- or a job of
-        the workflow it calls -- runs on a label the harness maps to no image.
-        Both are defects in the harness's own call rather than conditions that
-        should skip in silence: a listed job that no longer exists would
-        otherwise run nothing and pass.
+        If the job -- or a job of the workflow it calls -- runs on a label
+        the harness maps to no image.
     """
     document = reading.load_workflow(workflow)
     job = document["jobs"].get(job_id)

@@ -181,7 +181,7 @@ is an established pattern in this repository.
   - A tier of its own is **not** in `TIMEOUT_TIERS` (`assertion` 10, `install`
     15, `build` 20, `suite` 20, `coverage` 30). The lane's measured wall time
     is ~13 min on an idle 6-core host, and the job also installs podman and
-    pulls two mult-gigabyte images, so `coverage` (30) is the only honest tier.
+    pulls two multi-gigabyte images, so `coverage` (30) is the only honest tier.
     `JOB_TIERS[("ci.yml", "act-workflows")] = "coverage"` with a comment
     recording the measurement.
 - **D2 — the job installs act v0.2.89 through the repository's own

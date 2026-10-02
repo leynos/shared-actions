@@ -286,7 +286,10 @@ jobs:
           set -euo pipefail
           ACT_BIN="$(command -v act)"
           ACT_FOUND="$("${ACT_BIN}" --version)"
-          [[ "${ACT_FOUND}" == *"${ACT_VERSION}"* ]]
+          if [[ "${ACT_FOUND}" != *"${ACT_VERSION}"* ]]; then
+            echo "act ${ACT_VERSION} expected at ${ACT_BIN}, found: ${ACT_FOUND}"
+            exit 1
+          fi
           echo "running the lane on: ${ACT_FOUND} (${ACT_BIN})"
           make test-act ACT="${ACT_BIN}"
         env:

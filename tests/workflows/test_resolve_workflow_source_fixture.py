@@ -21,15 +21,25 @@ rather than by matching their text.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import typing as typ
 
 import pytest
+from plumbum import local
+
+from cmd_utils_importer import import_cmd_utils
+from test_support.plumbum_helpers import run_plumbum_command
 
 from . import _workflow_reading as reading
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
+
+    from cmd_utils import RunResult
+else:
+    RunResult = import_cmd_utils().RunResult
 
 #: The fixture under contract, its job, and the two guarded steps.
 WORKFLOW: typ.Final[str] = "test-resolve-workflow-source.yml"
@@ -210,4 +220,99 @@ def test_the_step_reporting_the_result_runs_in_either_runner() -> None:
     assert str(last.get("name", "")).startswith("Assert"), (
         f"{WORKFLOW}: the last step is expected to be the outcome assertion, "
         f"found {last.get('name')!r}"
+    )
+
+
+def _assertion_script() -> str:
+    """Return the outcome assertion step's `run` script.
+
+    Raises
+    ------
+    AssertionError
+        If the last step has no `run` script to execute. Reading it from
+        the fixture rather than retyping it is what makes the test below
+        about the assertion the runner will actually run.
+    """
+    script = _steps()[-1].get("run")
+    if not isinstance(script, str) or not script.strip():
+        msg = f"{WORKFLOW}: the outcome assertion step carries no run script"
+        raise AssertionError(msg)
+    return script
+
+
+def _run_assertion(act_outcome: str, oidc_outcome: str) -> RunResult:
+    """Execute the fixture's assertion script with the given outcomes."""
+    command = local["bash"]["-c", _assertion_script()]
+    return run_plumbum_command(
+        command,
+        method="run",
+        env={
+            **os.environ,
+            "ACT_OUTCOME": act_outcome,
+            "OUTCOME": oidc_outcome,
+        },
+    )
+
+
+@pytest.mark.skipif(
+    shutil.which("bash") is None,
+    reason="the fixture's assertion step is bash, so bash must run it",
+)
+@pytest.mark.parametrize(
+    ("act_outcome", "oidc_outcome"),
+    [
+        pytest.param("success", "skipped", id="under-act"),
+        pytest.param("skipped", "failure", id="on-a-dispatch"),
+    ],
+)
+def test_the_assertion_accepts_exactly_one_firing_half(
+    act_outcome: str, oidc_outcome: str
+) -> None:
+    """The assertion step passes only when exactly one half fired.
+
+    Executed, not matched: a skipped step reports the outcome
+    `"skipped"`, not the empty string, so an emptiness test on the act
+    branch reads a dispatch's skip as act and demands the pair that a
+    dispatch can never produce. Act cannot catch that -- it selects the
+    opposite branch -- so the bash is run here with each runner's real
+    outcome pair.
+    """
+    result = _run_assertion(act_outcome, oidc_outcome)
+
+    assert result.returncode == 0, (
+        f"the assertion step refuses the real outcome pair for this runner: "
+        f"act={act_outcome!r}, oidc={oidc_outcome!r}\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+@pytest.mark.skipif(
+    shutil.which("bash") is None,
+    reason="the fixture's assertion step is bash, so bash must run it",
+)
+@pytest.mark.parametrize(
+    ("act_outcome", "oidc_outcome"),
+    [
+        pytest.param("success", "failure", id="both-ran"),
+        pytest.param("skipped", "skipped", id="neither-ran"),
+        pytest.param("failure", "skipped", id="act-failed"),
+        pytest.param("", "failure", id="act-missing"),
+    ],
+)
+def test_the_assertion_refuses_any_other_pair(
+    act_outcome: str, oidc_outcome: str
+) -> None:
+    """A pair that does not prove the separation fails the step.
+
+    This is the half that keeps a looser shape from passing by
+    accident: `-n "${ACT_OUTCOME}"` accepted `"skipped"` as "act ran",
+    so a dispatch failed, but it also accepted every other non-empty
+    value, and the two-firing pair. Requiring success on the branch
+    named for act is what closes both.
+    """
+    result = _run_assertion(act_outcome, oidc_outcome)
+
+    assert result.returncode != 0, (
+        f"the assertion step accepted act={act_outcome!r}, "
+        f"oidc={oidc_outcome!r}, which does not prove exactly one half ran"
     )

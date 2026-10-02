@@ -214,10 +214,10 @@ stronger, and it is why the job installs nothing.
     `ACT="$(command -v act)"` explicitly to `make test-act`.
 - **D3 — the lane's image is `catthehacker/ubuntu:rust-latest`**, replacing
   `act-latest` in `conftest._ACT_IMAGE`. Required by F3. The consequence is
-  recorded: the harness now runs act's steps on a fedora-ish Ubuntu image with
-  a Rust toolchain, not on a GitHub-image replica; `act-latest` is an
-  approximation either way, and this is the one that lets the lane test what it
-  claims to.
+  recorded: the harness now runs act's steps on the same Ubuntu 24.04 base as
+  `act-latest` with a Rust toolchain added, not on a GitHub-image replica;
+  `act-latest` is an approximation either way, and this is the one that lets
+  the lane test what it claims to.
 - **D4 — the `resolve` fixture is repaired by making its two halves
   mutually exclusive on `env.ACT`, not worked around.** The standing constraint
   forbids an expected-failure workaround, and F2 shows the OIDC branch was
@@ -389,6 +389,8 @@ replay produces, and `gh stack submit` pushes it with `--force-with-lease`.
 | F9  | the worktree test asserted about the live checkout, not one it builds                  | see F9   |
 | F10 | `Install nfpm` `curl: (22) … 500` on one PR's linux leg, transient upstream            | none     |
 | F11 | github-script validates `github-token` before the script, and act leaves it empty      | D9       |
+| F12 | the heaviest fixture exceeds the harness's 300 s act budget on a cold CI runner        | see F12  |
+| F13 | CodeRabbit: dispatch skip read as act, silent version abort, D3 wording, pinned error  | see F13  |
 
 ## The stack, once the rebase lands
 
@@ -676,3 +678,72 @@ below. One transient upstream failure surfaced on #516's `install-whitaker` — 
 `http status: 500` downloading `dylint-link` from `leynos/whitaker`'s rolling
 release, the same class as F10 and unrelated to setup-rust; the job passes on
 the bottom, and the failed job was re-run.
+
+### What the third CI run found, and the review
+
+The third run's bottom (`7b02bf83`) `act-workflows` passed — 11m01s, so the
+lane is run in CI and the bottom is green. The top (`c9d7ce6c`) failed the same
+single fixture, but no longer at the token: the F11 fix works, the step gets
+past validation and selects local disk. The failure is now
+
+```text
+act timed out after 300s
+```
+
+**F12 — the lane's heaviest fixture exceeds the harness's default act budget on
+a cold runner.** `ActConfig.timeout` defaults to 300 s; the fixture took 269.81
+s on this idle host, and the CI runner is slower and cold (it pulls the 3.09 GB
+`rust-latest` image and installs a toolchain before the build). The timing is
+the whole story: the job's `Run the act workflow lane` step ran 16:59:04 →
+17:04:14, and the fixture is the last in the file, so the kill at ~310 s is the
+fixture consuming the budget, not a hang. `test_rustflags_export_workflow.py`
+already carries `timeout=600` for exactly this reason — its fixture is slower
+than the default too. The fix gives this fixture the same override, threaded
+through `EnvOverrideTestCase.timeout` so the default stays 300 for every case
+that does not need it.
+
+**F13 — four findings from the CodeRabbit review of both scopes, all minor, all
+fixed.** The reviews completed with no rate limiting (4 of 10 included reviews
+remaining), zero high or medium concerns, and full file coverage (24/24 and
+22/22). The four:
+
+- **A real functional defect on the bottom: the resolve fixture's outcome
+  assertion reads a dispatch's skip as act.** The step branched on
+  `-n "${ACT_OUTCOME}"`, but a skipped step reports the outcome `"skipped"`,
+  which is non-empty. On a genuine `workflow_dispatch` the act-branch step is
+  skipped, so the guard took the act arm, demanded `"success"` of a step that
+  reported `"skipped"`, and failed — the one run the OIDC half exists for. Act
+  cannot catch it because act selects the opposite branch. The fix asks whether
+  the act branch *succeeded*: `if [[ "${ACT_OUTCOME}" == "success" ]]` then
+  require the OIDC half skipped, else require the act half skipped and the OIDC
+  half failed. Two new executed cases in
+  `test_resolve_workflow_source_fixture.py` run the fixture's own script (read
+  from the step, not retyped) under each runner's real pair and refuse every
+  other pair; mutation-checked: the old shape produces exactly 2 failures.
+- **A silent-failure finding on the bottom: the ci.yml version assertion
+  aborted with no message.** A bare `[[ ... ]]` under `set -e` exits non-zero
+  without saying what it found, so the one failure the assertion exists to
+  explain was the one that said nothing. Now an explicit `if` prints the
+  expected version, the resolved binary and the version it printed, then exits
+  1. A new contract (`test_act_job_version_assertion.py`) executes the step
+  against stub `act`/`make` binaries and proves a mismatch stops before `make`
+  while a match proceeds; mutation-checked: the old shape produces 1 failure.
+- **A documentation finding on the bottom:** D3 called `rust-latest`
+  "fedora-ish"; it is the same Ubuntu 24.04 base as `act-latest` with the
+  toolchain added, as F3 and the conftest comment already say. Wording
+  corrected.
+- **A flake on the top: the IPC disconnect assertion pinned one of two error
+  names.** A write to a socket whose peer has gone raises `BrokenPipeError` or
+  `ConnectionResetError` depending on kernel timing, and the guard treats both
+  as a departed client — the sibling unit test already covers both. The
+  unguarded-path assertion accepted only `BrokenPipeError`, so a reset would
+  fail the test spuriously. It now accepts either and carries the captured
+  stderr in the message.
+
+Placement: F13's fixture and ci.yml fixes, and the D3 wording, belong on the
+bottom — the resolve fixture and `ci.yml` are bottom-owned, and the review's
+scope-1 findings are exactly that layer. F12 and F13's IPC finding belong on
+the top: `test_action_behaviours.py` and `test_cmd_mox_ipc_disconnect.py` are
+changed only there, and the timeout is the top's fixture (the generate-coverage
+case exists only on the top; the bottom's copy of `test_action_behaviours.py`
+has no such case at all).

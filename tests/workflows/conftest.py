@@ -376,13 +376,21 @@ def _build_container_env(config: ActConfig, run_env: dict[str, str]) -> dict[str
     return merged_container_env
 
 
-#: The image every Linux label is given. `catthehacker/ubuntu:act-latest` is
-#: an `ubuntu-latest` shape, and the suite asks act for `ubuntu-latest` and
-#: `ubicloud-standard-2` alike from it, because every fixture that names
-#: either is a scripted orchestration rather than a measurement of the
-#: runner. An Ubicloud label changed here is a label whose workflows no
-#: longer need it before it needs an image of its own.
-_ACT_IMAGE: typ.Final[str] = "catthehacker/ubuntu:act-latest"
+#: The image every Linux label is given. Both labels get it because every
+#: fixture that names either is a scripted orchestration rather than a
+#: measurement of the runner: the case is about which steps run and what
+#: they print, not about the machine. An Ubicloud label changed here is a
+#: label whose workflows no longer need it before it needs an image of its
+#: own.
+#:
+#: `rust-latest` rather than `act-latest` because the lane exercises
+#: `install-whitaker`, whose installer extracts the pinned `cargo-dylint`
+#: archive and then probes `cargo dylint --version` to verify it. `act-latest`
+#: ships no cargo, rustc or rustup anywhere on the filesystem, so the probe
+#: fails and, because the action passes `--no-source-fallback`, the case
+#: aborts with "the repository install failed verification" without testing
+#: anything. `rust-latest` is the same Ubuntu base with the toolchain added.
+_ACT_IMAGE: typ.Final[str] = "catthehacker/ubuntu:rust-latest"
 
 #: The platforms act may be given an image for: the Linux labels this
 #: repository's fixtures run on. Taken from the shared vocabulary in

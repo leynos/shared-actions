@@ -32,7 +32,9 @@ when `setup-rust` has long finished, and a composite action has no post step.
     backend: ${{ steps.setup-rust.outputs.cache-backend }}
 - name: Check sccache health
   if: steps.sccache.outputs.reported == 'true'
-  run: python3 scripts/check_sccache_health.py ${{ steps.sccache.outputs.stats-file }}
+  env:
+    STATS_FILE: ${{ steps.sccache.outputs.stats-file }}
+  run: python3 scripts/check_sccache_health.py "$STATS_FILE"
 ```
 
 ## Inputs

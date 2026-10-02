@@ -166,6 +166,36 @@ So leave `use-sccache: 'true'` on either kind of runner. On Ubicloud
 a local sccache directory and its cache, as described under
 [Rust cache ownership](#rust-cache-ownership).
 
+### Reading sccache's statistics after the build
+
+When the server fell back to an uncached build (`sccache-status` is
+`fallback`), it never started and has no statistics: `sccache --show-stats`
+would start it again, wait out the startup timeout and fail the step, turning
+the fail-open back into a red job. A step that reports statistics, or runs a
+health check on them, should call the
+[`sccache-report`](../.github/actions/sccache-report) action after the build,
+under `if: always()`, rather than call `sccache --show-stats` itself:
+
+```yaml
+- id: sccache
+  if: always()
+  uses: leynos/shared-actions/.github/actions/sccache-report@<sha>
+  with:
+    status: ${{ steps.setup-rust.outputs.sccache-status }}
+    backend: ${{ steps.setup-rust.outputs.cache-backend }}
+- name: Check sccache health
+  if: steps.sccache.outputs.reported == 'true'
+  env:
+    STATS_FILE: ${{ steps.sccache.outputs.stats-file }}
+  run: python3 scripts/check_sccache_health.py "$STATS_FILE"
+```
+
+It prints the statistics, writes them as text and JSON, adds them to the job
+summary under the backend `setup-rust` chose, and stands down with a notice and
+`reported=false` on a fallback (or when sccache is absent). A health check
+conditions on `reported`, so a fallback run stays green with the
+`sccache-fallback` annotation as its evidence.
+
 ### Reserved `ACTIONS_*` variables, once
 
 The rule behind all of this is worth stating once, because it is not written

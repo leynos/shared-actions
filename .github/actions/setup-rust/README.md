@@ -27,6 +27,7 @@ require them, and set up macOS or OpenBSD cross-compilers.
 | expect-cache                | The sccache backend the job requires: `ubicloud`, `github` or `any`. Anything but `any` fails the job when the selected backend differs, after caller settings apply.        | no       | `any`                                 |
 | install-mold                | Install the pinned, digest-verified mold linker on Linux and put `mold` and `ld.mold` on `PATH`. A notice-only no-op on macOS and Windows. Sets no linker flag.              | no       | `false`                               |
 | mold-version                | mold release to install. Only versions whose digests the action records are accepted.                                                                                        | no       | `2.41.0`                              |
+| install-clang-lld           | Install `clang` and `lld` on Linux via `apt` and verify both land on `PATH`. A notice-only no-op on macOS and Windows. Sets no linker flag.                                  | no       | `false`                               |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -34,12 +35,13 @@ require them, and set up macOS or OpenBSD cross-compilers.
 
 <!-- markdownlint-disable MD013 -->
 
-| Name           | Description                                                                                                                                                                    |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| cache-backend  | The sccache backend selected: `ubicloud`, `github` or `local`. Empty when sccache is not in use.                                                                               |
-| sccache-status | `started` when the action started the sccache server, `fallback` when it would not start and the job compiles without the cache. Empty when the action did not start a server. |
-| mold-status    | `installed`, `cached` or `skipped` (off Linux). Empty when `install-mold` is not `true`.                                                                                       |
-| mold-version   | The mold version now on `PATH`. Empty when mold was skipped or not requested.                                                                                                  |
+| Name             | Description                                                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| cache-backend    | The sccache backend selected: `ubicloud`, `github` or `local`. Empty when sccache is not in use.                                                                               |
+| sccache-status   | `started` when the action started the sccache server, `fallback` when it would not start and the job compiles without the cache. Empty when the action did not start a server. |
+| mold-status      | `installed`, `cached` or `skipped` (off Linux). Empty when `install-mold` is not `true`.                                                                                       |
+| mold-version     | The mold version now on `PATH`. Empty when mold was skipped or not requested.                                                                                                  |
+| clang-lld-status | `installed` or `skipped` (off Linux). Empty when `install-clang-lld` is not `true`.                                                                                            |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -128,6 +130,34 @@ above is ignored and the build links with the system linker while `mold-status`
 still reports `installed`. For the same reason the job must not inherit a
 `RUSTFLAGS` of its own. The configuration above carries `-D warnings` itself,
 so nothing is lost.
+
+When `install-clang-lld` is `true` on a Linux runner, the action installs
+`clang` and `lld` via `apt` (`apt-get update`, then
+`apt-get install --yes --no-install-recommends clang lld`) and then verifies
+that `clang` and `ld.lld` are on `PATH`, failing the step with a clear
+`::error::` if either is missing. Unlike `install-mold`, no version is pinned
+and no digest is checked: `clang` and `lld` come from the runner's own Ubuntu
+archive, the same source every other apt-installed dependency in this action
+uses. On macOS and Windows the input is a no-op with a notice, so a matrix can
+pass it unconditionally.
+
+The action never selects clang or lld for you. Choose them explicitly, for
+example to link an instrumented coverage build with `lld` for `llvm-tools`
+/coverage compatibility:
+
+```yaml
+jobs:
+  coverage:
+    # job-level env: every step, including setup-rust's own toolchain
+    # install, sees the linker selection.
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      RUSTFLAGS: -C link-arg=-fuse-ld=lld
+    steps:
+      - uses: leynos/shared-actions/.github/actions/setup-rust@<sha>
+        with:
+          install-clang-lld: 'true'
+```
 
 When `with-openbsd` is enabled, the action installs the nightly toolchain
 specified by the `openbsd-nightly` input (default `nightly-2025-07-20`), builds

@@ -8,8 +8,9 @@
   fallback that command restarts the dead server, so a second startup timeout
   could fail a job that had built without the cache. The input switches off the
   action's whole post report, so its statistics table and notice no longer
-  appear; report statistics with a step guarded on `sccache-status`. A contract
-  rejects any sccache-action use without it.
+  appear; report statistics with a step guarded on
+  `sccache-status == 'started'`. A contract rejects any sccache-action use
+  without it.
 
 - Raise sccache's server startup timeout to 60 s through an `SCCACHE_CONF`
   config file, merged into any config the caller already names, and make a

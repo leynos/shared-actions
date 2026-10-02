@@ -297,8 +297,8 @@ its name the input disables the action's whole post-job report, which runs
 `sccache --show-stats` and fails the job if that errors. After a fallback the
 server is dead and `--show-stats` restarts it, so a second startup timeout
 would turn a lost cache into a red job. Report statistics yourself with a step
-guarded on `sccache-status != 'fallback'`, or with the `sccache-report` action
-once it is available.
+guarded on `sccache-status == 'started'` (the output is empty when no server
+was started), or with the `sccache-report` action once it is available.
 
 Some exports have to be put back rather than made. The last thing
 `mozilla-actions/sccache-action` does is write `ACTIONS_CACHE_SERVICE_V2=on` to

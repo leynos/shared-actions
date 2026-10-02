@@ -148,8 +148,9 @@ produced: `setup-rust` sets `disable_annotations: true` on both of its uses of
 the action. Despite its name that input disables the whole post-job report,
 which runs `sccache --show-stats` and fails the job if it errors. After a
 fallback the server is dead and `--show-stats` restarts it, so a second startup
-timeout would turn a lost cache into a red job. If you want the table, report
-it yourself with a step guarded on `sccache-status != 'fallback'`, or with the
+timeout would turn a lost cache into a red job. To keep the table, report it
+from a step guarded on `sccache-status == 'started'`, which is empty when no
+server was started and `fallback` after a failed start, or use the
 `sccache-report` action once it is available.
 
 Some exports have to be put back rather than made, and that is the reason

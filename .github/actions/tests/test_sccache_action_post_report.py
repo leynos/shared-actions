@@ -24,6 +24,8 @@ import pytest
 import yaml
 
 GITHUB_ROOT = Path(__file__).resolve().parents[2]
+#: Compared after lower-casing: GitHub reads a repository owner and name
+#: case-insensitively, so `Mozilla-Actions/sccache-action@` is the same action.
 SCCACHE_ACTION_PREFIX = "mozilla-actions/sccache-action@"
 INPUT = "disable_annotations"
 
@@ -51,7 +53,7 @@ def sccache_action_uses(document: object) -> list[dict[str, object]]:
         for step in steps
         if isinstance(step, dict)
         and isinstance(step.get("uses"), str)
-        and str(step["uses"]).startswith(SCCACHE_ACTION_PREFIX)
+        and str(step["uses"]).lower().startswith(SCCACHE_ACTION_PREFIX)
     ]
 
 
@@ -127,6 +129,21 @@ def test_only_a_literal_true_counts_as_disabled(
     if with_block is not None:
         step["with"] = with_block
     assert leaves_post_report_on(step) is expected
+
+
+@pytest.mark.parametrize(
+    "uses",
+    [
+        "Mozilla-Actions/sccache-action@abc",
+        "MOZILLA-ACTIONS/SCCACHE-ACTION@abc",
+    ],
+)
+def test_a_case_variant_of_the_action_name_is_still_scanned(uses: str) -> None:
+    """GitHub resolves the owner and name case-insensitively, so must the scan."""
+    document = {"jobs": {"build": {"steps": [{"uses": uses}]}}}
+    uses_found = sccache_action_uses(document)
+    assert len(uses_found) == 1, f"{uses!r} escaped the scan"
+    assert leaves_post_report_on(uses_found[0])
 
 
 def test_a_new_use_without_the_input_is_found_in_a_workflow() -> None:

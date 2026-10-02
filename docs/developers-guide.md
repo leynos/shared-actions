@@ -369,7 +369,7 @@ already succeeded without the cache. Its only switch is the
 `disable_annotations` input, which despite the name returns before any
 statistics call, so both uses in `setup-rust` set it to `true`. The cost is
 that the action's own table and notice are gone, which is why consumers report
-statistics themselves, guarded on `sccache-status`.
+statistics themselves, guarded on `sccache-status == 'started'`.
 `.github/actions/tests/test_sccache_action_post_report.py` scans every workflow
 and action manifest in the repository and fails for any use that lacks a literal
 `true`, including one added somewhere other than `setup-rust`; mutation proof

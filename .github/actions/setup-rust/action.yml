@@ -816,7 +816,8 @@ runs:
     # `sccache --show-stats` and fails the job when it errors; after the server
     # fallback below the server is dead, `--show-stats` restarts it, and a
     # second timeout would turn a lost cache into a red job. Statistics are
-    # the caller's to report, with a step guarded on `sccache-status`.
+    # the caller's to report, with a step guarded on
+    # `sccache-status == 'started'`.
     - name: Run sccache (x86_64 macOS)
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' && runner.os == 'macOS' && runner.arch == 'X64' }}
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba

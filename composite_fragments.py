@@ -103,6 +103,11 @@ class ActionContext:
     runner_arch: str
     action_path: str
     runner_temp: str = ""
+    #: Stands in for ``github.repository``, which a manifest that names the
+    #: repository it runs in declares as step ``env``. An empty default is
+    #: what a manifest reading it without declaring it would see, which is
+    #: the empty string a runner substitutes.
+    github_repository: str = ""
     #: Stands in for ``github.token``. Empty by default, which is what a
     #: fragment sees when the caller passes no token, and is the case worth
     #: exercising: an installer that reaches a rate-limited API unauthenticated
@@ -124,6 +129,8 @@ class ActionContext:
                 return self.runner_temp
             case "github.action_path":
                 return self.action_path
+            case "github.repository":
+                return self.github_repository
             case "github.token":
                 return self.github_token
             case _ if (match := _INPUT.match(body)) is not None:

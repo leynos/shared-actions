@@ -24,23 +24,46 @@ plus `make markdownlint` and `make nixie` for docs. CodeRabbit review via
 
 ## Findings so far (all reproduced, none inferred)
 
-### F1 — act exports `ACT=true` unconditionally; it cannot be overridden
+### F1 — act exports `ACT=true` unconditionally into a *composite* action
 
-`nektos/act` v0.2.89 `pkg/runner/run_context.go:78-90`: `GetEnv()` builds
-`rc.Env` from `mergeMaps(workflow.Env, job.Environment(), Config.Env)` and then
-**unconditionally** writes `rc.Env["ACT"] = "true"`, mutating the shared map.
-It is the only `"ACT"` assignment in act's tree.
+**Corrected.** An earlier version of this finding claimed a step-level `env:`
+cannot override `ACT` under act. That is false for a plain step, and the
+correction matters.
 
-Verified empirically on 0.2.89 (`~/.local/bin/act`, which the Makefile
-prefers) and 0.2.88 (`~/go/bin/act`): `--env ACT=false`, workflow-level `env:`,
-job-level `env:` and step-level `env:` all fail to change it inside a plain
-step. Confirmed also for composite actions: `evaluateCompositeInputAndEnv`
-(`pkg/runner/action_composite.go:15-40`) builds a fresh env from
-`step.getEnv()` minus `INPUT_*`, and the composite `RunContext` carries no
-`Job`, so only `ACT=true` is re-stamped.
+What is true, measured with scratch workflows under act 0.2.89:
 
-**Consequence:** the `Resolve (OIDC fail-fast …)` step's `env: ACT: "false"`
-(line 43 of `test-resolve-workflow-source.yml`) is inert under act.
+- A **plain** step's own `env:` **does** win over act's forced `ACT=true`, in
+  both the container and that step's `if:` expression environment
+  (`pkg/runner/step.go:setupEnv` merges step env last).
+- Act feeds a step's own `env:` to **that step's own `if:`**. So
+  `env: ACT: "no"` on a step guarded by `if: ${{ env.ACT != 'true' }}` makes
+  the guard read `"no"`, the guard passes, and the step **runs**. This is a
+  genuine trap, and it is why the repaired fixture sets no `env: ACT:` at all
+  on the guarded steps.
+- A **composite's** inner environment is rebuilt fresh and act re-stamps
+  `ACT=true` unconditionally. Proven with a scratch composite: outer step
+  `env: {ACT: "false", PROBE_TOKEN: "from-step"}` gave inner
+  `INNER_ACT=[true]` but `INNER_TOK=[from-step]`. So an outer step's
+  `env: ACT:` cannot reach the composite's script; other env values can.
+- A plain step with **no** `env:` sees `env.ACT == 'true'` under act.
+
+GitHub sets no `ACT` anywhere, so `env.ACT == 'true'` is true under act and
+false on GitHub — which is what makes it usable as the branch selector.
+
+### F5 — a missing container runtime made the whole lane pass
+
+`pytest_runtest_setup` (tests/workflows/conftest.py) skipped every
+`@skip_unless_act` case when the runtime probe failed, and pytest exits 0 for
+a run that skipped everything. Reproduced: with
+`DOCKER_HOST=unix:///nonexistent/podman.sock` and `ACT_WORKFLOW_TESTS=1`, the
+lane reported `1 skipped` and **exit 0**.
+
+**Consequence:** any CI job running `make test-act` on a runner whose runtime
+the probe could not reach would go green having executed no fixture. This is
+the same silent-skip failure the job exists to remove — reintroduced through
+placement. Fixed: with the opt-in set, a failed probe now `pytest.fail`s;
+without it, the plain suite still skips as before. Both arms are contracted in
+`test_conftest_runtime.py`.
 
 ### F2 — the OIDC half of `test-resolve-workflow-source.yml` is dead everywhere
 
@@ -116,30 +139,36 @@ podman there is an established pattern in this repository.
   a Rust toolchain, not on a GitHub-image replica; `act-latest` is an
   approximation either way, and this is the one that lets the lane test what it
   claims to.
-- **D4 — the `resolve` fixture's OIDC half is repaired, not worked around.**
-  The standing constraint forbids an expected-failure workaround, and F2 shows
-  the step is dead in *every* environment rather than only under act, so the
-  fix belongs in the fixture:
-  - the `act-branch` step gets `if: env.ACT == 'true'` (the job-level `env:
-    ACT: "false"` reaches it on a real dispatch, so it is skipped there and the
-    short-circuit assertion is not asked for);
-  - the OIDC-fail-fast step is given a front-loaded guard that cannot see the
-    token endpoint, via `env: ACTIONS_ID_TOKEN_REQUEST_URL: ''` — an explicit
-    empty env value *does* override the ambient one, unlike act's `ACT` write
-    (which is an unconditional assignment rather than a default). Then the step
-    fails fast in every environment, exactly once, and its `outcome` is
-    `failure` as asserted;
-  - the assertion step is kept unconditional (it must observe the outcome), and
-    the OIDC assertion is reworded from `== "failure"` to a check that the
-    outcome is `failure` **and** the step is not skipped, so a fixture that
-    stopped exercising it fails rather than passes.
-  This restores the fixture's stated purpose ("exercises the two branches
-  reachable outside real GitHub infrastructure") and makes the lane green for a
-  genuine reason.
-- **D5 — a new contract holds the fixture to D4**, so the structural reason the
-  OIDC branch is reachable (the empty-token-endpoint guard) cannot be dropped
-  silently, and so the act-skip guard on the short-circuit step cannot be
-  removed.
+- **D4 — the `resolve` fixture is repaired by making its two halves
+  mutually exclusive on `env.ACT`, not worked around.** The standing
+  constraint forbids an expected-failure workaround, and F2 shows the OIDC
+  branch was unreachable in *every* environment, so the fix belongs in the
+  fixture. Implemented shape (differs from the earlier draft, which proposed
+  an empty-token-endpoint `env:` guard — F1's correction explains why that was
+  both unnecessary and dangerous):
+  - the short-circuit half is guarded `if: ${{ env.ACT == 'true' }}`, so it
+    runs under act and is skipped on a dispatch;
+  - the OIDC fail-fast half is guarded `if: ${{ env.ACT != 'true' }}`, so it
+    runs on a dispatch — where `ACT` is unset, the action's own `${ACT:-}`
+    falls through, and it exits 1 on the missing token endpoint — and is
+    skipped under act;
+  - **neither guarded step declares `env: ACT:`**, because act feeds a step's
+    own `env:` to that step's own `if:`, which would select the step the guard
+    was written to skip (F1);
+  - the final assertion step is unguarded and reports which half fired, using
+    the literal `steps.<id>.outcome` strings act produces (`"success"` for a
+    run step, `"skipped"` for a skipped one).
+  Verified green under real act: exit 0, `resolve_act_branch=ok`,
+  `resolve_oidc_failfast=skipped`.
+- **D5 — a contract holds the fixture to D4**
+  (`test_resolve_workflow_source_fixture.py`): it evaluates each guard against
+  both runner environments and requires exactly one half to fire in each, that
+  no guard is shadowed above its step, and that no step sets `ACT` for itself.
+  Mutation-checked: restoring the old dead shape produced exactly 3 failures.
+- **D6 — the lane cannot pass without a runtime** (F5). With the opt-in set, a
+  failed runtime probe fails the run instead of skipping it. Without it, the
+  plain suite skips as before, so a machine with no container runtime can still
+  run the full suite.
 
 ## Open questions / next steps
 

@@ -70,10 +70,21 @@ jobs:
           # apart by asking whether the act branch *succeeded*: an emptiness
           # test would read a dispatch's skip as act and demand the impossible
           # pair, failing the very run this half exists for.
+          #
+          # Refusal is explicit rather than left to `set -e`: bash 3.2, which
+          # is what macOS still ships as /bin/bash, does not treat a failing
+          # `[[ ]]` as fatal under errexit, so the bare form asserted nothing
+          # there and the step passed whatever it was given. `[ ]` and `test`
+          # do honour errexit in 3.2; `[[ ]]` does not. The nested `if` is
+          # spelled so both shells refuse the same pairs.
           if [[ "${ACT_OUTCOME}" == "success" ]]; then
-            [[ "${OUTCOME}" == "skipped" ]]
+            if [[ "${OUTCOME}" != "skipped" ]]; then
+              exit 1
+            fi
           else
-            [[ "${ACT_OUTCOME}" == "skipped" && "${OUTCOME}" == "failure" ]]
+            if [[ "${ACT_OUTCOME}" != "skipped" || "${OUTCOME}" != "failure" ]]; then
+              exit 1
+            fi
           fi
           if [[ "${ACT_OUTCOME}" == "success" ]]; then
             echo "resolve_act_branch=ok"

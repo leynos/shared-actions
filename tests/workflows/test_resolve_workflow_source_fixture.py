@@ -17,6 +17,14 @@ green and meaningful.
 So the separation is made where a runner evaluates it -- in the guards
 themselves -- and this module holds it there, by evaluating those guards
 rather than by matching their text.
+
+The assertion's refusal is explicit rather than left to `set -e`,
+because the two shells that run this module do not agree on errexit: the
+Linux job's bash treats a failing `[[ ]]` as fatal, macOS's bash 3.2 does
+not, so the bare form asserted nothing on one of the two legs the module
+runs on. The executed cases below are what caught that; they run the
+step's script, so the shell under the contract is the shell the runner
+would use.
 """
 
 from __future__ import annotations

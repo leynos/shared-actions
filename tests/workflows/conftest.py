@@ -381,8 +381,8 @@ def _resolve_event_path(config: ActConfig, event: str) -> Path:
 
 
 def _build_container_env(config: ActConfig, run_env: dict[str, str]) -> dict[str, str]:
-    """Build the container environment dict with UV forwarding."""
-    merged_container_env: dict[str, str] = {}
+    """Build the container environment dict the lane's fixtures run under."""
+    merged_container_env: dict[str, str] = dict(_LANE_CONTAINER_ENV)
     if config.container_env:
         merged_container_env.update(config.container_env)
     # Forward uv's project environment override into the act container.
@@ -407,6 +407,30 @@ def _build_container_env(config: ActConfig, run_env: dict[str, str]) -> dict[str
 #: aborts with "the repository install failed verification" without testing
 #: anything. `rust-latest` is the same Ubuntu base with the toolchain added.
 _ACT_IMAGE: typ.Final[str] = "catthehacker/ubuntu:rust-latest"
+
+#: Environment every fixture container runs with, overridable per case.
+#:
+#: `RUSTUP_PERMIT_COPY_RENAME` is a workaround for an artefact of the image
+#: under act, not for anything these actions do. `rust-latest` bakes its
+#: toolchain into `/usr/share/rust/.rustup`, which under act is a lower layer
+#: of the container's overlay filesystem. When upstream stable is newer than
+#: the one the image was built with -- as it is whenever the rolling tag lags
+#: a release -- the nested `actions-rust-lang/setup-rust-toolchain` updates
+#: that toolchain in place, and rustup's swap of the old toolchain's
+#: directories is a rename across overlay layers. Overlayfs refuses it with
+#: `Invalid cross-device link (os error 18)` and the install rolls back, so
+#: `setup-rust` fails for a reason the image never has on a real runner,
+#: where the toolchain sits in one writable layer.
+#:
+#: The variable is rustup's own opt-in to copy-and-delete instead of rename
+#: (it appears in the 1.29.0 binary and in rustup's environment-variable
+#: reference). Measured: without it the update fails in 583 ms as above;
+#: with it the same update completes (rustc 1.97.1 to 1.99.0) and the job
+#: exits 0. It is harmless when the baked toolchain is already current,
+#: because rustup then never takes the rename path.
+_LANE_CONTAINER_ENV: typ.Final[dict[str, str]] = {
+    "RUSTUP_PERMIT_COPY_RENAME": "1",
+}
 
 #: The platforms act may be given an image for: the Linux labels this
 #: repository's fixtures run on. Taken from the shared vocabulary in

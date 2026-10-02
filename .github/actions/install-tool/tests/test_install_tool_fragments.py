@@ -38,10 +38,23 @@ echo "widget: unexpected argument ${1:-}" >&2
 exit 1
 """
 
+#: A stub shaped like act, which prints "act version 0.2.89" rather than
+#: "<binary> <version>". The verification compares the tool's own output
+#: against a composed expectation, so a tool with another shape is the case
+#: that failed the act-workflows job when nothing pinned it.
+STUB_WITH_LEAD = """#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+  echo "widget version 1.2.3"
+  exit 0
+fi
+echo "widget: unexpected argument ${1:-}" >&2
+exit 1
+"""
 
-def _stub_binary(tmp_path: Path, name: str = "widget") -> Path:
+
+def _stub_binary(tmp_path: Path, name: str = "widget", source: str = STUB) -> Path:
     path = tmp_path / name
-    path.write_text(STUB, encoding="utf-8")
+    path.write_text(source, encoding="utf-8")
     path.chmod(0o755)
     return path
 
@@ -438,10 +451,10 @@ class TestDownloadAndVerify:
 class TestVerification:
     """The installed binary has the last word."""
 
-    def _verified(self, tmp_path: Path, **overrides: str) -> Result:
+    def _verified(self, tmp_path: Path, source: str = STUB, **overrides: str) -> Result:
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir(exist_ok=True)
-        _stub_binary(bin_dir)
+        _stub_binary(bin_dir, source=source)
         context = _context(tmp_path)
         resolved = _resolved(
             tmp_path / "unused.tar.gz", "widget", "tar.gz", **overrides
@@ -465,6 +478,24 @@ class TestVerification:
         assert result.returncode == 0, result.stderr
         assert result.metrics["install-tool.verify"] == "ok"
         assert result.metrics["install-tool.result"] == "installed"
+
+    def test_accepts_a_tool_that_prints_more_than_its_name(
+        self, tmp_path: Path
+    ) -> None:
+        """Act prints "act version 0.2.89", and a lead composes the match.
+
+        The expectation carries the lead the manifest records, and the
+        binary that prints it verifies; this is the shape the act-workflows
+        job exercises for real, pinned here so it cannot rot unnoticed.
+        """
+        result = self._verified(
+            tmp_path,
+            source=STUB_WITH_LEAD,
+            **{"expected-version": "widget version 1.2.3"},
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.metrics["install-tool.verify"] == "ok"
 
     def test_refuses_a_binary_reporting_another_version(self, tmp_path: Path) -> None:
         """A digest proves the bytes; only running it proves the tool."""

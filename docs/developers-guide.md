@@ -740,6 +740,16 @@ its empty list records. Every one of these was found by running the binary
 rather than by assuming, and an assumption here fails on a runner and nowhere
 earlier.
 
+`version-lead` is the optional counterpart to `version-args` for the shape of
+what comes back. The action verifies the installed binary by looking for the
+string `<binary> <version>` in its output, which is what every tool prints
+except act: act prints `act version 0.2.89`, so its entry records
+`version-lead = "act version"` and the expectation becomes `<lead> <version>`.
+An entry that needs a lead and lacks one fails verification on whichever runner
+runs the act-workflows job — which is how #583 and #516 found it — so
+`test_the_tools_whose_output_is_not_their_name_are_the_expected_ones` records
+act as the sole exception and fails when another appears.
+
 `merman-cli` 0.7.0 illustrates an entry built from a release archive rather than
 `cargo install`. It carries `x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`
 and `aarch64-apple-darwin`, each a `.tar.xz` archive with the binary under
@@ -2090,11 +2100,20 @@ inheriting it so the outcome does not depend on the developer's shell.
 ### Skip Markers
 
 <!-- markdownlint-disable MD013 -->
-| Marker                       | Condition                                                    |
-| ---------------------------- | ------------------------------------------------------------ |
-| `skip_unless_act`            | Skip when `_get_act_runtime_status().available` is `False`.  |
-| `skip_unless_workflow_tests` | Skip when `ACT_WORKFLOW_TESTS` is not set to a truthy value. |
+| Marker                       | Condition                                                                                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `skip_unless_act`            | Skip when `_get_act_runtime_status().available` is `False` **and** the lane was not requested; fail instead when `ACT_WORKFLOW_TESTS` is truthy. |
+| `skip_unless_workflow_tests` | Skip when `ACT_WORKFLOW_TESTS` is not set to a truthy value.                                                                                     |
 <!-- markdownlint-enable MD013 -->
+
+The two arms of `skip_unless_act` are deliberate. Skipping is right in the
+plain suite, which collects these modules on machines that have no container
+runtime and must not fail there. It is wrong once the lane is requested,
+because a skipped case reports success for a run that executed nothing: the
+lane would exit zero having run none of the fixtures it exists to run. That is
+the failure `ci.yml`'s `act-workflows` would otherwise carry, and it is the
+same shape as the runner-label drift `test_ci_step_platforms.py` refuses —
+green, and proving nothing.
 
 ### Parsing workflows
 
@@ -2976,6 +2995,12 @@ is deliberate and uneven: the assertion tier sits far above its measurement
 because `ubicloud-standard-2` has half the vCPUs of a GitHub-hosted runner and
 because a cold cache on a new store makes the first run of any lane
 unrepresentative.
+
+One job borrows a tier rather than being measured into one: `ci.yml`'s
+`act-workflows` runs the act lane, whose ~13 minutes on an idle six-core host
+plus a multi-gigabyte image pull is not a measurement of any run this
+repository has taken. It takes the coverage tier, the widest, until a run
+history exists to size it honestly.
 
 These ceilings are the outermost of the four timers described under "Test
 timeouts: four tiers, outermost last" in the users' guide. Nothing in this

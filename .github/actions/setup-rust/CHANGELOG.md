@@ -45,6 +45,17 @@
   need a handwritten guard around `export-ubicloud-cache-credentials` (#521,
   ADR 0005).
 
+- Give the backend-selection step a `github-token` fallback, so nektos/act
+  reaches it at all. `actions/github-script` validates that input as required
+  before it runs any script, and its declared default, `${{ github.token }}`,
+  is empty under act: the step died at input validation with "Input required
+  and not supplied: github-token" before it could select local disk, the
+  backend ADR 0005 promises under act. The fallback satisfies the validation
+  without authenticating anything — the script never touches the client the
+  action builds, and on a real runner the expression yields the runner's own
+  token unchanged. A manifest test now holds it, since the Node harness stubs
+  `@actions/core` and cannot see the validation.
+
 - Pin `mozilla-actions/sccache-action` to sccache v0.17.0. Left unset, the
   action asks the GitHub API for the latest release on every job: a floating
   dependency and a network call in the critical path. That call timed out on PR

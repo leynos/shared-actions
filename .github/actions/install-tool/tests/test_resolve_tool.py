@@ -26,6 +26,7 @@ name = "widget"
 version = "1.2.3"
 binary = "widget"
 version-args = ["--version"]
+version-lead = "widget version"
 
   [[tool.target]]
   triple = "x86_64-unknown-linux-gnu"
@@ -136,8 +137,21 @@ class TestResolution:
         assert fields["member"] == "widget-1.2.3/widget"
         assert fields["extension"] == "tar.gz"
         assert fields["binary"] == "widget"
-        assert fields["expected-version"] == "widget 1.2.3"
+        assert fields["expected-version"] == "widget version 1.2.3"
         assert fields["version-check"] == "true"
+
+    def test_a_tool_without_a_lead_keeps_the_derived_expectation(
+        self, manifest: Path
+    ) -> None:
+        """The default is byte-identical to what it always was.
+
+        generate-coverage and ratchet-coverage compare this string against
+        the probe's report with `==`, not as a substring, so a change to the
+        default composition would break them silently on a runner.
+        """
+        _completed, fields = resolve(manifest, "brisk", "2.0.0")
+
+        assert fields["expected-version"] == "brisk 2.0.0"
 
     def test_appends_exe_on_windows(self, manifest: Path) -> None:
         """The probe looks for a file by name, and Windows names it .exe."""

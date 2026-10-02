@@ -54,15 +54,18 @@ class TestSchema:
         assert load_tool_manifest()["schema"] == 1
 
     def test_every_tool_has_the_required_fields(self) -> None:
-        """A missing field fails at resolution, on one runner, much later."""
+        """A missing field fails at resolution, on one runner, much later.
+
+        An entry may add a key from the optional set and nothing else: an
+        unknown key would be a field the resolver never reads, which reads
+        as a pin that does something it does not.
+        """
+        required = {"name", "version", "binary", "version-args", "target"}
+        optional = {"version-lead"}
         for entry in manifest_entries():
-            assert set(entry) == {
-                "name",
-                "version",
-                "binary",
-                "version-args",
-                "target",
-            }, entry.get("name")
+            keys = set(entry)
+            assert keys >= required, entry.get("name")
+            assert keys <= required | optional, entry.get("name")
 
     def test_every_target_has_the_required_fields(self) -> None:
         """Same reasoning, for the part that names bytes to download."""
@@ -90,6 +93,35 @@ class TestSchema:
         """
         assert all(isinstance(argument, str) for argument in entry["version-args"])
         assert all(" " not in argument for argument in entry["version-args"])
+
+    def test_the_tools_whose_output_is_not_their_name_are_the_expected_ones(
+        self,
+    ) -> None:
+        """Only act prints something other than "<binary> <version>".
+
+        Recorded as a test so that the day another tool's output shape
+        surprises a runner, this fails and the lead is recorded, rather than
+        the verification mismatch recurring on whichever runner noticed.
+        """
+        with_lead = {
+            entry["name"] for entry in manifest_entries() if "version-lead" in entry
+        }
+
+        assert with_lead == {"act"}
+
+    def test_a_version_lead_carries_the_words_it_composes(self) -> None:
+        """`<lead> <version>` is what the tool must print, so the lead leads.
+
+        The version itself is not repeated in the lead: the resolver composes
+        the two, and a lead that carried the version would pin it in two
+        places and drift.
+        """
+        for entry in manifest_entries():
+            lead = entry.get("version-lead")
+            if lead is None:
+                continue
+            assert lead.startswith(entry["binary"]), entry["name"]
+            assert entry["version"] not in lead, entry["name"]
 
 
 class TestDigests:

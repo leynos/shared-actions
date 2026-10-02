@@ -640,3 +640,39 @@ new bottom commit needs publishing.
 
 Logs: `/tmp/act-fixture-repro-…out` (before), `/tmp/act-fixture-after-fix-…out`
 (harness pass), `/tmp/act-direct-…out` (direct act run).
+
+### The third restack, and publication
+
+The F11 fix and its record landed on the bottom as `23dfa2e5` and `cc486d14`,
+gated locally (all six gates green; `make test` 3626 passed, 141 skipped) and
+pushed as a fast-forward — neither commit touches `.github/workflows/*`.
+
+The top was replayed with the same explicit invocation, boundary `ac4c992d`
+onto target `cc486d14`:
+
+```text
+git -c merge.conflictStyle=zdiff3 rebase --merge --no-fork-point \
+  --no-update-refs --no-autostash --reapply-cherry-picks --keep-empty \
+  --empty=stop --onto cc486d14 ac4c992d issue-515-…
+```
+
+All 21 commits replayed with zero conflicts; new head `1b1c3f17`. Recovery refs
+`refs/recovery/act-lane-top-old-head-3` (`a2ccc33c`) and
+`refs/recovery/act-lane-bottom-old-head-3` (`ac4c992d`) are retained. Audit:
+`range-diff ac4c992d..a2ccc33c cc486d14..1b1c3f17` reports all 21 entries
+patch-identical; 21 commits, no merges, `git diff --check` clean; every
+bottom-owned file (setup-rust's action, changelog, test, and this file) is
+byte-identical at the new top. The top-vs-bottom diffstat is unchanged.
+
+The top's push again needed the SSH-with-explicit-leases bypass: its range
+carries `.github/workflows/test-generate-coverage.yml`, and the OAuth token has
+no `workflow` scope. The lease was bound to the head recorded before the
+operation (`a2ccc33c`), the tracking refs were updated to the pushed heads, and
+`gh stack submit --auto` then took its no-op push path and synced the stack
+object (#584) over the API.
+
+CI: the bottom re-ran green on the previous head; this cycle's runs are watched
+below. One transient upstream failure surfaced on #516's `install-whitaker` — a
+`http status: 500` downloading `dylint-link` from `leynos/whitaker`'s rolling
+release, the same class as F10 and unrelated to setup-rust; the job passes on
+the bottom, and the failed job was re-run.

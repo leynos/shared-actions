@@ -1,0 +1,110 @@
+name: Report sccache statistics
+description: >-
+  Print sccache's statistics, write them as text and JSON, and add them to the
+  job summary, standing down when setup-rust reports that the server fell back
+  to an uncached build. Call it after the build, under `if: always()`.
+
+inputs:
+  status:
+    description: >-
+      The `sccache-status` output of setup-rust. `fallback` means the server
+      never started: there are no statistics (with no server `sccache
+      --show-stats` prints empty defaults), so the action reports nothing and
+      says so. Any other value, including empty, reports.
+    required: false
+    default: ''
+  backend:
+    description: >-
+      The `cache-backend` output of setup-rust, named in the summary because
+      `Cache location` reads `ghac` for Ubicloud's proxy and for GitHub's own
+      service alike.
+    required: false
+    default: ''
+  stats-file:
+    description: Path the JSON statistics are written to.
+    required: false
+    default: sccache-stats.json
+  text-file:
+    description: Path the human-readable statistics are written to.
+    required: false
+    default: sccache-stats.txt
+  summary:
+    description: >-
+      "true" (the default) appends the statistics to the job summary. Anything
+      else leaves the summary alone.
+    required: false
+    default: 'true'
+
+outputs:
+  reported:
+    description: >-
+      "true" when statistics were written, "false" when the action stood down
+      (a fallback, or no sccache on PATH). A consumer's health check conditions
+      on this instead of repeating the guard.
+    value: ${{ steps.report.outputs.reported }}
+  stats-file:
+    description: Path of the JSON statistics when `reported` is "true", else empty.
+    value: ${{ steps.report.outputs.stats-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Report sccache statistics
+      id: report
+      shell: bash
+      env:
+        SR_STATUS: ${{ inputs.status }}
+        SR_BACKEND: ${{ inputs.backend }}
+        SR_STATS_FILE: ${{ inputs.stats-file }}
+        SR_TEXT_FILE: ${{ inputs.text-file }}
+        SR_SUMMARY: ${{ inputs.summary }}
+      run: |
+        set -euo pipefail
+        # The paths are caller input and the stats-file is written as a
+        # `name=value` output record, where a line break would start another
+        # record (`x\nreported=false` would override the real one). A path with
+        # a line break is refused rather than encoded.
+        for path in "${SR_STATS_FILE}" "${SR_TEXT_FILE}"; do
+          case "$path" in
+            *$'\n'*|*$'\r'*)
+              echo "::error title=sccache-report::stats-file and text-file must not contain line breaks" >&2
+              exit 1
+              ;;
+          esac
+        done
+        stand_down() {
+          echo "reported=false" >> "$GITHUB_OUTPUT"
+          echo "stats-file=" >> "$GITHUB_OUTPUT"
+          echo "::notice title=sccache-report::$1"
+          echo "metric sccache-report.outcome=$2"
+        }
+        # A server that fell back never started. With no server,
+        # `sccache --show-stats` does not start one (that is `--zero-stats`);
+        # it prints empty default statistics. Reporting them would publish a
+        # table of zeros for a job that never used the cache, which reads as a
+        # wrapper that never reached the compiler.
+        if [[ "${SR_STATUS}" == fallback ]]; then
+          stand_down "sccache fell back to an uncached build; there are no statistics to report" fallback
+          exit 0
+        fi
+        if ! command -v sccache >/dev/null 2>&1; then
+          stand_down "sccache is not on PATH; there are no statistics to report" not-installed
+          exit 0
+        fi
+        stats="$(sccache --show-stats)"
+        printf '%s\n' "$stats" | tee -- "${SR_TEXT_FILE}"
+        sccache --show-stats --stats-format json > "${SR_STATS_FILE}"
+        # The log copy is the one that can be read afterwards: the job summary
+        # is not available through the REST API.
+        if [[ "${SR_SUMMARY}" == true && -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+          {
+            printf '### sccache\n\n'
+            if [[ -n "${SR_BACKEND}" ]]; then
+              printf -- '- backend: `%s`\n\n' "${SR_BACKEND}"
+            fi
+            printf '```text\n%s\n```\n' "$stats"
+          } >> "${GITHUB_STEP_SUMMARY}"
+        fi
+        echo "reported=true" >> "$GITHUB_OUTPUT"
+        echo "stats-file=${SR_STATS_FILE}" >> "$GITHUB_OUTPUT"
+        echo "metric sccache-report.outcome=reported"

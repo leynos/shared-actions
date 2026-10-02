@@ -160,14 +160,32 @@ Decisive experiment (`/tmp/wi_probe.py`, exit 0, 114.9 s): monkey-patching
 version=0.2.9 suite=default-branch-tip suite-source=prebuilt`,
 no `::error title=Whitaker`.
 
-### F4 — CI can obtain a container runtime where it matters
+### F4 — CI has a container runtime on both arms
 
-`rust-toy-app.yml` runs `validate-linux-packages` on the **Ubicloud** arm,
-whose first step is
-`sudo apt update -y && sudo apt install -y podman bubblewrap proot mmdebstrap`
-(`.github/actions/validate-linux-packages/action.yml:79`). So the Ubicloud
-image is Ubuntu 24.04 with sudo and apt, and installing rootless podman there
-is an established pattern in this repository.
+**Corrected.** An earlier version of this finding only said the Ubicloud arm
+*could install* a runtime, citing the podman line in `validate-linux-packages`
+(`.github/actions/validate-linux-packages/action.yml:79`). The truth is
+stronger, and it is why the job installs nothing.
+
+- Ubicloud's x64 runner images are generated from GitHub's own packer
+  templates and are, in Ubicloud's words, "fully compatible with default
+  runners"
+  ([runner types](https://www.ubicloud.com/docs/github-actions-integration/runner-types));
+  `ubicloud-standard-2` is Ubuntu 24.04, the same image family GitHub's
+  `ubuntu-latest` resolves to. GitHub's ubuntu-24.04 image ships `docker-ce`
+  with the daemon running, so both arms of the fork-fallback `runs-on` have
+  Docker.
+- The probe prefers Docker: `_docker_cli_available()` requires `docker info`
+  and `docker ps -a` to succeed, and podman is only consulted when the Docker
+  CLI is absent (`tests/workflows/conftest.py:246-278`). So the podman install
+  pattern exists but is the fallback, not the path.
+- Installing podman in the job would therefore be dead weight on the common
+  arm and, worse, would suggest the lane needs provisioning it does not. D6
+  already makes a runtime the probe cannot reach a loud failure, so a runner
+  without Docker fails with the probe's reason rather than skipping into a
+  green job. The first CI run died at `Install act` (F8) before the lane step,
+  so the probe has not yet run on either arm; the re-run the fixes trigger is
+  its first real exercise.
 
 ## Decisions
 
@@ -176,12 +194,13 @@ is an established pattern in this repository.
   'ubicloud-standard-2' }}`,
   `timeout-minutes: 30`.
   - The fork-fallback shape is required by `TestLinuxPlacementRule` because
-    `ci.yml` carries `on: pull_request`; the Ubicloud arm is the one that can
-    install podman, and the hosted arm is the fallback a fork lands on.
+    `ci.yml` carries `on: pull_request`; both arms carry a Docker daemon
+    (F4), so the lane runs on either, and the hosted arm is the fallback a
+    fork lands on.
   - A tier of its own is **not** in `TIMEOUT_TIERS` (`assertion` 10, `install`
     15, `build` 20, `suite` 20, `coverage` 30). The lane's measured wall time
-    is ~13 min on an idle 6-core host, and the job also installs podman and
-    pulls two multi-gigabyte images, so `coverage` (30) is the only honest tier.
+    is ~13 min on an idle 6-core host, and the job pulls two multi-gigabyte
+    images, so `coverage` (30) is the only honest tier.
     `JOB_TIERS[("ci.yml", "act-workflows")] = "coverage"` with a comment
     recording the measurement.
 - **D2 — the job installs act v0.2.89 through the repository's own
@@ -362,7 +381,7 @@ replay produces, and `gh stack submit` pushes it with `--force-with-lease`.
 | F1  | act exports `ACT=true` into a composite, and feeds a step's own `env` to its own `if:` | D4, D5   |
 | F2  | the resolve fixture's OIDC half is dead in every environment                           | D4, D5   |
 | F3  | `act-latest` ships no Rust toolchain                                                   | D3       |
-| F4  | Ubicloud runners can install a container runtime                                       | D1       |
+| F4  | both CI arms carry a Docker daemon; podman is the probe's fallback, not the path       | D1       |
 | F5  | a failed runtime probe made the whole lane exit 0 having run nothing                   | D6       |
 | F6  | the rust image's baked toolchain cannot be renamed across overlay layers               | D7       |
 | F7  | the resolve case's expectation outlived the fixture it describes                       | D8       |
@@ -474,3 +493,45 @@ None of the three is a reason to touch the Makefile, the manifest's existing
 entries, or the lane's design. F8 and F9 both belong on this branch: the act
 manifest entry and the worktree test arrived with `c82c629e`/`6fc575f4`, and
 this file lives only here. The fixes are recorded below as they land.
+
+### The F8 and F9 fixes, landed
+
+**F8 — `version-lead` in the manifest, composed by `describe()`.** The fix
+keeps the derived default byte-identical for every tool that prints
+`<binary> <version>`, because generate-coverage and ratchet-coverage compare
+`probe.version == expected_version` with `==` (`install_cargo_llvm_cov.py`).
+Shape:
+
+- `.github/tool-manifest.toml` gains an optional `version-lead` key, and act's
+  entry records `version-lead = "act version"`. The header documents the key
+  and that a tool needing one and lacking it fails verification on a runner and
+  nowhere earlier.
+- `resolve_tool.py`'s `describe()` composes
+  `f"{entry.get('version-lead', binary)} {entry['version']}"`.
+- Guards, each pinning a distinct claim:
+  `test_every_tool_has_the_required_fields` accepts the optional key;
+  `test_the_tools_whose_output_is_not_their_name_are_the_expected_ones` pins
+  act as the sole exception;
+  `test_a_version_lead_carries_the_words_it_composes` pins the lead's shape;
+  `test_a_tool_without_a_lead_keeps_the_derived_expectation` pins the
+  byte-identical default; `test_accepts_a_tool_that_prints_more_than_its_name`
+  runs the shipped verify fragment against a lead-shaped stub, so the failure
+  cannot return unnoticed.
+- `test-install-tool.yml`'s `installs-and-caches` matrix already asserts
+  `expected: <tool> <version>` for four other tools, which is a second guard
+  that the default did not move.
+
+Verified locally: the install-tool suite is **210 passed**, and the resolver
+against the real manifest reports `status=ok`, `version-check=true`,
+`expected-version=act version 0.2.89`.
+
+**F9 — the worktree test builds the ordinary checkout it names.** The test now
+runs `git init` into `tmp_path/ordinary` and asserts `_git_common_dir_mount`
+returns `None` for it, instead of reading this host's linked worktree. The
+resolved-path comparisons are safe: `git rev-parse --path-format=absolute`
+returns resolved paths even through a symlinked invocation, and pytest's tmpdir
+temproot/basetemp are resolved.
+
+**F10 — no change.** The `curl: (22) … 500` on PR #583's linux leg was a
+transient upstream failure; the re-run the fixes trigger is the test of that
+judgement.

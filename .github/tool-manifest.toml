@@ -30,6 +30,13 @@
 # tool cannot be asked at all. Every one of these was found by running the
 # binary, not by assuming.
 #
+# `version-lead` is the words the tool's own output puts in front of the
+# version, for a tool that does not print "<binary> <version>": act prints
+# "act version 0.2.89". It is optional and only composes the expected string
+# `<lead> <version>`; a tool whose output shape is not "<name> <version>" and
+# carries no lead would fail verification on a runner, which is why the entry
+# for such a tool must record one.
+#
 # To add or bump a tool: download every archive, compute its SHA-256, compare
 # against the sidecar where one exists, and record the result. Never copy a
 # digest out of a sidecar without downloading the archive, because that records
@@ -310,11 +317,18 @@ version-args = ["--version"]
 # `tests/workflows` that execute a real GitHub Actions runner locally. It is a
 # Go project, and its archives carry the binary and its documentation at the
 # archive root rather than under a versioned directory.
+#
+# It is the one tool that does not print "<binary> <version>": it prints
+# "act version 0.2.89", so `version-lead` records the words in front of the
+# version. Without it the derived expectation would be "act 0.2.89" and the
+# verification could never match, which is how the act-workflows job failed
+# on #583 and #516.
 [[tool]]
 name = "act"
 version = "0.2.89"
 binary = "act"
 version-args = ["--version"]
+version-lead = "act version"
 
   [[tool.target]]
   triple = "x86_64-unknown-linux-gnu"

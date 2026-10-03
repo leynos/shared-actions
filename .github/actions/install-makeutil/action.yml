@@ -7,7 +7,7 @@ inputs:
   version:
     description: Exact makeutil version to install; three numeric components
     required: false
-    default: "0.1.1"
+    default: "0.1.2"
   bin-dir:
     description: >-
       Directory that receives the makeutil executable and is appended to

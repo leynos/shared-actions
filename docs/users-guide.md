@@ -739,7 +739,7 @@ rather than after a from-source compile.
 - name: Install makeutil
   uses: ./.github/actions/install-makeutil
   with:
-    version: 0.1.1
+    version: 0.1.2
 
 - name: Parse a Makefile
   run: makeutil parse Makefile
@@ -747,14 +747,14 @@ rather than after a from-source compile.
 
 The repository must be checked out before invoking this local action; use the
 relative path without a version suffix. The `version` input names an exact
-release of three numeric components and defaults to `0.1.1` when omitted; there
-is no floating or `latest` value. `0.1.0` remains installable by naming it. The
-optional `bin-dir` input defaults to `~/.local/bin`. The executable lands there
-and the directory is appended to `GITHUB_PATH`, so later steps call `makeutil`
-by name. The outputs are `path`, `version` and `result`. `result` is set on
-every terminal path, a refusal or failure included, so a workflow using
-`continue-on-error` can assert why the action failed; `path` and `version` are
-set only on success.
+release of three numeric components and defaults to `0.1.2` when omitted; there
+is no floating or `latest` value. `0.1.0` and `0.1.1` remain installable by
+naming them. The optional `bin-dir` input defaults to `~/.local/bin`. The
+executable lands there and the directory is appended to `GITHUB_PATH`, so later
+steps call `makeutil` by name. The outputs are `path`, `version` and `result`.
+`result` is set on every terminal path, a refusal or failure included, so a
+workflow using `continue-on-error` can assert why the action failed; `path` and
+`version` are set only on success.
 
 ### Supported runners and pinned versions
 

@@ -36,6 +36,7 @@ PLATFORM_STEPS: typ.Final[cabc.Mapping[str, str]] = {
     "Markdown lint": "Linux",
     "Install Merman CLI": "Linux",
     "Install Nixie": "Linux",
+    "Run docstring examples": "Linux",
     "Validate Mermaid diagrams": "Linux",
     "Setup Rust": "Linux",
     "Install Whitaker": "Linux",

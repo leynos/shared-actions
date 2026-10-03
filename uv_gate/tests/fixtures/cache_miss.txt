@@ -1,0 +1,6 @@
+Resolved 2 packages in 1ms
+  × Failed to download `six==1.16.0`
+  ╰─▶ Network connectivity is disabled, but the
+      requested data wasn't found in the cache for:
+      `https://files.pythonhosted.org/packages/d9/5a/e7c31adbe875f2abbb91bd84cf2dc52d792b5a01506781dbcf25c91daf11/six-1.16.0-py2.py3-none-any.whl`
+  help: `six` (v1.16.0) was included because `probe` (v0.1.0) depends on `six`

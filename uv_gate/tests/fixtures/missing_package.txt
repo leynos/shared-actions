@@ -1,0 +1,4 @@
+  × No solution found when resolving dependencies:
+  ╰─▶ Because nonexistent-pkg-zzq was not found in the package registry and
+      your project depends on nonexistent-pkg-zzq==1.0, we can conclude that
+      your project's requirements are unsatisfiable.

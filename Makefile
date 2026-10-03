@@ -71,6 +71,8 @@ typecheck: .venv ## Run static type checking with Ty
 		--extra-search-path .github/actions/install-mdtablefix/tests \
 		--extra-search-path .github/actions/install-makeutil/scripts \
 		--extra-search-path .github/actions/install-makeutil/tests \
+		--extra-search-path uv_gate \
+		--extra-search-path uv_gate/tests \
 		cmd_utils.py \
 		composite_fragments.py \
 		.github/actions/generate-coverage/scripts \
@@ -81,6 +83,7 @@ typecheck: .venv ## Run static type checking with Ty
 		.github/actions/install-mdtablefix/tests \
 		.github/actions/install-makeutil/scripts \
 		.github/actions/install-makeutil/tests \
+		uv_gate \
 		.github/actions/windows-package/scripts
 	./.venv/bin/ty check --python .venv \
 		--extra-search-path . \

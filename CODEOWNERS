@@ -6,3 +6,4 @@
 .github/actions/install-mdtablefix/ @leynos
 .github/actions/install-tool/ @leynos
 .github/actions/install-makeutil/ @leynos
+uv_gate/ @leynos

@@ -1,0 +1,17 @@
+   Updating https://github.com/leynos/this-repo-does-not-exist-zzq (0000000000000000000000000000000000000000)
+  × Failed to download and build `six @
+  │ git+https://github.com/leynos/this-repo-does-not-exist-zzq@0000000000000000000000000000000000000000`
+  ├─▶ Git operation failed
+  ├─▶ failed to fetch into:
+  │   /home/user/.cache/uv/git-v0/db/4c514da6635fb9f7
+  ├─▶ failed to fetch branch, tag, or commit
+  │   `0000000000000000000000000000000000000000`
+  ╰─▶ process didn't exit successfully: `/usr/sbin/git fetch --tags --force
+      --update-head-ok 'https://github.com/leynos/this-repo-does-not-exist-zzq'
+      '+refs/heads/*:refs/remotes/origin/*' '+HEAD:refs/remotes/origin/HEAD'`
+      (exit status: 128)
+      --- stderr
+      remote: Repository not found.
+      fatal: repository
+      'https://github.com/leynos/this-repo-does-not-exist-zzq/' not found
+

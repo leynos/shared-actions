@@ -220,7 +220,17 @@ def clean_environment(environ: cabc.Mapping[str, str], home: Path) -> dict[str, 
     return env
 
 
-def needs_copy_mode(cache: Path, environment_path: Path, repo: Path) -> bool:
+def device_of(path: Path) -> int:
+    """Return the device number (``st_dev``) of ``path``."""
+    return path.stat().st_dev
+
+
+def needs_copy_mode(
+    cache: Path,
+    environment_path: Path,
+    repo: Path,
+    device: cabc.Callable[[Path], int] = device_of,
+) -> bool:
     """Report whether the cache and the project environment differ in device.
 
     ``uv`` hard-links cached files when the cache and the environment share a
@@ -235,6 +245,9 @@ def needs_copy_mode(cache: Path, environment_path: Path, repo: Path) -> bool:
         The project's virtual environment, which may not exist yet.
     repo:
         The repository root, used when the environment does not exist.
+    device:
+        Returns the device number of a resolved path. Tests inject it to feed
+        two different devices without a second filesystem.
 
     Returns
     -------
@@ -244,7 +257,7 @@ def needs_copy_mode(cache: Path, environment_path: Path, repo: Path) -> bool:
     device_path = (
         environment_path.resolve() if environment_path.exists() else repo.resolve()
     )
-    return device_path.stat().st_dev != cache.resolve().stat().st_dev
+    return device(device_path) != device(cache.resolve())
 
 
 class Context:
@@ -299,6 +312,7 @@ def build_context(
     environ: cabc.Mapping[str, str],
     repo: Path,
     home: Path | None = None,
+    device: cabc.Callable[[Path], int] = device_of,
 ) -> Context:
     """Build the cleaned environment, locate uv and select the cache.
 
@@ -310,6 +324,9 @@ def build_context(
         The repository root (normally the current directory).
     home:
         The home directory, defaulting to ``Path.home()``.
+    device:
+        Returns a path's device number; injected by tests, see
+        ``needs_copy_mode``.
 
     Returns
     -------
@@ -337,7 +354,7 @@ def build_context(
     env["UV_CACHE_DIR"] = str(cache)
     configured = env.get("UV_PROJECT_ENVIRONMENT")
     environment_path = (repo / configured) if configured else repo / ".venv"
-    if needs_copy_mode(cache, environment_path, repo):
+    if needs_copy_mode(cache, environment_path, repo, device):
         env["UV_LINK_MODE"] = "copy"
     context = Context(env, uv, cache)
     context.install_git_shim()

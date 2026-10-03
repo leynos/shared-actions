@@ -128,6 +128,10 @@ keeps its contents and places the timeout ahead of them; a root
 same name nested under a table header or inside a multi-line string does not
 count. A comment or a one-line string that merely mentions a multi-line
 delimiter opens nothing. The merged copy is private to the runner account.
+Which branch decided the timeout is reported as
+`metric setup-rust.sccache.timeout=<caller|merged|default>`: `caller` means the
+caller's own root timeout was kept, `merged` means 60,000 ms was prepended to
+the caller's config, and `default` means the step used the default config alone.
 
 A cache is an optimization, so a server that still will not start does not fail
 the job. The step clears `RUSTC_WRAPPER`, Cargo compiles without the cache, and

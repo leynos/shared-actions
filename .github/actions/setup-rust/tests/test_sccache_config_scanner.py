@@ -51,6 +51,42 @@ class TestConfigScanner:
 
         assert _written_conf(workdir) == "server_startup_timeout_ms = 60000\n" + text
 
+    def test_an_escaped_delimiter_inside_a_multiline_string_does_not_close_it(
+        self, fake_sccache: Path
+    ) -> None:
+        """A backslash before a triple quote keeps the string open.
+
+        In a multi-line basic string a backslash then a quote is an escaped
+        quote, so a backslash followed by three quotes is that quote plus two
+        content quotes, not a closing delimiter. A scanner that closed the
+        string there would take the timeout-like content line after it for the
+        caller's own root key, skip the required default and leave the file
+        without the 60 s timeout.
+        """
+        workdir = fake_sccache.parent
+        theirs = workdir / "theirs.toml"
+        text = (
+            'alpha = """\n'
+            'say \\""" and carry on\n'
+            "server_startup_timeout_ms = 123\n"
+            '"""\n'
+        )
+        parsed = tomllib.loads(text)
+        assert "server_startup_timeout_ms" not in parsed, (
+            "the timeout-like line is string content, not a root key"
+        )
+        assert 'say """ and carry on' in parsed["alpha"]
+        theirs.write_text(text, encoding="utf-8")
+        _run_server(
+            Scenario(
+                workdir=workdir,
+                sccache_path=str(fake_sccache),
+                caller_conf=str(theirs),
+            )
+        )
+
+        assert _written_conf(workdir) == "server_startup_timeout_ms = 60000\n" + text
+
     @pytest.mark.parametrize(
         ("preamble", "case"),
         [

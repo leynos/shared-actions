@@ -13,6 +13,8 @@ from pathlib import Path
 import pytest
 from _harness import Harness, fixture_text, other_device_dir, response, rule
 
+import uv_gate
+
 OFFLINE_SYNC = ["sync", "--locked", "--offline"]
 ONLINE_SYNC = ["sync", "--locked"]
 
@@ -405,3 +407,55 @@ def test_unknown_subcommand_and_no_arguments_are_refusals(harness: Harness) -> N
         assert result.status == 2
         assert "usage:" in result.stderr
     assert result.uv_calls() == []
+
+
+class _Devices:
+    """Scripted device numbers for `build_context`, keyed by resolved path."""
+
+    def __init__(self, numbers: dict[Path, int], default: int = 1) -> None:
+        """Map resolved paths to device numbers."""
+        self.numbers = {path.resolve(): number for path, number in numbers.items()}
+        self.default = default
+
+    def __call__(self, path: Path) -> int:
+        """Return the scripted device for ``path``."""
+        return self.numbers.get(path, self.default)
+
+
+def _context_env(harness: Harness, devices: _Devices, environ: dict[str, str]) -> dict:
+    """Build a context with injected devices and return the env uv would get."""
+    full = {
+        "PATH": f"{harness.bin}{os.pathsep}/usr/bin:/bin",
+        "HOME": str(harness.home),
+        "FAKE_UV_LOG": str(harness.log),
+        "FAKE_UV_SCENARIO": str(harness.scenario),
+        "FAKE_UV_CACHE": str(harness.cache),
+        **environ,
+    }
+    harness.scenario.write_text("[]", encoding="utf-8")
+    context = uv_gate.build_context(full, harness.repo, harness.home, devices)
+    try:
+        return dict(context.env)
+    finally:
+        context.close()
+
+
+def test_copy_mode_is_set_end_to_end_when_devices_differ(harness: Harness) -> None:
+    """With the cache on another device, the exported environment says copy."""
+    devices = _Devices({harness.cache: 2})
+    assert _context_env(harness, devices, {})["UV_LINK_MODE"] == "copy"
+
+
+def test_copy_mode_is_absent_end_to_end_on_one_device(harness: Harness) -> None:
+    """With one device for cache and repository, uv is left to link."""
+    devices = _Devices({harness.cache: 5, harness.repo: 5})
+    assert "UV_LINK_MODE" not in _context_env(harness, devices, {})
+
+
+def test_project_environment_override_is_the_path_compared(harness: Harness) -> None:
+    """UV_PROJECT_ENVIRONMENT, not `.venv`, decides the device comparison."""
+    environment = harness.root / "custom-venv"
+    environment.mkdir()
+    devices = _Devices({environment: 9, harness.cache: 1, harness.repo: 1})
+    env = _context_env(harness, devices, {"UV_PROJECT_ENVIRONMENT": str(environment)})
+    assert env["UV_LINK_MODE"] == "copy"

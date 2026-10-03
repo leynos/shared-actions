@@ -172,3 +172,86 @@ def test_tool_spec_needs_something_to_run() -> None:
     """No ``--from`` and no command is a refusal."""
     with pytest.raises(uv_gate.GateError):
         uv_gate.tool_spec([], [])
+
+
+class FakeDevices:
+    """Return scripted device numbers and record which paths were asked about."""
+
+    def __init__(self, devices: dict[Path, int], default: int = 1) -> None:
+        """Map resolved paths to device numbers; others get ``default``."""
+        self.devices = {path.resolve(): number for path, number in devices.items()}
+        self.default = default
+        self.asked: list[Path] = []
+
+    def __call__(self, path: Path) -> int:
+        """Record ``path`` and return its scripted device."""
+        self.asked.append(path)
+        return self.devices.get(path, self.default)
+
+
+def test_copy_mode_when_the_devices_differ(tmp_path: Path) -> None:
+    """Different device numbers select copy mode, without a second filesystem."""
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    devices = FakeDevices({cache: 2})
+    assert uv_gate.needs_copy_mode(cache, tmp_path / ".venv", tmp_path, devices)
+
+
+def test_no_copy_mode_when_the_devices_match(tmp_path: Path) -> None:
+    """The same device number leaves uv to link, without a second filesystem."""
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    devices = FakeDevices({cache: 7, tmp_path: 7})
+    assert not uv_gate.needs_copy_mode(cache, tmp_path / ".venv", tmp_path, devices)
+
+
+def test_device_check_uses_the_repository_when_there_is_no_environment(
+    tmp_path: Path,
+) -> None:
+    """A project environment that does not exist yet falls back to the repo."""
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    devices = FakeDevices({tmp_path: 3, cache: 3})
+    assert not uv_gate.needs_copy_mode(cache, tmp_path / ".venv", tmp_path, devices)
+    assert devices.asked == [tmp_path.resolve(), cache.resolve()]
+
+
+def test_device_check_uses_the_existing_environment(tmp_path: Path) -> None:
+    """An existing environment, not the repository, is compared with the cache."""
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    environment = tmp_path / ".venv"
+    environment.mkdir()
+    devices = FakeDevices({environment: 5, cache: 5, tmp_path: 9})
+    assert not uv_gate.needs_copy_mode(cache, environment, tmp_path, devices)
+    assert devices.asked[0] == environment.resolve()
+
+
+def test_device_check_resolves_a_symlinked_environment(tmp_path: Path) -> None:
+    """A ``.venv`` symlinked elsewhere is judged by where it really lives."""
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    environment = tmp_path / ".venv"
+    try:
+        environment.symlink_to(target, target_is_directory=True)
+    except OSError:  # pragma: no cover - symlinks need privilege on Windows
+        pytest.skip("symlinks are not permitted here")
+    devices = FakeDevices({target: 2, cache: 1, tmp_path: 1})
+    assert uv_gate.needs_copy_mode(cache, environment, tmp_path, devices)
+    assert target.resolve() in devices.asked
+
+
+def test_device_check_resolves_a_symlinked_cache(tmp_path: Path) -> None:
+    """A cache reached through a symlink is judged by its real location."""
+    real = tmp_path / "real-cache"
+    real.mkdir()
+    link = tmp_path / "cache-link"
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except OSError:  # pragma: no cover - symlinks need privilege on Windows
+        pytest.skip("symlinks are not permitted here")
+    devices = FakeDevices({real: 4, tmp_path: 1})
+    assert uv_gate.needs_copy_mode(link, tmp_path / ".venv", tmp_path, devices)
+    assert real.resolve() in devices.asked

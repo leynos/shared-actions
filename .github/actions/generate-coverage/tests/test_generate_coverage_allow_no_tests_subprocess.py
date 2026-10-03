@@ -26,24 +26,45 @@ if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
 NO_TESTS_FLAG = "--no-tests=pass"
 
-#: The two settings under test, with whether cargo should then see the flag
-#: on both of its commands. The flag is a nextest option, so it needs both.
+
+class Case(typ.NamedTuple):
+    """The two settings under test, and whether cargo should then see the flag.
+
+    The flag is a nextest option, so both commands carry it only when nextest
+    and the input are both on.
+    """
+
+    use_nextest: bool
+    allow_no_tests: bool
+    expected: bool
+
+
 CASES = [
-    pytest.param(True, True, True, id="nextest-and-allowed"),
-    pytest.param(True, False, False, id="nextest-not-allowed"),
-    pytest.param(False, True, False, id="plain-cargo-allowed"),
-    pytest.param(False, False, False, id="plain-cargo-not-allowed"),
+    pytest.param(
+        Case(use_nextest=True, allow_no_tests=True, expected=True),
+        id="nextest-and-allowed",
+    ),
+    pytest.param(
+        Case(use_nextest=True, allow_no_tests=False, expected=False),
+        id="nextest-not-allowed",
+    ),
+    pytest.param(
+        Case(use_nextest=False, allow_no_tests=True, expected=False),
+        id="plain-cargo-allowed",
+    ),
+    pytest.param(
+        Case(use_nextest=False, allow_no_tests=False, expected=False),
+        id="plain-cargo-not-allowed",
+    ),
 ]
 
 
-@pytest.mark.parametrize(("use_nextest", "allow_no_tests", "expected"), CASES)
+@pytest.mark.parametrize("case", CASES)
 def test_both_cargo_commands_receive_the_flag_or_neither_does(
     tmp_path: Path,
     shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
-    use_nextest: bool,  # noqa: FBT001 - parametrised setting, not an API.
-    allow_no_tests: bool,  # noqa: FBT001 - parametrised setting, not an API.
-    expected: bool,  # noqa: FBT001 - parametrised expectation, not an API.
+    case: Case,
 ) -> None:
     """The primary and the cucumber.rs commands agree on ``--no-tests=pass``."""
     out = tmp_path / "cov.lcov"
@@ -59,8 +80,8 @@ def test_both_cargo_commands_receive_the_flag_or_neither_does(
         "DETECTED_CARGO_MANIFEST": "Cargo.toml",
         "INPUT_FEATURES": "",
         "INPUT_WITH_DEFAULT_FEATURES": "true",
-        "INPUT_USE_CARGO_NEXTEST": "true" if use_nextest else "false",
-        "INPUT_ALLOW_NO_TESTS": "true" if allow_no_tests else "false",
+        "INPUT_USE_CARGO_NEXTEST": "true" if case.use_nextest else "false",
+        "INPUT_ALLOW_NO_TESTS": "true" if case.allow_no_tests else "false",
         "INPUT_WITH_CUCUMBER_RS": "true",
         "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
         "GITHUB_OUTPUT": str(tmp_path / "gh.txt"),
@@ -71,5 +92,5 @@ def test_both_cargo_commands_receive_the_flag_or_neither_does(
 
     assert returncode == 0, stderr
     primary, cucumber_run = (call.argv for call in shell_stubs.calls_of("cargo"))
-    assert (NO_TESTS_FLAG in primary) is expected, primary
-    assert (NO_TESTS_FLAG in cucumber_run) is expected, cucumber_run
+    assert (NO_TESTS_FLAG in primary) is case.expected, primary
+    assert (NO_TESTS_FLAG in cucumber_run) is case.expected, cucumber_run

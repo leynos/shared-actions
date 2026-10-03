@@ -394,6 +394,29 @@ instrument. For example, a project whose product package is `femtologging`
 should pass `python-source: femtologging`; its test directory and dependency
 `site-packages` are then outside the measured source boundary.
 
+## Workspaces with no tests
+
+### Decision
+
+`generate-coverage` takes an `allow-no-tests` input, default `false`, that
+passes `--no-tests=pass` to cargo-nextest. Since #231 the action runs nextest
+by default, and nextest has exited 4 when it finds nothing to run since 0.9.85,
+so a workspace whose crates have no tests failed with `error: no tests to run`.
+The action version callers pinned before nextest was adopted ran plain
+`cargo llvm-cov`, which tolerates an empty test set, so the repinned workflows
+saw the failure as a regression.
+
+### Why an input and not a new default
+
+Tolerating an empty run by default would also pass a repository whose test
+filter accidentally selects nothing, which is a failure worth seeing. The
+tolerance is therefore opt-in and named in the caller's workflow. It is only
+rendered with nextest, because `cargo test` already accepts an empty set, and
+it reaches the cucumber.rs command because that command is built by the same
+function. The flag is accepted among `cargo llvm-cov nextest`'s own options; a
+real run on a crate with no tests (leynos/limela, run 36948744914) confirmed
+that.
+
 ## Roadmap
 
 - [x] Centralize environment-variable parsing helpers (`_required_env`,

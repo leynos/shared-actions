@@ -58,6 +58,21 @@ inputs:
     description: Nightly toolchain version for OpenBSD build
     required: false
     default: 'nightly-2025-07-20'
+  export-rustc-wrapper:
+    description: >
+      Whether to export RUSTC_WRAPPER (naming sccache) to the rest of the job.
+      "true", the default, routes every later cargo invocation through sccache.
+      Set it to "false" for a job that must not inherit the wrapper: a root
+      lane run through `sudo -E` (root's rustc cannot write through the
+      runner-owned server) or nested cargo builds such as trybuild fixtures
+      (each compile is a miss that is also stored). The server still starts and
+      SCCACHE_PATH stays exported, so the caller scopes the wrapper to the
+      commands that should use it, for example
+      `RUSTC_WRAPPER="$SCCACHE_PATH" cargo build`. Read only when use-sccache is
+      "true"; a RUSTC_WRAPPER the caller already set is never overridden either
+      way.
+    required: false
+    default: 'true'
   rustflags:
     description: >
       Value exported as the RUSTFLAGS environment variable by the toolchain
@@ -113,6 +128,14 @@ outputs:
       cache. Empty when the action did not start a server (use-sccache is not
       "true", the event is a release, or the caller owns the wrapper).
     value: ${{ steps.sccache-server.outputs.status }}
+  sccache-path:
+    description: >
+      Absolute path of the sccache binary the action installed, for a caller
+      that scopes RUSTC_WRAPPER itself (export-rustc-wrapper: "false"). Set only
+      once the server has started, so it is empty when the server fell back to
+      an uncached build (a caller wrapping with it then would restart a dead
+      server), when sccache is not in use, and when the caller owns the wrapper.
+    value: ${{ steps.sccache-server.outputs.path }}
   mold-status:
     description: >
       "installed", "cached" or "skipped" (install-mold on a runner other than
@@ -923,6 +946,8 @@ runs:
       # both positions.
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
       shell: bash
+      env:
+        EXPORT_WRAPPER: ${{ inputs.export-rustc-wrapper }}
       run: |
         set -euo pipefail
         # One bounded outcome per terminal path, over a closed set, with no
@@ -948,6 +973,14 @@ runs:
           report missing-sccache-path
           echo "::error title=setup-rust sccache::sccache-action did not export SCCACHE_PATH" >&2
           exit 1
+        fi
+        # A job that must not inherit the wrapper (a root lane, nested cargo
+        # builds) opts out and scopes it itself from the `sccache-path` output.
+        # The server still starts below, so a scoped wrapper finds it running.
+        if [[ "${EXPORT_WRAPPER-true}" != true ]]; then
+          report not-exported
+          echo "::notice title=setup-rust sccache::export-rustc-wrapper is not true; RUSTC_WRAPPER left to the caller"
+          exit 0
         fi
         echo "RUSTC_WRAPPER=${SCCACHE_PATH}" >> "$GITHUB_ENV"
         report exported
@@ -979,7 +1012,7 @@ runs:
         # rust-build-release, and stopping that server would discard the
         # statistics of everything compiled so far. Checked first, because a
         # caller who owns the wrapper owes this action no SCCACHE_PATH either.
-        if [[ "${WRAPPER_STATE:-}" != exported ]]; then
+        if [[ "${WRAPPER_STATE:-}" != exported && "${WRAPPER_STATE:-}" != not-exported ]]; then
           report caller-set
           exit 0
         fi
@@ -1038,6 +1071,7 @@ runs:
           exit 0
         fi
         echo "status=started" >> "$GITHUB_OUTPUT"
+        echo "path=${SCCACHE_PATH}" >> "$GITHUB_OUTPUT"
         # A server this step started has zero counters already. Zeroing is
         # belt and braces against a --start-server that adopted one, and it
         # costs a baseline rather than the cache, so it warns rather than

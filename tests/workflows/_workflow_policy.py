@@ -64,6 +64,12 @@ HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
         "directory the action caches. On Ubicloud the action selects the "
         "proxy instead, so the job would test the other arm."
     ),
+    ("test-setup-rust-sccache.yml", "declines-the-wrapper"): (
+        "The job proves export-rustc-wrapper: false end to end and asserts "
+        "the hosted arm's local cache location. On Ubicloud the action "
+        "selects the proxy instead, so the assertion would test the other "
+        "arm."
+    ),
     ("test-setup-rust-sccache.yml", "refuses_a_missing_ubicloud_proxy"): (
         "The job proves expect-cache: ubicloud fails closed where there is "
         "no proxy. On Ubicloud the proxy is present and the job would pass "

@@ -97,6 +97,7 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ("test-rustflags-export.yml", "setup-rust-with-inherited"): "assertion",
     ("test-rustflags-export.yml", "setup-rust-toolchain-available"): "assertion",
     ("test-setup-rust-sccache.yml", "exports-the-wrapper"): "assertion",
+    ("test-setup-rust-sccache.yml", "declines-the-wrapper"): "assertion",
     (
         "test-setup-rust-sccache.yml",
         "refuses_a_missing_ubicloud_proxy",

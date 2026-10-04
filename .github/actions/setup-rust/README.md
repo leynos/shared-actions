@@ -295,6 +295,12 @@ build, set `RUSTC_WRAPPER: ''` in the step's `env:` (an empty value counts as
 unset for Cargo). For a root lane, put `RUSTC_WRAPPER=` inside the `sudo`
 command, after `-E`: `sudo -E env RUSTC_WRAPPER= make test`.
 
+A step that reads sccache's statistics after the build should use
+[`sccache-report`](../sccache-report) rather than call `sccache --show-stats`
+itself: a server that fell back never started, and asking it for statistics
+returns empty defaults, a table of zeros that reads as a broken integration.
+(`sccache --zero-stats`, by contrast, starts a server when none is running.)
+
 ### Who starts the server, and when
 
 The action starts the sccache server itself, in a `run:` step that is the last

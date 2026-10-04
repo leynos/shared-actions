@@ -1,0 +1,13 @@
+# serializer version: 1
+# name: test_the_job_summary_is_stable
+  '''
+  ### sccache
+  
+  - backend: `ubicloud`
+  
+  ```text
+  Compile requests 7
+  ```
+  
+  '''
+# ---

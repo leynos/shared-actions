@@ -32,10 +32,6 @@ ALLOWED_METRICS = frozenset(
     {
         "metric setup-rust.clang-lld=installed",
         "metric setup-rust.clang-lld=skipped",
-        "metric setup-rust.clang-lld.seconds=lt5s",
-        "metric setup-rust.clang-lld.seconds=lt30s",
-        "metric setup-rust.clang-lld.seconds=lt120s",
-        "metric setup-rust.clang-lld.seconds=ge120s",
         "metric setup-rust.clang-lld.failure=apt-update",
         "metric setup-rust.clang-lld.failure=apt-install",
         "metric setup-rust.clang-lld.failure=missing-tool",

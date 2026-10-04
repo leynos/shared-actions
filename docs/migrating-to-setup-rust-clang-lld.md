@@ -1,7 +1,7 @@
 # Migrating to `setup-rust`'s `install-clang-lld`
 
 This guide covers the `install-clang-lld` input and `clang-lld-status` output
-that `setup-rust` gains in its next minor tag. The change is additive: nothing
+that `setup-rust` gains in its next release. The change is additive: nothing
 changes for a caller that does not pass the input. Read this to replace a
 handwritten `apt-get install clang lld` step.
 
@@ -28,7 +28,7 @@ Before:
 
 ```yaml
 - uses: leynos/shared-actions/.github/actions/setup-rust@<sha>
-- name: Install mold linker
+- name: Install clang, lld and mold
   if: runner.os == 'Linux'
   run: |
     sudo apt-get update

@@ -386,17 +386,9 @@ runs:
           echo "metric setup-rust.clang-lld.failure=$1"
           exit 1
         }
-        started=$SECONDS
         sudo apt-get update || fail apt-update "apt-get update failed"
         sudo apt-get install --yes --no-install-recommends clang lld \
           || fail apt-install "apt-get install of clang and lld failed"
-        elapsed=$((SECONDS - started))
-        if [ "$elapsed" -lt 5 ]; then bucket=lt5s
-        elif [ "$elapsed" -lt 30 ]; then bucket=lt30s
-        elif [ "$elapsed" -lt 120 ]; then bucket=lt120s
-        else bucket=ge120s
-        fi
-        echo "metric setup-rust.clang-lld.seconds=$bucket"
         missing=()
         command -v clang >/dev/null 2>&1 || missing+=(clang)
         command -v ld.lld >/dev/null 2>&1 || missing+=(ld.lld)

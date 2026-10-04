@@ -618,10 +618,9 @@ Rules to keep:
   reports `installed` after a failure.
 - **One status, bounded metrics.** `clang-lld-status` is `installed` or
   `skipped`, and empty when the input is not `true`. The step prints
-  `metric setup-rust.clang-lld=installed` or `=skipped` beside it, and, after
-  the apt calls,
-  `metric setup-rust.clang-lld.seconds=<lt5s|lt30s|lt120s|ge120s>` with the
-  same buckets as `install-mold`. No path or package output reaches a metric.
+  `metric setup-rust.clang-lld=installed` or `=skipped` beside it. No path or
+  package output reaches a metric. The step reports no elapsed time: it would
+  need a clock boundary, and the job log already times the step.
 - **No linker flag.** Selecting clang and lld is the consumer's Cargo
   configuration, or `CARGO_TARGET_<triple>_LINKER` and `RUSTFLAGS`, the same
   boundary as `install-mold`.

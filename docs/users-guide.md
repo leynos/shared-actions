@@ -22,10 +22,10 @@ documents how to use the `install-nixie` action.
 - [`install-makeutil` README](../.github/actions/install-makeutil/README.md) –
   inputs, outputs, verification and cache behaviour.
 - [Migrating to verified prebuilt CI tools](./migrating-to-verified-prebuilt-tools.md)
+  – upgrade guidance for the `install-whitaker` and `generate-coverage`
+  verified prebuilt tool installation.
 - [Declining the job-wide sccache wrapper](./migrating-to-the-export-rustc-wrapper-input.md)
-  – the `export-rustc-wrapper` input and `sccache-path` output of
-  `setup-rust`. – upgrade guidance for the `install-whitaker` and
-  `generate-coverage` verified prebuilt tool installation.
+  – the `export-rustc-wrapper` input and `sccache-path` output of `setup-rust`.
 
 ## Node.js 24 action dependencies
 

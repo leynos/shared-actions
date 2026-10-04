@@ -21,7 +21,7 @@ every later step inherits it. Two kinds of step cannot use it:
 The new input lets a job decline the export. The default is `'true'`, so
 behaviour is unchanged until a caller sets it.
 
-## Do I need to migrate?
+## When to migrate
 
 No caller has to. Consider it for a job that:
 

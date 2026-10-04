@@ -1032,26 +1032,91 @@ runs:
         # A caller's own config is kept, with the timeout placed ahead of it
         # because a top-level key written after a table would land inside that
         # table. A root key the caller already set wins, bare or quoted; one
-        # nested under a table header is not the root key and does not count.
+        # nested under a table header, or inside a multi-line string, is not
+        # the root key and does not count.
         # The merged copy may carry backend credentials, so it is created
         # private.
         conf="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/setup-rust-sccache.toml"
         if [[ -n "${SCCACHE_CONF:-}" && -f "$SCCACHE_CONF" ]] \
           && awk '
+            # Reads one line the way TOML does, only to learn whether a
+            # multi-line string is still open at its end. A comment ends the
+            # scan, and a delimiter inside a one-line string or a comment is
+            # not an opener. `ml` holds the open delimiter kind, or "".
+            function scan(line,   i, n, c) {
+              n = length(line)
+              i = 1
+              while (i <= n) {
+                c = substr(line, i, 1)
+                # TOML lets one or two content quotes sit directly before a
+                # closing delimiter, so a run of three to five quotes closes the
+                # string at its END. Consuming only the first three would leave
+                # a stray quote that opens a one-line string over the next token.
+                if (ml == "dq") {
+                  if (c == "\\") { i += 2; continue }
+                  if (substr(line, i, 3) == dq3) {
+                    ml = ""
+                    while (substr(line, i, 1) == dq1) i++
+                    continue
+                  }
+                  i++; continue
+                }
+                if (ml == "sq") {
+                  if (substr(line, i, 3) == sq3) {
+                    ml = ""
+                    while (substr(line, i, 1) == sq1) i++
+                    continue
+                  }
+                  i++; continue
+                }
+                if (c == "#") return
+                if (substr(line, i, 3) == dq3) { ml = "dq"; i += 3; continue }
+                if (substr(line, i, 3) == sq3) { ml = "sq"; i += 3; continue }
+                if (c == dq1) {
+                  i++
+                  while (i <= n) {
+                    c = substr(line, i, 1)
+                    if (c == "\\") { i += 2; continue }
+                    if (c == dq1) break
+                    i++
+                  }
+                  i++; continue
+                }
+                if (c == sq1) {
+                  i++
+                  while (i <= n && substr(line, i, 1) != sq1) i++
+                  i++; continue
+                }
+                i++
+              }
+            }
+            BEGIN {
+              dq1 = sprintf("%c", 34); sq1 = sprintf("%c", 39)
+              dq3 = dq1 dq1 dq1; sq3 = sq1 sq1 sq1; ml = ""
+            }
+            ml != "" { scan($0); next }
             /^[[:space:]]*\[/ { exit }
             /^[[:space:]]*("server_startup_timeout_ms"|'"'"'server_startup_timeout_ms'"'"'|server_startup_timeout_ms)[[:space:]]*=/ { found = 1; exit }
+            { scan($0) }
             END { exit !found }
           ' "$SCCACHE_CONF"; then
           conf="$SCCACHE_CONF"
+          timeout_source=caller
         elif [[ -n "${SCCACHE_CONF:-}" && -f "$SCCACHE_CONF" ]]; then
           (
             umask 077
             { printf 'server_startup_timeout_ms = 60000\n'; cat "$SCCACHE_CONF"; } > "$conf.new"
           )
           mv "$conf.new" "$conf"
+          timeout_source=merged
         else
           printf 'server_startup_timeout_ms = 60000\n' > "$conf"
+          timeout_source=default
         fi
+        # Which branch decided the startup timeout, over a closed set: the
+        # caller's own value kept, the default prepended to the caller's config,
+        # or the default alone. No path or value appears in the line.
+        echo "metric setup-rust.sccache.timeout=${timeout_source}"
         export SCCACHE_CONF="$conf"
         echo "SCCACHE_CONF=$conf" >> "$GITHUB_ENV"
         "$SCCACHE_PATH" --stop-server >/dev/null 2>&1 || true

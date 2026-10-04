@@ -366,12 +366,23 @@ The start is fail-open. Before it, the step writes a config file under
 startup timeout is settable only through that file and the backend probe on
 Ubicloud intermittently outlasts it. A caller's own config is kept, with the
 key written first so it stays top level, and a root key the caller set wins,
-bare or quoted (a key under a table header is not the root key). The merged
-copy is created under `umask 077`, since a caller's config may hold backend
-credentials. If the server still will not start, the step warns, writes
-`RUSTC_WRAPPER=` to `GITHUB_ENV` (an empty value counts as unset, so Cargo
-compiles with plain rustc) and exits 0 with `start-failed`: a cache is an
-optimization and an unreachable one must never fail a job.
+bare or quoted (a key under a table header is not the root key). The scanner
+that decides this reads the caller's file the way TOML does, because a line
+scan alone would take string content for settings. It tracks multi-line basic
+(`"""`) and literal (`'''`) strings, honouring an escaped quote inside a basic
+one and a run of three to five quotes at a closing delimiter, so timeout-like
+text inside a multi-line string does not count as a root key. A comment ends
+the scan of its line, and a delimiter inside a comment or a one-line string
+opens nothing, so mentioning `"""` in either does not swallow the caller's own
+timeout. `test_sccache_config_scanner.py` holds each of those cases against
+`tomllib`. The merged copy is created under `umask 077`, since a caller's
+config may hold backend credentials. Which branch decided is reported as
+`metric setup-rust.sccache.timeout=<caller|merged|default>` (the caller's own
+timeout kept, the default prepended to their config, or the default alone). If
+the server still will not start, the step warns, writes `RUSTC_WRAPPER=` to
+`GITHUB_ENV` (an empty value counts as unset, so Cargo compiles with plain
+rustc) and exits 0 with `start-failed`: a cache is an optimization and an
+unreachable one must never fail a job.
 
 A fallback must stay detectable, so it raises three signals and a contract
 holds each:

@@ -122,11 +122,16 @@ The outcome is reported as
 The server gets a 60 s startup timeout instead of sccache's fixed 10 s, which
 the backend probe on Ubicloud intermittently outlasts. sccache reads that
 timeout only from a config file, so the step writes one under `RUNNER_TEMP` and
-exports it as `SCCACHE_CONF`. If you already name a config, the step keeps its
-contents and places the timeout ahead of them; a root
-`server_startup_timeout_ms` you set yourself, bare or quoted, wins, and the
-same name nested under a table header does not count. The merged copy is
-private to the runner account.
+exports it as `SCCACHE_CONF`. If the caller already names a config, the step
+keeps its contents and places the timeout ahead of them; a root
+`server_startup_timeout_ms` set by the caller, bare or quoted, wins, and the
+same name nested under a table header or inside a multi-line string does not
+count. A comment or a one-line string that merely mentions a multi-line
+delimiter opens nothing. The merged copy is private to the runner account.
+Which branch decided the timeout is reported as
+`metric setup-rust.sccache.timeout=<caller|merged|default>`: `caller` means the
+caller's own root timeout was kept, `merged` means 60,000 ms was prepended to
+the caller's config, and `default` means the step used the default config alone.
 
 A cache is an optimization, so a server that still will not start does not fail
 the job. The step clears `RUSTC_WRAPPER`, Cargo compiles without the cache, and

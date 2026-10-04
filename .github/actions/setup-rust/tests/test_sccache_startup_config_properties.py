@@ -2,53 +2,97 @@
 
 The step decides by reading the caller's TOML with a small `awk` program: only
 a root `server_startup_timeout_ms`, bare or quoted, means the caller has chosen
-a timeout, and one nested under a table header does not. The parametrised cases
-in `test_sccache_server_start.py` are the readable contract; these generate the
-wider set of layouts (comments, blank lines, whitespace, unrelated keys, table
-orderings) to hold the same invariants across them.
+a timeout. The same name under a table header, or inside a multi-line string,
+does not. The parametrised cases in `test_sccache_server_start.py` are the
+readable contract; these generate valid caller documents (unique keys and
+tables, comments, whitespace, multi-line strings, table orderings) and hold the
+invariants on the parsed result, with the byte comparisons as a second check.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import tempfile
+import tomllib
+import typing as typ
 from pathlib import Path
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from test_sccache_server_start import Scenario, _run_server, _written_conf
 
-TIMEOUT_LINE = "server_startup_timeout_ms = 60000\n"
+TIMEOUT_KEY = "server_startup_timeout_ms"
+TIMEOUT_LINE = f"{TIMEOUT_KEY} = 60000\n"
 
-_SPELLINGS = ("server_startup_timeout_ms", '"server_startup_timeout_ms"')
+_SPELLINGS = (TIMEOUT_KEY, f'"{TIMEOUT_KEY}"')
 _BLANKS = st.sampled_from(["", " ", "\t", "  "])
+_KEYS = ("alpha", "beta", "gamma", "delta", "epsilon")
+_TABLES = ("cache.multilevel", "cache.s3", "dist", "extra")
 
-#: A root-level line that is not the timeout: a comment, a blank, or a setting.
-_UNRELATED_ROOT = st.one_of(
-    st.just(""),
+_COMMENT = st.one_of(
     st.text("abc ", max_size=8).map(lambda text: f"# {text}"),
-    st.tuples(st.sampled_from(["alpha", "beta", "gamma"]), st.integers(0, 99)).map(
-        lambda pair: f"{pair[0]} = {pair[1]}"
-    ),
+    st.sampled_from(['# delimiter: """', "# delimiter: '''", "# a # b"]),
 )
+_FILLER = st.one_of(st.just(""), _COMMENT)
 
-#: A caller-chosen root timeout, in either spelling and any spacing.
-_ROOT_TIMEOUT = st.tuples(
-    _BLANKS, st.sampled_from(_SPELLINGS), _BLANKS, _BLANKS, st.integers(1, 99999)
-).map(lambda parts: f"{parts[0]}{parts[1]}{parts[2]}={parts[3]}{parts[4]}")
 
-#: A table whose body may name the timeout key. Under a header it is not root.
-_TABLE = st.tuples(
-    st.sampled_from(["cache.multilevel", "cache.s3", "dist"]),
-    st.lists(
-        st.one_of(
-            _UNRELATED_ROOT,
-            st.tuples(_BLANKS, st.sampled_from(_SPELLINGS), st.integers(1, 99)).map(
-                lambda parts: f"{parts[0]}{parts[1]} = {parts[2]}"
-            ),
-        ),
-        max_size=3,
-    ),
-).map(lambda pair: "\n".join([f"[{pair[0]}]", *pair[1]]))
+@st.composite
+def _timeout_line(draw: st.DrawFn) -> tuple[str, int]:
+    """Draw a timeout assignment in either spelling and any spacing."""
+    before, after, spelling = (
+        draw(_BLANKS),
+        draw(_BLANKS),
+        draw(st.sampled_from(_SPELLINGS)),
+    )
+    value = draw(st.integers(1, 99999))
+    return f"{before}{spelling}{after}={draw(_BLANKS)}{value}", value
+
+
+@st.composite
+def _decoy(draw: st.DrawFn, key: str) -> str:
+    """Draw a multi-line string whose content names the timeout key.
+
+    TOML treats those lines as string content, not as a root setting.
+    """
+    delimiter = draw(st.sampled_from(['"""', "'''"]))
+    return f"{key} = {delimiter}\n{TIMEOUT_KEY} = 123\n{delimiter}"
+
+
+@st.composite
+def _table(draw: st.DrawFn, name: str) -> str:
+    """Draw a table whose body may name the timeout key, which is not root."""
+    keys = draw(st.lists(st.sampled_from(_KEYS), unique=True, max_size=3))
+    body = [f"{key} = {draw(st.integers(0, 99))}" for key in keys]
+    if draw(st.booleans()):
+        body.append(f"{draw(st.sampled_from(_SPELLINGS))} = {draw(st.integers(1, 99))}")
+    return "\n".join([f"[{name}]", *body])
+
+
+@dataclasses.dataclass(frozen=True)
+class Document:
+    """A generated caller config and the timeout its root chose, if any."""
+
+    text: str
+    root_timeout: int | None
+
+
+@st.composite
+def documents(draw: st.DrawFn) -> Document:
+    """Draw a valid caller config: root section first, then unique tables."""
+    keys = draw(st.lists(st.sampled_from(_KEYS), unique=True, max_size=4))
+    root = [f"{key} = {draw(st.integers(0, 99))}" for key in keys]
+    decoy_keys = [key for key in _KEYS if key not in keys]
+    if decoy_keys and draw(st.booleans()):
+        root.append(draw(_decoy(draw(st.sampled_from(decoy_keys)))))
+    root_timeout = None
+    if draw(st.booleans()):
+        line, root_timeout = draw(_timeout_line())
+        root.insert(draw(st.integers(0, len(root))), line)
+    for filler in draw(st.lists(_FILLER, max_size=3)):
+        root.insert(draw(st.integers(0, len(root))), filler)
+    names = draw(st.lists(st.sampled_from(_TABLES), unique=True, max_size=3))
+    tables = [draw(_table(name)) for name in names]
+    return Document("\n".join([*root, *tables]) + "\n", root_timeout)
 
 
 def _merge(caller_config: str) -> str:
@@ -71,54 +115,51 @@ def _merge(caller_config: str) -> str:
         return _written_conf(workdir)
 
 
-def _document(root: list[str], tables: list[str]) -> str:
-    """Join root lines, then tables, into one TOML document."""
-    return "\n".join([*root, *tables]) + "\n"
+def _without_timeout(parsed: dict[str, typ.Any]) -> dict[str, typ.Any]:
+    """Return the parsed settings other than the root timeout."""
+    return {key: value for key, value in parsed.items() if key != TIMEOUT_KEY}
 
 
-@settings(max_examples=40, deadline=None)
-@given(
-    before=st.lists(_UNRELATED_ROOT, max_size=4),
-    timeout=_ROOT_TIMEOUT,
-    after=st.lists(_UNRELATED_ROOT, max_size=3),
-    tables=st.lists(_TABLE, max_size=3),
-)
-def test_a_root_timeout_the_caller_chose_is_kept_unchanged(
-    before: list[str], timeout: str, after: list[str], tables: list[str]
+@settings(max_examples=60, deadline=None)
+@given(documents())
+def test_the_merged_root_timeout_is_the_callers_or_the_default(
+    document: Document,
 ) -> None:
-    """Wherever it sits among the root lines, the caller's file passes through."""
-    document = _document([*before, timeout, *after], tables)
+    """The merged file is valid TOML with exactly one meaningful root timeout.
 
-    assert _merge(document) == document
-
-
-@settings(max_examples=40, deadline=None)
-@given(
-    root=st.lists(_UNRELATED_ROOT, max_size=4),
-    tables=st.lists(_TABLE, max_size=3),
-)
-def test_an_absent_root_timeout_gets_the_default_prepended_exactly(
-    root: list[str], tables: list[str]
-) -> None:
-    """Nested occurrences never suppress the root default.
-
-    The default lands first, so it stays a root key however the caller's tables
-    are ordered, and everything else is preserved byte for byte.
+    A root timeout the caller chose passes the file through unchanged. Absent
+    one, the default is prepended exactly, so nested occurrences and string
+    content never suppress it, and every other setting survives untouched.
     """
-    document = _document(root, tables)
+    caller = tomllib.loads(document.text)
+    merged_text = _merge(document.text)
+    merged = tomllib.loads(merged_text)
 
-    assert _merge(document) == TIMEOUT_LINE + document
+    if document.root_timeout is None:
+        assert merged[TIMEOUT_KEY] == 60000
+        assert merged_text == TIMEOUT_LINE + document.text
+    else:
+        assert merged[TIMEOUT_KEY] == document.root_timeout
+        assert merged_text == document.text
+    assert _without_timeout(merged) == _without_timeout(caller)
 
 
-def test_the_strategies_can_draw_a_nested_timeout() -> None:
-    """The table strategy must be able to name the key, or the property is idle."""
-    seen: list[str] = []
+def test_the_generator_reaches_the_cases_the_property_is_about() -> None:
+    """A property over a generator that never draws the hard cases is idle."""
+    seen: list[Document] = []
 
-    @settings(max_examples=200, deadline=None, database=None)
-    @given(_TABLE)
-    def draw(table: str) -> None:
-        seen.append(table)
+    @settings(max_examples=300, deadline=None, database=None)
+    @given(documents())
+    def draw(document: Document) -> None:
+        seen.append(document)
 
     draw()
 
-    assert any("server_startup_timeout_ms" in table for table in seen)
+    assert any(doc.root_timeout is not None for doc in seen)
+    for delimiter in ('"""', "'''"):
+        decoy = f" = {delimiter}\n{TIMEOUT_KEY} = 123\n{delimiter}"
+        assert any(doc.root_timeout is None and decoy in doc.text for doc in seen)
+    assert any(
+        doc.root_timeout is None and TIMEOUT_KEY in "".join(doc.text.partition("[")[2:])
+        for doc in seen
+    )

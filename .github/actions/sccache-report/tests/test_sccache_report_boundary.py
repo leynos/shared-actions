@@ -38,6 +38,9 @@ from composite_fragments import (
     run_lifecycle,
 )
 
+if typ.TYPE_CHECKING:
+    from syrupy.assertion import SnapshotAssertion
+
 ACTION_DIR = Path(__file__).resolve().parents[1]
 STUB_JSON = '{"stats":{"compile_requests":7}}'
 STUB_TEXT = "Compile requests 7"
@@ -236,3 +239,28 @@ def test_an_undeclared_input_is_refused_by_the_harness(tmp_path: Path) -> None:
     """A `with:` key the manifest does not declare must not be silently ignored."""
     with pytest.raises(AssertionError, match="does not declare"):
         use_action(tmp_path, {"stat-file": "typo.json"})
+
+
+def test_the_job_summary_is_stable(tmp_path: Path, snapshot: SnapshotAssertion) -> None:
+    """Snapshot the whole Markdown summary the action writes.
+
+    The heading, the backend line, the spacing and the fenced block are what a
+    person reads on the run page. The stand-in's fixed statistics and a fixed
+    backend leave nothing nondeterministic in it.
+    """
+    outcome = use_action(tmp_path, {"backend": "ubicloud"})
+
+    assert outcome.summary == snapshot, "the job summary changed; review the diff"
+
+
+def test_the_elapsed_metric_is_one_bounded_bucket(tmp_path: Path) -> None:
+    """A reporting run logs how long its statistics calls took, in three buckets."""
+    outcome = use_action(tmp_path)
+
+    lines = [
+        line
+        for line in outcome.result.stdout.splitlines()
+        if line.startswith("metric sccache-report.elapsed=")
+    ]
+    assert len(lines) == 1, f"expected one elapsed metric, got {lines}"
+    assert lines[0].split("=", 1)[1] in {"lt1s", "lt10s", "ge10s"}, lines

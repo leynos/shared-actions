@@ -219,7 +219,7 @@ under `if: always()`, rather than call `sccache --show-stats` itself:
     status: ${{ steps.setup-rust.outputs.sccache-status }}
     backend: ${{ steps.setup-rust.outputs.cache-backend }}
 - name: Check sccache health
-  if: steps.sccache.outputs.reported == 'true'
+  if: ${{ !cancelled() && steps.sccache.outputs.reported == 'true' }}
   env:
     STATS_FILE: ${{ steps.sccache.outputs.stats-file }}
   run: python3 scripts/check_sccache_health.py "$STATS_FILE"

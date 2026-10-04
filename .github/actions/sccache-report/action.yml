@@ -91,9 +91,22 @@ runs:
           stand_down "sccache is not on PATH; there are no statistics to report" not-installed
           exit 0
         fi
+        started_at="${SECONDS}"
         stats="$(sccache --show-stats)"
         printf '%s\n' "$stats" | tee -- "${SR_TEXT_FILE}"
         sccache --show-stats --stats-format json > "${SR_STATS_FILE}"
+        # How long the two statistics calls took, in one of three buckets, so a
+        # slow sccache is visible in a count of this line without a path, a
+        # raw duration or an error string in it.
+        elapsed=$((SECONDS - started_at))
+        if (( elapsed < 1 )); then
+          bucket=lt1s
+        elif (( elapsed < 10 )); then
+          bucket=lt10s
+        else
+          bucket=ge10s
+        fi
+        echo "metric sccache-report.elapsed=${bucket}"
         # The log copy is the one that can be read afterwards: the job summary
         # is not available through the REST API.
         if [[ "${SR_SUMMARY}" == true && -n "${GITHUB_STEP_SUMMARY:-}" ]]; then

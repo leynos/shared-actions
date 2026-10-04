@@ -32,7 +32,7 @@ when `setup-rust` has long finished, and a composite action has no post step.
     status: ${{ steps.setup-rust.outputs.sccache-status }}
     backend: ${{ steps.setup-rust.outputs.cache-backend }}
 - name: Check sccache health
-  if: steps.sccache.outputs.reported == 'true'
+  if: ${{ !cancelled() && steps.sccache.outputs.reported == 'true' }}
   env:
     STATS_FILE: ${{ steps.sccache.outputs.stats-file }}
   run: python3 scripts/check_sccache_health.py "$STATS_FILE"
@@ -60,4 +60,7 @@ All inputs are strings and all are optional.
 A health check that reads the JSON conditions on `reported`, so the guard lives
 here and not in each consumer. Standing down is reported as a notice titled
 `sccache-report` and as
-`metric sccache-report.outcome=<reported|fallback|not-installed>`.
+`metric sccache-report.outcome=<reported|fallback|not-installed>`. A run that
+reports also logs `metric sccache-report.elapsed=<lt1s|lt10s|ge10s>`, the time
+the two statistics calls took in three buckets, with no path or raw duration in
+the line.

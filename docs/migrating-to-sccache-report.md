@@ -18,7 +18,7 @@ it reads as a broken integration.
 Every consumer therefore needed the same guard, written by hand.
 `sccache-report` owns it once.
 
-## Do I need to migrate?
+## When to migrate
 
 Consider it when a workflow runs `sccache --show-stats` after a build, writes
 the statistics to a file for a health check, or adds them to the job summary. A
@@ -57,7 +57,7 @@ Gate any health check on `reported`, so a fallback run stays green with the
 
 ```yaml
 - name: Check sccache health
-  if: steps.sccache.outputs.reported == 'true'
+  if: ${{ !cancelled() && steps.sccache.outputs.reported == 'true' }}
   env:
     STATS_FILE: ${{ steps.sccache.outputs.stats-file }}
   run: python3 scripts/check_sccache_health.py "$STATS_FILE"

@@ -480,6 +480,30 @@ uninstrumented and contributes no coverage. A `RUSTFLAGS` value the workflow
 exports, such as `-D warnings`, applies to every Cargo invocation the action
 makes.
 
+## Coverage of a workspace with no tests
+
+`generate-coverage` runs the Rust suite through cargo-nextest by default
+(`use-cargo-nextest: 'true'`), and nextest exits with code 4 when it finds
+nothing to run. A workspace whose crates have no tests therefore fails the
+coverage step with `error: no tests to run`. Set `allow-no-tests` to let such a
+workspace report zero coverage instead:
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+  with:
+    output-path: lcov.info
+    format: lcov
+    allow-no-tests: 'true'
+```
+
+The input defaults to `false`, so a repository that has tests keeps failing
+when its test selection comes out empty. Turn it on only for a workspace that
+genuinely has no tests: with it on, a test filter that accidentally selects
+nothing passes silently as well. It passes `--no-tests=pass` to nextest, so it
+has no effect with `use-cargo-nextest: 'false'`, where `cargo test` already
+accepts an empty test set. When `with-cucumber-rs` is on, the cucumber.rs run
+receives the same setting.
+
 Both actions report bounded `hit`, `miss`, `disabled`, or `error` states for
 their own archive caches in the workflow log and job summary. Coverage ratchet
 baseline files remain separate GitHub caches when external mode does not mount

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add an `allow-no-tests` input (default `false`). `use-cargo-nextest` has
+  defaulted to true since nextest was adopted (#231), and nextest has exited 4
+  when it finds nothing to run since 0.9.85, so a workspace with no tests
+  failed with `error: no tests to run`. A caller whose crates have no tests sets
+  `allow-no-tests: true`, which passes `--no-tests=pass`. The default stays
+  off so that a test filter that accidentally selects nothing still fails
+  rather than passing silently. The input has no effect when
+  `use-cargo-nextest` is `false`.
 - Stop a warm Python dependency cache from breaking `uv venv`, on the suspected
   cause that restored `~/.cache/uv/environments-v2` script environments, bound
   to the interpreter and runner that built them, were unusable elsewhere. The

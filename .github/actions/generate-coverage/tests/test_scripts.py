@@ -1009,6 +1009,7 @@ def _make_cucumber_spy(
         cucumber_rs_args: str,
         all_features: bool = False,
         all_targets: bool = False,
+        allow_no_tests: bool = False,
     ) -> None:
         calls.append(
             {

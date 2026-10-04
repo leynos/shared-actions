@@ -221,6 +221,7 @@ def get_cargo_coverage_cmd(
     use_nextest: bool,
     all_features: bool = False,
     all_targets: bool = False,
+    allow_no_tests: bool = False,
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments.
 
@@ -233,11 +234,18 @@ def get_cargo_coverage_cmd(
 
     ``all_targets`` adds benches, examples, and every test target to the run.
     Doc tests are not among them; ``run_doctests`` covers those separately.
+
+    ``allow_no_tests`` adds ``--no-tests=pass`` so nextest, which exits 4 when
+    it finds nothing to run, lets a crate without tests report zero coverage.
+    It is a nextest option, so it is not rendered for a plain ``cargo
+    llvm-cov`` run, which already tolerates an empty test set.
     """
     args = ["llvm-cov"]
     if use_nextest:
         args.append("nextest")
     args += ["--manifest-path", str(manifest_path), "--workspace"]
+    if use_nextest and allow_no_tests:
+        args.append("--no-tests=pass")
     if all_targets:
         args.append("--all-targets")
     if fmt not in ("lcov", "cobertura"):
@@ -367,6 +375,7 @@ def run_cucumber_rs_coverage(
     cucumber_rs_args: str,
     all_features: bool = False,
     all_targets: bool = False,
+    allow_no_tests: bool = False,
 ) -> None:
     """Run cucumber.rs coverage and merge results into ``out``."""
     cucumber_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
@@ -379,6 +388,7 @@ def run_cucumber_rs_coverage(
         use_nextest=use_nextest,
         all_features=all_features,
         all_targets=all_targets,
+        allow_no_tests=allow_no_tests,
     )
     c_args += [
         "--",
@@ -534,6 +544,7 @@ class _RawInputs:
     all_features: bool | None
     all_targets: bool | None
     doctests: bool | None
+    allow_no_tests: bool | None
     baseline_file: Path | None
 
 
@@ -559,6 +570,7 @@ class FeatureSelection:
     all_features: bool
     all_targets: bool
     doctests: bool
+    allow_no_tests: bool
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -616,6 +628,9 @@ def _resolve_features(raw: _RawInputs, env: cabc.Mapping[str, str]) -> FeatureSe
         doctests=_resolve_bool_input(
             raw.doctests, "INPUT_DOCTESTS", default=False, env=env
         ),
+        allow_no_tests=_resolve_bool_input(
+            raw.allow_no_tests, "INPUT_ALLOW_NO_TESTS", default=False, env=env
+        ),
     )
 
 
@@ -651,6 +666,7 @@ def _run_coverage(
         use_nextest=selection.use_nextest,
         all_features=selection.all_features,
         all_targets=selection.all_targets,
+        allow_no_tests=selection.allow_no_tests,
     )
     config_context = (
         ensure_nextest_config() if selection.use_nextest else contextlib.nullcontext()
@@ -675,6 +691,7 @@ def _run_coverage(
                 cucumber_rs_args=cucumber.args,
                 all_features=selection.all_features,
                 all_targets=selection.all_targets,
+                allow_no_tests=selection.allow_no_tests,
             )
     if selection.doctests:
         run_doctests(
@@ -703,6 +720,7 @@ def main(
     all_features: typ.Annotated[bool | None, typer.Option()] = None,
     all_targets: typ.Annotated[bool | None, typer.Option()] = None,
     doctests: typ.Annotated[bool | None, typer.Option()] = None,
+    allow_no_tests: typ.Annotated[bool | None, typer.Option()] = None,
     baseline_file: typ.Annotated[Path | None, typer.Option()] = None,
 ) -> None:
     """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
@@ -721,6 +739,7 @@ def main(
         all_features=all_features,
         all_targets=all_targets,
         doctests=doctests,
+        allow_no_tests=allow_no_tests,
         baseline_file=baseline_file,
     )
     # The one place ambient process state is read; the resolvers below are

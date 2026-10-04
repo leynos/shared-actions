@@ -2342,6 +2342,31 @@ property fails, so the deadline is removed, not raised. The
 `conftest.py` for this reason (#487), and a test asserts that it carries no
 deadline.
 
+## `generate-coverage` no-tests tolerance
+
+nextest has exited 4 (`NO_TESTS_RUN`) on an empty test selection since 0.9.85,
+and `use-cargo-nextest` has defaulted to true since nextest was adopted (#231),
+so a workspace with no tests fails the coverage step. The `allow-no-tests`
+input (default `false`) is the opt-out. The path is:
+
+- `action.yml` declares the input and forwards it to the Rust step as
+  `INPUT_ALLOW_NO_TESTS`.
+- `run_rust.py` resolves it in `_resolve_features` into
+  `FeatureSelection.allow_no_tests`, and `main` also accepts an
+  `--allow-no-tests` option.
+- `get_cargo_coverage_cmd` renders `--no-tests=pass` after `--workspace` only
+  when `use_nextest` and `allow_no_tests` are both true, because the flag is a
+  nextest option. The cucumber.rs run builds its command through the same
+  function and receives the same setting.
+
+It is explicit, not the default, because a silent pass would hide a test filter
+that selects nothing by accident; the design note in
+[generate-coverage-design.md](generate-coverage-design.md) records that
+decision. The tests are `test_generate_coverage_allow_no_tests.py` (manifest,
+rendered command and the in-process path) and
+`test_generate_coverage_allow_no_tests_subprocess.py` (the child process, with
+cargo stubbed, for both the primary and the cucumber command).
+
 ## `install-nixie` Action Maintenance
 
 The composite action boundary is `.github/actions/install-nixie/action.yml`. It

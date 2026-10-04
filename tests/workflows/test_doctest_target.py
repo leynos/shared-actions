@@ -119,11 +119,13 @@ def test_the_recipe_runs_pytest_over_the_declared_paths(workspace: Workspace) ->
 
     assert result.returncode == 0, result.stderr
     (command,) = workspace.recorded()
-    assert command[0] == "run"
+    assert command[0] == "run", f"the recipe did not call uv run: {command}"
     index = command.index("pytest")
-    assert "--doctest-modules" in command[index:]
+    assert "--doctest-modules" in command[index:], f"pytest got: {command[index:]}"
     declared = coverage._makefile_variable(coverage.DOCTEST_PATHS_VARIABLE)
-    assert command[index:][-len(declared) :] == declared
+    assert command[index:][-len(declared) :] == declared, (
+        f"pytest was not given the declared paths: {command[index:]}"
+    )
 
 
 def test_the_paths_come_from_the_variable_not_the_recipe(workspace: Workspace) -> None:
@@ -132,8 +134,9 @@ def test_the_paths_come_from_the_variable_not_the_recipe(workspace: Workspace) -
 
     assert result.returncode == 0, result.stderr
     (command,) = workspace.recorded()
-    assert command[command.index("pytest") :][-1] == "only_this.py"
-    assert "bool_utils.py" not in command
+    given = command[command.index("pytest") :]
+    assert given[-1] == "only_this.py", f"the override was not used: {given}"
+    assert "bool_utils.py" not in command, f"a default path leaked: {command}"
 
 
 def test_a_passing_example_exits_zero(workspace: Workspace) -> None:
@@ -143,7 +146,7 @@ def test_a_passing_example_exits_zero(workspace: Workspace) -> None:
     result = workspace.make("DOCTEST_PATHS=good.py", run_pytest=True)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "1 passed" in result.stdout
+    assert "1 passed" in result.stdout, f"pytest output: {result.stdout}"
 
 
 def test_a_failing_example_exits_non_zero(workspace: Workspace) -> None:
@@ -158,4 +161,4 @@ def test_a_failing_example_exits_non_zero(workspace: Workspace) -> None:
     result = workspace.make("DOCTEST_PATHS=bad.py", run_pytest=True)
 
     assert result.returncode != 0, result.stdout + result.stderr
-    assert "1 failed" in result.stdout
+    assert "1 failed" in result.stdout, f"pytest output: {result.stdout}"

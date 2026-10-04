@@ -54,30 +54,88 @@ _MAX_DEPTH: typ.Final[int] = 3
 _INDENT: typ.Final[str] = "    "
 
 
+type _Statement = tuple[typ.Any, ...]
+
+
 @st.composite
-def _block(
-    draw: st.DrawFn, depth: int, *, undecidable: bool
-) -> list[tuple[typ.Any, ...]]:
-    """Draw a statement list, as tuples a renderer turns into source."""
-    if depth >= _MAX_DEPTH:
-        return []
+def _definition(
+    draw: st.DrawFn, kind: str, depth: int, *, undecidable: bool
+) -> _Statement:
+    """Draw a `def` or `class` statement and the scope it opens."""
+    body = draw(_block(depth + 1, undecidable=undecidable))
+    return (kind, draw(_NAMES), body)
+
+
+@st.composite
+def _conditional(
+    draw: st.DrawFn, kind: str, depth: int, *, undecidable: bool
+) -> _Statement:
+    """Draw an `if` whose condition is constant or an undecidable flag."""
+    condition = draw(st.booleans()) if kind == "const_if" else _FLAG
+    then = draw(_block(depth + 1, undecidable=undecidable))
+    otherwise = draw(_block(depth + 1, undecidable=undecidable))
+    return ("if", condition, then, otherwise)
+
+
+@st.composite
+def _statement(draw: st.DrawFn, depth: int, *, undecidable: bool) -> _Statement:
+    """Draw one statement of any kind this grammar allows."""
     kinds = ["def", "class", "const_if"] + (["flag_if"] if undecidable else [])
-    statements: list[tuple[typ.Any, ...]] = []
-    for _ in range(draw(st.integers(min_value=0, max_value=3))):
-        kind = draw(st.sampled_from(kinds))
-        if kind in {"def", "class"}:
-            body = draw(_block(depth + 1, undecidable=undecidable))
-            statements.append((kind, draw(_NAMES), body))
-        else:
-            condition = draw(st.booleans()) if kind == "const_if" else _FLAG
-            then = draw(_block(depth + 1, undecidable=undecidable))
-            otherwise = draw(_block(depth + 1, undecidable=undecidable))
-            statements.append(("if", condition, then, otherwise))
-    return statements
+    kind = draw(st.sampled_from(kinds))
+    drawn = _definition if kind in {"def", "class"} else _conditional
+    return draw(drawn(kind, depth, undecidable=undecidable))
+
+
+@st.composite
+def _block(draw: st.DrawFn, depth: int, *, undecidable: bool) -> list[_Statement]:
+    """Draw a statement list, as tuples a renderer turns into source."""
+    count = 0 if depth >= _MAX_DEPTH else draw(st.integers(min_value=0, max_value=3))
+    return [draw(_statement(depth, undecidable=undecidable)) for _ in range(count)]
+
+
+def _arm(
+    block: list[_Statement], level: int, flags: list[str], serials: list[int]
+) -> list[str]:
+    """Render one arm of an `if`, which Python needs to be non-empty."""
+    return _render(block, level, flags, serials) or [f"{_INDENT * level}pass"]
+
+
+def _render_definition(
+    statement: _Statement, level: int, flags: list[str], serials: list[int]
+) -> list[str]:
+    """Render a `def` or `class` with a serial-numbered docstring."""
+    kind, name, body = statement
+    pad = _INDENT * level
+    header = f"def {name}():" if kind == "def" else f"class {name}:"
+    serials.append(len(serials))
+    return [
+        f"{pad}{header}",
+        f"{pad}{_INDENT}'''Documented {serials[-1]}.",
+        f"{pad}{_INDENT}{coverage._PROBE_PROMPT} None",
+        f"{pad}{_INDENT}'''",
+        *_render(body, level + 1, flags, serials),
+    ]
+
+
+def _render_conditional(
+    statement: _Statement, level: int, flags: list[str], serials: list[int]
+) -> list[str]:
+    """Render an `if`, giving each undecidable condition its own flag name."""
+    _, condition, then, otherwise = statement
+    pad = _INDENT * level
+    if condition == _FLAG:
+        flags.append(f"F{len(flags)}")
+    name = flags[-1] if condition == _FLAG else condition
+    return [
+        f"{pad}if {name}:",
+        *_arm(then, level + 1, flags, serials),
+        f"{pad}else:",
+        *_arm(otherwise, level + 1, flags, serials),
+    ]
 
 
 def _render(
-    block: list[tuple[typ.Any, ...]],
+    block: list[_Statement],
     level: int,
     flags: list[str],
     serials: list[int],
@@ -89,47 +147,25 @@ def _render(
     a serial number in its docstring, so which definitions a run reached can
     be told apart even when their text would otherwise match.
     """
-    pad = _INDENT * level
     lines: list[str] = []
     for statement in block:
-        if statement[0] in {"def", "class"}:
-            kind, name, body = statement
-            header = f"def {name}():" if kind == "def" else f"class {name}:"
-            serials.append(len(serials))
-            lines += [
-                f"{pad}{header}",
-                f"{pad}{_INDENT}'''Documented {serials[-1]}.",
-                f"{pad}{_INDENT}{coverage._PROBE_PROMPT} None",
-                f"{pad}{_INDENT}'''",
-                *_render(body, level + 1, flags, serials),
-            ]
-        else:
-            _, condition, then, otherwise = statement
-            if condition == _FLAG:
-                condition = f"F{len(flags)}"
-                flags.append(condition)
-            lines += [
-                f"{pad}if {condition}:",
-                *(_render(then, level + 1, flags, serials) or [f"{pad}{_INDENT}pass"]),
-            ]
-            lines += [
-                f"{pad}else:",
-                *(
-                    _render(otherwise, level + 1, flags, serials)
-                    or [f"{pad}{_INDENT}pass"]
-                ),
-            ]
+        renderer = (
+            _render_definition
+            if statement[0] in {"def", "class"}
+            else _render_conditional
+        )
+        lines += renderer(statement, level, flags, serials)
     return lines
 
 
-def _flag_count(block: list[tuple[typ.Any, ...]]) -> int:
+def _flag_count(block: list[_Statement]) -> int:
     """Return how many undecidable conditions *block* renders."""
     flags: list[str] = []
     _render(block, 0, flags, [])
     return len(flags)
 
 
-def _source(block: list[tuple[typ.Any, ...]], assignment: tuple[bool, ...]) -> str:
+def _source(block: list[_Statement], assignment: tuple[bool, ...]) -> str:
     """Return a module's source with each flag fixed by *assignment*."""
     flags: list[str] = []
     body = _render(block, 0, flags, [])
@@ -139,7 +175,7 @@ def _source(block: list[tuple[typ.Any, ...]], assignment: tuple[bool, ...]) -> s
     return coverage._probe_source("\n".join([*bindings, *body]) + "\n")
 
 
-def _assignments(block: list[tuple[typ.Any, ...]]) -> list[tuple[bool, ...]]:
+def _assignments(block: list[_Statement]) -> list[tuple[bool, ...]]:
     """Return every way of setting the flags *block* renders."""
     return list(itertools.product([True, False], repeat=_flag_count(block)))
 
@@ -178,7 +214,7 @@ _SETTINGS = settings(
 @_SETTINGS
 @given(_block(0, undecidable=False))
 def test_model_equals_the_finder_when_every_condition_is_decidable(
-    block: list[tuple[typ.Any, ...]],
+    block: list[_Statement],
 ) -> None:
     """With only constant conditions, the model and the finder agree exactly.
 
@@ -204,7 +240,7 @@ def test_model_equals_the_finder_when_every_condition_is_decidable(
 )
 @given(_block(0, undecidable=True))
 def test_model_is_the_union_of_the_runs_when_a_condition_is_undecidable(
-    block: list[tuple[typ.Any, ...]],
+    block: list[_Statement],
 ) -> None:
     """The model counts each definition any run reaches, once, and no other.
 

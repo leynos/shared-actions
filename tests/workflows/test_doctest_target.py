@@ -41,6 +41,8 @@ import json, os, subprocess, sys
 argv = sys.argv[1:]
 with open(os.environ["STUB_LOG"], "a", encoding="utf-8") as log:
     log.write(json.dumps(argv) + "\\n")
+if os.environ.get("STUB_FAIL_ON") in argv:
+    sys.exit(1)
 if os.environ.get("STUB_RUN") != "1":
     sys.exit(0)
 index = argv.index("pytest")
@@ -60,27 +62,37 @@ class Workspace(typ.NamedTuple):
     log: Path
 
     def make(
-        self, *arguments: str, run_pytest: bool
+        self,
+        *arguments: str,
+        run_pytest: bool,
+        target: str = "doctest",
+        fail_on: str = "",
     ) -> subprocess.CompletedProcess[str]:
-        """Run `make -f Makefile doctest` here with the stub as `UV`."""
+        """Run `make -f Makefile <target>` here with the stub as `UV`.
+
+        `fail_on` names an argument that makes the stub exit non-zero when
+        it is among the arguments it was given.
+        """
         # The child pytest must not inherit the parent's xdist or plugin
         # state, or it would try to join the parent's run.
         inherited = {
             name: value
             for name, value in os.environ.items()
             if not name.startswith(("PYTEST_", "PYTHONPATH"))
+            and name != "ACT_WORKFLOW_TESTS"
         }
         environment = {
             **inherited,
             "STUB_LOG": str(self.log),
             "STUB_RUN": "1" if run_pytest else "0",
+            "STUB_FAIL_ON": fail_on,
         }
         return subprocess.run(  # noqa: S603, TID251 - fixed argv, no shell.
             [  # noqa: S607 - make is on PATH.
                 "make",
                 "-f",
                 "Makefile",
-                "doctest",
+                target,
                 f"UV={self.root / 'uv-stub'}",
                 *arguments,
             ],
@@ -162,3 +174,27 @@ def test_a_failing_example_exits_non_zero(workspace: Workspace) -> None:
 
     assert result.returncode != 0, result.stdout + result.stderr
     assert "1 failed" in result.stdout, f"pytest output: {result.stdout}"
+
+
+def test_make_test_runs_the_examples_before_the_suite(workspace: Workspace) -> None:
+    """`make test` runs the doctest command first, then the ordinary suite."""
+    result = workspace.make(target="test", run_pytest=False)
+
+    assert result.returncode == 0, result.stderr
+    doctest_run, suite_run = workspace.recorded()
+    assert "--doctest-modules" in doctest_run, f"first command: {doctest_run}"
+    assert "--doctest-modules" not in suite_run, f"second command: {suite_run}"
+    assert "-n" in suite_run, f"the second command is not the suite: {suite_run}"
+
+
+def test_make_test_stops_before_the_suite_when_an_example_fails(
+    workspace: Workspace,
+) -> None:
+    """A failing doctest run stops `make test` before the suite is started."""
+    result = workspace.make(
+        target="test", run_pytest=False, fail_on="--doctest-modules"
+    )
+
+    assert result.returncode != 0, result.stdout + result.stderr
+    (only,) = workspace.recorded()
+    assert "--doctest-modules" in only, f"the suite ran after a failure: {only}"

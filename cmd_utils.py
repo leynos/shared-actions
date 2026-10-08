@@ -13,6 +13,7 @@ developer's machine and a runner, so the examples below elide it.
 
 Basic usage with the default ``call`` strategy, which returns stdout::
 
+    >>> import sys
     >>> from plumbum import local
     >>> run_cmd(local["echo"]["hello"])  # doctest: +ELLIPSIS
     $ ...echo hello
@@ -29,10 +30,12 @@ Inspecting exit status and stderr with the ``run`` method, which returns a
 :class:`RunResult` rather than raising::
 
     >>> failure = run_cmd(
-    ...     local["python3"]["-c", "import sys; sys.stderr.write('oops'); sys.exit(1)"],
+    ...     local[sys.executable][
+    ...         "-c", "import sys; sys.stderr.write('oops'); sys.exit(1)"
+    ...     ],
     ...     method="run",
     ... )  # doctest: +ELLIPSIS
-    $ ...python3 -c ...
+    $ ... -c ...
     >>> failure.returncode
     1
     >>> failure.stderr
@@ -41,7 +44,7 @@ Inspecting exit status and stderr with the ``run`` method, which returns a
 Enforcing a timeout for long-running processes::
 
     >>> run_cmd(
-    ...     local["python3"]["-c", "import time; time.sleep(5)"],
+    ...     local[sys.executable]["-c", "import time; time.sleep(5)"],
     ...     method="run",
     ...     timeout=0.01,
     ... )  # doctest: +ELLIPSIS

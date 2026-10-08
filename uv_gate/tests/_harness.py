@@ -92,19 +92,15 @@ class Harness:
         rules: list[dict[str, object]] | None = None,
         *,
         env: dict[str, str] | None = None,
-        path: str | None = None,
-        cache: Path | None = None,
     ) -> Result:
         """Run the helper with ``args`` against the scripted fake uv."""
         self.scenario.write_text(json.dumps(rules or []), encoding="utf-8")
         environment = {
-            "PATH": path
-            if path is not None
-            else f"{self.bin}{os.pathsep}/usr/bin:/bin",
+            "PATH": f"{self.bin}{os.pathsep}/usr/bin:/bin",
             "HOME": str(self.home),
             "FAKE_UV_LOG": str(self.log),
             "FAKE_UV_SCENARIO": str(self.scenario),
-            "FAKE_UV_CACHE": str(cache or self.cache),
+            "FAKE_UV_CACHE": str(self.cache),
             **(env or {}),
         }
         process = subprocess.Popen(  # noqa: S603  # fixed argv, test-only

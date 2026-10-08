@@ -310,8 +310,8 @@ def test_uv_sees_a_cleaned_environment(harness: Harness) -> None:
             "GIT_CONFIG_KEY_0": "url.x.insteadOf",
             "UV_CACHE_DIR": "/elsewhere/.uv-cache",
             "UV_TOOL_DIR": "/elsewhere/.uv-tools",
+            "PATH": path,
         },
-        path=path,
     )
     seen = result.uv_calls()[0]
     assert seen["env"]["GH_TOKEN"] is None
@@ -353,7 +353,9 @@ def test_cache_on_another_device_forces_copy_mode(
     cache.mkdir()
     try:
         result = harness.run(
-            ["prepare"], [rule(OFFLINE_SYNC, response(0))], cache=cache
+            ["prepare"],
+            [rule(OFFLINE_SYNC, response(0))],
+            env={"FAKE_UV_CACHE": str(cache)},
         )
     finally:
         cache.rmdir()
@@ -380,7 +382,7 @@ def test_environment_on_another_device_forces_copy_mode(
 
 def test_uv_missing_from_the_cleaned_path_is_a_refusal(harness: Harness) -> None:
     """With no uv on PATH the helper says so and runs nothing."""
-    result = harness.run(["prepare"], [], path="/nonexistent")
+    result = harness.run(["prepare"], [], env={"PATH": "/nonexistent"})
     assert result.status == 2
     assert "uv is not available on the cleaned PATH" in result.stderr
     assert result.uv_calls() == []
@@ -393,7 +395,9 @@ def test_uncreatable_cache_directory_is_a_refusal(
     blocker = tmp_path / "blocker"
     blocker.write_text("not a directory", encoding="utf-8")
     result = harness.run(
-        ["prepare"], [rule(OFFLINE_SYNC, response(0))], cache=blocker / "cache"
+        ["prepare"],
+        [rule(OFFLINE_SYNC, response(0))],
+        env={"FAKE_UV_CACHE": str(blocker / "cache")},
     )
     assert result.status == 2
     assert "cannot create the uv cache directory" in result.stderr

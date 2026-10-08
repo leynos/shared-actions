@@ -541,16 +541,15 @@ def is_pinned(spec: str) -> bool:
     if spec.startswith("git+"):
         _, _, ref = spec.rpartition("@")
         return bool(FULL_SHA.fullmatch(ref.split("#", 1)[0]))
-    for separator in ("==", "@"):
-        name, found, version = spec.partition(separator)
-        if (
-            found
-            and PINNED_NAME.fullmatch(name)
-            and PINNED_VERSION.fullmatch(version)
-            and version != "latest"
-        ):
-            return True
-    return False
+    return any(_is_exact_pin(spec, separator) for separator in ("==", "@"))
+
+
+def _is_exact_pin(spec: str, separator: str) -> bool:
+    """Report whether ``spec`` is ``name<separator>version`` with a real version."""
+    name, found, version = spec.partition(separator)
+    if not found or version == "latest":
+        return False
+    return bool(PINNED_NAME.fullmatch(name) and PINNED_VERSION.fullmatch(version))
 
 
 def tool(

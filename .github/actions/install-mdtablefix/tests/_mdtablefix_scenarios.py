@@ -116,7 +116,7 @@ class Scenario:
     runner_os: str = "Linux"
     runner_arch: str = "X64"
     version: str = "0.5.1"
-    binstall_version: str = "1.22.0"
+    binstall_version: str = "1.24.0"
     bin_dir: str = "~/.local/bin"
     #: Version a pre-existing executable in ``bin-dir`` reports, if any.
     cached_version: str | None = None

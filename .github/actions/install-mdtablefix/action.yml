@@ -20,7 +20,7 @@ inputs:
       Version of cargo-binstall to install when the runner has none. Ignored
       when cargo-binstall is already present.
     required: false
-    default: "1.22.0"
+    default: "1.24.0"
   bin-dir:
     description: >-
       Directory that receives the mdtablefix executable and is appended to

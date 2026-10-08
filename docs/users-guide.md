@@ -770,7 +770,7 @@ tool from source. Every repository whose `make check-fmt` shells out to
 The repository must be checked out before invoking this local action. The
 required `version` input names the exact release. The optional
 `binstall-version` input selects the `cargo-binstall` release installed when
-the runner has none and defaults to `1.22.0`. The optional `bin-dir` input
+the runner has none and defaults to `1.24.0`. The optional `bin-dir` input
 defaults to `~/.local/bin`; the executable lands there and the directory is
 appended to `GITHUB_PATH`, so later steps call `mdtablefix` by name.
 

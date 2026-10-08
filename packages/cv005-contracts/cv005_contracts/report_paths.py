@@ -23,6 +23,9 @@ from .expressions import ConditionError, yielded_operands
 #: each of which holds the workspace and the report in it.
 SCRATCH_ROOTS: typ.Final[tuple[str, ...]] = ("/tmp/",)  # noqa: S108 - a path prefix, not a file created here
 
+#: The runner's temporary directory, which GitHub places outside the workspace.
+RUNNER_TEMP: typ.Final[str] = "${{ runner.temp }}/"
+
 _EXPRESSION: typ.Final[re.Pattern[str]] = re.compile(
     r"^\$\{\{(?P<body>.*)\}\}$", re.DOTALL
 )
@@ -85,6 +88,10 @@ def could_hold_the_report(entry: str, report: str) -> bool:
     True
     >>> could_hold_the_report("${{ x && '/tmp/a.log' || '' }}", "lcov.info")
     False
+    >>> could_hold_the_report("${{ runner.temp }}/sccache.json", "lcov.info")
+    False
+    >>> could_hold_the_report("${{ runner.temp }}/${{ x }}", "lcov.info")
+    True
 
     """
     if entry.startswith("!"):
@@ -97,6 +104,8 @@ def could_hold_the_report(entry: str, report: str) -> bool:
 
 def _could_select(entry: str, report: str) -> bool:
     """Judge an entry that is neither a negation nor the report's own name."""
+    if _in_runner_temp(entry):
+        return False
     # An expression is judged before any prefix: `/tmp/${{ x }}` could
     # evaluate to `../home/runner/work`, so its literal start clears nothing.
     if "${{" in entry:
@@ -127,6 +136,19 @@ def _names_the_workspace_or_a_parent_of(entry: str, report: str) -> bool:
     """Return whether a plain relative entry is the workspace or holds the report."""
     parts = _parts(entry)
     return _parts(report)[: len(parts)] == parts
+
+
+def _in_runner_temp(entry: str) -> bool:
+    """Return whether an entry sits under `runner.temp` and never climbs out.
+
+    The runner's temporary directory lies outside the workspace, so a path
+    below it cannot select the report. Only literal text may follow the
+    prefix: a further expression could evaluate to `..`.
+    """
+    if not entry.startswith(RUNNER_TEMP):
+        return False
+    rest = entry.removeprefix(RUNNER_TEMP)
+    return "${{" not in rest and ".." not in rest.split("/")
 
 
 def _in_scratch(entry: str) -> bool:

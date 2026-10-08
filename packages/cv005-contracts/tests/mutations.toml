@@ -1742,3 +1742,17 @@ file = "cv005_contracts/hardening.py"
 old = "    pending = sorted(called_actions({\"jobs\": {\"lane\": job}}, repository))"
 new = "    pending = sorted(closure)"
 expect = "test_an_uploading_action_no_lane_job_runs_is_allowed"
+
+[[mutation]]
+id = "U6 runner.temp uploads not cleared"
+file = "cv005_contracts/report_paths.py"
+old = "    if _in_runner_temp(entry):\n        return False\n"
+new = ""
+expect = "test_a_lane_upload_from_the_runner_temp_directory_is_allowed"
+
+[[mutation]]
+id = "U7 runner.temp prefix cleared whatever follows it"
+file = "cv005_contracts/report_paths.py"
+old = "    return \"${{\" not in rest and \"..\" not in rest.split(\"/\")\n"
+new = "    return True\n"
+expect = "test_a_runner_temp_lookalike_that_could_reach_the_workspace_is_refused"

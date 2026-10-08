@@ -54,6 +54,14 @@ def _lane(extra_step: str = "") -> Document:
     return load_workflow(PULL_REQUEST_LANE.replace(LANE_STEP, extra_step + LANE_STEP))
 
 
+def _upload(path: str) -> str:
+    """Return an `upload-artifact` step with `path`."""
+    return (
+        "      - uses: actions/upload-artifact@v4\n"
+        f"        with:\n          path: {path}\n"
+    )
+
+
 def _calling(action: str) -> str:
     """Return a step that runs a local action."""
     return f"      - uses: ./{action}\n"
@@ -132,3 +140,39 @@ def test_an_uploading_action_no_lane_job_runs_is_allowed() -> None:
         ),
     }
     assert _findings(closure) == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "${{ runner.temp }}/sccache-publish.json",
+        "${{ runner.temp }}/benchmark-gate/decisions.jsonl",
+        "${{ runner.temp }}/benchmark-ratchet/**/*.json",
+    ],
+)
+def test_a_lane_upload_from_the_runner_temp_directory_is_allowed(path: str) -> None:
+    """Scenario: the lane job uploads files the runner wrote outside the workspace.
+
+    rstest-bdd and cuprum upload files under `runner.temp`, which GitHub
+    places beside the workspace, not in it.
+    """
+    upload = _upload(path)
+    assert _findings({"ci.yml": _lane(upload)}) == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "${{ runner.temp }}/../work/repo/coverage.xml",
+        "${{ runner.temp }}/${{ matrix.os }}",
+        "${{ runner.tmp }}/x",
+        "${{ github.workspace }}/coverage.xml",
+    ],
+)
+def test_a_runner_temp_lookalike_that_could_reach_the_workspace_is_refused(
+    path: str,
+) -> None:
+    """Scenario: a climb, a further expression or another root is not scratch."""
+    upload = _upload(path)
+    found = _findings({"ci.yml": _lane(upload)})
+    assert any("artefact" in item for item in found), found

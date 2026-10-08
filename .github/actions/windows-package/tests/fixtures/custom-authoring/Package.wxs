@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="$(env.PRODUCT_NAME)"
+      Version="$(var.Version)"
+      Manufacturer="$(env.MANUFACTURER)"
+      UpgradeCode="{D7C1F984-E0CD-4920-AD27-3567D51EE8CF}"
+      Language="1033"
+      Scope="perMachine">
+    <SummaryInformation Description="Custom WiX v4 authoring validation fixture" />
+    <MediaTemplate EmbedCab="yes" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(env.LICENSE_RTF_PATH)" />
+    <UI Id="WixUI_Minimal" />
+    <Feature Id="MainApplication" Title="$(env.PRODUCT_NAME)" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="$(env.PRODUCT_NAME)" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="ProductComponents">
+      <Component Id="Application" Guid="{4B03F4EC-347B-4F92-9CF3-18FC7F5058A6}" Directory="INSTALLFOLDER">
+        <File Id="ApplicationExecutable" Source="$(env.APPLICATION_SPEC)" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

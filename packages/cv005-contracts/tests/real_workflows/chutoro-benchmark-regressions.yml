@@ -1,0 +1,200 @@
+# Provenance: .github/workflows/benchmark-regressions.yml at 330f611b (leynos/chutoro main, 2026-10-08).
+# Whole file: benchmark log uploads.
+name: Benchmark Regressions
+
+'on':
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/benchmark-regressions.yml'
+      - 'chutoro-benches/**'
+      - 'chutoro-test-support/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Makefile'
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  benchmark-policy:
+    # Paid on the feedback path, free on the cron. This job gates the
+    # pull-request benchmark lanes below, so it sits in front of them in
+    # GitHub's queue; on the weekly schedule it gates
+    # benchmark-baseline-compare, which nothing waits for. Selecting the
+    # label from the event is what lets one job be both without the
+    # scheduled run reaching a paid runner.
+    # A pull request from a fork cannot obtain an Ubicloud runner, so it
+    # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
+    runs-on: >-
+      ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && 'ubicloud-standard-2' || 'ubuntu-latest' }}
+    # Thirty-three seconds of work on GitHub's four cores. The ceiling is a
+    # runaway guard, not a budget, and is set well clear of a cold cargo
+    # build of chutoro-test-support on two.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.gate.outputs.mode }}
+      should_compare: ${{ steps.gate.outputs.should_compare }}
+      policy: ${{ steps.gate.outputs.policy }}
+      event: ${{ steps.gate.outputs.event }}
+      bench_matrix: ${{ steps.bench-matrix.outputs.bench_matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # No compiler cache here. These jobs have no writer on main, so an
+      # installed sccache would start a server against a local directory
+      # nothing ever moves, which reports a healthy cache that stores
+      # nothing. Skipping the install also saves the download.
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@7d751eded578e48dacf43ab173d5820e6437c474
+        with:
+          use-sccache: 'false'
+      - name: Resolve benchmark CI mode
+        id: gate
+        env:
+          CHUTORO_BENCH_CI_POLICY: scheduled-baseline
+        run: cargo run -p chutoro-test-support --bin benchmark_regression_gate
+      - name: Define benchmark matrix
+        id: bench-matrix
+        run: |
+          echo 'bench_matrix=["hnsw","hnsw_ef_sweep","edge_harvest","mst","extraction"]' >> "$GITHUB_OUTPUT"
+
+  benchmark-smoke:
+    needs: benchmark-policy
+    if: ${{ needs.benchmark-policy.outputs.mode != 'disabled' }}
+    # Paid on the feedback path only, for the same reason as
+    # benchmark-policy above: the weekly run of this matrix blocks nobody.
+    # A pull request from a fork cannot obtain an Ubicloud runner, so it
+    # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
+    runs-on: >-
+      ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && 'ubicloud-standard-2' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        bench: ${{ fromJSON(needs.benchmark-policy.outputs.bench_matrix) }}
+    permissions:
+      contents: read
+    env:
+      CARGO_TERM_COLOR: always
+      CHUTORO_BENCH_HNSW_MEMORY_PROFILE: '0'
+      CHUTORO_BENCH_HNSW_RECALL_REPORT: '0'
+      CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # No compiler cache here. These jobs have no writer on main, so an
+      # installed sccache would start a server against a local directory
+      # nothing ever moves, which reports a healthy cache that stores
+      # nothing. Skipping the install also saves the download.
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@7d751eded578e48dacf43ab173d5820e6437c474
+        with:
+          use-sccache: 'false'
+      - name: Run benchmark discovery smoke check
+        run: |
+          set -o pipefail
+          cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- --list \
+            2>&1 | tee "/tmp/bench-smoke-${{ matrix.bench }}.log"
+      - name: Run HNSW exact benchmark smoke check
+        if: ${{ matrix.bench == 'hnsw' }}
+        run: |
+          set -o pipefail
+          cargo bench -p chutoro-benches --bench hnsw -- hnsw_build/n=100,M=8,ef=16 --exact \
+            2>&1 | tee /tmp/bench-smoke-hnsw-exact.log
+      - name: Upload benchmark smoke logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: benchmark-smoke-${{ matrix.bench }}
+          path: |
+            /tmp/bench-smoke-${{ matrix.bench }}.log
+            ${{ matrix.bench == 'hnsw' && '/tmp/bench-smoke-hnsw-exact.log' || '' }}
+
+  benchmark-baseline-compare:
+    needs: benchmark-policy
+    if: ${{ needs.benchmark-policy.outputs.should_compare == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        bench: ${{ fromJSON(needs.benchmark-policy.outputs.bench_matrix) }}
+    env:
+      CARGO_TERM_COLOR: always
+      CHUTORO_BENCH_HNSW_MEMORY_PROFILE: '0'
+      CHUTORO_BENCH_HNSW_RECALL_REPORT: '0'
+      CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      # No compiler cache here. These jobs have no writer on main, so an
+      # installed sccache would start a server against a local directory
+      # nothing ever moves, which reports a healthy cache that stores
+      # nothing. Skipping the install also saves the download.
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@7d751eded578e48dacf43ab173d5820e6437c474
+        with:
+          use-sccache: 'false'
+      - name: Resolve benchmark reference commit
+        id: reference
+        run: |
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            echo "has_reference=true" >> "$GITHUB_OUTPUT"
+            echo "commit=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_reference=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Compare against reference commit baseline
+        if: ${{ steps.reference.outputs.has_reference == 'true' }}
+        run: |
+          set -o pipefail
+          reference_dir="/tmp/chutoro-reference-${{ matrix.bench }}"
+          reference_commit="${{ steps.reference.outputs.commit }}"
+          trap 'git worktree remove --force "${reference_dir}" >/dev/null 2>&1 || true' EXIT
+          git worktree add "${reference_dir}" "${reference_commit}"
+
+          (
+            cd "${reference_dir}"
+            set -o pipefail
+            cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
+              --save-baseline ci-reference --noplot \
+              2>&1 | tee "/tmp/bench-${{ matrix.bench }}-reference-save.log"
+          )
+
+          baseline_source="${reference_dir}/target/criterion/ci-reference"
+          baseline_destination="./target/criterion/ci-reference"
+          if [ ! -d "${baseline_source}" ]; then
+            echo "missing saved benchmark baseline at ${baseline_source}" >&2
+            exit 1
+          fi
+          mkdir -p "./target/criterion"
+          rm -rf "${baseline_destination}"
+          cp -R "${baseline_source}" "${baseline_destination}"
+
+          cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
+            --baseline ci-reference --noplot \
+            2>&1 | tee "/tmp/bench-${{ matrix.bench }}-compare.log"
+      - name: Save baseline when no reference commit exists
+        if: ${{ steps.reference.outputs.has_reference != 'true' }}
+        run: |
+          set -o pipefail
+          cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
+            --save-baseline ci-reference --noplot \
+            2>&1 | tee "/tmp/bench-${{ matrix.bench }}-reference-save.log"
+      - name: Upload baseline comparison logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: benchmark-baseline-${{ matrix.bench }}
+          path: |
+            /tmp/bench-${{ matrix.bench }}-reference-save.log
+            /tmp/bench-${{ matrix.bench }}-compare.log

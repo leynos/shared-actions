@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import typing as typ
 
+from .closure import called_actions
 from .expressions import ConditionError, conjuncts
 from .legs import Leg, generator_legs
 from .publisher import invokes, upload_job
@@ -86,6 +87,7 @@ def _keeps_no_credentials(step: dict[str, object]) -> bool:
 def lane_hardening_violations(
     closure: dict[str, Document],
     declared: cabc.Mapping[str, frozenset[str]] | None = None,
+    repository: str = "",
 ) -> list[str]:
     """Keep each pull-request coverage lane read-only and impossible to skip.
 
@@ -96,6 +98,10 @@ def lane_hardening_violations(
     declared : Mapping[str, frozenset[str]] | None, optional
         The extra conditions each declared lane leg may carry besides the
         pull-request guard, by leg name.
+    repository : str, optional
+        The owner and name of the repository, used to follow the local actions
+        a lane's job runs. Without it a lane job's local actions are not
+        followed.
 
     Returns
     -------
@@ -111,8 +117,7 @@ def lane_hardening_violations(
         for name, leg in located
         for problem in _lane_violations(name, leg, extra.get(leg.ident, frozenset()))
     ]
-    reports = {str(_input(leg.step, "output-path")) for _, leg in located}
-    return found + _artefact_uploads(closure, reports)
+    return found + _artefact_uploads(closure, located, repository)
 
 
 def _coverage_legs(closure: dict[str, Document]) -> list[tuple[str, Leg]]:
@@ -159,22 +164,75 @@ def _only_guarded(
         return False
 
 
-def _artefact_uploads(closure: dict[str, Document], reports: set[str]) -> list[str]:
-    """Report a pull-request step publishing a coverage report as an artefact.
+def _artefact_uploads(
+    closure: dict[str, Document], located: list[tuple[str, Leg]], repository: str
+) -> list[str]:
+    """Report a lane step publishing the lane's own coverage report as an artefact.
 
     `publish-artefact: 'false'` keeps the shared action from uploading the
-    report; a separate `upload-artifact` step would publish it anyway.
+    report; a separate `upload-artifact` step would publish it anyway. Only a
+    step on the runner that holds the report can select it, so the rule reads
+    the lane job's own steps and the local actions that job runs. An upload in
+    another job, or in a workflow with no coverage lane, sees a different
+    workspace and cannot reach the report.
     """
-    return [
-        f"{name}: must not upload the coverage report {report!r} as an artefact"
-        for name, document in sorted(closure.items())
-        for job in jobs(document).values()
-        for step in steps(job)
-        if invokes(step, ARTEFACT_ACTION)
-        for report in sorted(reports)
-        if report != "None"
-        and any(
-            could_hold_the_report(entry, report)
-            for entry in entries_of(_input(step, "path"))
+    found: list[str] = []
+    for name, steps_here, reports in _report_holders(closure, located, repository):
+        found.extend(
+            f"{name}: must not upload the coverage report {report!r} as an artefact"
+            for step in steps_here
+            if invokes(step, ARTEFACT_ACTION)
+            for report in sorted(reports)
+            if report != "None"
+            and any(
+                could_hold_the_report(entry, report)
+                for entry in entries_of(_input(step, "path"))
+            )
         )
+    return found
+
+
+def _report_holders(
+    closure: dict[str, Document], located: list[tuple[str, Leg]], repository: str
+) -> list[tuple[str, list[dict[str, object]], set[str]]]:
+    """Return each place that runs beside a lane's report, with the reports.
+
+    A place is a lane job's steps, filed under its workflow, or the steps of a
+    local action that job runs, filed under the action's path. An action run
+    by several lane jobs holds the reports of all of them.
+    """
+    holders: dict[str, tuple[list[dict[str, object]], set[str]]] = {}
+    seen: set[int] = set()
+    for name, leg in located:
+        report = str(_input(leg.step, "output-path"))
+        if id(leg.job) not in seen:
+            seen.add(id(leg.job))
+            holders[f"{name}#{id(leg.job)}"] = (steps(leg.job), set())
+        holders[f"{name}#{id(leg.job)}"][1].add(report)
+        for action in _local_actions(leg.job, closure, repository):
+            slot = holders.setdefault(action, (_action_steps(closure[action]), set()))
+            slot[1].add(report)
+    return [
+        (key.split("#", 1)[0], held, reports)
+        for key, (held, reports) in sorted(holders.items())
     ]
+
+
+def _action_steps(document: Document) -> list[dict[str, object]]:
+    """Return every step of a local action's document."""
+    return [step for job in jobs(document).values() for step in steps(job)]
+
+
+def _local_actions(
+    job: dict[str, object], closure: dict[str, Document], repository: str
+) -> list[str]:
+    """Return the closure's local actions a job runs, directly or through others."""
+    pending = sorted(called_actions({"jobs": {"lane": job}}, repository))
+    found: list[str] = []
+    while pending:
+        action = pending.pop()
+        if action in found or action not in closure:
+            continue
+        found.append(action)
+        pending.extend(sorted(called_actions(closure[action], repository)))
+    return found

@@ -703,8 +703,8 @@ expect = "test_a_lane_may_not_upload_its_report_as_an_artefact"
 [[mutation]]
 id = "H9 every artefact refused"
 file = "cv005_contracts/hardening.py"
-old = "        if report != \"None\"\n        and any(\n            could_hold_the_report(entry, report)\n            for entry in entries_of(_input(step, \"path\"))\n        )\n"
-new = "        if True\n"
+old = "            if report != \"None\"\n            and any(\n                could_hold_the_report(entry, report)\n                for entry in entries_of(_input(step, \"path\"))\n            )\n"
+new = "            if True\n"
 expect = "test_an_unrelated_artefact_is_allowed"
 
 [[mutation]]
@@ -1494,8 +1494,8 @@ expect = "test_an_empty_patch_range_is_refused"
 [[mutation]]
 id = "RA1 the lane guard reads only the report's plain name"
 file = "cv005_contracts/hardening.py"
-old = "        and any(\n            could_hold_the_report(entry, report)\n            for entry in entries_of(_input(step, \"path\"))\n        )\n"
-new = "        and report in str(_input(step, \"path\"))\n"
+old = "            and any(\n                could_hold_the_report(entry, report)\n                for entry in entries_of(_input(step, \"path\"))\n            )\n"
+new = "            and report in str(_input(step, \"path\"))\n"
 expect = "test_a_lane_upload_of_the_workspace_is_refused_end_to_end"
 
 [[mutation]]
@@ -1707,3 +1707,38 @@ file = "cv005_contracts/api.py"
 old = "    if config.environment:\n"
 new = "    if config.environment and \"'environment': 'codescene'\" in str(documents):\n"
 expect = "test_the_environment_contract_applies_when_the_key_is_absent"
+
+[[mutation]]
+id = "U1 upload scope widened to every job of the lane's workflow"
+file = "cv005_contracts/hardening.py"
+old = "holders[f\"{name}#{id(leg.job)}\"] = (steps(leg.job), set())"
+new = "holders[f\"{name}#{id(leg.job)}\"] = ([s for j in jobs(leg.document).values() for s in steps(j)], set())"
+expect = "test_an_upload_in_another_job_of_the_lane_workflow_is_allowed"
+
+[[mutation]]
+id = "U2 lane job's own steps not read for uploads"
+file = "cv005_contracts/hardening.py"
+old = "holders[f\"{name}#{id(leg.job)}\"] = (steps(leg.job), set())"
+new = "holders[f\"{name}#{id(leg.job)}\"] = ([], set())"
+expect = "test_an_upload_in_the_lane_job_is_still_refused"
+
+[[mutation]]
+id = "U3 local actions the lane job runs not followed"
+file = "cv005_contracts/hardening.py"
+old = "        for action in _local_actions(leg.job, closure, repository):"
+new = "        for action in []:"
+expect = "test_an_upload_in_an_action_the_lane_job_runs_is_refused"
+
+[[mutation]]
+id = "U4 actions run by other actions not followed"
+file = "cv005_contracts/hardening.py"
+old = "        pending.extend(sorted(called_actions(closure[action], repository)))"
+new = "        pending.extend([])"
+expect = "test_an_upload_two_actions_down_from_the_lane_job_is_refused"
+
+[[mutation]]
+id = "U5 every action in the closure read, run or not"
+file = "cv005_contracts/hardening.py"
+old = "    pending = sorted(called_actions({\"jobs\": {\"lane\": job}}, repository))"
+new = "    pending = sorted(closure)"
+expect = "test_an_uploading_action_no_lane_job_runs_is_allowed"

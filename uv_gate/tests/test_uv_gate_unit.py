@@ -7,6 +7,8 @@ import typing as typ
 
 import pytest
 from _harness import fixture_text, other_device_dir
+from hypothesis import given
+from hypothesis import strategies as st
 
 import uv_gate
 
@@ -259,3 +261,111 @@ def test_device_check_resolves_a_symlinked_cache(tmp_path: Path) -> None:
     devices = FakeDevices({real: 4, tmp_path: 1})
     assert uv_gate.needs_copy_mode(link, tmp_path / ".venv", tmp_path, devices)
     assert real.resolve() in devices.asked
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "UV_OFFLINE",
+        "UV_NO_CACHE",
+        "UV_FROZEN",
+        "UV_LOCKED",
+        "UV_REFRESH",
+        "UV_REFRESH_PACKAGE",
+        "UV_UPGRADE",
+    ],
+)
+def test_clean_environment_drops_policy_overrides(
+    tmp_path: Path, variable: str
+) -> None:
+    """Inherited uv switches that override the gate's policy are removed."""
+    env = uv_gate.clean_environment({variable: "1", "PATH": "/usr/bin"}, tmp_path)
+    assert variable not in env
+
+
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "--refresh",
+        "--refresh-package",
+        "--refresh-package=x",
+        "--upgrade-package=x",
+        "--reinstall-package",
+        "-U",
+        "-P",
+        "-Pruff",
+        "-n",
+    ],
+)
+def test_refuse_forbidden_covers_the_families(flag: str) -> None:
+    """Whole flag families and the short aliases are refused."""
+    with pytest.raises(uv_gate.GateError):
+        uv_gate._refuse_forbidden(["--group", "dev", flag])
+
+
+@pytest.mark.parametrize("flag", ["--group", "--python=3.12", "-p", "-q", "--extra"])
+def test_refuse_forbidden_leaves_ordinary_flags_alone(flag: str) -> None:
+    """Ordinary options are not caught by the families or the aliases."""
+    uv_gate._refuse_forbidden([flag, "dev"])
+
+
+@pytest.mark.parametrize(
+    ("spec", "described"),
+    [
+        ("git+https://user:secret@host/x.git@v1", "a git+ URL"),
+        ("ruff>=0.16", "ruff"),
+        ("typos@latest", "typos"),
+        ("==1", "an unnamed tool"),
+    ],
+)
+def test_describe_spec_names_the_tool_only(spec: str, described: str) -> None:
+    """Logs carry the package name, never a URL or its credentials."""
+    assert uv_gate.describe_spec(spec) == described
+
+
+NAMES = st.from_regex(r"[A-Za-z0-9][A-Za-z0-9._-]{0,20}", fullmatch=True)
+VERSIONS = st.from_regex(r"[A-Za-z0-9][A-Za-z0-9._+!-]{0,20}", fullmatch=True).filter(
+    lambda v: v != "latest"
+)
+EXTRAS = st.one_of(st.just(""), st.from_regex(r"\[[a-z0-9,]{1,8}\]", fullmatch=True))
+SHAS = st.from_regex(r"[0-9a-f]{40}", fullmatch=True)
+
+
+@given(NAMES, EXTRAS, VERSIONS, st.sampled_from(["==", "@"]))
+def test_every_well_formed_exact_pin_is_accepted(
+    name: str, extras: str, version: str, separator: str
+) -> None:
+    """Any valid name, optional extras, separator and version is a pin."""
+    assert uv_gate.is_pinned(f"{name}{extras}{separator}{version}")
+
+
+@given(SHAS)
+def test_every_full_lowercase_sha_is_a_pin(sha: str) -> None:
+    """A 40-digit lower-case SHA pins a git URL, with or without a fragment."""
+    assert uv_gate.is_pinned(f"git+https://example.invalid/o/r.git@{sha}")
+    assert uv_gate.is_pinned(
+        f"git+https://example.invalid/o/r.git@{sha}#subdirectory=x"
+    )
+
+
+@given(NAMES, st.sampled_from([">=", "<=", "~=", ">", "<", "!="]), VERSIONS)
+def test_ranges_are_never_pins(name: str, operator: str, version: str) -> None:
+    """Range specifiers are not exact pins."""
+    assert not uv_gate.is_pinned(f"{name}{operator}{version}")
+
+
+@given(
+    st.from_regex(r"[0-9a-f]{0,39}|[0-9A-F]{40}|[0-9a-f]{41}", fullmatch=True).filter(
+        lambda sha: not (len(sha) == 40 and sha == sha.lower())
+    )
+)
+def test_short_long_or_upper_case_shas_are_not_pins(sha: str) -> None:
+    """Only a full 40-digit lower-case SHA pins a Git reference."""
+    assert not uv_gate.is_pinned(f"git+https://example.invalid/o/r.git@{sha}")
+
+
+@given(NAMES, st.sampled_from(["==", "@"]))
+def test_latest_and_empty_versions_are_never_pins(name: str, separator: str) -> None:
+    """``latest`` and an empty version are not exact versions."""
+    assert not uv_gate.is_pinned(f"{name}{separator}latest")
+    assert not uv_gate.is_pinned(f"{name}{separator}")

@@ -49,17 +49,27 @@ ALLOW_ONLINE_VARIABLE = "UV_GATE_ALLOW_ONLINE"
 SYSTEM_GIT = Path("/usr/bin/git")
 TAIL_BYTES = 65536
 
+# Inherited uv switches that would override the gate's own policy: offline or
+# no-cache state defeats the online step and the global cache, and the
+# refresh, frozen and locked switches change freshness behind the gate's back.
 STRIPPED_VARIABLES = frozenset(
-    {"GH_TOKEN", "GITHUB_TOKEN", "BASH_ENV", "UV_CACHE_DIR", "UV_TOOL_DIR"}
+    {
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "BASH_ENV",
+        "UV_CACHE_DIR",
+        "UV_TOOL_DIR",
+        "UV_OFFLINE",
+        "UV_NO_CACHE",
+        "UV_FROZEN",
+        "UV_LOCKED",
+    }
 )
-STRIPPED_PREFIXES = ("GIT_CONFIG_",)
+STRIPPED_PREFIXES = ("GIT_CONFIG_", "UV_REFRESH", "UV_UPGRADE")
 
 # Flags that would make a gate refresh, upgrade or purge instead of read the
 # prepared environment. The procedure forbids all of them as automatic recovery.
 FORBIDDEN_FLAGS = (
-    "--refresh",
-    "--upgrade",
-    "--reinstall",
     "--no-offline",
     "--no-cache",
     "--no-frozen",
@@ -68,6 +78,10 @@ FORBIDDEN_FLAGS = (
     "--frozen",
     "--offline",
 )
+# Whole families, so ``--refresh-package`` and friends are refused too.
+FORBIDDEN_PREFIXES = ("--refresh", "--upgrade", "--reinstall")
+# Short aliases: ``-U`` (upgrade), ``-P`` (upgrade package), ``-n`` (no cache).
+FORBIDDEN_SHORT = "UPn"
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 PINNED_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?")
 PINNED_VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+!-]*")
@@ -221,7 +235,14 @@ def clean_environment(environ: cabc.Mapping[str, str], home: Path) -> dict[str, 
 
 
 def device_of(path: Path) -> int:
-    """Return the device number (``st_dev``) of ``path``."""
+    """Return the device number (``st_dev``) of ``path``.
+
+    Raises
+    ------
+    OSError
+        When ``path`` cannot be inspected; ``build_context`` turns this into a
+        ``GateError`` at the command boundary.
+    """
     return path.stat().st_dev
 
 
@@ -253,6 +274,11 @@ def needs_copy_mode(
     -------
     bool
         ``True`` when ``UV_LINK_MODE=copy`` is required.
+
+    Raises
+    ------
+    OSError
+        When a device query fails (propagated from ``device``).
     """
     device_path = (
         environment_path.resolve() if environment_path.exists() else repo.resolve()
@@ -336,8 +362,8 @@ def build_context(
     Raises
     ------
     GateError
-        When uv is absent from the cleaned ``PATH`` or the cache directory
-        cannot be found or created.
+        When uv is absent from the cleaned ``PATH``, the cache directory
+        cannot be found or created, or the filesystems cannot be compared.
     """
     env = clean_environment(environ, home or Path.home())
     found = shutil.which("uv", path=env["PATH"])
@@ -354,7 +380,12 @@ def build_context(
     env["UV_CACHE_DIR"] = str(cache)
     configured = env.get("UV_PROJECT_ENVIRONMENT")
     environment_path = (repo / configured) if configured else repo / ".venv"
-    if needs_copy_mode(cache, environment_path, repo, device):
+    try:
+        copy_mode = needs_copy_mode(cache, environment_path, repo, device)
+    except OSError as exc:
+        message = f"cannot compare the filesystems of the uv cache and project: {exc}"
+        raise GateError(message) from exc
+    if copy_mode:
         env["UV_LINK_MODE"] = "copy"
     context = Context(env, uv, cache)
     context.install_git_shim()
@@ -400,6 +431,21 @@ def _online_allowed(env: cabc.Mapping[str, str]) -> bool:
     return env.get(ALLOW_ONLINE_VARIABLE, "1") != "0"
 
 
+TOOL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def describe_spec(spec: str) -> str:
+    """Name a tool specification without its URL, credentials or version.
+
+    A pinned Git specification can carry URL userinfo or query strings, so
+    logs and refusals use only the package name, or a fixed label for Git URLs.
+    """
+    if spec.startswith("git+"):
+        return "a git+ URL"
+    found = TOOL_NAME.match(spec)
+    return found.group(0) if found else "an unnamed tool"
+
+
 def _report(kind: Kind, status: int, *, where: str) -> None:
     """Explain a failure that the helper will not retry."""
     say(f"{kind.value}: {where} failed with status {status}. {ADVICE[kind]}.")
@@ -409,7 +455,13 @@ def _refuse_forbidden(arguments: cabc.Sequence[str]) -> None:
     """Refuse flags that would refresh, upgrade or go online implicitly."""
     for argument in arguments:
         name = argument.split("=", 1)[0]
-        if name in FORBIDDEN_FLAGS:
+        short = (
+            len(name) > 1
+            and name[0] == "-"
+            and name[1] != "-"
+            and name[1] in FORBIDDEN_SHORT
+        )
+        if name in FORBIDDEN_FLAGS or name.startswith(FORBIDDEN_PREFIXES) or short:
             message = (
                 f"{name} is not allowed: the gate controls locking, freshness "
                 "and network use itself"
@@ -580,7 +632,8 @@ def tool(
     spec = tool_spec(tool_args, command)
     if not is_pinned(spec):
         message = (
-            f"tool spec {spec!r} is not pinned; use name==VERSION, name@VERSION "
+            f"tool spec for {describe_spec(spec)} is not pinned; use "
+            "name==VERSION, name@VERSION "
             "or git+URL@<full commit SHA>"
         )
         raise GateError(message)
@@ -598,7 +651,7 @@ def tool(
             f"{ALLOW_ONLINE_VARIABLE}=0."
         )
         return status
-    say(f"{kind.value}: {ADVICE[kind]}; warming {spec} online once.")
+    say(f"{kind.value}: {ADVICE[kind]}; warming {describe_spec(spec)} online once.")
     status, text = _run_streaming([*base, *tool_args, *command], ctx.env)
     if status != 0:
         _report(classify(text), status, where="uv tool run")
@@ -656,18 +709,30 @@ def main(
         say(f"unknown subcommand {subcommand!r}")
         sys.stderr.write(USAGE)
         return REFUSAL_STATUS
+    status, refused = _dispatch(subcommand, rest, environ)
+    outcome = "refused" if refused else "ok" if status == 0 else "failed"
+    say(f"metric uv-gate.{subcommand}={outcome}")
+    return status
+
+
+def _dispatch(
+    subcommand: str,
+    rest: cabc.Sequence[str],
+    environ: cabc.Mapping[str, str] | None,
+) -> tuple[int, bool]:
+    """Run ``subcommand``; return its status and whether the helper refused."""
     context: Context | None = None
     try:
         context = build_context(os.environ if environ is None else environ, Path.cwd())
         if subcommand == "prepare":
-            return prepare(context, rest)
+            return prepare(context, rest), False
         before, after = _split(rest)
         if subcommand == "run":
-            return run_gate(context, before, after)
-        return tool(context, before, after)
+            return run_gate(context, before, after), False
+        return tool(context, before, after), False
     except GateError as exc:
         say(str(exc))
-        return REFUSAL_STATUS
+        return REFUSAL_STATUS, True
     finally:
         if context is not None:
             context.close()

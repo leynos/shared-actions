@@ -1,0 +1,26 @@
+# serializer version: 1
+# name: test_the_stable_output_matches_its_snapshot
+  dict({
+    'forbidden flag': list([
+      'uv-gate: --upgrade-package is not allowed: the gate controls locking, freshness and network use itself',
+      'uv-gate: metric uv-gate.prepare=refused',
+    ]),
+    'prepare ok': list([
+      'uv-gate: metric uv-gate.prepare=ok',
+    ]),
+    'run failed': list([
+      'uv-gate: metric uv-gate.run=failed',
+    ]),
+    'unknown subcommand': list([
+      "uv-gate: unknown subcommand 'bogus'",
+    ]),
+    'unpinned tool': list([
+      'uv-gate: tool spec for ruff is not pinned; use name==VERSION, name@VERSION or git+URL@<full commit SHA>',
+      'uv-gate: metric uv-gate.tool=refused',
+    ]),
+    'warmed tool': list([
+      'uv-gate: cache-miss: a required file is not in the uv cache; warming ruff online once.',
+      'uv-gate: metric uv-gate.tool=ok',
+    ]),
+  })
+# ---

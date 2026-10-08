@@ -23,6 +23,9 @@ WATCHED = (
     "UV_TOOL_DIR",
     "UV_LINK_MODE",
     "GIT_TERMINAL_PROMPT",
+    "UV_OFFLINE",
+    "UV_NO_CACHE",
+    "UV_REFRESH",
 )
 
 argv = sys.argv[1:]

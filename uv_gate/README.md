@@ -38,7 +38,9 @@ Set `UV_GATE_ALLOW_ONLINE=0` to forbid the online step entirely.
 ## What every command does first
 
 1. Builds a cleaned environment: drops `GIT_CONFIG_*`, `GH_TOKEN`,
-   `GITHUB_TOKEN`, `BASH_ENV`, `UV_CACHE_DIR` and `UV_TOOL_DIR`, removes
+   `GITHUB_TOKEN`, `BASH_ENV`, `UV_CACHE_DIR`, `UV_TOOL_DIR`, `UV_OFFLINE`,
+   `UV_NO_CACHE`, `UV_FROZEN`, `UV_LOCKED` and `UV_REFRESH*` and `UV_UPGRADE*`
+   (inherited uv switches that would override the gate's own policy), removes
    `~/.lody` and its children from `PATH`, sets `GIT_TERMINAL_PROMPT=0`, and
    puts a one-file shim directory first on `PATH` so `git` is `/usr/bin/git`.
 2. Finds `uv` on that cleaned `PATH`.
@@ -67,8 +69,17 @@ refusals exit with status 2.
 
 Helper refusals (status 2): `uv` absent from the cleaned `PATH`, a cache
 directory that cannot be created, an unpinned tool, a forbidden flag
-(`--refresh*`, `--upgrade*`, `--reinstall*`, `--no-cache`, `--no-offline`,
-`--locked`, `--frozen`, `--offline`), a missing command, and usage errors.
+(`--refresh*`, `--upgrade*` and `--reinstall*` as whole families, so
+`--refresh-package` is refused too; the short aliases `-U`, `-P` and `-n`;
+`--no-cache`, `--no-offline`, `--locked`, `--frozen`, `--offline`), a failed
+comparison of the cache and project filesystems, a missing command, and usage
+errors.
+
+Logs never carry a tool specification: a refusal or a warming notice names the
+package only (or "a git+ URL"), because a Git URL can hold credentials. Each
+command ends with one bounded line,
+`uv-gate: metric uv-gate.<command>=<outcome>`, where the outcome is `ok`,
+`failed` (uv's own failure) or `refused`.
 
 The helper never runs `uv lock`, never purges or refreshes a cache, and never
 retries a failed test.

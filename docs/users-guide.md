@@ -614,6 +614,47 @@ only. Each run reports one bounded
 `metric ubicloud-cache-credentials.result=<state>` line, over `exported`,
 `missing-cache-url`, `missing-runtime-token`, `invalid-url`, and `public-host`.
 
+## `uv_gate`, the vendored uv helper
+
+`uv_gate/uv_gate.py` is a standard-library script that a repository copies,
+unedited, to `scripts/uv_gate.py` so that its gates run `uv` the same robust
+way everywhere. It is a script, not an action, so a gate never fetches its own
+runner over a network that may be failing. The
+[`uv_gate` README](../uv_gate/README.md) has the full command and failure-class
+tables, and the vendoring and digest steps.
+
+Route every `uv` call in the Makefile through it:
+
+```make
+UV_GATE := python3 scripts/uv_gate.py
+
+prepare:
+	$(UV_GATE) prepare --group dev
+
+test: prepare
+	$(UV_GATE) run --group dev -- pytest -q
+
+lint:
+	$(UV_GATE) tool --from 'ruff==0.16.4' -- ruff check .
+```
+
+- `prepare` runs `uv sync --locked --offline`, and makes one online
+  `uv sync --locked` only when uv proves a file is missing from the cache.
+- `run` runs `uv run --frozen --offline` and never goes online.
+- `tool` runs a pinned tool with `uv tool run --offline`, warming it online
+  once on a proven cache miss. The spec must be `name==VERSION`, `name@VERSION`
+  or `git+URL@<full 40-character commit SHA>`.
+- Set `UV_GATE_ALLOW_ONLINE=0` to forbid the online step entirely.
+- The helper refuses (exit status 2) any `--refresh*`, `--upgrade*` or
+  `--reinstall*` flag, `-U`, `-P`, `-n`, `--no-cache` and the flags it sets
+  itself. It drops inherited `UV_OFFLINE`, `UV_NO_CACHE`, tokens and Git
+  configuration, so a runner's environment cannot defeat the gate.
+- It never logs a tool specification, only the package name, and ends each
+  command with `uv-gate: metric uv-gate.<command>=<ok|failed|refused>`.
+
+After editing the canonical file, every vendored copy must be refreshed to
+match its digest; see the developers' guide.
+
 ## `install-tool` action
 
 Installs one pinned, digest-verified tool from

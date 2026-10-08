@@ -8,12 +8,16 @@ online at most once, and only for a proven cache miss.
 from __future__ import annotations
 
 import os
+import typing as typ
 from pathlib import Path
 
 import pytest
 from _harness import Harness, fixture_text, other_device_dir, response, rule
 
 import uv_gate
+
+if typ.TYPE_CHECKING:
+    from syrupy.assertion import SnapshotAssertion
 
 OFFLINE_SYNC = ["sync", "--locked", "--offline"]
 ONLINE_SYNC = ["sync", "--locked"]
@@ -463,3 +467,100 @@ def test_project_environment_override_is_the_path_compared(harness: Harness) -> 
     devices = _Devices({environment: 9, harness.cache: 1, harness.repo: 1})
     env = _context_env(harness, devices, {"UV_PROJECT_ENVIRONMENT": str(environment)})
     assert env["UV_LINK_MODE"] == "copy"
+
+
+def test_a_failing_device_query_is_a_refusal_not_a_traceback(harness: Harness) -> None:
+    """An OSError from the device comparison becomes a GateError."""
+
+    def failing(_path: Path) -> int:
+        message = "stat failed"
+        raise PermissionError(message)
+
+    harness.scenario.write_text("[]", encoding="utf-8")
+    environ = {
+        "PATH": f"{harness.bin}{os.pathsep}/usr/bin:/bin",
+        "HOME": str(harness.home),
+        "FAKE_UV_LOG": str(harness.log),
+        "FAKE_UV_SCENARIO": str(harness.scenario),
+        "FAKE_UV_CACHE": str(harness.cache),
+    }
+    with pytest.raises(uv_gate.GateError, match="cannot compare the filesystems"):
+        uv_gate.build_context(environ, harness.repo, harness.home, failing)
+
+
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "--refresh-package=ruff",
+        "--upgrade-package=ruff",
+        "--reinstall-package=ruff",
+        "-U",
+        "-P",
+        "-n",
+    ],
+)
+def test_flag_families_and_short_aliases_are_refused(
+    harness: Harness, flag: str
+) -> None:
+    """The whole refresh, upgrade and reinstall families, and -U/-P/-n, are refused."""
+    for args in (["prepare", flag], ["tool", flag, "--", "ruff==1"]):
+        result = harness.run(args, [rule(["sync"], response(0))])
+        assert result.status == 2, args
+        assert result.argvs() == []
+
+
+def test_inherited_offline_and_no_cache_never_reach_uv(harness: Harness) -> None:
+    """UV_OFFLINE and UV_NO_CACHE cannot defeat the online step or the cache."""
+    result = harness.run(
+        ["prepare"],
+        [rule(OFFLINE_SYNC, response(0))],
+        env={"UV_OFFLINE": "1", "UV_NO_CACHE": "1", "UV_REFRESH": "1"},
+    )
+    seen = result.uv_calls()[0]["env"]
+    assert seen["UV_OFFLINE"] is None
+    assert seen["UV_NO_CACHE"] is None
+    assert seen["UV_REFRESH"] is None
+
+
+def test_a_git_url_never_reaches_the_logs(harness: Harness) -> None:
+    """Userinfo in a pinned Git URL is not echoed, warmed or refused."""
+    url = "git+https://user:s3cret@example.invalid/org/tool.git"
+    refused = harness.run(["tool", "--from", f"{url}@v1", "--", "tool"], [])
+    assert refused.status == 2
+    assert "s3cret" not in refused.stderr
+    sha = "0123456789abcdef" * 2 + "01234567"
+    rules = [
+        rule(["tool", "run", "--offline"], response(1, fixture_text("cache_miss"))),
+        rule(["tool", "run"], response(0), without=("--offline",)),
+    ]
+    warmed = harness.run(["tool", "--from", f"{url}@{sha}", "--", "tool"], rules)
+    assert warmed.status == 0
+    assert "s3cret" not in warmed.stderr
+    assert "warming a git+ URL online once" in warmed.stderr
+
+
+def test_the_stable_output_matches_its_snapshot(
+    harness: Harness, snapshot: SnapshotAssertion
+) -> None:
+    """The helper's own ``uv-gate:`` lines are a stable contract; uv's are not."""
+    miss = [
+        rule(["tool", "run", "--offline"], response(1, fixture_text("cache_miss"))),
+        rule(["tool", "run"], response(0), without=("--offline",)),
+    ]
+    cases = {
+        "unknown subcommand": (["bogus"], []),
+        "forbidden flag": (["prepare", "--upgrade-package=x"], []),
+        "unpinned tool": (["tool", "--", "ruff"], []),
+        "warmed tool": (["tool", "--from", "ruff==1", "--", "ruff"], miss),
+        "prepare ok": (["prepare"], [rule(OFFLINE_SYNC, response(0))]),
+        "run failed": (["run", "--", "pytest"], [rule(["run"], response(1, ""))]),
+    }
+    output = {
+        name: [
+            line
+            for line in harness.run(args, rules).stderr.splitlines()
+            if line.startswith("uv-gate:")
+        ]
+        for name, (args, rules) in cases.items()
+    }
+    assert output == snapshot

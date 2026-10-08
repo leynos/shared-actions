@@ -38,11 +38,11 @@ BINSTALL_FAILURE_STEP_NAME = "Report cargo-binstall provisioning failure"
 
 #: The pinned upstream reference, commit SHA and all.
 BINSTALL_ACTION_REF = (
-    "cargo-bins/cargo-binstall@75b4bfae1b2c753a6806bbce6e6cb89b602de33c"
+    "cargo-bins/cargo-binstall@422f3094be6a0843857aa008b499caaf6bce0da8"
 )
 
 #: The cargo-binstall release the pinned SHA tags.
-BINSTALL_ACTION_VERSION = "1.22.0"
+BINSTALL_ACTION_VERSION = "1.24.0"
 
 #: The CLI override that neutralizes mdtablefix 0.5.0's ``bin-dir = "."``.
 BIN_DIR_OVERRIDE = "{ bin }{ binary-ext }"

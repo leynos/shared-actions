@@ -116,7 +116,7 @@ over a bounded vocabulary, and at most one `install-mdtablefix.binstall` line.
 | Name               | Type   | Description                                         | Required | Default        |
 | ------------------ | ------ | --------------------------------------------------- | -------- | -------------- |
 | `version`          | string | Exact version to install; 0.5.1 or later            | no       | `0.5.1`        |
-| `binstall-version` | string | `cargo-binstall` version to install when absent     | no       | `1.22.0`       |
+| `binstall-version` | string | `cargo-binstall` version to install when absent     | no       | `1.24.0`       |
 | `bin-dir`          | string | Directory receiving the executable, added to `PATH` | no       | `~/.local/bin` |
 
 ## Outputs

@@ -211,7 +211,7 @@ workflow reference together, and run the normal action test gates before review.
 
 The `macos-package` action passes `version: latest-known`, so it requires a
 setup-uv revision that resolves that value from bundled checksum metadata. Its
-current compatible pin is `20cfd1bf945f4377ade1205e4dbc17946fc9a30d`; this
+current compatible pin is `c18668ad3cf93ea998bef934396af7bb5c839dc7`; this
 avoids fetching Astral's mutable remote versions manifest during release
 packaging. Keep the action's manifest test synchronized with both this SHA and
 `latest-known`. The repository's `rust-toy-app.yml` workflow exercises the
@@ -2423,7 +2423,7 @@ recorded in issue #420. A composite action cannot make a `uses:` step
 conditional on a shell result directly, so the probe writes an
 `install-binstall` step output and the `uses:` step carries an `if:` over it.
 The upstream installer is pinned by commit SHA
-(`cargo-bins/cargo-binstall@75b4bfae1b2c753a6806bbce6e6cb89b602de33c`, v1.22.0)
+(`cargo-bins/cargo-binstall@422f3094be6a0843857aa008b499caaf6bce0da8`, v1.24.0)
 with the release named in a trailing comment, and receives the validated
 `binstall-version` input.
 

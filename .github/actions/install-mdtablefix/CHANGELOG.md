@@ -50,8 +50,8 @@ this file.
 - Probe `cargo-binstall` by running `cargo binstall -V` rather than by looking
   for a name on `PATH`, which reports an unusable shim as present (issue #420).
   When the probe fails, install it with
-  `cargo-bins/cargo-binstall@75b4bfae1b2c753a6806bbce6e6cb89b602de33c`
-  (v1.22.0), pinned by commit SHA and selected by an `if:` over the probe's
+  `cargo-bins/cargo-binstall@422f3094be6a0843857aa008b499caaf6bce0da8`
+  (v1.24.0), pinned by commit SHA and selected by an `if:` over the probe's
   output.
 - Harden the install:
   `--no-confirm --locked --disable-strategies compile --disable-telemetry`, so

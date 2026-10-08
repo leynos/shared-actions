@@ -17,6 +17,6 @@ def test_setup_uv_uses_compatible_bundled_latest_known_resolution() -> None:
 
     assert (
         setup_step["uses"]
-        == "astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d"
+        == "astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7"
     )
     assert setup_step["with"]["version"] == "latest-known"

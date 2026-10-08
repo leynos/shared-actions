@@ -156,12 +156,34 @@ def _live_children(node: ast.AST) -> cabc.Iterator[ast.AST]:
     yield from _live(ast.iter_child_nodes(node))
 
 
+def _is_empty_literal(iterable: ast.expr) -> bool:
+    """Return whether *iterable* is a literal that yields no items."""
+    if isinstance(iterable, ast.Tuple | ast.List | ast.Set):
+        return not iterable.elts
+    if isinstance(iterable, ast.Dict):
+        return not iterable.keys
+    return isinstance(iterable, ast.Constant) and iterable.value in {"", b""}
+
+
+def _never_loops(node: ast.AST) -> bool:
+    """Return whether *node* is a loop whose body provably never runs.
+
+    A `for` over an empty literal and a `while` on a falsy constant skip the
+    body and run the `else` arm, so a definition in the body is never bound.
+    Any other loop may run, and is left alone like an undecidable `if`.
+    """
+    if isinstance(node, ast.For | ast.AsyncFor):
+        return _is_empty_literal(node.iter)
+    return isinstance(node, ast.While) and _constant_truth(node.test) is False
+
+
 def _live(nodes: cabc.Iterable[ast.AST]) -> cabc.Iterator[ast.AST]:
     """Yield *nodes*, replacing each constant `if` by the arm that runs.
 
     Recursive, so an `if False:` that is the first statement of an
     `if True:` arm is decided too rather than reaching the binder as an
-    undecidable condition.
+    undecidable condition. A loop that never iterates is replaced by its
+    `else` arm in the same way.
     """
     for node in nodes:
         if (
@@ -169,6 +191,8 @@ def _live(nodes: cabc.Iterable[ast.AST]) -> cabc.Iterator[ast.AST]:
             and (truth := _constant_truth(node.test)) is not None
         ):
             yield from _live(node.body if truth else node.orelse)
+        elif _never_loops(node):
+            yield from _live(node.orelse)
         else:
             yield node
 
@@ -484,6 +508,65 @@ _REACHABILITY_CASES: typ.Final[dict[str, tuple[str, int, str]]] = {
         """,
         0,
         "a function under an if False nested in an if True",
+    ),
+    "empty-for-loop": (
+        """
+        for _ in ():
+            def f():
+                '''F.
+
+                <prompt> 1
+                1
+                '''
+        """,
+        0,
+        "a function in the body of a `for` over an empty tuple, which never runs",
+    ),
+    "empty-for-loop-else": (
+        """
+        for _ in []:
+            def f():
+                '''F, never bound.
+
+                <prompt> 1
+                1
+                '''
+        else:
+            def g():
+                '''G, bound by the else arm.
+
+                <prompt> 2
+                2
+                '''
+        """,
+        1,
+        "only the else arm of a `for` over an empty list",
+    ),
+    "for-loop-that-runs": (
+        """
+        for _ in (1,):
+            def f():
+                '''F.
+
+                <prompt> 1
+                1
+                '''
+        """,
+        1,
+        "a function in a `for` over a non-empty tuple, which does run",
+    ),
+    "while-false": (
+        """
+        while False:
+            def f():
+                '''F.
+
+                <prompt> 1
+                1
+                '''
+        """,
+        0,
+        "a function in a `while False`, whose body never runs",
     ),
     "attribute-docstring": (
         """

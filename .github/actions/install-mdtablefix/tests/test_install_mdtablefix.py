@@ -45,8 +45,8 @@ class TestInputs:
         assert inputs["version"]["required"] is False, (
             "version should default rather than force every caller to restate it"
         )
-        assert inputs["version"]["default"] == "0.5.1", (
-            "the default must be the earliest version this action supports"
+        assert inputs["version"]["default"] == "0.6.1", (
+            "the default must be the mdtablefix release the estate pins"
         )
         assert inputs["binstall-version"]["required"] is False, (
             "binstall-version must stay optional"

@@ -14,7 +14,7 @@ inputs:
   version:
     description: Exact mdtablefix version to install; 0.5.1 or later
     required: false
-    default: "0.5.1"
+    default: "0.6.1"
   binstall-version:
     description: >-
       Version of cargo-binstall to install when the runner has none. Ignored

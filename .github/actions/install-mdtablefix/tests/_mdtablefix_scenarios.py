@@ -21,10 +21,12 @@ import hashlib
 import os
 import stat
 import subprocess
+import typing as typ
 from pathlib import Path
 
 from _mdtablefix_manifest import (
     BINSTALL_STEP_NAME,
+    load_manifest,
     manifest_steps,
 )
 
@@ -143,6 +145,8 @@ class Scenario:
     runner_os: str = "Linux"
     runner_arch: str = "X64"
     version: str = "0.5.1"
+    #: Omit the ``version`` input, as a caller relying on the default would.
+    omit_version: bool = False
     binstall_version: str = "1.24.0"
     bin_dir: str = "~/.local/bin"
     #: Version a pre-existing executable in ``bin-dir`` reports, if any.
@@ -330,7 +334,15 @@ def _installed_text(scenario: Scenario) -> str:
     """Return what the stubbed binstall's executable should print."""
     if scenario.installs_output is not None:
         return scenario.installs_output
-    return f"mdtablefix {scenario.installs_version or scenario.version}"
+    return f"mdtablefix {scenario.installs_version or effective_version(scenario)}"
+
+
+def effective_version(scenario: Scenario) -> str:
+    """Return the version the action sees: the input, or its manifest default."""
+    if not scenario.omit_version:
+        return scenario.version
+    inputs = typ.cast("dict[str, dict[str, str]]", load_manifest()["inputs"])
+    return inputs["version"]["default"]
 
 
 def installed_digest(scenario: Scenario) -> str:
@@ -459,7 +471,7 @@ def run_scenario(scenario: Scenario) -> ScenarioResult:
     sandbox = _build_sandbox(scenario)
     context = ActionContext(
         inputs={
-            "version": scenario.version,
+            "version": effective_version(scenario),
             "binstall-version": scenario.binstall_version,
             "bin-dir": scenario.bin_dir,
             "sha256": scenario.sha256,

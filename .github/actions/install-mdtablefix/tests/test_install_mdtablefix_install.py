@@ -111,6 +111,25 @@ class TestCachedOutcome:
         _assert_installed(result, "0.5.1")
 
 
+class TestDefaultVersion:
+    """Validate what a caller that omits ``version`` gets."""
+
+    def test_an_omitted_version_installs_and_verifies_the_default(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify the run's observable outcome, not just the manifest value."""
+        result = run_scenario(Scenario(tmp_path=tmp_path, omit_version=True))
+
+        _assert_installed(result, "0.6.1")
+        assert "mdtablefix@0.6.1" in result.cargo_log, (
+            f"cargo was not asked for the default release: {result.cargo_log!r}"
+        )
+        assert "v0.6.1/mdtablefix-linux-x86_64.sha256" in result.curl_log, (
+            f"the default release's digest was not checked: {result.curl_log!r}"
+        )
+
+
 class TestBinstallProvisioning:
     """Validate how the action obtains cargo-binstall."""
 

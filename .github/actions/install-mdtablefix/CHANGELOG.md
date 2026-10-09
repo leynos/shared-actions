@@ -5,6 +5,11 @@ this file.
 
 ## Unreleased
 
+- Default `version` to 0.6.1. A caller that omitted `version` got 0.5.1, which
+  carries the `--wrap`, Setext heading and `--renumber` bugs that changed
+  Markdown content and is two releases behind the estate pin. The floor stays
+  0.5.1, so an explicit older pin still works.
+
 - Verify the installed executable against a SHA-256. cargo-binstall checks
   nothing about the archive it unpacks, so a caller that moved from its own
   download-and-verify step to this action lost its integrity check. The new

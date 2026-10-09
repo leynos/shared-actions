@@ -241,8 +241,10 @@ class TestMainEntry:
         fake_uv: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """Changed files reach mutmut as module globs; summary is written."""
+        """Changed files reach mutmut as module globs; summary is appended."""
         summary_file, results_file = self._prepare(tmp_path, monkeypatch)
+        previous_summary = "Earlier workflow summary.\n\n"
+        summary_file.write_text(previous_summary, encoding="utf-8")
         monkeypatch.setenv("INPUT_FILES", "src/mypkg/calc.py")
         run_mutmut.app([])
         recorded = fake_uv.read_text(encoding="utf-8")
@@ -264,7 +266,14 @@ class TestMainEntry:
         assert "survived" in results_file.read_text(encoding="utf-8"), (
             "the results file should capture the mutmut results output"
         )
-        assert "Surviving mutants" in summary_file.read_text(encoding="utf-8"), (
+        summary = summary_file.read_text(encoding="utf-8")
+        assert summary.startswith(previous_summary), (
+            "publishing results should preserve existing summary content"
+        )
+        assert summary[len(previous_summary) :].startswith(
+            "## Mutation testing results"
+        ), "the mutation summary should be appended after existing content"
+        assert "Surviving mutants" in summary, (
             "the job summary should include the survivors section"
         )
         # Structured diagnostics carry the contracted keys and values.

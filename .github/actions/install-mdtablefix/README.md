@@ -148,7 +148,7 @@ at most one `install-mdtablefix.checksum` line.
 
 | Name               | Type   | Description                                            | Required | Default        |
 | ------------------ | ------ | ------------------------------------------------------ | -------- | -------------- |
-| `version`          | string | Exact version to install; 0.5.1 or later               | no       | `0.5.1`        |
+| `version`          | string | Exact version to install; 0.5.1 or later               | no       | `0.6.1`        |
 | `binstall-version` | string | `cargo-binstall` version to install when absent        | no       | `1.24.0`       |
 | `sha256`           | string | Executable's SHA-256 for this platform; else published | no       | empty          |
 | `bin-dir`          | string | Directory receiving the executable, added to `PATH`    | no       | `~/.local/bin` |

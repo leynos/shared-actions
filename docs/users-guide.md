@@ -801,15 +801,16 @@ tool from source. Every repository whose `make check-fmt` shells out to
 - name: Install mdtablefix
   uses: ./.github/actions/install-mdtablefix
   with:
-    version: 0.5.0
+    version: 0.6.1
 ```
 
 The repository must be checked out before invoking this local action. The
-required `version` input names the exact release. The optional
-`binstall-version` input selects the `cargo-binstall` release installed when
-the runner has none and defaults to `1.24.0`. The optional `bin-dir` input
-defaults to `~/.local/bin`; the executable lands there and the directory is
-appended to `GITHUB_PATH`, so later steps call `mdtablefix` by name.
+optional `version` input names the exact release (0.5.1 or later; the default
+is 0.6.1). The optional `binstall-version` input selects the `cargo-binstall`
+release installed when the runner has none and defaults to `1.24.0`. The
+optional `bin-dir` input defaults to `~/.local/bin`; the executable lands there
+and the directory is appended to `GITHUB_PATH`, so later steps call
+`mdtablefix` by name.
 
 After an install the action compares the executable's SHA-256 with the digest
 the release publishes beside the bare executable for the runner's platform
@@ -835,12 +836,12 @@ the pinned version short-circuits the install and reports
   uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
   with:
     path: ${{ runner.temp }}/mdtablefix-bin
-    key: mdtablefix-0.5.0-${{ runner.os }}-${{ runner.arch }}
+    key: mdtablefix-0.6.1-${{ runner.os }}-${{ runner.arch }}
 
 - name: Install mdtablefix
   uses: ./.github/actions/install-mdtablefix
   with:
-    version: 0.5.0
+    version: 0.6.1
     bin-dir: ${{ runner.temp }}/mdtablefix-bin
 ```
 
@@ -849,24 +850,24 @@ exactly as for every other tool cache in the estate.
 
 ### Platform support
 
-`mdtablefix` 0.5.0 publishes prebuilt archives for Linux gnu on `x86_64` and
-`aarch64` only. macOS and Windows have no asset at all, so the action fails
-closed there with `install-mdtablefix.result=no-prebuilt` rather than
-compiling. A workflow with a macOS or Windows formatter lane keeps its own
-documented source-build exception until `mdtablefix` publishes assets for that
-platform. What unblocks those platforms is
-[leynos/mdtablefix#459](https://github.com/leynos/mdtablefix/issues/459), which
-asks for macOS and Windows release assets and for the `binstall` metadata to be
-ungated from `linux-gnu`. The action's `no-prebuilt` annotation names that
-issue, so a failing run says what would fix it.
+`mdtablefix` 0.5.1 and later publish prebuilt archives for Linux and macOS on
+`x86_64` and `aarch64`, and for Windows on `x86_64`. The action installs on all
+five. Windows on `aarch64` has no asset, and neither does 32-bit Linux, so the
+action fails closed there with `install-mdtablefix.result=no-prebuilt` rather
+than compiling. A FreeBSD archive is published too, but GitHub offers no
+FreeBSD runner label for the action to gate on, so it has no entry. Versions
+before 0.5.1 are refused with `install-mdtablefix.result=invalid-input`: 0.5.0
+published Linux archives only and carries `binstall` metadata that
+cargo-binstall rejects (leynos/mdtablefix#458 and #459).
 
 ### Reported outcomes
 
 Each run writes exactly one `install-mdtablefix.result` line to the job
 summary, over `invalid-input`, `cached`, `installed`, `no-prebuilt`,
-`binstall-unavailable`, `install-failed`, and `version-mismatch`, plus at most
-one `install-mdtablefix.binstall` line over `present` and `installed`. A
-failure is also annotated with `::error`.
+`binstall-unavailable`, `install-failed`, `checksum-failed` and
+`version-mismatch`, plus at most one `install-mdtablefix.binstall` line over
+`present` and `installed`, and at most one `install-mdtablefix.checksum` line
+over `published` and `pinned`. A failure is also annotated with `::error`.
 
 ## `install-makeutil` action
 

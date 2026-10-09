@@ -7,6 +7,7 @@ recorder because Make dry runs cannot prove shell argument forwarding.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shlex
@@ -14,14 +15,19 @@ import shutil
 import subprocess
 import sys
 import tomllib
+import types
 import typing as typ
+from contextlib import nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import pytest
 import yaml
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 from plumbum import local
+
+from workflow_scripts import skylos_allow
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _MAKEUTIL_REVISION: typ.Final = "29fc5a1634ffbaa18a773eed9dff1b2838a45d9c"
@@ -72,6 +78,8 @@ _SKYLOS_PRODUCTION_TARGET_TOKENS: typ.Final = (
 _SKYLOS_EXCLUDE_TOKENS: typ.Final = ("tests",)
 _SKYLOS_WHITELIST_LOCK_TOKENS: typ.Final = (".skylos-whitelist.lock",)
 _UV_SHELL_TOKENS: typ.Final = ("$(subst", ",/,$(UV))")
+_WINDOWS_LOCK_NONBLOCKING: typ.Final = 1
+_WINDOWS_LOCK_UNLOCK: typ.Final = 2
 _TYPECHECK_COMMAND_PREFIX: typ.Final = ("$(UV)", "run", "ty", "check")
 _TYPECHECK_FIRST_EXTRA_PATHS: typ.Final = (
     ".",
@@ -206,6 +214,8 @@ _EXPECTED_SKYLOS_DOCUMENTED_WHITELIST_NAMES: typ.Final = (
             "PULL_REQUEST_QUERY",
             "PullRequestContext",
             "PullRequestRef",
+            "DownloadError",
+            "outputs",
             "classify_merge_state",
             "commit_audit_outcome",
             "commit_page",
@@ -377,9 +387,9 @@ def _isolated_skylos_allow_arguments(
     )
 
 
-def _python_recorder_cli(script: Path) -> str:
-    """Return a shell-safe Python command for a recorder script."""
-    return shlex.join((Path(sys.executable).as_posix(), script.as_posix()))
+def _python_recorder_cli(module_name: str) -> str:
+    """Return a shell-safe Python command for a temporary recorder module."""
+    return shlex.join((Path(sys.executable).as_posix(), "-m", module_name))
 
 
 def _windows_style_path(path: Path) -> str:
@@ -693,7 +703,7 @@ class TestSkylosLintContract:
         with TemporaryDirectory() as temporary_directory:
             directory = Path(temporary_directory)
             recorded_arguments = directory / "arguments.json"
-            recorder = directory / "skylos-recorder"
+            recorder = directory / "skylos_recorder.py"
             recorder.write_text(
                 "#!/usr/bin/env python3\n"
                 "import json\n"
@@ -715,7 +725,7 @@ class TestSkylosLintContract:
             returncode, _stdout, stderr = _make_command(
                 *_isolated_skylos_allow_arguments(
                     directory,
-                    skylos_cli=_python_recorder_cli(recorder),
+                    skylos_cli=_python_recorder_cli("skylos_recorder"),
                     uv_launcher=uv_launcher,
                 ),
                 environment=environment,
@@ -723,6 +733,10 @@ class TestSkylosLintContract:
             )
             assert returncode == 0, (
                 f"skylos-allow must forward valid generated arguments: {stderr}"
+            )
+            assert recorded_arguments.is_file(), (
+                "the temporary Skylos recorder must execute on each supported host; "
+                f"stdout={_stdout!r}, stderr={stderr!r}"
             )
             assert json.loads(recorded_arguments.read_text(encoding="utf-8")) == [
                 "whitelist",
@@ -744,7 +758,7 @@ class TestSkylosLintContract:
             (directory / "pyproject.toml").write_text(
                 "[tool.skylos.whitelist.documented]\n", encoding="utf-8"
             )
-            writer = directory / "skylos-whitelist-writer"
+            writer = directory / "skylos_whitelist_writer.py"
             writer.write_text(
                 f"#!{sys.executable}\n"
                 "from pathlib import Path\n"
@@ -763,14 +777,14 @@ class TestSkylosLintContract:
             uv_launcher = _uv_passthrough_launcher(directory)
             first = _whitelist_process(
                 directory,
-                skylos_cli=_python_recorder_cli(writer),
+                skylos_cli=_python_recorder_cli("skylos_whitelist_writer"),
                 uv_launcher=uv_launcher,
                 symbol="first",
                 reason="first reason",
             )
             second = _whitelist_process(
                 directory,
-                skylos_cli=_python_recorder_cli(writer),
+                skylos_cli=_python_recorder_cli("skylos_whitelist_writer"),
                 uv_launcher=uv_launcher,
                 symbol="second",
                 reason="second reason",
@@ -797,6 +811,103 @@ class TestSkylosLintContract:
         )
         assert (_REPOSITORY_ROOT / "pyproject.toml").read_bytes() == pyproject_before, (
             "isolated concurrent Skylos whitelist tests must not mutate pyproject.toml"
+        )
+
+    def test_windows_file_lock_retries_and_releases(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The Windows byte-range lock retries contention and unlocks on exit."""
+        fake_msvcrt = types.ModuleType("msvcrt")
+        fake_msvcrt.LK_NBLCK = _WINDOWS_LOCK_NONBLOCKING
+        fake_msvcrt.LK_UNLCK = _WINDOWS_LOCK_UNLOCK
+        calls: list[int] = []
+        attempts = 0
+
+        def locking(_file_descriptor: int, mode: int, byte_count: int) -> None:
+            nonlocal attempts
+            assert byte_count == 1, "Windows Skylos locks must cover exactly one byte"
+            calls.append(mode)
+            if mode == fake_msvcrt.LK_NBLCK:
+                attempts += 1
+                if attempts == 1:
+                    raise OSError(errno.EACCES, "lock is held")
+
+        fake_msvcrt.locking = locking
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+        monkeypatch.setattr(
+            skylos_allow, "time", types.SimpleNamespace(sleep=lambda _delay: None)
+        )
+        lock_path = tmp_path / "skylos-whitelist.lock"
+        with (
+            lock_path.open("a+b") as lock_file,
+            skylos_allow._exclusive_windows_file_lock(lock_file),
+        ):
+            assert lock_path.stat().st_size == 1, (
+                "Windows byte-range locks need a persistent lock byte"
+            )
+
+        assert calls == [
+            _WINDOWS_LOCK_NONBLOCKING,
+            _WINDOWS_LOCK_NONBLOCKING,
+            _WINDOWS_LOCK_UNLOCK,
+        ], "Windows Skylos locks must retry contention before unlocking"
+        assert lock_path.read_bytes() == b"\0", (
+            "releasing a Windows lock must leave its coordination byte intact"
+        )
+
+    def test_windows_file_lock_reraises_non_contention_errors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only Windows lock-contention errors may be retried."""
+        fake_msvcrt = types.ModuleType("msvcrt")
+        fake_msvcrt.LK_NBLCK = _WINDOWS_LOCK_NONBLOCKING
+
+        def locking(_file_descriptor: int, _mode: int, _byte_count: int) -> None:
+            raise OSError(errno.EBADF, "invalid lock descriptor")
+
+        fake_msvcrt.locking = locking
+        monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+        lock_path = tmp_path / "skylos-whitelist.lock"
+        with (
+            lock_path.open("a+b") as lock_file,
+            pytest.raises(OSError, match="invalid lock descriptor"),
+        ):
+            skylos_allow._try_acquire_windows_lock(lock_file)
+
+    def test_file_lock_dispatches_to_windows_strategy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Platform dispatch must select the Windows lock without host flock."""
+        sentinel = object()
+        selected: list[object] = []
+
+        def windows_lock(lock_file: object) -> nullcontext[object]:
+            selected.append(lock_file)
+            return nullcontext()
+
+        monkeypatch.setattr(skylos_allow, "os", types.SimpleNamespace(name="nt"))
+        monkeypatch.setattr(skylos_allow, "_exclusive_windows_file_lock", windows_lock)
+
+        with skylos_allow._exclusive_file_lock(sentinel):
+            pass
+        assert selected == [sentinel], (
+            "Windows lock dispatch must select the Windows advisory lock"
+        )
+
+    def test_missing_skylos_executable_reports_status_127(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A missing configured Skylos executable must return a useful diagnostic."""
+        missing_command = f"{tmp_path}/missing-skylos-cli"
+        result = skylos_allow.main(
+            ["--lock-file", str(tmp_path / "skylos.lock"), "--", missing_command]
+        )
+
+        assert result == 127, (
+            "a missing Skylos CLI must return command-not-found status"
+        )
+        assert "cannot execute" in capsys.readouterr().err, (
+            "a missing Skylos CLI must identify the failed command"
         )
 
     def test_full_suite_workflows_install_the_pinned_makefile_parser(

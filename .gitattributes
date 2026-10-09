@@ -1,3 +1,6 @@
+# Make's continued target values feed cross-platform contract parsing.
+Makefile text eol=lf
+
 # These fixtures are integrity-checked immutable inputs, so they are marked
 # ``-text`` to keep any checkout from normalizing their bytes. The cargo-nextest
 # archive is additionally digest-verified by

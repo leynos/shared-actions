@@ -83,6 +83,34 @@ def _commit_node(oid: str, *logins: str) -> dict[str, object]:
 class TestForeignCommitExtraction:
     """Reading who wrote each commit on the branch."""
 
+    @pytest.mark.parametrize(
+        "oid",
+        [None, 42],
+        ids=["missing-oid", "non-string-oid"],
+    )
+    def test_a_malformed_commit_oid_uses_a_dedicated_sentinel(
+        self, oid: object
+    ) -> None:
+        """A missing identifier must not reuse author text as a commit SHA."""
+        commit: dict[str, object] = {
+            "authors": {"totalCount": 0, "nodes": []},
+        }
+        if oid is not None:
+            commit["oid"] = oid
+        page = dependabot_commit_audit.commit_page(
+            {"commits": {"nodes": [{"commit": commit}]}}
+        )
+
+        assert page is not None, "a node with a malformed oid remains a readable page"
+        (record,) = page.records
+        assert record.oid == dependabot_commit_audit.UNKNOWN_OID, (
+            "a missing or non-string GraphQL oid must use the dedicated sentinel"
+        )
+        (foreign,) = dependabot_commit_audit.foreign_commits(page.records)
+        assert str(foreign).startswith("unknown-oid by "), (
+            "a malformed oid must not render author fallback text as a commit SHA"
+        )
+
     def test_an_empty_connection_counts_as_read(self) -> None:
         """Zero authors and a count of zero agree with each other.
 

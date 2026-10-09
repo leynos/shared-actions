@@ -64,6 +64,7 @@ DOCTEST_PATHS ?= bool_utils.py cargo_utils.py cmd_utils.py composite_fragments.p
 	tests/workflows/workflow_expressions.py \
 	tests/workflows/workflow_triggers.py \
 	tests/workflows/workflow_yaml.py \
+	uv_gate/uv_gate.py \
 	workflow_scripts/dependabot_commit_audit.py \
 	workflow_scripts/dependabot_decision.py \
 	workflow_scripts/dependabot_metrics.py

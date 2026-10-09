@@ -13,7 +13,6 @@ release uploads the rule refused although no lane could reach them.
 
 from __future__ import annotations
 
-import itertools
 import pathlib
 
 import pytest

@@ -49,6 +49,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dependency revisions, and no longer archives the `target` tree. The Cargo
   cache keys and the effective `RUSTFLAGS` default are unchanged.
 
+- Bump the nested `setup-rust` pin again to
+  `14eb66098248084fe8072da519dda6fec2745df2` (shared-actions #546, #574). The
+  sccache server now starts with a 60 s startup timeout, and a start that still
+  fails falls back to an uncached build with a `sccache-fallback` warning
+  instead of failing the job. The same revision carries the `SCCACHE_CONF`
+  scanner fix, so a caller's multi-line TOML string that merely resembles the
+  timeout key no longer suppresses the 60 s timeout. Only inputs with defaults
+  were added (`expect-cache`, `sccache-cache-discriminator`, `install-mold`,
+  `mold-version`, `save-cache`, `export-rustc-wrapper`); none is forwarded by
+  this action.
+
 ### Fixed
 
 - Pin `setup-rust` to the commit behind `setup-rust-v1`, so toolchain inputs

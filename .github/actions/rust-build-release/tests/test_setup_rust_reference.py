@@ -23,7 +23,7 @@ SETUP_RUST_MANIFEST = ".github/actions/setup-rust/action.yml"
 
 #: Revision of this repository that the nested setup-rust step must reference.
 #: Keep in sync with the ``uses`` value in ``action.yml``; both change together.
-EXPECTED_SETUP_RUST_SHA = "7c9d66030879b504365202df90f439ea419e72bd"
+EXPECTED_SETUP_RUST_SHA = "14eb66098248084fe8072da519dda6fec2745df2"
 
 #: Inputs rust-build-release forwards, mapped to the default it declares for
 #: each. The referenced setup-rust revision must declare every name.
@@ -186,3 +186,59 @@ def test_unknown_revision_fails_rather_than_skipping() -> None:
 
     with pytest.raises(AssertionError, match="could not be read"):
         _setup_rust_manifest_at("0" * 40)
+
+
+def _server_start_script(manifest: dict[str, object]) -> str:
+    """Return the run body of the pinned revision's sccache server start."""
+    steps: list[dict[str, object]] = manifest["runs"]["steps"]
+    script = find_step(steps, "Start the sccache server")["run"]
+    assert isinstance(script, str)
+    return script
+
+
+def test_pinned_revision_starts_sccache_fail_open() -> None:
+    """The pinned revision must start sccache with a timeout and fail open.
+
+    This is what the bump exists for: a server that is slow to start on
+    Ubicloud used to fail the build. The pinned start step must write the 60 s
+    timeout into the config, and on a failed start emit the fallback warning,
+    report ``status=fallback`` and clear the wrapper, then exit successfully so
+    the caller's build continues uncached.
+    """
+    script = _server_start_script(_setup_rust_manifest_at(EXPECTED_SETUP_RUST_SHA))
+
+    assert "server_startup_timeout_ms = 60000" in script
+    failed_start = script.split("--start-server", 1)[1].split("fi\n", 1)[0]
+    assert "::warning title=sccache-fallback::" in failed_start
+    assert "status=fallback" in failed_start
+    assert 'echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"' in failed_start
+    assert "exit 0" in failed_start
+
+
+def test_pre_fail_open_revision_is_refused() -> None:
+    """Prove the check above bites: the previous pin has no start timeout."""
+    manifest = _setup_rust_manifest_at("7c9d66030879b504365202df90f439ea419e72bd")
+
+    assert "server_startup_timeout_ms" not in yaml.safe_dump(manifest)
+
+
+#: The scanner line that skips the inside of a multi-line TOML string, added in
+#: shared-actions #574. Without it a caller's string that merely resembles the
+#: timeout key suppresses the 60 s timeout.
+MULTILINE_STRING_GUARD = 'ml != "" { scan($0); next }'
+
+
+def test_pinned_revision_scanner_skips_multiline_strings() -> None:
+    """The pin must carry the SCCACHE_CONF scanner fix from #574."""
+    script = _server_start_script(_setup_rust_manifest_at(EXPECTED_SETUP_RUST_SHA))
+
+    assert MULTILINE_STRING_GUARD in script
+
+
+def test_revision_without_the_scanner_fix_is_refused() -> None:
+    """Prove the check above bites: the #546 revision lacks the guard."""
+    script = _server_start_script(
+        _setup_rust_manifest_at("6cec89bac47a21cf756d68d638a9a510998e57f8")
+    )
+
+    assert MULTILINE_STRING_GUARD not in script

@@ -124,24 +124,26 @@ def determine_release_modes(
     --------
     A tag push always publishes and uploads artefacts::
 
-        >>> determine_release_modes("push", {})
+        >>> determine_release_modes("push", {})  # doctest: +NORMALIZE_WHITESPACE
         ReleaseModes(dry_run=False, should_publish=True,
-        ... should_upload_workflow_artefacts=True)
+                     should_upload_workflow_artefacts=True)
 
     A dry-run workflow call disables publishing and artefact uploads::
 
-        >>> determine_release_modes(
+        >>> determine_release_modes(  # doctest: +NORMALIZE_WHITESPACE
         ...     "workflow_call", {"inputs": {"dry-run": "true", "publish": "true"}}
         ... )
         ReleaseModes(dry_run=True, should_publish=False,
-        ... should_upload_workflow_artefacts=False)
+                     should_upload_workflow_artefacts=False)
 
     Pull request invocations default to dry-run mode, ensuring artefacts remain
     unpublished::
 
-        >>> determine_release_modes("pull_request", {})
+        >>> determine_release_modes(  # doctest: +NORMALIZE_WHITESPACE
+        ...     "pull_request", {}
+        ... )
         ReleaseModes(dry_run=True, should_publish=False,
-        ... should_upload_workflow_artefacts=False)
+                     should_upload_workflow_artefacts=False)
     """
     if event_name not in {"push", *_INPUT_DRIVEN_EVENTS}:
         msg = f"Unsupported event '{event_name}' for release workflow"

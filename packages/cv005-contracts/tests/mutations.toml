@@ -1777,3 +1777,31 @@ file = "cv005_contracts/hardening.py"
 old = "    if \"if\" not in step:\n        return False\n    try:\n        terms"
 new = "    try:\n        terms"
 expect = "test_a_job_exclusion_needs_the_step_to_carry_the_pull_request_guard"
+
+[[mutation]]
+id = "U11 later self-hosted jobs not read"
+file = "cv005_contracts/hardening.py"
+old = "        for dependent in _persistent_dependents(leg.document, leg.job):"
+new = "        for dependent in []:"
+expect = "test_a_later_job_on_a_self_hosted_runner_may_share_the_workspace"
+
+[[mutation]]
+id = "U12 later jobs on hosted runners read too"
+file = "cv005_contracts/hardening.py"
+old = "        if \"self-hosted\" in str(declared[ident].get(\"runs-on\", \"\")).lower()"
+new = "        if True"
+expect = "test_a_later_job_on_a_fresh_runner_or_not_waiting_is_allowed"
+
+[[mutation]]
+id = "U13 the wait is not followed through intermediate jobs"
+file = "cv005_contracts/hardening.py"
+old = "            if ident not in reached and reached & _needs(job):"
+new = "            if ident not in reached and lane_ids & _needs(job):"
+expect = "test_a_job_two_needs_after_the_lane_on_a_self_hosted_runner_is_read"
+
+[[mutation]]
+id = "U14 the repository is dropped before local actions are followed"
+file = "cv005_contracts/hardening.py"
+old = "    pending = sorted(called_actions({\"jobs\": {\"lane\": job}}, repository))"
+new = "    pending = sorted(called_actions({\"jobs\": {\"lane\": job}}, \"\"))"
+expect = "test_a_lane_step_naming_this_repositorys_action_at_a_ref_is_refused"

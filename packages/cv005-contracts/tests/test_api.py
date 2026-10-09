@@ -234,3 +234,32 @@ def test_the_cli_runs_only_the_selected_family(tmp_path: Path) -> None:
     root = _write_tree(tmp_path, texts)
     assert check(repository=root, only=("environment",)) == EXIT_CLEAN
     assert check(repository=root, only=("publisher",)) == EXIT_VIOLATIONS
+
+
+def test_an_upload_in_a_local_action_the_lane_runs_is_refused_end_to_end(
+    tmp_path: Path,
+) -> None:
+    """The public path follows a local action the lane job runs.
+
+    The lane job runs a local composite action that uploads the workspace, so
+    the report can leave the runner through it; the breach is reported under
+    the lane-hardening clause, naming the action.
+    """
+    texts = tree()
+    texts["ci.yml"] = texts["ci.yml"].replace(
+        "      - name: Test and Measure Coverage\n",
+        "      - uses: ./.github/actions/upload\n"
+        "      - name: Test and Measure Coverage\n",
+        1,
+    )
+    texts[".github/actions/upload"] = (
+        "name: Upload\nruns:\n  using: composite\n  steps:\n"
+        "    - uses: actions/upload-artifact@v4\n      with:\n        path: .\n"
+    )
+    root = _write_tree(tmp_path, texts)
+    found = violations(root)
+    assert any(
+        item.clause == "coverage.lane-hardening"
+        and ".github/actions/upload" in item.message
+        for item in found
+    ), found

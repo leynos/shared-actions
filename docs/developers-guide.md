@@ -2299,6 +2299,25 @@ of this repository needs.
   case per reading and four bounded exhaustive properties with built oracles:
   prefix against sibling, a starred component, scratch traversal and expression
   results. The origin was chutoro's pre-adoption `report_paths.py`.
+- **Upload scope.**
+  `hardening.lane_hardening_violations(closure, declared, repository)` takes
+  the repository (default empty, which follows no local action) so it can find
+  the actions a lane job runs. `_report_holders` files each place that shares a
+  workspace with a lane's report: the lane job's steps under its workflow, each
+  local action that job reaches by `called_actions` (followed through other
+  actions in the closure) under the action's path, and later `self-hosted` jobs
+  reached by `needs` under their workflow; an action run by several lane jobs
+  holds all their reports. Only those steps are judged by
+  `report_paths.could_hold_the_report`. The scope exists because the rule once
+  judged every `upload-artifact` in the closure, which refused benchmark,
+  release and sccache-statistics uploads on other runners (chutoro, cuprum,
+  mriya, rstest-bdd); `tests/real_workflows` holds trimmed copies of those
+  workflows and `tests/test_lane_upload_scope.py` the refusals that must stand.
+  Hosted runners start clean, so a later hosted job is not read; a
+  `self-hosted` one is, because GitHub gives no clean-instance promise there.
+  `runner.temp` sits outside the workspace, so `${{ runner.temp }}/` plus
+  literal text with no climb clears. `_job_guarded` lets a lane job exclude
+  other named events when its step carries the pull-request guard.
 - **Parity exclusion.** The parity rule leaves out environment keys that pin or
   place a tool (`*_VERSION`, `*_REV`, `*_SHA256*`, uv directories, Cargo
   retries) on the ground that `generate-coverage` never reads them.

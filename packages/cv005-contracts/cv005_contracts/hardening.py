@@ -101,8 +101,9 @@ def lane_hardening_violations(
         pull-request guard, by leg name.
     repository : str, optional
         The owner and name of the repository, used to follow the local actions
-        a lane's job runs. Without it a lane job's local actions are not
-        followed.
+        a lane's job runs. It is what lets a step naming this repository's own
+        action at an `@ref` be refused rather than read as a remote action
+        whose uploads go unjudged.
 
     Returns
     -------
@@ -248,10 +249,54 @@ def _report_holders(
         for action in _local_actions(leg.job, closure, repository):
             slot = holders.setdefault(action, (_action_steps(closure[action]), set()))
             slot[1].add(report)
+        for dependent in _persistent_dependents(leg.document, leg.job):
+            key = f"{name}#{id(dependent)}"
+            slot = holders.setdefault(key, (steps(dependent), set()))
+            slot[1].add(report)
     return [
         (key.split("#", 1)[0], held, reports)
         for key, (held, reports) in sorted(holders.items())
     ]
+
+
+def _persistent_dependents(
+    document: Document, lane: dict[str, object]
+) -> list[dict[str, object]]:
+    """Return the jobs after the lane job that may share its workspace.
+
+    A job that `needs` the lane job, directly or through others, and runs on a
+    `self-hosted` runner may land on the runner the lane used, and GitHub does
+    not promise a clean workspace there. It can then upload the lane's report
+    as easily as the lane can. Jobs on hosted runners start clean, so only the
+    self-hosted ones are read.
+    """
+    declared = jobs(document)
+    lane_ids = {ident for ident, job in declared.items() if job is lane}
+    reached = set(lane_ids)
+    changed = True
+    while changed:
+        changed = False
+        for ident, job in declared.items():
+            if ident not in reached and reached & _needs(job):
+                reached.add(ident)
+                changed = True
+    return [
+        declared[ident]
+        for ident in sorted(reached - lane_ids)
+        if "self-hosted" in str(declared[ident].get("runs-on", "")).lower()
+    ]
+
+
+def _needs(job: dict[str, object]) -> set[str]:
+    """Return the job identifiers a job waits for."""
+    needs = job.get("needs", [])
+    if isinstance(needs, str):
+        return {needs}
+    return (
+        {item for item in needs if isinstance(item, str)}
+        if isinstance(needs, list)
+        else set()
+    )
 
 
 def _action_steps(document: Document) -> list[dict[str, object]]:

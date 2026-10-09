@@ -19,7 +19,7 @@ import pytest
 from contract_fixtures import PULL_REQUEST_LANE, REPOSITORY
 from cv005_contracts.actions import load_action
 from cv005_contracts.hardening import lane_hardening_violations
-from cv005_contracts.loading import Document, load_workflow
+from cv005_contracts.loading import Document, WorkflowReadingError, load_workflow
 
 REAL = pathlib.Path(__file__).parent / "real_workflows"
 LANE_STEP = "      - name: Test and Measure Coverage\n"
@@ -90,14 +90,16 @@ def test_real_uploads_in_other_jobs_and_unrun_actions_are_allowed() -> None:
             "cuprum-pure-python-wheel-action.yml"
         ),
     }
-    assert _findings(closure) == []
+    found = _findings(closure)
+    assert found == [], found
 
 
 def test_an_upload_in_another_job_of_the_lane_workflow_is_allowed() -> None:
     """Scenario: a second job on its own runner uploads the whole workspace."""
     second = "  logs:\n    runs-on: ubuntu-latest\n    steps:\n" + BROAD_UPLOAD
     document = load_workflow(PULL_REQUEST_LANE + second)
-    assert _findings({"ci.yml": document}) == []
+    found = _findings({"ci.yml": document})
+    assert found == [], found
 
 
 def test_an_upload_in_the_lane_job_is_still_refused() -> None:
@@ -139,7 +141,8 @@ def test_an_uploading_action_no_lane_job_runs_is_allowed() -> None:
             "    - uses: actions/upload-artifact@v4\n      with:\n        path: .\n"
         ),
     }
-    assert _findings(closure) == []
+    found = _findings(closure)
+    assert found == [], found
 
 
 @pytest.mark.parametrize(
@@ -157,7 +160,8 @@ def test_a_lane_upload_from_the_runner_temp_directory_is_allowed(path: str) -> N
     places beside the workspace, not in it.
     """
     upload = _upload(path)
-    assert _findings({"ci.yml": _lane(upload)}) == []
+    found = _findings({"ci.yml": _lane(upload)})
+    assert found == [], found
 
 
 @pytest.mark.parametrize(
@@ -199,7 +203,8 @@ def test_a_lane_job_that_excludes_another_event_is_allowed() -> None:
     changes nothing for the lane whose step carries the pull-request guard.
     """
     document = _with_job_condition("github.event_name != 'schedule'")
-    assert _findings({"ci.yml": document}) == []
+    found = _findings({"ci.yml": document})
+    assert found == [], found
 
 
 @pytest.mark.parametrize(
@@ -226,3 +231,70 @@ def test_a_job_exclusion_needs_the_step_to_carry_the_pull_request_guard() -> Non
     )
     found = _findings({"ci.yml": document})
     assert any("pull-request guard" in item for item in found), found
+
+
+def _later_job(name: str, runs_on: str, needs: str | None) -> str:
+    """Return a second job uploading the whole workspace."""
+    waits = f"    needs: {needs}\n" if needs else ""
+    return f"  {name}:\n    runs-on: {runs_on}\n{waits}    steps:\n" + BROAD_UPLOAD
+
+
+@pytest.mark.parametrize(
+    ("runs_on", "needs"),
+    [
+        ("self-hosted", "build-test"),
+        ("[self-hosted, linux]", "build-test"),
+        ("self-hosted", "[build-test]"),
+    ],
+)
+def test_a_later_job_on_a_self_hosted_runner_may_share_the_workspace(
+    runs_on: str, needs: str
+) -> None:
+    """Scenario: a self-hosted runner need not clean up between jobs.
+
+    GitHub makes no promise of a fresh instance there, so a job that waits for
+    the lane and uploads the workspace can publish the lane's report.
+    """
+    text = PULL_REQUEST_LANE + _later_job("publish-logs", runs_on, needs)
+    found = _findings({"ci.yml": load_workflow(text)})
+    assert any("artefact" in item for item in found), found
+
+
+def test_a_job_two_needs_after_the_lane_on_a_self_hosted_runner_is_read() -> None:
+    """Scenario: the wait is transitive, through an intermediate hosted job."""
+    middle = "  middle:\n    runs-on: ubuntu-latest\n    needs: build-test\n"
+    middle += "    steps:\n      - run: true\n"
+    text = (
+        PULL_REQUEST_LANE + middle + _later_job("publish-logs", "self-hosted", "middle")
+    )
+    found = _findings({"ci.yml": load_workflow(text)})
+    assert any("artefact" in item for item in found), found
+
+
+@pytest.mark.parametrize(
+    ("runs_on", "needs"),
+    [
+        ("ubuntu-latest", "build-test"),
+        ("ubicloud-standard-2", "build-test"),
+        ("self-hosted", None),
+    ],
+)
+def test_a_later_job_on_a_fresh_runner_or_not_waiting_is_allowed(
+    runs_on: str, needs: str | None
+) -> None:
+    """Scenario: hosted runners start clean; a job not waiting for the lane is apart."""
+    text = PULL_REQUEST_LANE + _later_job("publish-logs", runs_on, needs)
+    found = _findings({"ci.yml": load_workflow(text)})
+    assert found == [], found
+
+
+def test_a_lane_step_naming_this_repositorys_action_at_a_ref_is_refused() -> None:
+    """Scenario: the repository lets the rule refuse a call it cannot follow.
+
+    `owner/repo/.github/actions/x@main` runs a revision this checkout does not
+    hold. Without the repository the call would read as a remote action and the
+    upload inside it would go unjudged, so the rule refuses to read the lane.
+    """
+    call = f"      - uses: {REPOSITORY}/.github/actions/build@main\n"
+    with pytest.raises(WorkflowReadingError):
+        _findings({"ci.yml": _lane(call)})

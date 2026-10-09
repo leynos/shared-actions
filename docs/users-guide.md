@@ -1462,6 +1462,15 @@ the shape the actions are written for.
   cancelled run loses its upload and its baseline write, and one group keeps
   uploads from pushes and dispatches in commit order. A manual re-run of an
   older run republishes that commit's coverage until the next push.
+- `cv005-contracts check` (the shared contract library) judges a lane's
+  `actions/upload-artifact` steps by what each `path` could select, but only
+  where the lane's report can be: the lane job's own steps, the local actions
+  that job runs directly or transitively, and later `self-hosted` jobs that
+  wait for it. Uploads in unrelated jobs, in workflows with no coverage lane,
+  or in actions no lane job runs are not judged, and `${{ runner.temp }}/...`
+  paths are outside the workspace. A lane job may also exclude other named
+  events (`github.event_name != 'schedule'`) when its coverage step carries the
+  pull-request guard.
 - Both sides pass the same `language`, the same `python-source` scope, and the
   same baseline file name, or the pull-request comparison reads a baseline
   measuring a different population, or one nothing writes.

@@ -97,6 +97,13 @@ the retired checksum names.
   - Each job measuring coverage, in a lane or the publisher, ratchets
     exactly one of its legs. The action keys the baseline by job.
   - Lanes publish no artefact and never set `publish-baseline`.
+    The upload rule reads the runner that holds the report: the lane job's own
+    steps, the local composite actions that job runs (directly or through other
+    actions), and later jobs that wait for the lane (`needs`, transitively) on
+    a `self-hosted` runner, which GitHub does not promise to clean between
+    jobs. An upload in any other job, in a workflow with no lane, or in an
+    action no lane job runs is not judged, and a path under `${{ runner.temp }}/`
+    with no climb is cleared because that directory lies outside the workspace.
     A lane step uploading with `actions/upload-artifact` is judged by what
     each `path` line could select, not by whether it names the report: the
     workspace (`.`, `./`), a path climbing out with `..`, a directory holding

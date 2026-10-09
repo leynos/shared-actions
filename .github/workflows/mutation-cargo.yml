@@ -82,6 +82,14 @@ on:
           how RUSTFLAGS interacts with the caller's configuration.
         type: string
         default: 'false'
+      install-clang-lld:
+        description: >-
+          Install clang and lld through setup-rust on Linux runners ("true"
+          or "false"), for callers whose `.cargo/config.toml` selects clang
+          as the linker driver or lld. Skipped with a notice elsewhere. The
+          workflow sets no linker flag itself.
+        type: string
+        default: 'false'
 
 # Default the token to no scopes; jobs opt in explicitly.
 permissions: {}
@@ -223,6 +231,7 @@ jobs:
         uses: ./workflow-src/.github/actions/setup-rust
         with:
           install-mold: ${{ inputs.install-mold }}
+          install-clang-lld: ${{ inputs.install-clang-lld }}
 
       - name: Install cargo-mutants
         if: ${{ env.ACT != 'true' }}

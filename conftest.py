@@ -157,6 +157,18 @@ def _enable_cmd_mox_ipc_disconnect_tolerance() -> None:
     rather than editing upstream source: cmd-mox is a pinned external
     dependency, so the override is applied at this repository's test boundary
     and disappears with the dependency.
+
+    This stands in for a fix cmd-mox does not yet ship. The defect is
+    `cmd-mox#256`_ (OPEN), and the upstream fix is ``leynos/cmd-mox#259``
+    (OPEN, draft as of 2026-10-10); the newest published release is 0.2.0,
+    the version pinned here. At that version the only public server hook is
+    ``IPCHandlers``, which exposes the invocation and passthrough callbacks
+    and nothing over the reply write, so there is no supported seam to reach
+    the guard through. When #259 lands and the pin advances, delete this
+    function, the writer, and the regression test that exercises them -- the
+    guard becoming redundant is the evidence the pin moved.
+
+    .. _cmd-mox#256: https://github.com/leynos/cmd-mox/issues/256
     """
     if sys.platform == "win32":  # pragma: no cover - cmd-mox unavailable
         return
@@ -213,7 +225,12 @@ def _enable_cmd_mox_empty_probe_tolerance() -> None:
     Apply this alongside :func:`_enable_cmd_mox_ipc_disconnect_tolerance`. The
     two are separate because they are separate connections: this one sends
     nothing and never reaches the reply, while that one sends a valid request
-    and reaches the reply after the client has gone.
+    and reaches the reply after the client has gone. Both front the same
+    upstream defect -- the empty read is the second failure mode of
+    `cmd-mox#256`_ -- and both disappear when ``leynos/cmd-mox#259`` lands and
+    the pin advances; see the sibling guard for that boundary.
+
+    .. _cmd-mox#256: https://github.com/leynos/cmd-mox/issues/256
     """
     if sys.platform == "win32":  # pragma: no cover - cmd-mox unavailable
         return

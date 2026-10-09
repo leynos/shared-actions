@@ -1,0 +1,94 @@
+name: Test setup-rust clang and lld
+
+# Exercises setup-rust's install-clang-lld input on real runners: a Linux
+# install that puts clang and ld.lld on PATH and links a toy app with them,
+# and the notice-only skip on macOS and Windows. The action sets no linker
+# flag, so the Linux job selects clang and lld itself, as a consumer's
+# .cargo/config.toml would.
+on:
+  pull_request:
+    # A library-only change cannot affect this lane; see
+    # tests/workflows/test_cv005_contracts_lane.py.
+    paths-ignore:
+      - 'packages/cv005-contracts/**'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installs-on-linux:
+    name: Install clang and lld (linux)
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust with clang and lld
+        id: setup
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'false'
+          install-clang-lld: 'true'
+
+      - name: Assert the action installed clang and lld
+        shell: bash
+        env:
+          CLANG_LLD_STATUS: ${{ steps.setup.outputs.clang-lld-status }}
+        run: |
+          set -euo pipefail
+          test "$CLANG_LLD_STATUS" = installed
+          clang --version
+          ld.lld --version
+
+      - name: Build the toy app with clang and lld as the linker
+        shell: bash
+        env:
+          RUSTFLAGS: -C linker=clang -C link-arg=-fuse-ld=lld
+        run: cargo build --manifest-path rust-toy-app/Cargo.toml
+
+      - name: Assert the toy app was linked by lld
+        shell: bash
+        run: |
+          set -euo pipefail
+          readelf -p .comment rust-toy-app/target/debug/rust-toy-app | grep -i 'lld'
+
+  skips-off-linux:
+    name: Skip clang and lld off Linux (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-15
+          - platform: windows
+            runner: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust with clang and lld
+        id: setup
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'false'
+          install-clang-lld: 'true'
+
+      - name: Assert clang and lld were skipped with a notice
+        shell: bash
+        env:
+          CLANG_LLD_STATUS: ${{ steps.setup.outputs.clang-lld-status }}
+        run: test "$CLANG_LLD_STATUS" = skipped

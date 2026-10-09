@@ -29,6 +29,9 @@ documents how to use the `install-nixie` action.
 - [Migrating to `sccache-report`](./migrating-to-sccache-report.md)
   – replacing a handwritten `sccache --show-stats` step with the fallback-aware
   action.
+- [Migrating to `install-clang-lld`](./migrating-to-setup-rust-clang-lld.md)
+  – replacing a handwritten `apt-get install clang lld` step with
+  `setup-rust`'s input.
 
 ## Node.js 24 action dependencies
 
@@ -303,6 +306,40 @@ rustflags = ["-D", "warnings", "-C", "link-arg=-fuse-ld=mold"]
   with:
     install-mold: 'true'
     rustflags: ''
+```
+
+## `setup-rust` and clang/lld
+
+Set `install-clang-lld: 'true'` to have `setup-rust` install `clang` and `lld`
+on a Linux runner via `apt`. It is opt-in and off by default.
+
+- **What is installed.** `clang` and `lld` from the runner's own Ubuntu
+  archive (`apt-get update`, then
+  `apt-get install --yes --no-install-recommends clang lld`). Unlike
+  `install-mold`, no version is pinned and no digest is checked.
+- **Failure.** The step verifies that `clang` and `ld.lld` are on `PATH` after
+  the install and fails with a clear `::error::` if either is missing.
+- **macOS and Windows.** A notice and `clang-lld-status: skipped`, never an
+  error, so a matrix can pass the input to every leg.
+- **Outputs.** `clang-lld-status` (`installed` or `skipped`, and empty when
+  the input is not `true`).
+
+The action sets no linker flag. Select clang and lld explicitly, for example to
+link an instrumented coverage build with `lld` for `llvm-tools`/coverage
+compatibility:
+
+```yaml
+jobs:
+  coverage:
+    # job-level env: every step, including setup-rust's own toolchain
+    # install, sees the linker selection.
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      RUSTFLAGS: -C link-arg=-fuse-ld=lld
+    steps:
+      - uses: leynos/shared-actions/.github/actions/setup-rust@<sha>
+        with:
+          install-clang-lld: 'true'
 ```
 
 ## Rust cache ownership

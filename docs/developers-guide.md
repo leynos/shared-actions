@@ -3443,11 +3443,24 @@ repository has taken. It takes the coverage tier, the widest, until a run
 history exists to size it honestly.
 
 These ceilings are the outermost of the four timers described under "Test
-timeouts: four tiers, outermost last" in the users' guide. Nothing in this
-repository runs `cargo` under `generate-coverage`, so the watchdog and the two
-nextest timers do not apply; see
-`tests/workflows/test_coverage_timeout_tiers.py` for what happens to that if a
-root `Cargo.toml` ever appears.
+timeouts: four tiers, outermost last" in the users' guide. Nothing reaches
+`cargo` under `generate-coverage` here through the *root-manifest* route —
+there is no root `Cargo.toml` — so for most lanes the watchdog and the two
+nextest timers stay inert; see `tests/workflows/test_coverage_timeout_tiers.py`
+for what happens to that if a root `Cargo.toml` ever appears.
+
+One lane reaches cargo by the other route. `test-generate-coverage.yml`'s
+`test-generate-coverage-out-no-suffix` is the act fixture for the
+`generate-coverage` `out` step, and it names the fixture crate through
+`cargo-manifest`, which is what makes the run real without a root manifest. It
+is dispatch-only and never runs on GitHub, so its budget exists for act alone,
+but the rule does not care who runs the lane: it carries
+`cargo-wait-timeout: "240"`, which by the tier arithmetic below is 29 minutes,
+and the coverage tier's 30 clears it. The lane also sets
+`publish-artefact: ${{ !env.ACT }}`, so the archive step is suppressed under
+act while the run itself proceeds.
+`test_no_lane_reaches_cargo_without_stating_its_budget` holds every lane that
+can reach cargo by either route to a stated budget.
 
 ### Changing a decision
 

@@ -1009,6 +1009,38 @@ the archive or the extracted executable -- is a hard failure: the installer
 exits non-zero and the action stops. There is no fallback to
 `cargo install cargo-nextest` in any of these cases.
 
+### Coverage artefact names and publication
+
+The action reports the name it will publish the report under, as the
+`artefact-name` output, and that name takes the shape
+`<format>-<job>-<index>-<os>-<arch>`. The `artefact-name-suffix` input appends
+one more segment after the platform components, so a caller can tell two
+artefacts from the same job apart. A suffix that is omitted, empty, or only
+whitespace all produce the same name: the segments to be joined are stripped of
+anything that is not alphanumeric, dash, or underscore and trimmed of dashes,
+so a whitespace-only value collapses to nothing and adds no trailing segment. A
+suffix reaches the name composer as an explicit argument, alongside
+`output-path`, rather than through an environment variable named after the
+input. `nektos/act` exports composite inputs under their dashed names in
+addition to the underscored ones the action sets itself, and a variable named
+after the input would sit beside act's own copy of it, so one input would be
+read twice. Passing both values as arguments is what lets the action run under
+act at all.
+
+Publication is controlled by `publish-artefact`, which defaults to `"true"`.
+Setting it to `"false"` suppresses only the upload: the report is still written
+on the runner, and later steps in the same job can read it. The archive step
+runs with `always()`, so a ratchet gate that trips a failing run still captures
+the report rather than skipping it.
+
+The action's own regression lane, `test-generate-coverage.yml`, runs the action
+under `nektos/act` and sets `publish-artefact: ${{ !env.ACT }}`, so the report
+is not uploaded while the run itself proceeds. A workflow cannot inspect act's
+command-line flags to make that decision, so the gate reads `env.ACT`, which
+act exports into every step; see the action's
+[README](../../.github/actions/generate-coverage/README.md) for the naming and
+publication details.
+
 ### Python coverage source scope
 
 The action also accepts an optional `python-source` input, which defaults to

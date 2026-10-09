@@ -48,6 +48,26 @@ class EnvOverrideTestCase:
     #: measured CI run of `generate-coverage-out-no-suffix` was killed at 300 s
     #: while still working. Same shape as `test_rustflags_export_workflow`.
     timeout: int = 300
+    #: Assert that act published no artefact payload. The harness always
+    #: passes `--artifact-server-path`, so an upload would land under it as
+    #: `<runId>/<name>/<name>.zip`; the run variables the lane sets include
+    #: `publish-artefact: ${{ !env.ACT }}`, which suppresses that upload under
+    #: act. Checking the directory is what observes the gate: the log patterns
+    #: above would still pass if the gate were deleted, because the `out` step
+    #: runs either way. Paired with `container_env_template` being empty --
+    #: injecting an input would be a second way for the name to change, and a
+    #: failure could no longer be attributed to the gate.
+    assert_no_artefacts: bool = False
+
+    def __post_init__(self) -> None:
+        """Reject a case whose two fields cannot mean what they say together."""
+        if self.assert_no_artefacts and self.container_env_template:
+            message = (
+                "assert_no_artefacts is only meaningful with an empty "
+                "container_env_template: a populated template changes the "
+                "inputs the artefact name is built from"
+            )
+            raise ValueError(message)
 
 
 @dataclasses.dataclass(slots=True)
@@ -222,6 +242,7 @@ def _resolve_container_env(
                 # working, so it carries the same doubled budget the rustflags
                 # fixture uses.
                 timeout=600,
+                assert_no_artefacts=True,
             ),
             id="generate-coverage-out-no-suffix",
         ),
@@ -246,6 +267,21 @@ def test_env_overrides_normalize_inputs(
     )
 
     _assert_log_patterns(logs, test_case.expected_patterns, flags=re.IGNORECASE)
+
+    if test_case.assert_no_artefacts:
+        # The harness creates `artefact_dir` before act starts, so its
+        # existence proves nothing; what an upload adds is a subdirectory of
+        # its own. An empty directory is therefore the pass condition, and a
+        # populated one names both the failure and its likely cause.
+        uploaded = sorted(
+            entry.name for entry in artefact_dir.iterdir() if entry.is_dir()
+        )
+        assert not uploaded, (
+            f"act uploaded {len(uploaded)} artefact payload(s) ({uploaded}) "
+            "although env.ACT is true: either the workflow's publish-artefact "
+            "gate stopped suppressing publication, or the gate never reached "
+            "the archive step with the run variables the lane sets"
+        )
 
 
 @skip_unless_act

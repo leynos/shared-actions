@@ -84,16 +84,17 @@ class TestRequestGraphqlRetries:
         seen: list[tuple[str, str, dict[str, object]]] = []
 
         def fake_execute(token: str, query: str, variables: dict[str, object]) -> None:
-            seen.append((token, query, variables))
+            seen.append((token, query, variables.copy()))
 
         monkeypatch.setattr(graphql_client, "_execute_graphql_attempt", fake_execute)
         monkeypatch.setattr(graphql_client, "_backoff_sleep", lambda *_: None)
         variables: dict[str, object] = {"n": 1}
+        expected_variables = variables.copy()
         with pytest.raises(SystemExit):
             graphql_client.request_graphql(TEST_TOKEN, "query {}", variables)
         assert len(seen) == 4, (
             "one initial attempt plus three retries should run before failing"
         )
-        assert seen == [(TEST_TOKEN, "query {}", variables)] * 4, (
+        assert seen == [(TEST_TOKEN, "query {}", expected_variables)] * 4, (
             "the token, query, and variables should reach each attempt unchanged"
         )

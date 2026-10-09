@@ -269,6 +269,12 @@ def _run_mutation_testing(
         raise SystemExit(code)
 
 
+def _open_utf8_file(path: str, mode: str) -> typ.TextIO:
+    """Open a text file with an explicit UTF-8 encoding."""
+    # Keep encoding fixed; the mode remains mutable at the call site.
+    return Path(path).open(mode, encoding="utf-8")  # pragma: no mutate
+
+
 def _publish_results(mutmut_version: str, results_file: str, summary_path: str) -> None:
     """Capture ``mutmut results``, then write the artefact and summary."""
     results_text = local["uv"][
@@ -277,8 +283,7 @@ def _publish_results(mutmut_version: str, results_file: str, summary_path: str) 
     # pragma below: encoding is a locale-independent UTF-8 codec alias.
     Path(results_file).write_text(results_text, encoding="utf-8")  # pragma: no mutate
     results = parse_results(results_text)
-    # pragma below: encoding is a locale-independent UTF-8 codec alias.
-    with Path(summary_path).open("a", encoding="utf-8") as handle:  # pragma: no mutate
+    with _open_utf8_file(summary_path, "a") as handle:
         handle.write(render_summary(results))
     emit("mutation_mutmut_counts", count_statuses(results))
 

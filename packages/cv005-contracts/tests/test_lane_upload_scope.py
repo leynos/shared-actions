@@ -18,8 +18,12 @@ import pathlib
 import pytest
 from contract_fixtures import PULL_REQUEST_LANE, REPOSITORY
 from cv005_contracts.actions import load_action
-from cv005_contracts.hardening import lane_hardening_violations
+from cv005_contracts.hardening import (
+    _persistent_dependents,
+    lane_hardening_violations,
+)
 from cv005_contracts.loading import Document, WorkflowReadingError, load_workflow
+from cv005_contracts.reading import jobs
 
 REAL = pathlib.Path(__file__).parent / "real_workflows"
 LANE_STEP = "      - name: Test and Measure Coverage\n"
@@ -298,3 +302,63 @@ def test_a_lane_step_naming_this_repositorys_action_at_a_ref_is_refused() -> Non
     call = f"      - uses: {REPOSITORY}/.github/actions/build@main\n"
     with pytest.raises(WorkflowReadingError):
         _findings({"ci.yml": _lane(call)})
+
+
+def test_a_later_self_hosted_job_running_an_uploading_action_is_refused() -> None:
+    """Scenario: the later job reaches the retained report through a local action."""
+    later = (
+        "  publish-logs:\n    runs-on: self-hosted\n    needs: build-test\n"
+        f"    steps:\n{_calling(BUILD_ACTION)}"
+    )
+    closure = {
+        "ci.yml": load_workflow(PULL_REQUEST_LANE + later),
+        BUILD_ACTION: _action(
+            "    - uses: actions/upload-artifact@v4\n      with:\n        path: .\n"
+        ),
+    }
+    found = _findings(closure)
+    assert any(item.startswith(f"{BUILD_ACTION}:") for item in found), found
+
+
+def _oracle(edges: set[tuple[int, int]], lane: int, count: int) -> set[int]:
+    """Return the jobs reachable from `lane` along `needs` edges, by Warshall."""
+    reach = [[i == j or (i, j) in edges for j in range(count)] for i in range(count)]
+    for mid in range(count):
+        for i in range(count):
+            for j in range(count):
+                reach[i][j] = reach[i][j] or (reach[i][mid] and reach[mid][j])
+    return {j for j in range(count) if j != lane and reach[lane][j]}
+
+
+def test_the_self_hosted_dependents_match_a_reachability_oracle() -> None:
+    """Property: over every `needs` graph of three jobs, the dependents are exact.
+
+    Each directed edge `(a, b)` means job `b` waits for job `a`. For every edge
+    subset, every choice of which jobs are self-hosted and each job as the
+    lane, the jobs read are the self-hosted ones reachable from the lane.
+    """
+    names = ["a", "b", "c"]
+    pairs = [(i, j) for i in range(3) for j in range(3) if i != j]
+    for mask in range(1 << len(pairs)):
+        edges = {pair for bit, pair in enumerate(pairs) if mask >> bit & 1}
+        for hosted in range(8):
+            jobs_text = ""
+            for index, name in enumerate(names):
+                waits = [names[i] for i, j in edges if j == index]
+                runner = "self-hosted" if hosted >> index & 1 else "ubuntu-latest"
+                needs = f"    needs: [{', '.join(waits)}]\n" if waits else ""
+                jobs_text += (
+                    f"  {name}:\n    runs-on: {runner}\n{needs}"
+                    "    steps:\n      - run: true\n"
+                )
+            document = load_workflow("on: pull_request\njobs:\n" + jobs_text)
+            declared = jobs(document)
+            for lane in range(3):
+                got = {
+                    ident
+                    for ident, _ in _persistent_dependents(
+                        document, declared[names[lane]]
+                    )
+                }
+                want = {names[j] for j in _oracle(edges, lane, 3) if hosted >> j & 1}
+                assert got == want, (edges, hosted, lane, got, want)

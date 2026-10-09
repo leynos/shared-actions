@@ -234,34 +234,38 @@ def _report_holders(
 ) -> list[tuple[str, list[dict[str, object]], set[str]]]:
     """Return each place that runs beside a lane's report, with the reports.
 
-    A place is a lane job's steps, filed under its workflow, or the steps of a
-    local action that job runs, filed under the action's path. An action run
-    by several lane jobs holds the reports of all of them.
+    A place is a lane job's steps, filed under its workflow, the steps of a
+    local action that job (or a later self-hosted job) runs, filed under the
+    action's path, or the steps of a later self-hosted job. A place reached by
+    several lane jobs holds the reports of all of them. Places are keyed by
+    workflow and job identifier (or action path), so the order is stable.
     """
-    holders: dict[str, tuple[list[dict[str, object]], set[str]]] = {}
-    seen: set[int] = set()
+    holders: dict[tuple[str, str], tuple[list[dict[str, object]], set[str]]] = {}
+
+    def file(key: tuple[str, str], held: list[dict[str, object]], report: str) -> None:
+        holders.setdefault(key, (held, set()))[1].add(report)
+
     for name, leg in located:
         report = str(_input(leg.step, "output-path"))
-        if id(leg.job) not in seen:
-            seen.add(id(leg.job))
-            holders[f"{name}#{id(leg.job)}"] = (steps(leg.job), set())
-        holders[f"{name}#{id(leg.job)}"][1].add(report)
-        for action in _local_actions(leg.job, closure, repository):
-            slot = holders.setdefault(action, (_action_steps(closure[action]), set()))
-            slot[1].add(report)
-        for dependent in _persistent_dependents(leg.document, leg.job):
-            key = f"{name}#{id(dependent)}"
-            slot = holders.setdefault(key, (steps(dependent), set()))
-            slot[1].add(report)
+        lane_jobs = [(_job_id(leg.document, leg.job), leg.job)]
+        lane_jobs += _persistent_dependents(leg.document, leg.job)
+        for ident, job in lane_jobs:
+            file((name, ident), steps(job), report)
+            for action in _local_actions(job, closure, repository):
+                file((action, ""), _action_steps(closure[action]), report)
     return [
-        (key.split("#", 1)[0], held, reports)
-        for key, (held, reports) in sorted(holders.items())
+        (name, held, reports) for (name, _), (held, reports) in sorted(holders.items())
     ]
+
+
+def _job_id(document: Document, job: dict[str, object]) -> str:
+    """Return the identifier a job is declared under."""
+    return next(ident for ident, other in jobs(document).items() if other is job)
 
 
 def _persistent_dependents(
     document: Document, lane: dict[str, object]
-) -> list[dict[str, object]]:
+) -> list[tuple[str, dict[str, object]]]:
     """Return the jobs after the lane job that may share its workspace.
 
     A job that `needs` the lane job, directly or through others, and runs on a
@@ -281,7 +285,7 @@ def _persistent_dependents(
                 reached.add(ident)
                 changed = True
     return [
-        declared[ident]
+        (ident, declared[ident])
         for ident in sorted(reached - lane_ids)
         if "self-hosted" in str(declared[ident].get("runs-on", "")).lower()
     ]

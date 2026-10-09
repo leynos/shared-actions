@@ -1711,22 +1711,22 @@ expect = "test_the_environment_contract_applies_when_the_key_is_absent"
 [[mutation]]
 id = "U1 upload scope widened to every job of the lane's workflow"
 file = "cv005_contracts/hardening.py"
-old = "holders[f\"{name}#{id(leg.job)}\"] = (steps(leg.job), set())"
-new = "holders[f\"{name}#{id(leg.job)}\"] = ([s for j in jobs(leg.document).values() for s in steps(j)], set())"
+old = "            file((name, ident), steps(job), report)\n"
+new = "            file((name, ident), [x for j in jobs(leg.document).values() for x in steps(j)], report)\n"
 expect = "test_an_upload_in_another_job_of_the_lane_workflow_is_allowed"
 
 [[mutation]]
 id = "U2 lane job's own steps not read for uploads"
 file = "cv005_contracts/hardening.py"
-old = "holders[f\"{name}#{id(leg.job)}\"] = (steps(leg.job), set())"
-new = "holders[f\"{name}#{id(leg.job)}\"] = ([], set())"
+old = "            file((name, ident), steps(job), report)\n"
+new = "            file((name, ident), [], report)\n"
 expect = "test_an_upload_in_the_lane_job_is_still_refused"
 
 [[mutation]]
 id = "U3 local actions the lane job runs not followed"
 file = "cv005_contracts/hardening.py"
-old = "        for action in _local_actions(leg.job, closure, repository):"
-new = "        for action in []:"
+old = "            for action in _local_actions(job, closure, repository):\n"
+new = "            for action in []:\n"
 expect = "test_an_upload_in_an_action_the_lane_job_runs_is_refused"
 
 [[mutation]]
@@ -1781,8 +1781,8 @@ expect = "test_a_job_exclusion_needs_the_step_to_carry_the_pull_request_guard"
 [[mutation]]
 id = "U11 later self-hosted jobs not read"
 file = "cv005_contracts/hardening.py"
-old = "        for dependent in _persistent_dependents(leg.document, leg.job):"
-new = "        for dependent in []:"
+old = "        lane_jobs += _persistent_dependents(leg.document, leg.job)\n"
+new = "        lane_jobs += []\n"
 expect = "test_a_later_job_on_a_self_hosted_runner_may_share_the_workspace"
 
 [[mutation]]
@@ -1805,3 +1805,10 @@ file = "cv005_contracts/hardening.py"
 old = "    pending = sorted(called_actions({\"jobs\": {\"lane\": job}}, repository))"
 new = "    pending = sorted(called_actions({\"jobs\": {\"lane\": job}}, \"\"))"
 expect = "test_a_lane_step_naming_this_repositorys_action_at_a_ref_is_refused"
+
+[[mutation]]
+id = "U15 local actions of later self-hosted jobs not followed"
+file = "cv005_contracts/hardening.py"
+old = "            for action in _local_actions(job, closure, repository):\n"
+new = "            for action in (_local_actions(job, closure, repository) if job is leg.job else []):\n"
+expect = "test_a_later_self_hosted_job_running_an_uploading_action_is_refused"

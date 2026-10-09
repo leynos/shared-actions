@@ -2301,13 +2301,15 @@ of this repository needs.
   results. The origin was chutoro's pre-adoption `report_paths.py`.
 - **Upload scope.**
   `hardening.lane_hardening_violations(closure, declared, repository)` takes
-  the repository (default empty, which follows no local action) so it can find
-  the actions a lane job runs. `_report_holders` files each place that shares a
+  the repository (default empty) so a step naming this repository's own action
+  at an `@ref` is refused rather than read as a remote action; relative `./`
+  local actions are followed whatever it holds. `_report_holders` files each place that shares a
   workspace with a lane's report: the lane job's steps under its workflow, each
   local action that job reaches by `called_actions` (followed through other
   actions in the closure) under the action's path, and later `self-hosted` jobs
-  reached by `needs` under their workflow; an action run by several lane jobs
-  holds all their reports. Only those steps are judged by
+  reached by `needs` under their workflow, with the local actions those jobs run
+  too; a place reached by several lane jobs holds all their reports, and places
+  are keyed by workflow and job identifier so the order is stable. Only those steps are judged by
   `report_paths.could_hold_the_report`. The scope exists because the rule once
   judged every `upload-artifact` in the closure, which refused benchmark,
   release and sccache-statistics uploads on other runners (chutoro, cuprum,

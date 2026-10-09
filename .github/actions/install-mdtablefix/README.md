@@ -87,18 +87,23 @@ beside each bare platform executable (for example
 `mdtablefix-linux-x86_64.sha256`), and the executable in the archive is
 byte-identical to that asset (checked for 0.6.1). The action fetches
 `https://github.com/leynos/mdtablefix/releases/download/v<version>/<asset>.sha256`
-over HTTPS and reports `install-mdtablefix.checksum=verified` when the digests
-match.
+over HTTPS and reports `install-mdtablefix.checksum=published` when the
+digests match.
 
 The check fails closed. A digest that differs, a download that fails, and a
 file that does not begin with a SHA-256 digest each end the run with
-`install-mdtablefix.result=checksum-failed`, and an executable that failed
-verification is removed rather than left on `PATH`. A cache hit downloads
+`install-mdtablefix.result=checksum-failed`, and an executable that could not
+be verified is removed rather than left on `PATH`. A cache hit downloads
 nothing, because the caller owns the cache.
 
-This is the release's own digest, so it catches a corrupt or substituted
-download but not a release replaced wholesale; only a digest pinned by the
-caller could catch that.
+The published digest comes from the same release as the archive, so it catches
+a corrupt or substituted download but not a release replaced wholesale. A
+caller that wants that protection passes `sha256`, the digest of the executable
+for the runner's platform (the value in the release's `<asset>.sha256` file at
+the time it was reviewed). The action then verifies against it, fetches
+nothing, and reports `install-mdtablefix.checksum=pinned`; a mismatch fails the
+same way. The digest is per platform, so a caller that runs on several should
+pass a different value for each, for example through a matrix.
 
 ## Obtaining cargo-binstall
 
@@ -134,15 +139,17 @@ at most one `install-mdtablefix.checksum` line.
 | `install-mdtablefix.result=version-mismatch`     | The installed version was not the pinned one |
 | `install-mdtablefix.binstall=present`            | The runner already had a usable binstall     |
 | `install-mdtablefix.binstall=installed`          | The pinned upstream action provided it       |
-| `install-mdtablefix.checksum=verified`           | The published SHA-256 matched                |
+| `install-mdtablefix.checksum=published`          | The published SHA-256 matched                |
+| `install-mdtablefix.checksum=pinned`             | The caller's `sha256` matched                |
 
 ## Inputs
 
-| Name               | Type   | Description                                         | Required | Default        |
-| ------------------ | ------ | --------------------------------------------------- | -------- | -------------- |
-| `version`          | string | Exact version to install; 0.5.1 or later            | no       | `0.5.1`        |
-| `binstall-version` | string | `cargo-binstall` version to install when absent     | no       | `1.24.0`       |
-| `bin-dir`          | string | Directory receiving the executable, added to `PATH` | no       | `~/.local/bin` |
+| Name               | Type   | Description                                            | Required | Default        |
+| ------------------ | ------ | ------------------------------------------------------ | -------- | -------------- |
+| `version`          | string | Exact version to install; 0.5.1 or later               | no       | `0.5.1`        |
+| `binstall-version` | string | `cargo-binstall` version to install when absent        | no       | `1.24.0`       |
+| `sha256`           | string | Executable's SHA-256 for this platform; else published | no       | empty          |
+| `bin-dir`          | string | Directory receiving the executable, added to `PATH`    | no       | `~/.local/bin` |
 
 ## Outputs
 

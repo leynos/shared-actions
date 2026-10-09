@@ -17,6 +17,7 @@ whether it runs at all is decided by the manifest's own condition.
 from __future__ import annotations
 
 import dataclasses as dc
+import hashlib
 import os
 import stat
 import subprocess
@@ -165,6 +166,8 @@ class Scenario:
     #: ``match`` (the installed bytes), ``mismatch`` (another digest),
     #: ``unreachable`` (the download fails), or ``malformed`` (not a digest).
     checksum: str = "match"
+    #: The ``sha256`` input; empty means "use the release's published digest".
+    sha256: str = ""
 
 
 @dc.dataclass(frozen=True)
@@ -323,6 +326,12 @@ def _installed_text(scenario: Scenario) -> str:
     return f"mdtablefix {scenario.installs_version or scenario.version}"
 
 
+def installed_digest(scenario: Scenario) -> str:
+    """Return the SHA-256 of the executable the stubbed binstall installs."""
+    body = _reporting_executable(_installed_text(scenario))
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
 def _cached_text(scenario: Scenario) -> str | None:
     """Return what a pre-existing executable should print, or ``None``."""
     if scenario.cached_output is not None:
@@ -437,6 +446,7 @@ def run_scenario(scenario: Scenario) -> ScenarioResult:
             "version": scenario.version,
             "binstall-version": scenario.binstall_version,
             "bin-dir": scenario.bin_dir,
+            "sha256": scenario.sha256,
         },
         runner_os=scenario.runner_os,
         runner_arch=scenario.runner_arch,

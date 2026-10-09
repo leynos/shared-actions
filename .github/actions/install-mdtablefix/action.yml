@@ -21,6 +21,14 @@ inputs:
       when cargo-binstall is already present.
     required: false
     default: "1.24.0"
+  sha256:
+    description: >-
+      Optional SHA-256 (64 hexadecimal digits) of the mdtablefix executable
+      for the runner's platform. When given, the installed executable is
+      verified against it and the release's published digest is not fetched,
+      so a caller can pin a digest in its own workflow.
+    required: false
+    default: ""
   bin-dir:
     description: >-
       Directory that receives the mdtablefix executable and is appended to
@@ -37,6 +45,7 @@ runs:
       env:
         BIN_DIR_INPUT: ${{ inputs.bin-dir }}
         BINSTALL_VERSION_INPUT: ${{ inputs.binstall-version }}
+        SHA256_INPUT: ${{ inputs.sha256 }}
         VERSION_INPUT: ${{ inputs.version }}
       run: |
         set -euo pipefail
@@ -64,6 +73,9 @@ runs:
         if (( major < 1 )) &&
           (( major < 0 || minor < 5 || (minor == 5 && patch < 1) )); then
           input_error "version must be 0.5.1 or later; earlier releases publish Linux archives only and carry binstall metadata cargo-binstall rejects"
+        fi
+        if [[ -n "$SHA256_INPUT" && ! "$SHA256_INPUT" =~ ^[0-9a-fA-F]{64}$ ]]; then
+          input_error "sha256 must be empty or 64 hexadecimal digits"
         fi
         if [[ ! "$BINSTALL_VERSION_INPUT" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
           input_error "binstall-version must be three numeric components without leading zeros"
@@ -120,6 +132,7 @@ runs:
         {
           printf 'version=%s\n' "$VERSION_INPUT"
           printf 'binstall-version=%s\n' "$BINSTALL_VERSION_INPUT"
+          printf 'sha256=%s\n' "$(printf '%s' "$SHA256_INPUT" | tr 'A-F' 'a-f')"
           printf 'bin-dir=%s\n' "$bin_dir"
           printf 'executable-path=%s\n' "${bin_dir}/mdtablefix${executable_suffix}"
         } >> "$GITHUB_OUTPUT"
@@ -300,6 +313,7 @@ runs:
         MDTABLEFIX_VERSION: ${{ steps.validate-inputs.outputs.version }}
         RUNNER_ARCHITECTURE: ${{ runner.arch }}
         RUNNER_OPERATING_SYSTEM: ${{ runner.os }}
+        MDTABLEFIX_PINNED_SHA256: ${{ steps.validate-inputs.outputs.sha256 }}
       run: |
         # cargo-binstall checks nothing about the archive it unpacks, so the
         # installed executable is compared with the SHA-256 the release
@@ -308,7 +322,9 @@ runs:
         # and every release from 0.5.1 publishes a `.sha256` file for each
         # bare asset. This is the release's own digest: it catches a corrupt
         # or substituted download, not a release that was replaced wholesale,
-        # which only a digest pinned by the caller could catch.
+        # which only a digest pinned by the caller could catch. A caller that
+        # passes `sha256` gets exactly that: the digest it pinned replaces the
+        # published one, and nothing is downloaded.
         #
         # A missing executable is left for the next step to report, so that
         # the "nothing was installed" outcome keeps its one result line.
@@ -321,6 +337,9 @@ runs:
         step_error() {
           echo "::error title=Install mdtablefix failed::$1" >&2
           emit_metric "install-mdtablefix.result=checksum-failed"
+          # An executable that could not be verified is not left on PATH,
+          # whether the digests differed or no digest could be obtained.
+          rm -f -- "$MDTABLEFIX_EXECUTABLE_PATH"
           exit 1
         }
         if [[ ! -f "$MDTABLEFIX_EXECUTABLE_PATH" ]]; then
@@ -334,26 +353,30 @@ runs:
           Windows/X64) asset=mdtablefix-windows-x86_64.exe ;;
           *) step_error "no published checksum for ${RUNNER_OPERATING_SYSTEM:-unknown}/${RUNNER_ARCHITECTURE:-unknown}" ;;
         esac
-        url="https://github.com/leynos/mdtablefix/releases/download/v${MDTABLEFIX_VERSION}/${asset}.sha256"
-        published_file="$(curl --fail --silent --show-error --location \
-          --proto '=https' --tlsv1.2 --retry 3 "$url")" ||
-          step_error "could not fetch the published checksum ${url}"
-        published="$(printf '%s\n' "$published_file" | head -n 1 | cut -d ' ' -f 1 | tr 'A-F' 'a-f')"
-        if [[ ! "$published" =~ ^[0-9a-f]{64}$ ]]; then
-          step_error "${url} did not start with a SHA-256 digest"
+        source=published
+        if [[ -n "$MDTABLEFIX_PINNED_SHA256" ]]; then
+          source=pinned
+          expected="$MDTABLEFIX_PINNED_SHA256"
+        else
+          url="https://github.com/leynos/mdtablefix/releases/download/v${MDTABLEFIX_VERSION}/${asset}.sha256"
+          published_file="$(curl --fail --silent --show-error --location \
+            --proto '=https' --tlsv1.2 --retry 3 "$url")" ||
+            step_error "could not fetch the published checksum ${url}"
+          expected="$(printf '%s\n' "$published_file" | head -n 1 | cut -d ' ' -f 1 | tr 'A-F' 'a-f')"
+          if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+            step_error "${url} did not start with a SHA-256 digest"
+          fi
         fi
         if command -v sha256sum >/dev/null 2>&1; then
           actual="$(sha256sum -- "$MDTABLEFIX_EXECUTABLE_PATH" | cut -d ' ' -f 1)"
         else
           actual="$(shasum -a 256 -- "$MDTABLEFIX_EXECUTABLE_PATH" | cut -d ' ' -f 1)"
         fi
-        if [[ "$actual" != "$published" ]]; then
-          # An executable that failed verification is not left on PATH.
-          rm -f -- "$MDTABLEFIX_EXECUTABLE_PATH"
-          step_error "the installed executable's SHA-256 ${actual} does not match the published ${published} for ${asset}"
+        if [[ "$actual" != "$expected" ]]; then
+          step_error "the installed executable's SHA-256 ${actual} does not match the ${source} ${expected} for ${asset}"
         fi
-        echo "::notice title=Install mdtablefix::checksum=verified asset=${asset}"
-        emit_metric "install-mdtablefix.checksum=verified"
+        echo "::notice title=Install mdtablefix::checksum=verified source=${source} asset=${asset}"
+        emit_metric "install-mdtablefix.checksum=${source}"
 
     - name: Verify mdtablefix
       shell: bash

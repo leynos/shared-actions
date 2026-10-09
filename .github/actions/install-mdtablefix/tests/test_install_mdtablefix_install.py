@@ -14,7 +14,12 @@ from _mdtablefix_manifest import (
     SUPPORTED_PLATFORMS,
     UNSUPPORTED_PLATFORMS,
 )
-from _mdtablefix_scenarios import Scenario, ScenarioResult, run_scenario
+from _mdtablefix_scenarios import (
+    Scenario,
+    ScenarioResult,
+    installed_digest,
+    run_scenario,
+)
 
 from composite_fragments import require_posix_host
 
@@ -367,7 +372,7 @@ class TestChecksumVerification:
         result = run_scenario(Scenario(tmp_path=tmp_path))
 
         _assert_installed(result, "0.5.1")
-        _assert_metric(result, "install-mdtablefix.checksum=verified")
+        _assert_metric(result, "install-mdtablefix.checksum=published")
         assert "Verify mdtablefix checksum" in result.executed(), (
             f"the checksum step did not run: {result.executed()}"
         )
@@ -425,6 +430,58 @@ class TestChecksumVerification:
         assert result.returncode == 1, f"{checksum} digest passed: {result.stderr}"
         _assert_annotated(result)
         _assert_only_metric_result(result, "install-mdtablefix.result=checksum-failed")
+
+    def test_removes_the_executable_when_no_digest_could_be_obtained(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify an unverifiable executable is not left on PATH."""
+        for checksum in ("unreachable", "malformed"):
+            result = run_scenario(
+                Scenario(tmp_path=tmp_path / checksum, checksum=checksum)
+            )
+
+            _assert_nothing_installed(result)
+
+    def test_a_pinned_digest_replaces_the_published_one(self, tmp_path: Path) -> None:
+        """Verify a caller's digest is checked without any download."""
+        scenario = Scenario(tmp_path=tmp_path)
+        pinned = Scenario(tmp_path=tmp_path, sha256=installed_digest(scenario).upper())
+        result = run_scenario(pinned)
+
+        _assert_installed(result, "0.5.1")
+        _assert_metric(result, "install-mdtablefix.checksum=pinned")
+        assert result.curl_log == "", (
+            f"a pinned digest must not fetch the published one: {result.curl_log!r}"
+        )
+
+    def test_a_pinned_digest_wins_over_a_matching_published_one(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify the pin is authoritative: the release's digest cannot rescue it."""
+        result = run_scenario(Scenario(tmp_path=tmp_path, sha256="0" * 64))
+
+        assert result.returncode == 1, f"a wrong pinned digest passed: {result.stderr}"
+        assert "does not match the pinned" in result.stderr, (
+            f"the mismatch was not attributed to the pin: {result.stderr!r}"
+        )
+        _assert_only_metric_result(result, "install-mdtablefix.result=checksum-failed")
+        _assert_nothing_installed(result)
+        assert result.curl_log == "", f"the pin fetched a digest: {result.curl_log!r}"
+
+    @pytest.mark.parametrize("value", ["abc", "g" * 64, "0" * 63, "0" * 65])
+    def test_refuses_a_malformed_pinned_digest(
+        self,
+        tmp_path: Path,
+        value: str,
+    ) -> None:
+        """Verify a bad ``sha256`` input is refused before anything runs."""
+        result = run_scenario(Scenario(tmp_path=tmp_path, sha256=value))
+
+        assert result.returncode == 1, f"{value!r} was accepted: {result.stderr}"
+        _assert_only_metric(result, "install-mdtablefix.result=invalid-input")
+        assert result.cargo_log == "", f"{value!r} reached cargo"
 
     def test_a_cache_hit_downloads_nothing(self, tmp_path: Path) -> None:
         """Verify the cached path fetches no checksum and reports none."""

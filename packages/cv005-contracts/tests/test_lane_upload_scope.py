@@ -328,11 +328,16 @@ PAIRS: tuple[tuple[int, int], ...] = tuple(
 
 
 def _reachable(edges: frozenset[tuple[int, int]], lane: int) -> set[int]:
-    """Return the jobs reachable from `lane` along `needs` edges, by Warshall."""
-    reach = {(i, j): i == j or (i, j) in edges for i in range(3) for j in range(3)}
-    for mid, i, j in itertools.product(range(3), repeat=3):
-        reach[i, j] = reach[i, j] or (reach[i, mid] and reach[mid, j])
-    return {j for j in range(3) if j != lane and reach[lane, j]}
+    """Return the jobs reachable from `lane` along `needs` edges, by search."""
+    seen = {lane}
+    pending = [lane]
+    while pending:
+        node = pending.pop()
+        for before, after in edges:
+            if before == node and after not in seen:
+                seen.add(after)
+                pending.append(after)
+    return seen - {lane}
 
 
 def _graph(edges: frozenset[tuple[int, int]], hosted: int) -> Document:
@@ -359,7 +364,7 @@ def test_the_self_hosted_dependents_match_a_reachability_oracle() -> None:
 
     For every edge subset, every choice of which jobs are self-hosted and each
     job as the lane, the jobs read are the self-hosted ones reachable from the
-    lane, by an independent transitive closure.
+    lane, by an independent graph search.
     """
     for mask in range(1 << len(PAIRS)):
         edges = frozenset(p for bit, p in enumerate(PAIRS) if mask >> bit & 1)

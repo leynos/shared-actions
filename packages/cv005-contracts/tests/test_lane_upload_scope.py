@@ -13,6 +13,7 @@ release uploads the rule refused although no lane could reach them.
 
 from __future__ import annotations
 
+import itertools
 import pathlib
 
 import pytest
@@ -320,45 +321,51 @@ def test_a_later_self_hosted_job_running_an_uploading_action_is_refused() -> Non
     assert any(item.startswith(f"{BUILD_ACTION}:") for item in found), found
 
 
-def _oracle(edges: set[tuple[int, int]], lane: int, count: int) -> set[int]:
+NAMES: tuple[str, ...] = ("a", "b", "c")
+PAIRS: tuple[tuple[int, int], ...] = tuple(
+    (i, j) for i in range(3) for j in range(3) if i != j
+)
+
+
+def _reachable(edges: frozenset[tuple[int, int]], lane: int) -> set[int]:
     """Return the jobs reachable from `lane` along `needs` edges, by Warshall."""
-    reach = [[i == j or (i, j) in edges for j in range(count)] for i in range(count)]
-    for mid in range(count):
-        for i in range(count):
-            for j in range(count):
-                reach[i][j] = reach[i][j] or (reach[i][mid] and reach[mid][j])
-    return {j for j in range(count) if j != lane and reach[lane][j]}
+    reach = {(i, j): i == j or (i, j) in edges for i in range(3) for j in range(3)}
+    for mid, i, j in itertools.product(range(3), repeat=3):
+        reach[i, j] = reach[i, j] or (reach[i, mid] and reach[mid, j])
+    return {j for j in range(3) if j != lane and reach[lane, j]}
+
+
+def _graph(edges: frozenset[tuple[int, int]], hosted: int) -> Document:
+    """Return a three-job workflow: edge `(a, b)` makes `b` wait for `a`."""
+    jobs_text = ""
+    for index, name in enumerate(NAMES):
+        waits = [NAMES[i] for i, j in sorted(edges) if j == index]
+        runner = "self-hosted" if hosted >> index & 1 else "ubuntu-latest"
+        needs = f"    needs: [{', '.join(waits)}]\n" if waits else ""
+        jobs_text += (
+            f"  {name}:\n    runs-on: {runner}\n{needs}    steps:\n      - run: true\n"
+        )
+    return load_workflow("on: pull_request\njobs:\n" + jobs_text)
+
+
+def _dependents(document: Document, lane: int) -> set[str]:
+    """Return the identifiers `_persistent_dependents` reads for one lane job."""
+    found = _persistent_dependents(document, jobs(document)[NAMES[lane]])
+    return {ident for ident, _ in found}
 
 
 def test_the_self_hosted_dependents_match_a_reachability_oracle() -> None:
     """Property: over every `needs` graph of three jobs, the dependents are exact.
 
-    Each directed edge `(a, b)` means job `b` waits for job `a`. For every edge
-    subset, every choice of which jobs are self-hosted and each job as the
-    lane, the jobs read are the self-hosted ones reachable from the lane.
+    For every edge subset, every choice of which jobs are self-hosted and each
+    job as the lane, the jobs read are the self-hosted ones reachable from the
+    lane, by an independent transitive closure.
     """
-    names = ["a", "b", "c"]
-    pairs = [(i, j) for i in range(3) for j in range(3) if i != j]
-    for mask in range(1 << len(pairs)):
-        edges = {pair for bit, pair in enumerate(pairs) if mask >> bit & 1}
+    for mask in range(1 << len(PAIRS)):
+        edges = frozenset(p for bit, p in enumerate(PAIRS) if mask >> bit & 1)
         for hosted in range(8):
-            jobs_text = ""
-            for index, name in enumerate(names):
-                waits = [names[i] for i, j in edges if j == index]
-                runner = "self-hosted" if hosted >> index & 1 else "ubuntu-latest"
-                needs = f"    needs: [{', '.join(waits)}]\n" if waits else ""
-                jobs_text += (
-                    f"  {name}:\n    runs-on: {runner}\n{needs}"
-                    "    steps:\n      - run: true\n"
-                )
-            document = load_workflow("on: pull_request\njobs:\n" + jobs_text)
-            declared = jobs(document)
+            document = _graph(edges, hosted)
             for lane in range(3):
-                got = {
-                    ident
-                    for ident, _ in _persistent_dependents(
-                        document, declared[names[lane]]
-                    )
-                }
-                want = {names[j] for j in _oracle(edges, lane, 3) if hosted >> j & 1}
+                want = {NAMES[j] for j in _reachable(edges, lane) if hosted >> j & 1}
+                got = _dependents(document, lane)
                 assert got == want, (edges, hosted, lane, got, want)

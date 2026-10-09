@@ -176,3 +176,53 @@ def test_a_runner_temp_lookalike_that_could_reach_the_workspace_is_refused(
     upload = _upload(path)
     found = _findings({"ci.yml": _lane(upload)})
     assert any("artefact" in item for item in found), found
+
+
+JOB_HEADER = "    runs-on: ubuntu-latest\n    permissions:"
+LANE_GUARD = "        if: github.event_name == 'pull_request'\n"
+
+
+def _with_job_condition(condition: str, *, keep_step_guard: bool = True) -> Document:
+    """Return the fixture lane with a job-level `if:` and, optionally, no step guard."""
+    text = PULL_REQUEST_LANE.replace(
+        JOB_HEADER, f"    if: {condition}\n{JOB_HEADER}", 1
+    )
+    if not keep_step_guard:
+        text = text.replace(LANE_GUARD, "", 1)
+    return load_workflow(text)
+
+
+def test_a_lane_job_that_excludes_another_event_is_allowed() -> None:
+    """Scenario: netsuke's build job skips scheduled runs and still serves the lane.
+
+    An event cannot be a pull request and a schedule at once, so the exclusion
+    changes nothing for the lane whose step carries the pull-request guard.
+    """
+    document = _with_job_condition("github.event_name != 'schedule'")
+    assert _findings({"ci.yml": document}) == []
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "github.event_name != 'pull_request'",
+        "github.ref == 'refs/heads/main'",
+        "github.event_name != 'schedule' && github.ref == 'refs/heads/main'",
+        "github.event_name != 'schedule' || true",
+    ],
+)
+def test_a_lane_job_condition_that_could_switch_the_lane_off_is_refused(
+    condition: str,
+) -> None:
+    """Scenario: excluding pull requests, or any other term, still skips the lane."""
+    found = _findings({"ci.yml": _with_job_condition(condition)})
+    assert any("pull-request guard" in item for item in found), found
+
+
+def test_a_job_exclusion_needs_the_step_to_carry_the_pull_request_guard() -> None:
+    """Scenario: without the step's guard the exclusion no longer implies anything."""
+    document = _with_job_condition(
+        "github.event_name != 'schedule'", keep_step_guard=False
+    )
+    found = _findings({"ci.yml": document})
+    assert any("pull-request guard" in item for item in found), found

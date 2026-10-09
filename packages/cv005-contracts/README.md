@@ -134,6 +134,10 @@ the retired checksum names.
     the project excludes. A bare `3.13` is accepted if any 3.13 patch is; a
     declaration that cannot be read or judged is refused.
   - Each lane runs read-only and cannot continue on error.
+  - A lane job's `if` is absent, the pull-request guard, or the exclusion of
+    another named event, such as `github.event_name != 'schedule'`, when the
+    lane's step carries the pull-request guard: no event is both, so the
+    exclusion cannot switch the lane off on a pull request.
   - Only the publisher writes the baseline on a push.
 - **Least privilege.** The upload job's permissions are exactly
   `contents: read`, and its checkouts set `persist-credentials: false`.

@@ -8,6 +8,7 @@ green, be switched off by a condition, or publish its report some other way.
 
 from __future__ import annotations
 
+import re
 import typing as typ
 
 from .closure import called_actions
@@ -138,7 +139,9 @@ def _lane_violations(name: str, leg: Leg, extra_terms: frozenset[str]) -> list[s
         ),
         (
             "may carry only the pull-request guard as a condition",
-            not (_only_guarded(leg.step, extra_terms) and _only_guarded(leg.job)),
+            not (
+                _only_guarded(leg.step, extra_terms) and _job_guarded(leg.job, leg.step)
+            ),
         ),
         (
             f"job permissions must be exactly {READ_ONLY}",
@@ -162,6 +165,39 @@ def _only_guarded(
         return frozenset(conjuncts(holder["if"])) == PULL_REQUEST_GUARD | extra_terms
     except ConditionError:
         return False
+
+
+#: A job condition that the pull-request guard already implies: the event is
+#: not some other named event. It cannot switch the lane off on a pull request.
+_OTHER_EVENT: typ.Final[re.Pattern[str]] = re.compile(
+    r"^github\.event_name != '(?P<event>[a-z_]+)'$"
+)
+
+
+def _job_guarded(job: dict[str, object], step: dict[str, object]) -> bool:
+    """Return whether a lane job's condition leaves its coverage step runnable.
+
+    The job's condition is absent or the pull-request guard, as for a step.
+    It may also exclude other named events (`github.event_name != 'schedule'`)
+    when the step itself carries the pull-request guard: an event cannot be a
+    pull request and another event, so the exclusion changes nothing for a
+    pull request, and the job stays free to serve its other lanes.
+    """
+    if _only_guarded(job):
+        return True
+    if "if" not in step:
+        return False
+    try:
+        terms = frozenset(conjuncts(job["if"]))
+        carried = frozenset(conjuncts(step["if"]))
+    except ConditionError:
+        return False
+    others = terms - PULL_REQUEST_GUARD
+    return carried >= PULL_REQUEST_GUARD and all(
+        (match := _OTHER_EVENT.match(term)) is not None
+        and match["event"] != "pull_request"
+        for term in others
+    )
 
 
 def _artefact_uploads(

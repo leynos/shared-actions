@@ -675,7 +675,7 @@ expect = "test_lane_coverage_cannot_fail_green_or_write"
 [[mutation]]
 id = "H5 lane conditions not read"
 file = "cv005_contracts/hardening.py"
-old = "            not (_only_guarded(leg.step, extra_terms) and _only_guarded(leg.job)),\n"
+old = "            not (\n                _only_guarded(leg.step, extra_terms) and _job_guarded(leg.job, leg.step)\n            ),\n"
 new = "            False,\n"
 expect = "test_lane_coverage_cannot_fail_green_or_write"
 
@@ -1756,3 +1756,24 @@ file = "cv005_contracts/report_paths.py"
 old = "    return \"${{\" not in rest and \"..\" not in rest.split(\"/\")\n"
 new = "    return True\n"
 expect = "test_a_runner_temp_lookalike_that_could_reach_the_workspace_is_refused"
+
+[[mutation]]
+id = "U8 a job's exclusion of another event refused"
+file = "cv005_contracts/hardening.py"
+old = "    if _only_guarded(job):\n        return True\n    if \"if\" not in step:"
+new = "    if _only_guarded(job):\n        return True\n    return False\n    if \"if\" not in step:"
+expect = "test_a_lane_job_that_excludes_another_event_is_allowed"
+
+[[mutation]]
+id = "U9 a job's exclusion of pull requests accepted"
+file = "cv005_contracts/hardening.py"
+old = "        and match[\"event\"] != \"pull_request\"\n"
+new = ""
+expect = "test_a_lane_job_condition_that_could_switch_the_lane_off_is_refused"
+
+[[mutation]]
+id = "U10 a job's exclusion accepted without the step's guard"
+file = "cv005_contracts/hardening.py"
+old = "    if \"if\" not in step:\n        return False\n    try:\n        terms"
+new = "    try:\n        terms"
+expect = "test_a_job_exclusion_needs_the_step_to_carry_the_pull_request_guard"

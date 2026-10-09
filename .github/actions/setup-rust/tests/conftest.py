@@ -83,7 +83,7 @@ def run_install_step(tmp_path: Path) -> InstallStepRunner:
         # An absolute shebang: the restricted PATH cannot resolve ``env bash``.
         lines = [f"#!{bash}", f'echo "$*" >> "{log}"']
         if fail_on:
-            lines.append(f'[ "$2" = "{fail_on}" ] && exit 100')
+            lines.append(f'case " $* " in *" apt-get {fail_on} "*) exit 100;; esac')
         lines.append("exit 0")
         sudo = stubs_dir / "sudo"
         sudo.write_text("\n".join(lines) + "\n", encoding="utf-8")

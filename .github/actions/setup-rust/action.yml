@@ -378,7 +378,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        export DEBIAN_FRONTEND=noninteractive
         # One closed failure vocabulary, matching install-mold's shape: a
         # category metric and an error annotation naming the operation.
         fail() {
@@ -387,7 +386,10 @@ runs:
           exit 1
         }
         sudo apt-get update || fail apt-update "apt-get update failed"
-        sudo apt-get install --yes --no-install-recommends clang lld \
+        # sudo resets the caller's environment, so the variable is set by env
+        # inside the privileged command rather than exported beforehand.
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+          --no-install-recommends clang lld \
           || fail apt-install "apt-get install of clang and lld failed"
         missing=()
         command -v clang >/dev/null 2>&1 || missing+=(clang)

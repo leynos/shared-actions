@@ -39,9 +39,24 @@ ALLOWED_METRICS = frozenset(
 )
 
 
-def _manifest() -> dict[str, typ.Any]:
+class _Input(typ.TypedDict):
+    """The slice of an action input that these tests inspect."""
+
+    default: str
+
+
+class _Manifest(typ.TypedDict):
+    """The slice of the setup-rust manifest that these tests inspect."""
+
+    inputs: dict[str, _Input]
+    outputs: dict[str, dict[str, str]]
+
+
+def _manifest() -> _Manifest:
     """Return the parsed setup-rust manifest."""
-    return yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
+    return typ.cast(
+        "_Manifest", yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
+    )
 
 
 @pytest.mark.parametrize(
@@ -71,12 +86,13 @@ def test_each_clang_lld_arm_runs_only_when_asked_on_its_platform(
 
 
 def test_the_install_step_runs_apt_non_interactively() -> None:
-    """The step exports ``DEBIAN_FRONTEND`` and installs only the two packages."""
-    run = str(get_step(INSTALL_STEP)["run"])
-    lines = [line.strip() for line in run.splitlines()]
+    """The privileged install sets ``DEBIAN_FRONTEND`` and adds only two packages."""
+    run = " ".join(str(get_step(INSTALL_STEP)["run"]).replace("\\\n", " ").split())
 
-    assert "export DEBIAN_FRONTEND=noninteractive" in lines
-    assert "sudo apt-get install --yes --no-install-recommends clang lld \\" in lines
+    assert (
+        "sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes "
+        "--no-install-recommends clang lld"
+    ) in run
 
 
 def test_the_off_linux_arm_notices_and_never_fails() -> None:
@@ -167,7 +183,10 @@ def test_the_install_step_refreshes_the_index_before_installing(
     assert run.result.returncode == 0, run.result.stderr
     assert run.sudo_calls == [
         "apt-get update",
-        "apt-get install --yes --no-install-recommends clang lld",
+        (
+            "env DEBIAN_FRONTEND=noninteractive apt-get install --yes "
+            "--no-install-recommends clang lld"
+        ),
     ]
 
 

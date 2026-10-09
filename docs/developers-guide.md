@@ -606,9 +606,10 @@ Rules to keep:
   `true` or `false` fails the job rather than silently skipping the install.
 - **Linux installs, everything else skips.** On Linux the step runs
   `sudo apt-get update` and then
-  `sudo apt-get install --yes --no-install-recommends clang lld`. A failed
-  `apt-get` call fails the step. On macOS and Windows a notice is printed and
-  nothing is installed, so a matrix can pass the input to every leg.
+  `sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes
+  --no-install-recommends clang lld`.
+  A failed `apt-get` call fails the step. On macOS and Windows a notice is
+  printed and nothing is installed, so a matrix can pass the input to every leg.
 - **PATH verification.** After the install, the step checks that both `clang`
   and `ld.lld` resolve on `PATH` and fails with one
   `::error title=setup-rust clang-lld::` annotation naming every missing tool.

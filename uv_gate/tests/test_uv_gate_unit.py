@@ -295,6 +295,13 @@ def test_clean_environment_drops_policy_overrides(
         "-P",
         "-Pruff",
         "-n",
+        "-qU",
+        "-vn",
+        "-qn",
+        "-qPruff",
+        "-vvU",
+        "-Pruff==1.0",
+        "-n4",
     ],
 )
 def test_refuse_forbidden_covers_the_families(flag: str) -> None:
@@ -303,7 +310,9 @@ def test_refuse_forbidden_covers_the_families(flag: str) -> None:
         uv_gate._refuse_forbidden(["--group", "dev", flag])
 
 
-@pytest.mark.parametrize("flag", ["--group", "--python=3.12", "-p", "-q", "--extra"])
+@pytest.mark.parametrize(
+    "flag", ["--group", "--python=3.12", "-p", "-q", "-qv", "-p3.12", "--extra"]
+)
 def test_refuse_forbidden_leaves_ordinary_flags_alone(flag: str) -> None:
     """Ordinary options are not caught by the families or the aliases."""
     uv_gate._refuse_forbidden([flag, "dev"])

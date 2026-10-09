@@ -19,7 +19,6 @@ GitHub Actions
 | Install mdtablefix                | `.github/actions/install-mdtablefix`                                               | unreleased   |
 | Install Nixie                     | `.github/actions/install-nixie`                                                    | unreleased   |
 | Install tool                      | `.github/actions/install-tool`                                                     | unreleased   |
-| uv-gate helper (vendored script)  | `uv_gate`                                                                          | unreleased   |
 | Linux packages                    | `.github/actions/linux-packages`                                                   | v1           |
 | macOS package                     | `.github/actions/macos-package`                                                    | v1           |
 | Ratchet coverage                  | `.github/actions/ratchet-coverage`                                                 | v1           |
@@ -36,6 +35,14 @@ GitHub Actions
 
 See the [Install Nixie guide](docs/users-guide.md#install-nixie) for usage,
 version inputs, and failure behaviour.
+
+## Vendored helpers
+
+These are scripts that a repository copies, not published actions.
+
+- [`uv_gate`](uv_gate/README.md): runs `uv` offline-first with one bounded
+  online step; see the
+  [users' guide](docs/users-guide.md#uv_gate-the-vendored-uv-helper).
 
 ## Reusable workflows
 

@@ -3302,7 +3302,8 @@ helper never runs `uv lock`.
   configuration, `BASH_ENV`, and the uv switches that override its policy),
   uses the global uv cache and selects `UV_LINK_MODE=copy` across filesystems.
 - **Bounded retry.** One offline attempt, then at most one online attempt, and
-  only for a proven cache miss (see the retry rule above).
+  only after a `cache-miss` or an `offline-resolution` failure (see the retry
+  rule above).
 - **Validate, then touch the world.** `validate_request` checks forbidden
   flags, the command and the tool pin with no environment or filesystem access.
   Only then does `build_context` query uv for the cache directory and compare

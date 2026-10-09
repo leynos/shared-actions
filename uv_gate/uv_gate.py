@@ -461,8 +461,20 @@ def _report(kind: Kind, status: int, *, where: str) -> None:
 
 
 def _is_forbidden_short(name: str) -> bool:
-    """Report whether ``name`` is a forbidden single-dash alias."""
-    return name[:1] == "-" and name[1:2] not in {"", "-"} and name[1] in FORBIDDEN_SHORT
+    """Report whether ``name`` is, or clusters, a forbidden single-dash alias.
+
+    A first letter in ``FORBIDDEN_SHORT`` is always refused. A purely
+    alphabetic cluster such as ``-qU`` is refused when any letter is
+    forbidden, so a boolean flag cannot smuggle ``-U`` or ``-n`` behind
+    another. That also refuses a value glued to a short option (``-pPyPy``),
+    which fails closed; write ``-p PyPy`` instead.
+    """
+    if name[:1] != "-" or name[1:2] in {"", "-"}:
+        return False
+    letters = name[1:]
+    return letters[0] in FORBIDDEN_SHORT or (
+        letters.isalpha() and any(flag in FORBIDDEN_SHORT for flag in letters)
+    )
 
 
 def _is_forbidden(name: str) -> bool:

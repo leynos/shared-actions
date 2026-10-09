@@ -23,11 +23,11 @@ test: prepare
 	$(UV_GATE) run --group dev -- pytest -q
 ```
 
-| Command                                         | Runs                                   | Network                                                                      |
-| ----------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------- |
-| `prepare [UV_SYNC_ARGS...]`                     | `uv sync --locked --offline`           | One `uv sync --locked`, only when uv proves a file is missing from the cache |
-| `run [UV_RUN_ARGS...] -- COMMAND...`            | `uv run --frozen --offline COMMAND...` | Never                                                                        |
-| `tool [--from SPEC] [ARGS...] -- EXECUTABLE...` | `uv tool run --offline ...`            | One warming run, only on a proven cache miss                                 |
+| Command                                         | Runs                                   | Network                                                                           |
+| ----------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------- |
+| `prepare [UV_SYNC_ARGS...]`                     | `uv sync --locked --offline`           | One `uv sync --locked`, only after a `cache-miss` or `offline-resolution` failure |
+| `run [UV_RUN_ARGS...] -- COMMAND...`            | `uv run --frozen --offline COMMAND...` | Never                                                                             |
+| `tool [--from SPEC] [ARGS...] -- EXECUTABLE...` | `uv tool run --offline ...`            | One warming run, only after one of those two failures                             |
 
 Pass the same groups, extras and Python version to `prepare` and to every `run`.
 `tool` refuses a spec that is not pinned: use `name==VERSION`, `name@VERSION`
@@ -37,16 +37,19 @@ Set `UV_GATE_ALLOW_ONLINE=0` to forbid the online step entirely.
 
 ## What every command does first
 
-1. Builds a cleaned environment: drops `GIT_CONFIG_*`, `GH_TOKEN`,
+1. Validates the request without touching the environment or filesystem:
+   forbidden flags, a missing command and an unpinned tool are refused with
+   status 2 before anything else runs.
+2. Builds a cleaned environment: drops `GIT_CONFIG_*`, `GH_TOKEN`,
    `GITHUB_TOKEN`, `BASH_ENV`, `UV_CACHE_DIR`, `UV_TOOL_DIR`, `UV_OFFLINE`,
    `UV_NO_CACHE`, `UV_FROZEN`, `UV_LOCKED` and `UV_REFRESH*` and `UV_UPGRADE*`
    (inherited uv switches that would override the gate's own policy), removes
    `~/.lody` and its children from `PATH`, sets `GIT_TERMINAL_PROMPT=0`, and
    puts a one-file shim directory first on `PATH` so `git` is `/usr/bin/git`.
-2. Finds `uv` on that cleaned `PATH`.
-3. Asks `uv --no-config cache dir` for the global cache, creates it, and sets
+3. Finds `uv` on that cleaned `PATH`.
+4. Asks `uv --no-config cache dir` for the global cache, creates it, and sets
    `UV_CACHE_DIR` to it. There is no per-repository `.uv-cache`.
-4. Compares the cache's device with the project's virtual environment
+5. Compares the cache's device with the project's virtual environment
    (`UV_PROJECT_ENVIRONMENT` or `.venv`, symlinks resolved; the repository when
    it does not exist yet) and sets `UV_LINK_MODE=copy` when they differ.
 
@@ -70,10 +73,11 @@ refusals exit with status 2.
 Helper refusals (status 2): `uv` absent from the cleaned `PATH`, a cache
 directory that cannot be created, an unpinned tool, a forbidden flag
 (`--refresh*`, `--upgrade*` and `--reinstall*` as whole families, so
-`--refresh-package` is refused too; the short aliases `-U`, `-P` and `-n`;
-`--no-cache`, `--no-offline`, `--locked`, `--frozen`, `--offline`), a failed
-comparison of the cache and project filesystems, a missing command, and usage
-errors.
+`--refresh-package` is refused too; the short aliases `-U`, `-P` and `-n`,
+alone or inside a cluster such as `-qU` (a value glued to a short option, such
+as `-pPyPy`, is refused too; write `-p PyPy`); `--no-cache`, `--no-offline`,
+`--locked`, `--frozen`, `--offline`), a failed comparison of the cache and
+project filesystems, a missing command, and usage errors.
 
 Logs never carry a tool specification: a refusal or a warming notice names the
 package only (or "a git+ URL"), because a Git URL can hold credentials. Each

@@ -89,6 +89,10 @@ class _WritableStream(typ.Protocol):
         """Write *data* and return the number of bytes accepted."""
         ...
 
+    def flush(self) -> None:
+        """Flush buffered output."""
+        ...
+
 
 class _DisconnectTolerantWriter:
     """Reply stream that ignores a client which has already gone away.
@@ -120,6 +124,15 @@ class _DisconnectTolerantWriter:
             # all mean the peer is gone. A genuine local fault such as ENOSPC
             # is a plain OSError and deliberately still propagates.
             return 0
+
+    def flush(self) -> None:
+        """Forward ``flush`` to the wrapped stream.
+
+        Declared on the wrapper, not left to :meth:`__getattr__`, so the
+        method the handler calls is as typed as :meth:`write` and the
+        wrapper satisfies :class:`_WritableStream` for a type checker.
+        """
+        self._wrapped.flush()
 
     def __getattr__(self, name: str) -> object:
         """Forward every other stream attribute to the wrapped writer."""

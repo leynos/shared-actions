@@ -170,6 +170,9 @@ class _AlwaysFails:
         """Raise the configured error."""
         raise self._error
 
+    def flush(self) -> None:
+        """Accept a flush; nothing is buffered to send."""
+
 
 class _Recorder:
     """Stand-in writer that accumulates written bytes."""
@@ -181,6 +184,9 @@ class _Recorder:
         """Record *data* and report it as fully written."""
         self.data += data
         return len(data)
+
+    def flush(self) -> None:
+        """Accept a flush; the bytes are already recorded."""
 
 
 def test_departed_client_is_an_empty_write() -> None:
@@ -218,19 +224,46 @@ def test_connected_client_payload_passes_through() -> None:
     assert sink.data == b"abc"
 
 
-def test_guard_forwards_other_stream_attributes() -> None:
-    """Attribute access other than ``write`` reaches the wrapped stream."""
+def test_guard_forwards_flush_to_the_wrapped_stream() -> None:
+    """``flush`` reaches the wrapped stream.
+
+    Declared on the wrapper rather than left to ``__getattr__`` so that
+    both methods the handler calls are typed. This pins the forwarding
+    behaviour either way.
+    """
 
     class _Stream:
         flushed = False
+
+        def write(self, data: bytes) -> int:
+            return len(data)
 
         def flush(self) -> None:
             self.flushed = True
 
     stream = _Stream()
-    _DisconnectTolerantWriter(stream).flush()
+    writer = _DisconnectTolerantWriter(stream)
+    writer.flush()
 
     assert stream.flushed
+
+
+def test_guard_forwards_other_stream_attributes() -> None:
+    """Attribute access other than ``write``/``flush`` reaches the wrapped stream."""
+    sentinel = object()
+
+    class _Stream:
+        def write(self, data: bytes) -> int:
+            return len(data)
+
+        def flush(self) -> None:
+            """Flush; nothing is buffered."""
+
+    stream = _Stream()
+    stream.marker = sentinel  # type: ignore[attr-defined]
+    writer = _DisconnectTolerantWriter(stream)
+
+    assert writer.marker is sentinel  # type: ignore[attr-defined]
 
 
 def test_abandoned_client_does_not_print_a_server_traceback(

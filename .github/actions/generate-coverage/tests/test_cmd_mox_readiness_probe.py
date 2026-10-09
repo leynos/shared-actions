@@ -75,6 +75,23 @@ def _probe(socket_path: str) -> None:
     _connect(socket_path).close()
 
 
+def _read_reply(client: socket.socket) -> bytes:
+    """Read until EOF, so a reply split across receives is still complete.
+
+    ``recv`` returns what has arrived, not everything the server sent, so a
+    single call can return part of the reply. The server closes the
+    connection once the handler returns, which is the framing: read until
+    the close.
+    """
+    chunks: list[bytes] = []
+    while True:
+        chunk = client.recv(65536)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 class _ThreadRecordCounter(logging.Handler):
     """Count the records one thread causes a logger to emit.
 
@@ -188,7 +205,7 @@ def test_a_probe_does_not_upset_the_next_request(cmd_mox: object) -> None:
     try:
         client.sendall(json.dumps(_REQUEST).encode())
         client.shutdown(socket.SHUT_WR)
-        reply = client.recv(65536)
+        reply = _read_reply(client)
     finally:
         client.close()
 

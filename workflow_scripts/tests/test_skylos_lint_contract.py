@@ -71,6 +71,60 @@ _SKYLOS_PRODUCTION_TARGET_TOKENS: typ.Final = (
 )
 _SKYLOS_EXCLUDE_TOKENS: typ.Final = ("tests",)
 _SKYLOS_WHITELIST_LOCK_TOKENS: typ.Final = (".skylos-whitelist.lock",)
+_TYPECHECK_COMMAND_PREFIX: typ.Final = ("$(UV)", "run", "ty", "check")
+_TYPECHECK_FIRST_EXTRA_PATHS: typ.Final = (
+    ".",
+    ".github/actions/generate-coverage/scripts",
+    ".github/actions/ratchet-coverage/scripts",
+    ".github/actions/rust-build-release",
+    ".github/actions/rust-build-release/src",
+    ".github/actions/linux-packages",
+    ".github/actions/linux-packages/scripts",
+    ".github/actions/windows-package",
+    ".github/actions/windows-package/scripts",
+    ".github/actions/setup-rust/scripts",
+    ".github/actions/install-mdtablefix/tests",
+    ".github/actions/install-makeutil/scripts",
+    ".github/actions/install-makeutil/tests",
+)
+_TYPECHECK_FIRST_SOURCE_PATHS: typ.Final = (
+    "cmd_utils.py",
+    "composite_fragments.py",
+    ".github/actions/generate-coverage/scripts",
+    ".github/actions/ratchet-coverage/scripts",
+    ".github/actions/linux-packages/scripts",
+    ".github/actions/rust-build-release/src",
+    ".github/actions/setup-rust/scripts",
+    ".github/actions/install-mdtablefix/tests",
+    ".github/actions/install-makeutil/scripts",
+    ".github/actions/install-makeutil/tests",
+    ".github/actions/windows-package/scripts",
+)
+_TYPECHECK_SECOND_EXTRA_PATHS: typ.Final = (
+    ".",
+    ".github/actions/macos-package/scripts",
+)
+_TYPECHECK_SECOND_SOURCE_PATHS: typ.Final = (".github/actions/macos-package/scripts",)
+_TYPECHECK_FIRST_EXTRA_PATH_TOKENS: typ.Final = tuple(
+    token
+    for path in _TYPECHECK_FIRST_EXTRA_PATHS
+    for token in ("--extra-search-path", path)
+)
+_TYPECHECK_SECOND_EXTRA_PATH_TOKENS: typ.Final = tuple(
+    token
+    for path in _TYPECHECK_SECOND_EXTRA_PATHS
+    for token in ("--extra-search-path", path)
+)
+_TYPECHECK_FIRST_RECIPE_TOKENS: typ.Final = (
+    _TYPECHECK_COMMAND_PREFIX
+    + _TYPECHECK_FIRST_EXTRA_PATH_TOKENS
+    + _TYPECHECK_FIRST_SOURCE_PATHS
+)
+_TYPECHECK_SECOND_RECIPE_TOKENS: typ.Final = (
+    _TYPECHECK_COMMAND_PREFIX
+    + _TYPECHECK_SECOND_EXTRA_PATH_TOKENS
+    + _TYPECHECK_SECOND_SOURCE_PATHS
+)
 _SKYLOS_LINT_TOKENS: typ.Final = (
     "$(SKYLOS)",
     "$(SKYLOS_PRODUCTION_TARGETS)",
@@ -86,9 +140,14 @@ _SKYLOS_LINT_TOKENS: typ.Final = (
     "--no-grep-verify",
 )
 _SKYLOS_WHITELIST_TOKENS: typ.Final = (
-    "flock",
+    "$(UV)",
+    "run",
+    "--no-project",
+    "python",
+    "$(SKYLOS_LOCK_HELPER)",
+    "--lock-file",
     "$(SKYLOS_WHITELIST_LOCK)",
-    "env",
+    "--",
     "$(SKYLOS_CLI)",
     "whitelist",
     "$${SKYLOS_SYMBOL}",
@@ -214,6 +273,11 @@ def _text_sequence(value: object, *, subject: str) -> tuple[str, ...]:
     return tuple(typ.cast("list[str]", value))
 
 
+def _normalize_make_text(value: str) -> str:
+    """Normalize Makeutil text before removing Make continuations."""
+    return value.replace("\r\n", "\n").replace("\\\n", "")
+
+
 def _makeutil_report() -> dict[str, object]:
     """Return Makeutil's complete Makefile parse report without caching it."""
     executable = shutil.which("makeutil")
@@ -260,7 +324,7 @@ def _variable_tokens(name: str) -> tuple[str, ...]:
     """Return shell-like tokens from Makeutil's raw variable value."""
     value = _sole_variable(name).get("raw_value")
     assert isinstance(value, str), f"expected {name!r} to have a string value"
-    return tuple(shlex.split(value.replace("\\\n", "")))
+    return tuple(shlex.split(_normalize_make_text(value)))
 
 
 def _recipe_tokens(target: str) -> tuple[tuple[str, ...], ...]:
@@ -269,7 +333,7 @@ def _recipe_tokens(target: str) -> tuple[tuple[str, ...], ...]:
         _sole_recipe_rule(target).get("recipes"), subject=f"{target} recipes"
     )
     return tuple(
-        tuple(shlex.split(recipe_text.replace("\\\n", "")))
+        tuple(shlex.split(_normalize_make_text(recipe_text)))
         for recipe in recipes
         if isinstance(recipe_text := recipe.get("text"), str)
     )
@@ -299,20 +363,25 @@ def _skylos_allow_environment(**values: str) -> dict[str, str]:
 
 
 def _isolated_skylos_allow_arguments(
-    directory: Path, *, skylos_cli: Path
+    directory: Path, *, skylos_cli: str
 ) -> tuple[str, ...]:
     """Build a whitelist command isolated from the repository configuration."""
     return (
         "-f",
         str(_REPOSITORY_ROOT / "Makefile"),
-        f"SKYLOS_CLI={skylos_cli.as_posix()}",
+        f"SKYLOS_CLI={skylos_cli}",
         f"SKYLOS_WHITELIST_LOCK={directory / '.skylos-whitelist.lock'}",
         "skylos-allow",
     )
 
 
+def _python_recorder_cli(script: Path) -> str:
+    """Return a shell-safe Python command for a recorder script."""
+    return shlex.join((Path(sys.executable).as_posix(), script.as_posix()))
+
+
 def _whitelist_process(
-    directory: Path, *, skylos_cli: Path, symbol: str, reason: str
+    directory: Path, *, skylos_cli: str, symbol: str, reason: str
 ) -> subprocess.Popen[str]:
     """Start one isolated documented-whitelist update."""
     executable = shutil.which("make")
@@ -374,7 +443,7 @@ def _assert_makeutil_installation(command: object, *, contract: str) -> None:
     """Assert that a workflow command installs the pinned Makeutil parser."""
     assert isinstance(command, str), f"{contract} must provide a shell command"
     assert (
-        tuple(shlex.split(command.replace("\\\n", ""))) == _MAKEUTIL_INSTALL_TOKENS
+        tuple(shlex.split(_normalize_make_text(command))) == _MAKEUTIL_INSTALL_TOKENS
     ), f"{contract} must install the pinned Makeutil revision and toolchain"
 
 
@@ -488,6 +557,48 @@ class TestSkylosLintContract:
             "and --reason"
         )
 
+    def test_makeutil_continuations_normalize_crlf_before_tokenizing(self) -> None:
+        """CRLF Makefile continuations must not leave carriage-return tokens."""
+        parsed_value = "first \\\r\n second"
+        normalized_tokens = tuple(shlex.split(_normalize_make_text(parsed_value)))
+
+        assert normalized_tokens == ("first", "second"), (
+            "Makeutil tokenization must normalize CRLF before joining continued lines"
+        )
+
+    def test_typecheck_recipes_preserve_commands_paths_and_sources(self) -> None:
+        """Both Ty invocations must retain their configured search and source paths."""
+        recipes = _recipe_tokens("typecheck")
+        assert len(recipes) == 2, (
+            "typecheck must have exactly two independent Ty recipe invocations"
+        )
+        assert recipes[0] == _TYPECHECK_FIRST_RECIPE_TOKENS, (
+            "the primary typecheck invocation must use UV run ty check with every "
+            "required search path and source path"
+        )
+        assert recipes[1] == _TYPECHECK_SECOND_RECIPE_TOKENS, (
+            "the macOS typecheck invocation must use UV run ty check with its "
+            "required search path and source path"
+        )
+
+    def test_makeutil_target_reports_a_missing_parser_executable(self) -> None:
+        """The Makeutil prerequisite must explain how to provision a missing binary."""
+        with TemporaryDirectory() as temporary_directory:
+            missing_executable = Path(temporary_directory) / "makeutil-not-installed"
+            returncode, _stdout, stderr = _make_command(
+                f"MAKEUTIL={missing_executable}",
+                "makeutil",
+                environment=_skylos_allow_environment(),
+            )
+
+        assert returncode != 0, (
+            "the makeutil target must fail when its configured executable is absent"
+        )
+        assert (
+            "Error: makeutil is required; install the pinned parser documented in "
+            "docs/developers-guide.md"
+        ) in stderr, "the makeutil target must print its parser installation diagnostic"
+
     @settings(max_examples=25, deadline=None)
     @given(value=st.text(alphabet=" \t", min_size=1, max_size=8))
     def test_skylos_allow_rejects_missing_or_whitespace_values(
@@ -566,7 +677,9 @@ class TestSkylosLintContract:
                 REASON=reason,
             )
             returncode, _stdout, stderr = _make_command(
-                *_isolated_skylos_allow_arguments(directory, skylos_cli=recorder),
+                *_isolated_skylos_allow_arguments(
+                    directory, skylos_cli=_python_recorder_cli(recorder)
+                ),
                 environment=environment,
                 working_directory=directory,
             )
@@ -611,13 +724,13 @@ class TestSkylosLintContract:
             writer.chmod(0o755)
             first = _whitelist_process(
                 directory,
-                skylos_cli=writer,
+                skylos_cli=_python_recorder_cli(writer),
                 symbol="first",
                 reason="first reason",
             )
             second = _whitelist_process(
                 directory,
-                skylos_cli=writer,
+                skylos_cli=_python_recorder_cli(writer),
                 symbol="second",
                 reason="second reason",
             )

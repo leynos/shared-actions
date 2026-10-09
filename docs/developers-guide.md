@@ -115,6 +115,13 @@ argument, placed before `--branch`, in the slipcover command that
 `coverage_cmd_for_fmt` builds. `main` then runs slipcover, parses coverage, and
 writes `GITHUB_OUTPUT`.
 
+The pure `_parse_pytest_workers(raw)` helper replaces the former
+`_normalize_pytest_workers` wrapper: it returns the normalized worker value and
+raises `ValueError` for invalid input. CLI callers translate that exception to
+their own command-line diagnostic. The removed `detect_host_target` helper is
+not a supported runtime API; callers needing the platform-derived Rust host
+default should use `runtime.DEFAULT_HOST_TARGET`.
+
 ### `python-source` validation
 
 `main` reads the scope from its `--python-source` option or, failing that,
@@ -236,10 +243,10 @@ Both values must contain non-whitespace text. `SYMBOL` avoids WSL's injected
 hostname `NAME` environment variable. The target passes the subcommand before
 scan options as `skylos whitelist <symbol> --reason <reason>`. Do not add
 baselines, bulk exceptions, or unreasoned allow-list entries. Remove an
-allow-list entry when its dynamic boundary disappears. The ignored
-`.skylos-whitelist.lock` serializes the helper's `flock`-guarded
-read-modify-write update so concurrent verified exceptions cannot overwrite one
-another.
+allow-list entry when its dynamic boundary disappears. The helper holds the
+ignored `.skylos-whitelist.lock` through the complete whitelist update using a
+cross-platform Python lock helper, so concurrent verified exceptions cannot
+overwrite one another.
 
 The Skylos contract test parses the Makefile with Makeutil and checks the
 argument boundary with a non-mutating executable recorder. `make test` requires
@@ -2074,6 +2081,12 @@ returns a `StageResult`. The CLI owns infrastructure concerns: it reads
 `GITHUB_WORKSPACE` and `GITHUB_OUTPUT`, emits GitHub Actions warning
 annotations for skipped optional artefacts, and writes workflow outputs.
 
+The supported staging interface is `stage_artefacts(config, ...)`, which
+returns a `StageResult`; the former `StagedArtefact` type and
+`_iter_staged_artefacts` helper have been removed. The
+`_binstall_template_context(metadata, base_context)` function is an internal
+template-building helper, not a public staging API.
+
 `stage_common.config.load_config` requires callers to pass the workspace
 explicitly via `workspace=...`; it no longer reads `GITHUB_WORKSPACE` itself.
 This keeps configuration loading independent from the process environment. The
@@ -2268,6 +2281,8 @@ Internals for maintainers:
   formats are unstable; a version bump must be paired with a parser check
   (`outcomes.json` fields for cargo-mutants; the `mutmut results --all true`
   line format for mutmut).
+- `scoped_run_matrix(buckets)` receives the bucket mapping directly. The
+  `DetectionConfig` type remains in use for the full-run and detection paths.
 - The workflow checkout has a lifecycle, and both halves of it matter. Each
   job checks the workflow repository out into `workflow-src/` inside the
   caller's workspace, then relocates it to `$RUNNER_TEMP` before any mutation
@@ -2893,6 +2908,10 @@ every credited login must be in `DEPENDABOT_LOGINS`, and the credit list must
 have been read to its end. `audit_whole_branch`, in `dependabot_github.py`,
 pages the connection to its end before applying this rule, and is the
 production path.
+
+The former `audit_commits` wrapper has been removed. Use `commit_page` to parse
+one GraphQL page, `foreign_commits` to apply the authorship rule, and
+`audit_whole_branch` for the production whole-branch read and audit.
 
 ### The GitHub transport boundary
 

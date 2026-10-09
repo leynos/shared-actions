@@ -155,7 +155,7 @@ runs:
       # owns its own build directory no longer pays for a duplicate upload.
       # tests/test_setup_rust_reference.py pins the expected SHA; update it in
       # the same change.
-      uses: leynos/shared-actions/.github/actions/setup-rust@14eb66098248084fe8072da519dda6fec2745df2
+      uses: leynos/shared-actions/.github/actions/setup-rust@5bc2b2611f5921ef2c56e4ee3fde2b879a319361
       with:
         toolchain: ${{ env.RBR_TOOLCHAIN }}
         cache-provider: ${{ inputs.cache-provider }}

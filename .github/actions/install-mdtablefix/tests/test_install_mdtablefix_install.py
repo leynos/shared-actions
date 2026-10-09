@@ -14,7 +14,13 @@ from _mdtablefix_manifest import (
     SUPPORTED_PLATFORMS,
     UNSUPPORTED_PLATFORMS,
 )
-from _mdtablefix_scenarios import Scenario, ScenarioResult, run_scenario
+from _mdtablefix_scenarios import (
+    Scenario,
+    ScenarioResult,
+    cached_digest,
+    installed_digest,
+    run_scenario,
+)
 
 from composite_fragments import require_posix_host
 
@@ -39,6 +45,16 @@ def _assert_only_metric(result: ScenarioResult, expected: str) -> None:
     assert result.metrics() == (expected,), (
         f"expected only {expected!r}, got {result.metrics()}"
     )
+
+
+def _assert_only_metric_result(result: ScenarioResult, expected: str) -> None:
+    """Assert ``expected`` is the only outcome metric the run emitted."""
+    results = [
+        line
+        for line in result.metrics()
+        if line.startswith("install-mdtablefix.result=")
+    ]
+    assert results == [expected], f"expected only {expected!r}, got {results}"
 
 
 def _assert_annotated(result: ScenarioResult) -> None:
@@ -338,3 +354,210 @@ def test_unsupported_platform_ignores_a_cached_executable(tmp_path: Path) -> Non
         f"a cached executable rescued an unsupported platform: {result.stderr}"
     )
     _assert_only_metric(result, "install-mdtablefix.result=no-prebuilt")
+
+
+_PUBLISHED_ASSETS = {
+    "Linux:X64": "mdtablefix-linux-x86_64",
+    "Linux:ARM64": "mdtablefix-linux-aarch64",
+    "macOS:X64": "mdtablefix-macos-x86_64",
+    "macOS:ARM64": "mdtablefix-macos-aarch64",
+    "Windows:X64": "mdtablefix-windows-x86_64.exe",
+}
+
+
+class TestChecksumVerification:
+    """Validate the comparison with the checksum the release publishes."""
+
+    def test_reports_a_verified_install(self, tmp_path: Path) -> None:
+        """Verify a matching digest is reported beside the install result."""
+        result = run_scenario(Scenario(tmp_path=tmp_path))
+
+        _assert_installed(result, "0.5.1")
+        _assert_metric(result, "install-mdtablefix.checksum=published")
+        assert "Verify mdtablefix checksum" in result.executed(), (
+            f"the checksum step did not run: {result.executed()}"
+        )
+
+    @pytest.mark.parametrize("platform", SUPPORTED_PLATFORMS)
+    def test_fetches_the_digest_published_for_the_platform(
+        self,
+        tmp_path: Path,
+        platform: str,
+    ) -> None:
+        """Verify each platform is checked against its own bare asset."""
+        runner_os, _, runner_arch = platform.partition(":")
+        result = run_scenario(
+            Scenario(tmp_path=tmp_path, runner_os=runner_os, runner_arch=runner_arch),
+        )
+
+        expected = (
+            "https://github.com/leynos/mdtablefix/releases/download/v0.5.1/"
+            f"{_PUBLISHED_ASSETS[platform]}.sha256"
+        )
+        assert expected in result.curl_log, (
+            f"expected a request for {expected}, got {result.curl_log!r}"
+        )
+        assert "--proto =https" in result.curl_log, (
+            f"the download must be HTTPS only: {result.curl_log!r}"
+        )
+
+    def test_fails_when_the_digest_differs_and_removes_the_executable(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify an executable that fails verification is neither used nor kept."""
+        result = run_scenario(Scenario(tmp_path=tmp_path, checksum="mismatch"))
+
+        assert result.returncode == 1, f"a digest mismatch passed: {result.stderr}"
+        _assert_annotated(result)
+        assert "does not match the published" in result.stderr, (
+            f"the mismatch was not explained: {result.stderr!r}"
+        )
+        _assert_only_metric_result(result, "install-mdtablefix.result=checksum-failed")
+        _assert_nothing_installed(result)
+        assert "Verify mdtablefix" not in result.executed(), (
+            f"the version check ran on an unverified executable: {result.executed()}"
+        )
+
+    @pytest.mark.parametrize("checksum", ["unreachable", "malformed"])
+    def test_fails_closed_without_a_usable_published_digest(
+        self,
+        tmp_path: Path,
+        checksum: str,
+    ) -> None:
+        """Verify no published digest means no install, never a skipped check."""
+        result = run_scenario(Scenario(tmp_path=tmp_path, checksum=checksum))
+
+        assert result.returncode == 1, f"{checksum} digest passed: {result.stderr}"
+        _assert_annotated(result)
+        _assert_only_metric_result(result, "install-mdtablefix.result=checksum-failed")
+
+    def test_removes_the_executable_when_no_digest_could_be_obtained(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify an unverifiable executable is not left on PATH."""
+        for checksum in ("unreachable", "malformed"):
+            result = run_scenario(
+                Scenario(tmp_path=tmp_path / checksum, checksum=checksum)
+            )
+
+            _assert_nothing_installed(result)
+
+    def test_a_pinned_digest_replaces_the_published_one(self, tmp_path: Path) -> None:
+        """Verify a caller's digest is checked without any download."""
+        scenario = Scenario(tmp_path=tmp_path)
+        pinned = Scenario(tmp_path=tmp_path, sha256=installed_digest(scenario).upper())
+        result = run_scenario(pinned)
+
+        _assert_installed(result, "0.5.1")
+        _assert_metric(result, "install-mdtablefix.checksum=pinned")
+        assert result.curl_log == "", (
+            f"a pinned digest must not fetch the published one: {result.curl_log!r}"
+        )
+
+    def test_a_pinned_digest_wins_over_a_matching_published_one(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify the pin is authoritative: the release's digest cannot rescue it."""
+        result = run_scenario(Scenario(tmp_path=tmp_path, sha256="0" * 64))
+
+        assert result.returncode == 1, f"a wrong pinned digest passed: {result.stderr}"
+        assert "does not match the pinned" in result.stderr, (
+            f"the mismatch was not attributed to the pin: {result.stderr!r}"
+        )
+        _assert_only_metric_result(result, "install-mdtablefix.result=checksum-failed")
+        _assert_nothing_installed(result)
+        assert result.curl_log == "", f"the pin fetched a digest: {result.curl_log!r}"
+
+    @pytest.mark.parametrize("value", ["abc", "g" * 64, "0" * 63, "0" * 65])
+    def test_refuses_a_malformed_pinned_digest(
+        self,
+        tmp_path: Path,
+        value: str,
+    ) -> None:
+        """Verify a bad ``sha256`` input is refused before anything runs."""
+        result = run_scenario(Scenario(tmp_path=tmp_path, sha256=value))
+
+        assert result.returncode == 1, f"{value!r} was accepted: {result.stderr}"
+        _assert_only_metric(result, "install-mdtablefix.result=invalid-input")
+        assert result.cargo_log == "", f"{value!r} reached cargo"
+
+    def test_the_digest_download_is_https_tls12_and_retried_once_per_run(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify the request flags and that exactly one request is made."""
+        result = run_scenario(Scenario(tmp_path=tmp_path))
+
+        requests = result.curl_log.splitlines()
+        assert len(requests) == 1, f"expected one request, got {requests}"
+        for flag in ("--fail", "--proto =https", "--tlsv1.2", "--retry 3"):
+            assert flag in requests[0], f"missing {flag!r} in {requests[0]!r}"
+
+    def test_a_failing_hash_tool_fails_closed_and_removes_the_executable(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify a hash command that errors reaches the checksum-failed boundary."""
+        result = run_scenario(Scenario(tmp_path=tmp_path, sha256sum_fails=True))
+
+        assert result.returncode == 1, f"a hashing failure passed: {result.stderr}"
+        _assert_annotated(result)
+        _assert_only_metric_result(result, "install-mdtablefix.result=checksum-failed")
+        _assert_nothing_installed(result)
+
+    def test_a_cached_executable_matching_the_pin_is_used(self, tmp_path: Path) -> None:
+        """Verify the pin is checked on a cache hit, and a match stays cached."""
+        base = Scenario(tmp_path=tmp_path, cached_version="0.5.1")
+        result = run_scenario(
+            Scenario(
+                tmp_path=tmp_path, cached_version="0.5.1", sha256=cached_digest(base)
+            ),
+        )
+
+        _assert_only_metric(result, "install-mdtablefix.result=cached")
+        assert result.cargo_log == "", (
+            f"a pinned cache hit reinstalled: {result.cargo_log!r}"
+        )
+
+    def test_a_cached_executable_not_matching_the_pin_is_replaced(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify an unpinned cached executable is not run, and is reinstalled."""
+        pinned = installed_digest(Scenario(tmp_path=tmp_path))
+        result = run_scenario(
+            Scenario(
+                tmp_path=tmp_path,
+                cached_output="mdtablefix 0.5.1\nbuilt elsewhere",
+                sha256=pinned,
+            ),
+        )
+
+        _assert_installed(result, "0.5.1")
+        _assert_metric(result, "install-mdtablefix.checksum=pinned")
+        assert result.cargo_log != "", "a cached executable that failed the pin stayed"
+
+    def test_a_cache_hit_downloads_nothing(self, tmp_path: Path) -> None:
+        """Verify the cached path fetches no checksum and reports none."""
+        result = run_scenario(Scenario(tmp_path=tmp_path, cached_version="0.5.1"))
+
+        assert result.curl_log == "", f"a cache hit called curl: {result.curl_log!r}"
+        _assert_only_metric(result, "install-mdtablefix.result=cached")
+
+    def test_leaves_a_missing_executable_to_the_version_check(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify "installed nothing" keeps its single, existing outcome."""
+        result = run_scenario(
+            Scenario(tmp_path=tmp_path, install_creates_executable=False),
+        )
+
+        assert result.returncode == 1, "an install that wrote nothing passed"
+        _assert_only_metric_result(result, "install-mdtablefix.result=version-mismatch")
+        assert result.curl_log == "", (
+            f"nothing installed, so nothing to verify: {result.curl_log!r}"
+        )

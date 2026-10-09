@@ -36,7 +36,7 @@ class TestInputs:
         """Verify every input, its requirement, and its default."""
         inputs = typ.cast("dict[str, dict[str, object]]", load_manifest()["inputs"])
 
-        assert list(inputs) == ["version", "binstall-version", "bin-dir"], (
+        assert list(inputs) == ["version", "binstall-version", "sha256", "bin-dir"], (
             f"the input table changed: {list(inputs)}"
         )
         # Optional with a default from 0.5.1: the action supports exactly one
@@ -53,6 +53,10 @@ class TestInputs:
         )
         assert inputs["binstall-version"]["default"] == BINSTALL_ACTION_VERSION, (
             "the default binstall-version must match the pinned release"
+        )
+        assert inputs["sha256"]["required"] is False, "sha256 must stay optional"
+        assert inputs["sha256"]["default"] == "", (
+            "an empty sha256 means the release's published digest is used"
         )
         assert inputs["bin-dir"]["required"] is False, "bin-dir must stay optional"
         assert inputs["bin-dir"]["default"] == "~/.local/bin", (

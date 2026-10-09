@@ -71,6 +71,7 @@ _SKYLOS_PRODUCTION_TARGET_TOKENS: typ.Final = (
 )
 _SKYLOS_EXCLUDE_TOKENS: typ.Final = ("tests",)
 _SKYLOS_WHITELIST_LOCK_TOKENS: typ.Final = (".skylos-whitelist.lock",)
+_UV_SHELL_TOKENS: typ.Final = ("$(subst", ",/,$(UV))")
 _TYPECHECK_COMMAND_PREFIX: typ.Final = ("$(UV)", "run", "ty", "check")
 _TYPECHECK_FIRST_EXTRA_PATHS: typ.Final = (
     ".",
@@ -140,7 +141,7 @@ _SKYLOS_LINT_TOKENS: typ.Final = (
     "--no-grep-verify",
 )
 _SKYLOS_WHITELIST_TOKENS: typ.Final = (
-    "$(UV)",
+    "$(UV_SHELL)",
     "run",
     "--no-project",
     "python",
@@ -363,12 +364,13 @@ def _skylos_allow_environment(**values: str) -> dict[str, str]:
 
 
 def _isolated_skylos_allow_arguments(
-    directory: Path, *, skylos_cli: str
+    directory: Path, *, skylos_cli: str, uv_launcher: Path
 ) -> tuple[str, ...]:
     """Build a whitelist command isolated from the repository configuration."""
     return (
         "-f",
         str(_REPOSITORY_ROOT / "Makefile"),
+        f"UV={_windows_style_path(uv_launcher)}",
         f"SKYLOS_CLI={skylos_cli}",
         f"SKYLOS_WHITELIST_LOCK={directory / '.skylos-whitelist.lock'}",
         "skylos-allow",
@@ -380,8 +382,35 @@ def _python_recorder_cli(script: Path) -> str:
     return shlex.join((Path(sys.executable).as_posix(), script.as_posix()))
 
 
+def _windows_style_path(path: Path) -> str:
+    """Return a Windows-separated spelling to exercise Make shell normalization."""
+    return str(path).replace("/", "\\")
+
+
+def _uv_passthrough_launcher(directory: Path) -> Path:
+    """Create an executable uv stand-in that launches the requested Python command."""
+    launcher = directory / "uv-launcher"
+    launcher.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os\n"
+        "import sys\n\n"
+        "arguments = sys.argv[1:]\n"
+        "if arguments[:3] != ['run', '--no-project', 'python']:\n"
+        "    raise SystemExit('unexpected uv arguments')\n"
+        "os.execv(sys.executable, [sys.executable, *arguments[3:]])\n",
+        encoding="utf-8",
+    )
+    launcher.chmod(0o755)
+    return launcher
+
+
 def _whitelist_process(
-    directory: Path, *, skylos_cli: str, symbol: str, reason: str
+    directory: Path,
+    *,
+    skylos_cli: str,
+    uv_launcher: Path,
+    symbol: str,
+    reason: str,
 ) -> subprocess.Popen[str]:
     """Start one isolated documented-whitelist update."""
     executable = shutil.which("make")
@@ -390,7 +419,9 @@ def _whitelist_process(
         [
             executable,
             "--no-print-directory",
-            *_isolated_skylos_allow_arguments(directory, skylos_cli=skylos_cli),
+            *_isolated_skylos_allow_arguments(
+                directory, skylos_cli=skylos_cli, uv_launcher=uv_launcher
+            ),
         ],
         cwd=directory,
         env=_skylos_allow_environment(SYMBOL=symbol, REASON=reason),
@@ -544,6 +575,10 @@ class TestSkylosLintContract:
         self,
     ) -> None:
         """The exception target must not place scan options before ``whitelist``."""
+        assert _variable_tokens("UV_SHELL") == _UV_SHELL_TOKENS, (
+            "the skylos-allow launcher must normalize Windows executable paths "
+            "for the POSIX shell"
+        )
         assert (
             _variable_tokens("SKYLOS_WHITELIST_LOCK") == _SKYLOS_WHITELIST_LOCK_TOKENS
         ), "Skylos whitelist updates must use the repository-local lock path"
@@ -671,6 +706,7 @@ class TestSkylosLintContract:
                 encoding="utf-8",
             )
             recorder.chmod(0o755)
+            uv_launcher = _uv_passthrough_launcher(directory)
             environment = _skylos_allow_environment(
                 SKYLOS_ARGUMENTS_PATH=str(recorded_arguments),
                 SYMBOL=symbol,
@@ -678,7 +714,9 @@ class TestSkylosLintContract:
             )
             returncode, _stdout, stderr = _make_command(
                 *_isolated_skylos_allow_arguments(
-                    directory, skylos_cli=_python_recorder_cli(recorder)
+                    directory,
+                    skylos_cli=_python_recorder_cli(recorder),
+                    uv_launcher=uv_launcher,
                 ),
                 environment=environment,
                 working_directory=directory,
@@ -722,15 +760,18 @@ class TestSkylosLintContract:
                 encoding="utf-8",
             )
             writer.chmod(0o755)
+            uv_launcher = _uv_passthrough_launcher(directory)
             first = _whitelist_process(
                 directory,
                 skylos_cli=_python_recorder_cli(writer),
+                uv_launcher=uv_launcher,
                 symbol="first",
                 reason="first reason",
             )
             second = _whitelist_process(
                 directory,
                 skylos_cli=_python_recorder_cli(writer),
+                uv_launcher=uv_launcher,
                 symbol="second",
                 reason="second reason",
             )

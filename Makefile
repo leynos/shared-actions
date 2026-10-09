@@ -29,6 +29,7 @@ MDTABLEFIX_RULES = --wrap --renumber --breaks --ellipsis --fences
 NIXIE ?= nixie
 RUFF_FIX_RULES ?= D202,I001
 UV ?= $(if $(wildcard $(HOME)/.local/bin/uv),$(HOME)/.local/bin/uv,uv)
+UV_SHELL = $(subst \,/,$(UV))
 UV_ENV = UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools
 WHITAKER ?= $(if $(wildcard $(HOME)/.local/bin/whitaker),$(HOME)/.local/bin/whitaker,whitaker)
 TYPOS_CONFIG_BUILDER_VERSION ?= v0.1.3
@@ -115,7 +116,7 @@ skylos-allow: ## Document one named Skylos exception, not an entry point
 	@case "$${SKYLOS_SYMBOL}" in *[![:space:]]*) ;; *) printf "Error: SYMBOL is required for a named whitelist exception\\n" >&2; exit 2;; esac
 	@case "$${SKYLOS_SYMBOL}" in *\**|*\?*|*\[*) printf "Error: SYMBOL must not contain wildcard characters (*, ?, or [)\\n" >&2; exit 2;; esac
 	@case "$${SKYLOS_REASON}" in *[![:space:]]*) ;; *) printf "Error: REASON is required for a named whitelist exception\\n" >&2; exit 2;; esac
-	$(UV) run --no-project python "$(SKYLOS_LOCK_HELPER)" \
+	$(UV_SHELL) run --no-project python "$(SKYLOS_LOCK_HELPER)" \
 		--lock-file "$(SKYLOS_WHITELIST_LOCK)" -- \
 		$(SKYLOS_CLI) whitelist "$${SKYLOS_SYMBOL}" --reason "$${SKYLOS_REASON}"
 

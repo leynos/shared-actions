@@ -180,6 +180,8 @@ names = [
 ]
 
 [tool.skylos.whitelist.documented]
+"DownloadError" = "The production HTTPS downloader raises DownloadError and the installer catches its MakeutilError base to return the download-failed action result."
+"outputs" = "The install-makeutil resolve command publishes InstallPlan.outputs for downstream cache and install steps; Skylos matches documented exceptions by simple name."
 "DEPENDABOT_LOGINS" = "Production Dependabot code references this name across conditional import modes that Skylos cannot resolve."
 "handler_order" = "urllib uses this attribute to order the redirect rejection handler before standard handlers."
 "DISABLE_AUTOMERGE_MUTATION" = "Production Dependabot code references this name across conditional import modes that Skylos cannot resolve."

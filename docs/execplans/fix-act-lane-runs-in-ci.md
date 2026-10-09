@@ -1019,3 +1019,175 @@ on the same stack. This session owns the bottom branch; a peer session owns the
 top branch and the merge, and neither touches the other's layer. The top is
 untouched at `55b385b3` and will be replayed by its owner with boundary
 `e69c4e80` once the bottom's push is verified.
+
+### F16 — an inline `VAR=value` recipe prefix hands the line to a shell
+
+The F15 head turned `python-tests-windows` red in 3m59s while every other job
+stayed green, including `python-tests (macos)` and the lane itself. The failing
+assertion was main's `test_doctest_target.py`:
+
+```text
+E  AssertionError: /usr/bin/sh: line 1:
+   C:UsersrunneradminAppDataLocalTemppytest-of-runneradminpytest-0test_...uv-stub:
+   command not found
+E    make: *** [Makefile:87: test] Error 127
+```
+
+Note the path: `C:Usersrunneradmin...`. The backslashes are gone. The test
+passes `UV=C:\Users\runneradmin\AppData\Local\Temp\...\uv-stub` as a
+command-line override, exactly as it does on `main`, where this same job is
+green at `69f9c29d`.
+
+**The mechanism.** GNU Make execs a recipe's command directly when the line is
+a bare command, and passes it to a shell when the line is anything else —
+including a leading inline assignment. `$(UV) run ...` takes the direct path,
+so the `UV` path arrives intact. `ACT_WORKFLOW_TESTS=0 $(UV) run ...` cannot be
+exec'd directly, so make hands the line to `/usr/bin/sh`, and that shell eats
+the backslashes. Make has no Windows-specific special case here: the
+`SHELL`/`sh.exe` handling applies to the shell it *does* invoke. The union at
+`ea428571` introduced the prefix into a line that `main` had kept bare, which
+is why a job that was green on `main` went red on the branch.
+
+The reproduction that isolates it, on a Linux make, is the shell-mangling
+itself: a recipe line beginning `ACT_WORKFLOW_TESTS=0 python3 … C:\Users\ru\x`
+reaches the child as `C:Usersrux`. On Linux this is invisible, because the
+direct-exec and shell paths both mangle identically and both succeed; only a
+Windows `UV` path exposes the difference. **No local Linux gate can confirm the
+fix. The decisive evidence is the Windows CI leg after the push.**
+
+**The fix, and why it is not the obvious one.** The obvious form is the one the
+documentation offers — `test: export override ACT_WORKFLOW_TESTS := 0` — and it
+is what a peer session proposed and validated on GNU Make 4.4. It is wrong
+here. Make **3.81**, which is what macOS ships as `/usr/bin/make`, rejects a
+target-specific assignment carrying both keywords:
+
+```text
+Makefile:5: *** multiple target patterns.  Stop.
+```
+
+Verified against a locally built 3.81, and against the real Makefile: the file
+fails to parse at all, so *every* target on macOS dies — including the
+`test_doctest_target.py` suite that made this job red on Windows in the first
+place. That trades one platform's failure for another's. Make 3.81 accepts
+`export` **or** `override` on a target line, never both.
+
+The portable shape splits them: `export` as a global directive, `override` on
+the target, and a bare recipe line.
+
+```make
+export ACT_WORKFLOW_TESTS
+test: override ACT_WORKFLOW_TESTS := 0
+test: .venv doctest ## Run tests, docstring examples first
+	$(UV) run --with typer … pytest -n auto --dist worksteal -v
+```
+
+`test-act` gets the same treatment (`export ACT := $(ACT)` and
+`override ACT_WORKFLOW_TESTS := 1` on the target, bare `$(UV)` line), so the
+lane's line stops being a shell line too. Behaviour was checked on **both**
+makes (3.81 and 4.4.1) across all four opt-in paths — plain, command-line
+`ACT_WORKFLOW_TESTS=1`, command-line `WITH_ACT=1`, and an inherited environment
+`ACT_WORKFLOW_TESTS=1`: the plain child always sees `0`, the lane child always
+sees `1` with the resolved `ACT`, and the lane still runs for every opt-in. The
+plain recipe line is now byte-identical to the one `main` runs green on Windows.
+
+`tests/workflows/test_makefile_act_lane_runs_once.py` was rewritten to hold the
+new mechanism, since it had been reading the old one off the recipe line — a
+contract on the shape that caused the bug would have passed while the bug
+shipped. It now asserts the plain target forces the gate off with `override`
+and can export it, the lane forces it on, the two disagree, **every recipe line
+starts with a non-assignment word** (the Windows property, stated directly),
+and no target line combines `export` with `override` (the 3.81 property). Eight
+mutations were checked against it, including the peer's combined-keyword form
+and a reinstated inline prefix; all eight fail at least one contract.
+
+**A second finding, unrelated to the lane: `tests/*.py` is collected by
+nothing, and wiring it in is not a one-line fix.** `pytest.ini`'s `testpaths`
+names `.github/actions`, `workflow_scripts/tests` and `tests/workflows`; the
+four modules directly in `tests/` are in none of them, so they run nowhere —
+not in `make test`, not in the CI coverage job, not on either platform leg.
+Three of the four fail when run directly: two in `test_cmd_utils.py` (a
+`bytearray` payload that decodes to `"bytearray(b'chunk')"` rather than
+`"chunk"`, and a non-UTF-8 stderr case) and
+`test_makefile_typecheck.py::test_typecheck_target_passes_project_venv_to_both_ty_invocations`
+(the `typecheck` recipe grew `install-mdtablefix`/`install-makeutil` search
+paths and targets after the contract's expected list was written). All three
+are pre-existing on `origin/main`; none is caused by this branch, and
+`test_makefile_typecheck.py` behaves identically against the unmodified
+`origin/main` Makefile.
+
+The obvious repair — add `tests` to `testpaths` — does not work yet, for two
+independent reasons, each confirmed by running it:
+
+- `tests/test_cmd_utils.py` and
+  `.github/actions/generate-coverage/tests/test_cmd_utils.py` are both
+  collected, share a basename, and neither directory is a package (no
+  `__init__.py`), so pytest aborts the whole run at import:
+
+  ```text
+  import file mismatch: imported module 'test_cmd_utils' has this
+  __file__ attribute: …tests/test_cmd_utils.py, which is not the same
+  as the test file we want to collect: …generate-coverage/tests/…
+  ```
+
+  That is a collection error on `make test` and on every CI leg, not a mere
+  test failure. Either basename has to change or one of the directories has to
+  become a package, and the fix has to land *with* the `testpaths` change or it
+  is worse than the status quo.
+- `tests/test_makefile_typecheck.py` and
+  `tests/workflows/test_doctest_target.py` both run `make` for real. The latter
+  is already in `testpaths`, so it already runs on the Windows leg, and if it
+  is green there the same holds for the former; that part would probably be
+  fine, but it is exactly the surface F16 shows is risky, so it wants its own
+  record rather than being folded in.
+
+So this is a genuine follow-up rather than something to repair inside the
+Windows fix: it needs a basename or package decision, two decode repairs, a
+regenerated `typecheck` expectation, and a Windows run to confirm the
+make-dependent modules behave there — a footprint that would bury an 11-line
+Makefile fix. Recorded here so it is not lost; not attempted here.
+
+### The ninth pass: the review's pre-merge checks
+
+CodeRabbit's pre-merge checks on #583 were holding the PR at
+`CHANGES_REQUESTED` with one error and three warnings. Each was verified
+against the code before being acted on; all four were genuine, and all four
+were inside this stack's own ranges rather than pre-existing.
+
+**The error — `github_repository` had no test.** `composite_fragments.py`
+gained the field and the `github.repository` arm of `ActionContext.resolve` in
+this range (it is absent on `origin/main`), but nothing exercised either. The
+contract module grew a `github.repository` row in the parametrized resolution
+table and a case for the undeclared default, which is the one a manifest reading
+`${{ github.repository }}` without declaring the `env` key gets: an empty
+string, as a runner substitutes. `resolve-workflow-source` declares it, so the
+empty default is the behaviour worth pinning.
+
+**The warnings.** The `install-tool` and lane documentation existed but not
+where the checker reads: `docs/developers-guide.md` gained a maintainer-facing
+section on the lane's Makefile interface (`test-act`, `WITH_ACT`,
+`ACT_WORKFLOW_TESTS`, the `ACT` override, and why the gate rides on the target
+rather than the recipe), and `docs/users-guide.md` gained the `version-lead`
+behaviour plus act in the manifest's list. The property warning was the
+substantive one: the `runs-on` classifier gained a Hypothesis test asserting
+the independent rule directly — accepted exactly when the labels named are
+non-empty and all Linux — with a separate case for the empty-label boundary,
+which is the one the property test cannot generate its way to.
+
+**What the mutation check caught in my own work.** Six mutations were run
+against the new tests. Five failed a contract immediately; the fourth — the
+forwarded `UV_PROJECT_ENVIRONMENT` clobbering a case's own `container_env` —
+passed, because the case I had written set `RUSTUP_PERMIT_COPY_RENAME` in the
+host environment, and the forwarding only ever reads `UV_PROJECT_ENVIRONMENT`.
+The test was vacuous: it could not have failed for any implementation. It was
+rewritten to exercise the variable the forwarding actually touches, and the
+same mutation then failed it. A test that pins an ordering has to use the
+operands that ordering is about.
+
+**Two gate failures, both mine, both in the contract file.** `make check-fmt`
+wanted an `assert` collapsed onto one line, and `make lint` wanted `r"""` on
+the two docstrings carrying a literal `C:\...`. Both were introduced by the
+rewrite on this branch; the `HEAD` version of the file passed both gates. A
+first gate run was discarded because I edited the tree underneath it — the
+`make test` it produced never saw five of the seven changed files — so the
+whole set was re-run against a frozen tree. The lesson is cheap and worth
+keeping: freeze the tree, then gate, not the other way round.

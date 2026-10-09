@@ -2202,6 +2202,41 @@ same thing. `PATHEXT` is separated by semicolons on Windows whatever
 rather than borrowed from the platform, and the tests pin `PATHEXT` rather than
 inheriting it so the outcome does not depend on the developer's shell.
 
+### Running the lane from the Makefile
+
+`make test-act` runs the act fixtures by themselves; `make test WITH_ACT=1`
+runs them first and then the ordinary suite. The lane is opt-in in both
+directions, and the two directions are separate variables so neither can be
+inherited into the other run by accident.
+
+| Variable             | Role                                                                                                                             |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `ACT_WORKFLOW_TESTS` | The canonical pytest-side gate. Truthy values are `1`, `true`, `TRUE`, `True`, `yes`, `YES`, `Yes`, `on`, `ON`, `On`.            |
+| `WITH_ACT`           | Make-side alias for the same opt-in, so the lane can be asked for by what it is: `make test WITH_ACT=1`.                         |
+| `ACT`                | The act binary the lane invokes. Defaults to `act` on `PATH`, or the first of `~/go/bin/act` and `~/.local/bin/act` that exists. |
+
+Three behaviours are worth knowing before changing the gate:
+
+- **The plain suite asserts the gate off, it does not merely leave it unset.**
+  `test` carries `override ACT_WORKFLOW_TESTS := 0`, so a command-line
+  `make test ACT_WORKFLOW_TESTS=1` cannot leak the opt-in into the default run.
+  That is a `WITH_ACT=1` request and nothing else.
+- **The lane asserts the gate on.** `test-act` carries
+  `override ACT_WORKFLOW_TESTS := 1` and `export ACT := $(ACT)`, so a
+  command-line `ACT_WORKFLOW_TESTS=0` cannot turn the lane's own gate off and
+  leave it exiting successfully without running anything.
+- **The gate lives on the target, never on the recipe line.** An inline
+  `VAR=value` prefix makes make run that line through a shell, and on Windows
+  the shell consumes the backslashes in a `UV=C:\...` path, so the binary is
+  not found. A bare `$(UV)` line takes make's direct-exec path instead. Make
+  3.81 — what macOS ships as `/usr/bin/make` — cannot parse `export` and
+  `override` together on one target line, which is why `export` is a global
+  directive and `override` stays on the target.
+
+`tests/workflows/test_makefile_act_lane_runs_once.py` holds all four shapes to
+that, and `tests/workflows/test_doctest_target.py` runs the real `make test`
+against a stub `uv` to confirm the doctest tier still precedes the suite.
+
 ### Skip Markers
 
 <!-- markdownlint-disable MD013 -->

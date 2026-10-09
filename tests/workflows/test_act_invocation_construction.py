@@ -19,6 +19,8 @@ from __future__ import annotations
 import typing as typ
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 from plumbum import CommandNotFound, local
 
 from . import _workflow_reading as reading
@@ -221,6 +223,176 @@ class TestGitRepositoryMount:
         assert _flag_values(args, "--container-options") == (
             [mount] if mount is not None else []
         ), "act is given one container option, and only when there is a mount"
+
+
+class TestPlatformClassificationIsTotal:
+    """Every `runs-on` expression is classified, and only the right ones pass.
+
+    The enumerated cases above pin the shapes this repository writes today.
+    What they cannot say is that the classifier has no gap between them: a
+    label the vocabulary has not seen yet, a comparison value that happens to
+    be spelled like nothing, or an expression with no quoted label at all
+    must all land on the refuse side rather than being accepted by omission.
+    The classifier decides whether act is given an image at all, and a job
+    accepted without one is skipped by act with an exit code of zero.
+
+    The rule is asserted directly rather than through a model of the
+    implementation: an expression is accepted only when the labels it names
+    are non-empty and every one of them is in the Linux vocabulary.
+    """
+
+    @given(
+        linux=st.lists(st.sampled_from(sorted(reading.RECOGNIZED_LINUX_LABELS))),
+        other=st.lists(st.sampled_from(sorted(reading.RECOGNIZED_OTHER_LABELS))),
+        compared=st.lists(
+            st.text(min_size=1, max_size=24).filter(
+                lambda value: value not in conftest._RUNNER_LABELS
+            ),
+            max_size=3,
+        ),
+    )
+    def test_only_expressions_of_linux_labels_are_accepted(
+        self,
+        linux: list[str],
+        other: list[str],
+        compared: list[str],
+    ) -> None:
+        """Acceptance is exactly non-empty, all-Linux label sets."""
+        # Interleaved rather than concatenated, so the position of a
+        # non-Linux label varies and an implementation that reads only the
+        # first quoted string is not accidentally correct.
+        quoted = [f"'{label}'" for label in (linux + other)]
+        if compared:
+            quoted.append(f"'{compared[0]}'")
+        expression = (
+            "${{ " + " || ".join(quoted) + " }}"
+            if quoted
+            else "${{ github.event_name }}"
+        )
+        names_linux = bool(linux)
+        names_other = bool(other)
+
+        expected = names_linux and not names_other
+        actual = conftest._resolves_to_one_platform({"runs-on": expression})
+
+        assert actual is expected, (
+            f"{expression!r} was {'accepted' if actual else 'refused'}; it "
+            f"names Linux labels {linux} and non-Linux labels {other}, so it "
+            f"must be {'accepted' if expected else 'refused'}"
+        )
+
+    def test_an_expression_naming_no_label_is_refused(self) -> None:
+        """An empty label set is refused, not vacuously accepted.
+
+        `all()` over an empty set is true, so a classifier that only checked
+        the subset relation would accept an expression naming nothing and
+        hand act no image for it. This is the boundary the property test
+        cannot reach, because it generates the labels from the vocabulary.
+        """
+        assert not conftest._resolves_to_one_platform(
+            {"runs-on": "${{ github.event_name }}"}
+        ), "an expression naming no runner label must not be accepted"
+
+
+class TestContainerEnvironment:
+    """The environment a fixture's container is started with.
+
+    `RUSTUP_PERMIT_COPY_RENAME` is the difference between `setup-rust`
+    installing its toolchain and aborting: the image bakes the toolchain into
+    an overlay lower layer, and rustup's in-place update is a rename across
+    layers, which overlayfs refuses with `Invalid cross-device link`. A case
+    that loses the variable fails for a reason no real runner has, and does
+    it twenty minutes into the lane.
+
+    `UV_PROJECT_ENVIRONMENT` is a different hazard: it is a host variable the
+    fixture needs to see, but it must not be allowed to overwrite a container
+    setting a case asked for by name. The forwarding is a fallback, not a
+    merge in the other direction.
+    """
+
+    def test_the_overlayfs_workaround_is_always_present(self, tmp_path: Path) -> None:
+        """A case that asks for nothing still gets the rename opt-in."""
+        config = conftest.ActConfig(artefact_dir=tmp_path)
+
+        built = conftest._build_container_env(config, {})
+
+        assert built["RUSTUP_PERMIT_COPY_RENAME"] == "1", (
+            "every fixture container must carry rustup's copy-and-delete "
+            "opt-in, or setup-rust dies on an overlayfs rename"
+        )
+
+    def test_a_case_can_add_to_the_defaults(self, tmp_path: Path) -> None:
+        """A per-case variable rides alongside the workaround, not over it."""
+        config = conftest.ActConfig(
+            artefact_dir=tmp_path, container_env={"RUST_LOG": "debug"}
+        )
+
+        built = conftest._build_container_env(config, {})
+
+        assert built["RUST_LOG"] == "debug", "the case's own variable is lost"
+        assert built["RUSTUP_PERMIT_COPY_RENAME"] == "1", (
+            "a per-case container_env must not be able to drop the workaround "
+            "by supplying its own environment"
+        )
+
+    def test_a_case_can_override_the_workaround(self, tmp_path: Path) -> None:
+        """An explicit per-case value still wins, for a case that needs it."""
+        config = conftest.ActConfig(
+            artefact_dir=tmp_path, container_env={"RUSTUP_PERMIT_COPY_RENAME": "0"}
+        )
+
+        built = conftest._build_container_env(config, {})
+
+        assert built["RUSTUP_PERMIT_COPY_RENAME"] == "0", (
+            "the case's explicit value must survive; the default is a floor, not a lock"
+        )
+
+    def test_uvs_project_environment_is_forwarded(self, tmp_path: Path) -> None:
+        """The host's `UV_PROJECT_ENVIRONMENT` reaches the container."""
+        config = conftest.ActConfig(artefact_dir=tmp_path)
+
+        built = conftest._build_container_env(
+            config, {"UV_PROJECT_ENVIRONMENT": "/venv/project"}
+        )
+
+        assert built["UV_PROJECT_ENVIRONMENT"] == "/venv/project", (
+            "a fixture's uv project environment has to travel into the "
+            "container, or the case builds a venv the host never sees"
+        )
+
+    def test_forwarding_yields_to_a_case_that_names_it(self, tmp_path: Path) -> None:
+        """A case that sets the variable itself is not overruled by the host.
+
+        Only `UV_PROJECT_ENVIRONMENT` is forwarded, so this is the one
+        variable where the ordering between the forwarded value and a case's
+        own `container_env` is decided. The case is the more specific
+        statement, and a host variable that overwrote it would silently move
+        the venv out from under the fixture that asked for one.
+        """
+        config = conftest.ActConfig(
+            artefact_dir=tmp_path,
+            container_env={"UV_PROJECT_ENVIRONMENT": "/venv/case"},
+        )
+
+        built = conftest._build_container_env(
+            config, {"UV_PROJECT_ENVIRONMENT": "/venv/host"}
+        )
+
+        assert built["UV_PROJECT_ENVIRONMENT"] == "/venv/case", (
+            "the forwarded host value clobbered the case's own setting; the "
+            "case names the venv it wants and the host may only fill a gap"
+        )
+
+    def test_an_absent_variable_stays_absent(self, tmp_path: Path) -> None:
+        """Nothing is invented for a variable neither side sets."""
+        config = conftest.ActConfig(artefact_dir=tmp_path)
+
+        built = conftest._build_container_env(config, {})
+
+        assert "UV_PROJECT_ENVIRONMENT" not in built, (
+            "an unset UV_PROJECT_ENVIRONMENT must not reach the container; "
+            "setting it empty would move every fixture's venv"
+        )
 
 
 class TestImageRequirement:

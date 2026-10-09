@@ -24,36 +24,50 @@ _ENVIRONMENT_ASSIGNMENT: typ.Final[re.Pattern[str]] = re.compile(
 
 
 @contextmanager
-def _exclusive_file_lock(lock_file: typ.BinaryIO) -> cabc.Iterator[None]:
-    """Hold an exclusive advisory lock on ``lock_file``."""
-    if os.name == "nt":
-        import msvcrt
+def _exclusive_windows_file_lock(lock_file: typ.BinaryIO) -> cabc.Iterator[None]:
+    """Hold an exclusive Windows byte-range lock on ``lock_file``."""
+    import msvcrt
 
-        lock_file.seek(0, os.SEEK_END)
-        if lock_file.tell() == 0:
-            lock_file.write(b"\0")
-            lock_file.flush()
+    lock_file.seek(0, os.SEEK_END)
+    if lock_file.tell() == 0:
+        lock_file.write(b"\0")
+        lock_file.flush()
+    lock_file.seek(0)
+    _acquire_windows_lock(lock_file)
+    try:
+        yield
+    finally:
         lock_file.seek(0)
-        while True:
-            try:
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-                break
-            except OSError as error:
-                retryable_errors = {
-                    errno.EACCES,
-                    errno.EAGAIN,
-                    getattr(errno, "EDEADLK", errno.EACCES),
-                }
-                if error.errno not in retryable_errors:
-                    raise
-                time.sleep(0.05)
-        try:
-            yield
-        finally:
-            lock_file.seek(0)
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-        return
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
 
+
+def _try_acquire_windows_lock(lock_file: typ.BinaryIO) -> bool:
+    """Try one non-blocking Windows lock acquisition."""
+    import msvcrt
+
+    try:
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError as error:
+        retryable_errors = {
+            errno.EACCES,
+            errno.EAGAIN,
+            getattr(errno, "EDEADLK", errno.EACCES),
+        }
+        if error.errno not in retryable_errors:
+            raise
+        return False
+    return True
+
+
+def _acquire_windows_lock(lock_file: typ.BinaryIO) -> None:
+    """Wait until the Windows byte-range lock is acquired."""
+    while not _try_acquire_windows_lock(lock_file):
+        time.sleep(0.05)
+
+
+@contextmanager
+def _exclusive_posix_file_lock(lock_file: typ.BinaryIO) -> cabc.Iterator[None]:
+    """Hold an exclusive POSIX flock on ``lock_file``."""
     import fcntl
 
     fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
@@ -61,6 +75,16 @@ def _exclusive_file_lock(lock_file: typ.BinaryIO) -> cabc.Iterator[None]:
         yield
     finally:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _exclusive_file_lock(lock_file: typ.BinaryIO) -> cabc.Iterator[None]:
+    """Hold an exclusive advisory lock on ``lock_file``."""
+    platform_lock = (
+        _exclusive_windows_file_lock if os.name == "nt" else _exclusive_posix_file_lock
+    )
+    with platform_lock(lock_file):
+        yield
 
 
 def _child_environment(command: list[str]) -> tuple[dict[str, str], list[str]]:

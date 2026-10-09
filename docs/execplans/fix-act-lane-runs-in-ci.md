@@ -1191,3 +1191,372 @@ first gate run was discarded because I edited the tree underneath it — the
 `make test` it produced never saw five of the seven changed files — so the
 whole set was re-run against a frozen tree. The lesson is cheap and worth
 keeping: freeze the tree, then gate, not the other way round.
+
+### Why the reviewer's own form of the fix is the one that breaks macOS
+
+The combined form `test: export override ACT_WORKFLOW_TESTS := 0` is not a
+stylistic alternative to the shipped `export`/`override` split. On the make
+macOS actually ships as `/usr/bin/make` it is a hard parse error, and it was
+reported as a validated option by a peer session running GNU Make 4.4. That
+divergence is worth recording, because it is invisible on this host and the
+tempting conclusion — "both forms work, pick either" — is false.
+
+Reproduced on a locally built GNU Make 3.81, the same binary used for the F16
+verification:
+
+```text
+$ /tmp/make381/make-3.81 -f /tmp/m381a.mk test
+/tmp/m381a.mk:2: *** multiple target patterns.  Stop.
+exit=2
+
+$ make -f /tmp/m381a.mk test      # GNU Make 4.4.1
+exit=0
+```
+
+The combined keyword form parses on 4.4.1 and fails on 3.81, which is why local
+validation said "validated" and the Makefile would still have been unparsable
+on macOS — every target, not just the lane, since a parse error takes the whole
+file. The `test_doctest_target.py` suite that this work exists to green on
+Windows would die on macOS instead; the fix would have traded one platform's
+red for another's.
+
+The shipped shape was re-verified on both makes after the fact, across all four
+opt-in paths (plain, inherited `ACT_WORKFLOW_TESTS=1`, command-line
+`ACT_WORKFLOW_TESTS=1`, and command-line `WITH_ACT=1`): the plain child always
+sees `0`, the lane child always sees `1`. `override` beats an inherited
+environment value and a command-line value on both 3.81 and 4.4.1, which is
+what makes the split form safe to use rather than merely parseable.
+
+**The rule for this repository, stated once:** a target-specific variable line
+may carry `export` or `override`, never both. `export` belongs in a global
+directive; the gate belongs on the target as `override`. Anything that
+validates a Makefile change on this host alone has not validated it, because
+`/usr/bin/make` here is 4.4.1 and the host CI cares about is 3.81. There is now
+a contract test on this property
+(`test_no_target_line_combines_export_and_override`), so a future edit that
+reintroduces the combined form fails locally rather than on macOS.
+
+### Which checks can actually see the F16 fix
+
+Worth pinning down, because F16 is the kind of defect that can ship green.
+
+The branch ruleset is `main-required-checks` (ruleset 18427916, enforcement
+`active`, `~DEFAULT_BRANCH`): it requires eleven `build-release` legs, the three
+`python-tests` legs (linux, macos, **windows**), and ten action contract tests.
+`strict_required_status_checks_policy` is `false`, so a required check is
+matched by name against the head regardless of whether the branch is behind.
+
+`python-tests-windows` is therefore a required check, and it is the **only**
+one that can observe the difference. The reasoning, restated compactly: GNU
+make execs a recipe line directly when it begins with a command, but hands any
+line beginning with an inline `VAR=value` prefix to a POSIX shell
+(`/usr/bin/sh`). On Linux that shell is dash or bash and both paths mangle
+identically and succeed, so no Linux gate — including the
+`python-tests (linux)` leg and every local gate on this host — can distinguish
+the two forms. On Windows that shell is MSYS `sh`, which rewrites
+`C:\Users\runneradmin\...` into `C:Usersrunneradmin...`, and the command
+vanishes. This is why the decision log records a Windows leg rather than a
+local reproduction as the acceptance evidence for F16, and why a green local
+`make test` says nothing about it.
+
+**`act-workflows` is not a required check.** The new lane runs in CI and its
+value is that it executes at all — the stack exists because the lane had never
+run there — but it is not in the required list, so its failure would not block.
+That is a deliberate distinction: the lane's job is to be *run*, and the gate
+that protects the fix is the Windows leg.
+
+### Review coverage after a restack is not review coverage
+
+The subtlest thing this pass turned up is not a defect in the code but in how
+review state was being read. CodeRabbit's last substantive word on #583 was a
+confirmation that Codex's P2 finding was fixed, and it named the commit it
+confirmed: `e69c4e80`. By the time that review was read, `e69c4e80` had ceased
+to exist — the eighth restack (`b4963b38`, onto a main that had grown the
+doctest tier) replayed it as `961279ab`, and
+`git merge-base --is-ancestor e69c4e80 HEAD` is false. The same is true of the
+`CHANGES_REQUESTED` review still attached to the PR: it anchors `ac4c992d`,
+orphaned three restacks ago.
+
+So the PR carried a stale blocking review against a commit line that is no
+longer in the branch, and a "confirmed resolved" that speaks for a tree that
+has since been rebuilt. Neither is a finding about the code, and neither is
+evidence about the current candidate. The correct move is what was done: treat
+both as expired, re-dispatch a full review against the published head
+(`comenq put leynos/shared-actions 583 "@coderabbitai full review"`), and let
+the new review's `commit_id` establish what it actually inspected. A reply that
+says "resolved" is not a resolution; a review whose `commit_id` is unreachable
+from the head is not coverage. Both statements have to be read against
+`git merge-base --is-ancestor`, not against the comment's own confidence.
+
+### The transport anomaly: an environment rewrite, not a push bug
+
+One loose end from the push of `55e3b5a5` is worth recording because it looked,
+briefly, like a security-relevant event. The push printed:
+
+```text
+To https://github.com/leynos/shared-actions.git
+   18494589..55e3b5a5  HEAD -> fix/act-lane-runs-in-ci
+```
+
+despite the command naming `git@github.com:leynos/shared-actions.git`, with
+`[Lody GitHub] {"source":"personal","stage":"acquire","code":"personal_auth_missing"}`
+on stderr. The instruction in force is SSH-only for pushes, so a silent
+fallback to HTTPS reads as a violation.
+
+It is not. Lody injects a `GIT_CONFIG_*` block into the session environment
+(`GIT_CONFIG_COUNT=10`) whose first four entries are
+`url.https://github.com/.insteadOf`. Git applies `insteadOf` rewrites before
+transport selection, so `git@github.com:…` is rewritten to
+`https://github.com/…` before git ever reaches an SSH client. The proof is one
+command:
+
+```text
+$ /usr/bin/git ls-remote --get-url git@github.com:leynos/shared-actions.git
+https://github.com/leynos/shared-actions.git
+
+$ env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 … \
+    /usr/bin/git ls-remote --get-url git@github.com:leynos/shared-actions.git
+git@github.com:leynos/shared-actions.git
+```
+
+and with `GIT_TRACE=1` on the stripped environment the transport is
+`/usr/bin/ssh -o SendEnv=GIT_PROTOCOL git@github.com 'git-upload-pack …'`. The
+push itself landed correctly — `git ls-remote` over genuine SSH returns
+`55e3b5a52e6c156cab8d2802dbfc8b6fa18792f6` — so the only real finding is the
+one the global instructions already state as a rule: strip `GIT_CONFIG_*` from
+the environment for git operations in this session, or the transport is not the
+one the command asked for. This is the same injected block the earlier memory
+records as breaking credential routing for `gh` and `uv` fetches; here it is
+milder — the rewrite succeeds over HTTPS — but it is the same mechanism, and
+"strip `GIT_CONFIG_*`" is the remedy in both cases.
+
+A related trap, easy to hit while auditing this: an injected `GIT_CONFIG_*`
+entry and a modern configuration entry share a name, so
+`sed 's/GIT_CONFIG_VALUE_[0-9]+=<redacted>/'` is fine, but dumping
+`GIT_CONFIG_KEY_*` by value prints configuration, not secrets — while dumping
+`GIT_CONFIG_VALUE_*` prints the credential helper path, which embeds a
+per-session directory. Print key names, never values.
+
+### F16 is closed: the Windows leg ran the contract and passed
+
+The claim that no Linux gate can see the F16 defect carried an obligation —
+that the Windows CI leg be read, not merely be green in aggregate. It has now
+been read, on the candidate that matters.
+
+```text
+actions/jobs/114064503116   python-tests-windows
+  conclusion : success
+  head_sha   : 55e3b5a52e6c156cab8d2802dbfc8b6fa18792f6
+  run_id     : 38002763313 (attempt 1)
+  steps      : Set up job / Checkout / Setup uv / Run tests / post-steps,
+               all success
+```
+
+`head_sha` is the pushed candidate, read back from the API rather than inferred
+from a PR badge, and `python-tests-windows` is one of the ruleset's required
+`required_status_checks`. The run step's summary:
+
+```text
+collected 2843 items / 13 skipped
+================ 2589 passed, 267 skipped in 289.94s (0:04:49) ================
+```
+
+and the two modules that carry the contract are visible as passing lines in
+that log, not merely as counts:
+
+```text
+tests\workflows\test_makefile_act_lane_runs_once.py ......               [ 78%]
+tests\workflows\test_doctest_target.py ......                            [ 71%]
+```
+
+Six dots, six assertions, no failure markers anywhere in the log. The argument
+for F16 was that only this leg could distinguish the direct-exec path from the
+shell path; the leg ran the rewritten contract, and the contract passed.
+
+**The controlled comparison.** The push before this one ran the same three jobs
+on the previous head, so the before/after is a genuine experiment rather than a
+comparison against `main`:
+
+| Job                    | `18494589` (before) | `55e3b5a5` (after)  |
+| ---------------------- | ------------------- | ------------------- |
+| `python-tests-windows` | **failure**         | **success**         |
+| `python-tests (macos)` | success             | **failure** (flake) |
+| `python-tests (linux)` | success             | success             |
+
+Job IDs confirm it is the same job in each column: windows `114047207030` →
+`114064503116`, macOS `114047207211` → `114064503470`, linux `114047207256` →
+`114064503358`. The before-run's windows failure carries the F16 signature
+verbatim, which is the same text the mechanism section predicts:
+
+```text
+E  AssertionError: /usr/bin/sh: line 1:
+   C:UsersrunneradminAppDataLocalTemppytest-of-runneradminpytest-0
+   test_make_test_runs_the_exampl0uv-stub: command not found
+E   +  where 2 = CompletedProcess(args=['make', '-f', 'Makefile', 'test',
+      'UV=C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pytest-of-r...'])
+   returncode: make: *** [Makefile:87: test] Error 127
+```
+
+Everything before `make` is true to the diagnosis: `/usr/bin/sh` (not cmd.exe)
+was handed the line, and it ate every backslash in the `UV` value, collapsing
+the whole path — `uv-stub` included — into a single unsplittable token. The
+after-run's windows leg has no such line. One job changed from red to green and
+nothing else about the Makefile changed, which is as close to a controlled
+experiment as a CI run gets.
+
+**The macOS leg is a flake, and saying so needs evidence.**
+`python-tests (macos)` failed on the new head, which is the leg whose
+`/usr/bin/make` is 3.81 — exactly the leg a mistake in the `export`/`override`
+split would have broken at parse time. So it is the one failure that could have
+falsified the fix, and it does not:
+
+- It failed with `AssertionError: IPC error: timed out` in
+  `test_generate_coverage_allow_no_tests_subprocess.py`, raised against a
+  `cmd_mox` stub, with a `BrokenPipeError` in `socketserver` on the server
+  side. That is a subprocess IPC timeout, not a parse error: the runner would
+  have reported `Makefile:NNN: *** multiple target patterns. Stop.` and no
+  tests would have run at all.
+- The macOS leg passed at `18494589` — the head that *failed* on Windows —
+  which rules out "this leg never worked" and rules out a Make 3.81 parse fault
+  on the new head: 3.81 parses the new file correctly, which is the property
+  the split form was chosen for.
+- The failing test file is unchanged by this branch
+  (`git log origin/main..HEAD -- <path>` is empty), and the branch's only
+  change under `generate-coverage/` is two context-manager return annotations,
+  `cabc.Iterator[None]` → `cabc.Generator[None]` and `typ.Iterator[Path]` →
+  `typ.Generator[Path]`. Those are annotations under
+  `from __future__ import annotations` on generator functions already decorated
+  with `@contextlib.contextmanager`; they alter no runtime value and cannot
+  make an IPC socket time out.
+- The codebase already has a history of this exact class of flake:
+  `git log --all --grep='IPC disconnect'` returns eight commits titled "Surface
+  the child's streams, and stop the IPC disconnect traceback (#515)", which is
+  the same traceback the macOS log shows.
+
+A rerun of the failed job is the appropriate next step when one is available;
+the rule is not to record this as green but to record it as an unrelated
+infrastructure flake with the evidence above, and to keep the Windows result —
+which is the one that speaks to this change — separate.
+
+### The act lane itself, running in CI
+
+The task's headline objective was that the lane run in CI at all, and it is now
+observably doing so. The `act-workflows` job on `55e3b5a5` (job `114064503364`)
+is a straight run of success:
+
+```text
+name        : act-workflows
+conclusion  : success
+head_sha    : 55e3b5a52e6c156cab8d2802dbfc8b6fa18792f6
+steps       : Set up job / Set up runner / Checkout repository / Setup uv /
+              Install act / Run the act workflow lane / post-steps
+              — every step success
+```
+
+The step that matters is "Run the act workflow lane", and it ran a real lane
+rather than exiting early — which is the silent-skip failure this work was
+chasing, so the counts are the evidence, not the tick:
+
+```text
+make test-act ACT="${ACT_BIN}"
+… SKIPPED / PASSED lines for tests/workflows/* …
+================ 1167 passed, 110 skipped in 580.95s (0:09:40) ================
+```
+
+Nine minutes forty of wall clock, 1167 tests, and individual `PASSED` lines
+naming `tests/workflows/<module>::<class>::<test>[<workflow fixture>]`. A lane
+that had skipped its runtime probe would exit 0 in seconds with no test IDs in
+its log; this one cannot have — the fixture IDs in the parameterized names are
+the ones that only appear when `act` actually executes a workflow.
+
+The remaining red check on this head is the macOS `cmd_mox` flake documented
+above; `act-workflows` is not among the ruleset's required checks, so its green
+is evidence rather than a gate, and the two should not be conflated when
+reading the PR.
+
+**Two cautions about how this evidence is read**, both of which were live here:
+the logs endpoint refuses to emit output containing terminal escape sequences
+unless `--allow-escape-sequences` is passed, and `gh run view --log` answers
+`logs will be available when it is complete` for a *partially* complete run —
+the job was green while its parent run was still going, so the per-job endpoint
+(`actions/jobs/<id>/logs`) is the one to use.
+
+### The tenth pass: two gate failures, one of them a real local-only race
+
+The r8 gate run came back red on two gates, and the two failures had nothing in
+common except that both were mine to fix.
+
+**`make markdownlint` — spelling, and a masked-span false positive.** The
+`spelling` prerequisite failed on two words. `parameterised` was a plain typo:
+the shared en-GB-oxendict dictionary prefers `-ize`, so it is `parameterized`
+here. The other was subtler and worth recording, because the obvious reading
+("I misspelled a word in a quotation") was wrong. The flagged string was
+`exampl` inside `test_make_test_runs_the_exampl0\uv-stub`, and checking it
+against the before-run's own job log showed it is **verbatim**: pytest
+truncates its tmpdir component to 30 characters, so the real directory
+genuinely ends `..._the_exampl0`. The apparent misspelling is a truncation
+artefact of pytest's own naming, not an error in the quotation.
+
+The reason it was flagged at all is the mask. `typos.local.toml` masks inline
+code spans with this pattern:
+
+```text
+`[^`\n]+`
+```
+
+The negated class excludes the newline by design, so that an unclosed backtick
+cannot swallow the rest of the file. The offending span was an inline `UV` path
+wrapped across a line break, so the mask did not apply to its second half and
+the truncated token fell through to the dictionary. The fix that preserves the
+mechanism is to **not** put a wrapped path in an inline span: the sentence now
+refers to the whole path with the tail named separately, and the
+backslash-laden path stays in the fenced verbatim block above, where no mask is
+needed. Widening the mask pattern to span newlines would have traded a one-line
+rewording for a class of unclosed-backtick bugs, which is the wrong direction.
+
+**`make test` — a deterministic xdist race, and a correction.** One test failed:
+`test_action_install_step_resolves_from_external_checkout`, with
+`shutil.Error: … [Errno 2] No such file or directory: '…/.venv-coverage'`. My
+first reading was that I had caused it: three gate agents were running
+concurrently in this session, two of them executing `make test` at once, and
+that violates the sequential-gate rule outright. That reading was **wrong**,
+and the experiment is what showed it.
+
+`test_doctest_coverage.py` builds a throwaway venv at `<repo>/.venv-coverage`
+and removes it in a `finally`; `test_action_workdir.py` copies the whole
+repository root with `shutil.copytree` behind `ignore_patterns(...)`, and that
+list does not name `.venv-coverage`. Under `-n auto --dist worksteal` the two
+land on different workers and the removal can race the copy mid-walk.
+
+Run the two files together under xdist, and nothing else:
+
+```text
+12 runs, unmodified tree:  1 failed, 38 passed   (12/12)
+ 8 runs, with the fix:        39 passed            (8/8)
+```
+
+Twelve out of twelve. It is not a flake, it is not a load artefact, and it is
+not caused by my overlapping gates — it is a deterministic collision the moment
+those two files share a session. The concurrency in this session made it *more
+likely to be noticed*, which is the opposite of my first conclusion.
+
+It is also why CI never sees it. `ci.yml` runs `uv run pytest` **serially** on
+the macOS and Windows legs, and the Linux suite runs through the coverage
+action with `pytest-workers: ''`. Only the local `make test` uses
+`-n auto --dist worksteal`, so the local gate is the one that can fail this
+way. A green CI run is no evidence against it, in either direction.
+
+The fix adds `.venv-coverage` to that ignore list. The list is already a
+deliberate **superset** of what the action's `rsync` excludes — `.cache` and
+`.uv-cache` appear in the test and not in `action.yml` — so this follows the
+list's existing intent rather than extending it, and the accompanying comment
+says why the entry is there so the next reader does not "tidy" it away as
+unused.
+
+Two things worth carrying forward. First, the failure was invisible to CI and
+visible only to the local gate, so "CI is green" and "the gate is green" are
+not interchangeable claims about this repository. Second, when a gate fails
+while several of my own jobs are running, the concurrency is a strong
+*temptation* to blame and a weak *explanation* — the discriminator is whether
+the failure reproduces in a single isolated run, and here it reproduced twelve
+times out of twelve.

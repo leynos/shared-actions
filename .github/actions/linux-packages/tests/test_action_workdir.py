@@ -98,13 +98,17 @@ def test_action_install_step_resolves_from_external_checkout(tmp_path: Path) -> 
     # Simulate the mirroring step copying the repository into "_self".
     checkout_path = workspace / "_self"
     # Exclude version control, Python cache, build artefacts, and previous
-    # mirror directories to match the action's copy behaviour.
+    # mirror directories to match the action's copy behaviour. `.venv-coverage`
+    # is the coverage action's throwaway venv: the doctest-coverage suite builds
+    # it at the repository root and removes it again, so under pytest-xdist a
+    # concurrent worker can delete it mid-walk and fail the copy with `Errno 2`.
     shutil.copytree(
         repo_root,
         checkout_path,
         ignore=shutil.ignore_patterns(
             ".git",
             ".venv",
+            ".venv-coverage",
             "__pycache__",
             "*.pyc",
             "target",

@@ -2566,6 +2566,12 @@ SHA-256 the release publishes, and verify the installed version. The checksum
 step precedes the version check so that an executable which fails verification
 is removed before it is ever run.
 
+The `version` input is optional and defaults to 0.6.1, the release the estate
+pins; it accepts any explicit version from 0.5.1, the floor below which the
+platform list and `binstall` metadata differ. A test omits it and asserts the
+run installs and verifies 0.6.1, so the default is checked as behaviour and not
+only as metadata.
+
 The optional `sha256` input must be empty or 64 hexadecimal digits; anything
 else is refused with `install-mdtablefix.result=invalid-input` before any step
 runs. When it is set it takes precedence over the release's published digest:

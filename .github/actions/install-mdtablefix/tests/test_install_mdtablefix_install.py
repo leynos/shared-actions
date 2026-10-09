@@ -17,6 +17,7 @@ from _mdtablefix_manifest import (
 from _mdtablefix_scenarios import (
     Scenario,
     ScenarioResult,
+    cached_digest,
     installed_digest,
     run_scenario,
 )
@@ -482,6 +483,62 @@ class TestChecksumVerification:
         assert result.returncode == 1, f"{value!r} was accepted: {result.stderr}"
         _assert_only_metric(result, "install-mdtablefix.result=invalid-input")
         assert result.cargo_log == "", f"{value!r} reached cargo"
+
+    def test_the_digest_download_is_https_tls12_and_retried_once_per_run(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify the request flags and that exactly one request is made."""
+        result = run_scenario(Scenario(tmp_path=tmp_path))
+
+        requests = result.curl_log.splitlines()
+        assert len(requests) == 1, f"expected one request, got {requests}"
+        for flag in ("--fail", "--proto =https", "--tlsv1.2", "--retry 3"):
+            assert flag in requests[0], f"missing {flag!r} in {requests[0]!r}"
+
+    def test_a_failing_hash_tool_fails_closed_and_removes_the_executable(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify a hash command that errors reaches the checksum-failed boundary."""
+        result = run_scenario(Scenario(tmp_path=tmp_path, sha256sum_fails=True))
+
+        assert result.returncode == 1, f"a hashing failure passed: {result.stderr}"
+        _assert_annotated(result)
+        _assert_only_metric_result(result, "install-mdtablefix.result=checksum-failed")
+        _assert_nothing_installed(result)
+
+    def test_a_cached_executable_matching_the_pin_is_used(self, tmp_path: Path) -> None:
+        """Verify the pin is checked on a cache hit, and a match stays cached."""
+        base = Scenario(tmp_path=tmp_path, cached_version="0.5.1")
+        result = run_scenario(
+            Scenario(
+                tmp_path=tmp_path, cached_version="0.5.1", sha256=cached_digest(base)
+            ),
+        )
+
+        _assert_only_metric(result, "install-mdtablefix.result=cached")
+        assert result.cargo_log == "", (
+            f"a pinned cache hit reinstalled: {result.cargo_log!r}"
+        )
+
+    def test_a_cached_executable_not_matching_the_pin_is_replaced(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify an unpinned cached executable is not run, and is reinstalled."""
+        pinned = installed_digest(Scenario(tmp_path=tmp_path))
+        result = run_scenario(
+            Scenario(
+                tmp_path=tmp_path,
+                cached_output="mdtablefix 0.5.1\nbuilt elsewhere",
+                sha256=pinned,
+            ),
+        )
+
+        _assert_installed(result, "0.5.1")
+        _assert_metric(result, "install-mdtablefix.checksum=pinned")
+        assert result.cargo_log != "", "a cached executable that failed the pin stayed"
 
     def test_a_cache_hit_downloads_nothing(self, tmp_path: Path) -> None:
         """Verify the cached path fetches no checksum and reports none."""

@@ -168,6 +168,8 @@ class Scenario:
     checksum: str = "match"
     #: The ``sha256`` input; empty means "use the release's published digest".
     sha256: str = ""
+    #: Whether ``sha256sum`` exists but fails, as a broken runner image might.
+    sha256sum_fails: bool = False
 
 
 @dc.dataclass(frozen=True)
@@ -309,6 +311,11 @@ def _build_sandbox(scenario: Scenario) -> _Sandbox:
     )
     _write_executable(sandbox.stub_dir / "cargo", _CARGO_STUB)
     _write_executable(sandbox.stub_dir / "curl", _CURL_STUB)
+    if scenario.sha256sum_fails:
+        _write_executable(
+            sandbox.stub_dir / "sha256sum",
+            "#!/usr/bin/env bash\necho 'sha256sum: I/O error' >&2\nexit 1\n",
+        )
     (sandbox.state_dir / "installed-body").write_text(
         _reporting_executable(_installed_text(scenario)),
         encoding="utf-8",
@@ -330,6 +337,15 @@ def installed_digest(scenario: Scenario) -> str:
     """Return the SHA-256 of the executable the stubbed binstall installs."""
     body = _reporting_executable(_installed_text(scenario))
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def cached_digest(scenario: Scenario) -> str:
+    """Return the SHA-256 of the pre-existing executable ``scenario`` describes."""
+    text = _cached_text(scenario)
+    if text is None:
+        message = "the scenario has no cached executable"
+        raise ValueError(message)
+    return hashlib.sha256(_reporting_executable(text).encode("utf-8")).hexdigest()
 
 
 def _cached_text(scenario: Scenario) -> str | None:

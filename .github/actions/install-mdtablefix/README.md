@@ -93,8 +93,10 @@ digests match.
 The check fails closed. A digest that differs, a download that fails, and a
 file that does not begin with a SHA-256 digest each end the run with
 `install-mdtablefix.result=checksum-failed`, and an executable that could not
-be verified is removed rather than left on `PATH`. A cache hit downloads
-nothing, because the caller owns the cache.
+be verified is removed rather than left on `PATH`. A cache hit without a pin
+downloads nothing, because the caller owns the cache. With a pin, a cached
+executable is hashed before it is run; one that does not match is treated as no
+cache and reinstalled.
 
 The published digest comes from the same release as the archive, so it catches
 a corrupt or substituted download but not a release replaced wholesale. A
@@ -135,7 +137,7 @@ at most one `install-mdtablefix.checksum` line.
 | `install-mdtablefix.result=no-prebuilt`          | No prebuilt release for this runner          |
 | `install-mdtablefix.result=install-failed`       | `cargo binstall` failed                      |
 | `install-mdtablefix.result=binstall-unavailable` | cargo-binstall could not be installed        |
-| `install-mdtablefix.result=checksum-failed`      | The published SHA-256 did not verify         |
+| `install-mdtablefix.result=checksum-failed`      | A published or pinned SHA-256 did not verify |
 | `install-mdtablefix.result=version-mismatch`     | The installed version was not the pinned one |
 | `install-mdtablefix.binstall=present`            | The runner already had a usable binstall     |
 | `install-mdtablefix.binstall=installed`          | The pinned upstream action provided it       |

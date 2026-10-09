@@ -5,17 +5,21 @@ this file.
 
 ## Unreleased
 
-- Verify the installed executable against the SHA-256 the release publishes.
-  cargo-binstall checks nothing about the archive it unpacks, so a caller that
-  moved from its own download-and-verify step to this action lost its integrity
-  check. The new `Verify mdtablefix checksum` step fetches the `.sha256` file
-  published beside the bare executable of the runner's platform (every release
-  from 0.5.1 has them; the archive's executable is byte-identical), compares
-  digests, and fails closed with `install-mdtablefix.result=checksum-failed` on
-  a mismatch, a failed download or a malformed file, removing the executable. A
-  successful run adds `install-mdtablefix.checksum=verified`. A cache hit
-  downloads nothing. The check uses the release's own digest, so it does not
-  replace a digest pinned by the caller.
+- Verify the installed executable against a SHA-256. cargo-binstall checks
+  nothing about the archive it unpacks, so a caller that moved from its own
+  download-and-verify step to this action lost its integrity check. The new
+  `Verify mdtablefix checksum` step fetches the `.sha256` file published beside
+  the bare executable of the runner's platform (every release from 0.5.1 has
+  them; the archive's executable is byte-identical), compares digests, and
+  reports `install-mdtablefix.checksum=published`. The release's own digest
+  cannot catch a release replaced wholesale, so a new optional `sha256` input
+  lets a caller pin the digest of its platform's executable: it is then
+  verified instead, nothing is fetched, a cached executable that does not match
+  it is not run but replaced, and a success reports
+  `install-mdtablefix.checksum=pinned`. The step fails closed with
+  `install-mdtablefix.result=checksum-failed` on a mismatch of either digest, a
+  failed or malformed download, or a hashing error, and removes the executable
+  in every case. A cache hit without a pin downloads nothing.
 
 - Support every platform mdtablefix 0.5.1 publishes, and require 0.5.1 or
   later. The platform gate admitted Linux `x86_64` and `aarch64` only, which

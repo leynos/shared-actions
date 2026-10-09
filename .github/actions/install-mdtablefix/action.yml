@@ -180,6 +180,7 @@ runs:
       env:
         MDTABLEFIX_BIN_DIR: ${{ steps.validate-inputs.outputs.bin-dir }}
         MDTABLEFIX_EXECUTABLE_PATH: ${{ steps.validate-inputs.outputs.executable-path }}
+        MDTABLEFIX_PINNED_SHA256: ${{ steps.validate-inputs.outputs.sha256 }}
         MDTABLEFIX_VERSION: ${{ steps.validate-inputs.outputs.version }}
       run: |
         set -euo pipefail
@@ -198,11 +199,30 @@ runs:
         read_version() {
           "$1" --version 2>/dev/null | head -n 1 | tr -d '\r' | cut -c 1-120 || true
         }
+        # A caller that pinned a digest does not run a cached executable that
+        # does not match it: the digest is taken before the executable is
+        # asked for its version, and a mismatch counts as no cache, so the
+        # install runs and the checksum step verifies what it put there.
+        matches_pin() {
+          [[ -z "$MDTABLEFIX_PINNED_SHA256" ]] && return 0
+          local candidate digest
+          candidate="$(command -v "$1" 2>/dev/null)" || return 1
+          if command -v sha256sum >/dev/null 2>&1; then
+            digest="$(sha256sum -- "$candidate" 2>/dev/null)" || return 1
+          else
+            digest="$(shasum -a 256 -- "$candidate" 2>/dev/null)" || return 1
+          fi
+          [[ "${digest%% *}" == "$MDTABLEFIX_PINNED_SHA256" ]]
+        }
         reported=
         if [[ -x "$MDTABLEFIX_EXECUTABLE_PATH" ]]; then
-          reported="$(read_version "$MDTABLEFIX_EXECUTABLE_PATH")"
+          if matches_pin "$MDTABLEFIX_EXECUTABLE_PATH"; then
+            reported="$(read_version "$MDTABLEFIX_EXECUTABLE_PATH")"
+          fi
         elif command -v mdtablefix >/dev/null 2>&1; then
-          reported="$(read_version mdtablefix)"
+          if matches_pin mdtablefix; then
+            reported="$(read_version mdtablefix)"
+          fi
         fi
         if [[ "$reported" == "$expected" ]]; then
           echo "::notice title=Install mdtablefix::result=cached version=${MDTABLEFIX_VERSION}"
@@ -362,20 +382,29 @@ runs:
           published_file="$(curl --fail --silent --show-error --location \
             --proto '=https' --tlsv1.2 --retry 3 "$url")" ||
             step_error "could not fetch the published checksum ${url}"
-          expected="$(printf '%s\n' "$published_file" | head -n 1 | cut -d ' ' -f 1 | tr 'A-F' 'a-f')"
+          # The first word of the first line, read without a pipe that a long
+          # response could close early, which under pipefail would skip the
+          # cleanup in step_error.
+          read -r expected _ <<< "${published_file%%$'\n'*}" || true
+          expected="$(tr 'A-F' 'a-f' <<< "${expected:-}")"
           if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
             step_error "${url} did not start with a SHA-256 digest"
           fi
         fi
         if command -v sha256sum >/dev/null 2>&1; then
-          actual="$(sha256sum -- "$MDTABLEFIX_EXECUTABLE_PATH" | cut -d ' ' -f 1)"
+          actual_line="$(sha256sum -- "$MDTABLEFIX_EXECUTABLE_PATH")" ||
+            step_error "sha256sum could not read the installed executable"
+        elif command -v shasum >/dev/null 2>&1; then
+          actual_line="$(shasum -a 256 -- "$MDTABLEFIX_EXECUTABLE_PATH")" ||
+            step_error "shasum could not read the installed executable"
         else
-          actual="$(shasum -a 256 -- "$MDTABLEFIX_EXECUTABLE_PATH" | cut -d ' ' -f 1)"
+          step_error "the runner has neither sha256sum nor shasum"
         fi
+        actual="${actual_line%% *}"
         if [[ "$actual" != "$expected" ]]; then
           step_error "the installed executable's SHA-256 ${actual} does not match the ${source} ${expected} for ${asset}"
         fi
-        echo "::notice title=Install mdtablefix::checksum=verified source=${source} asset=${asset}"
+        echo "::notice title=Install mdtablefix::checksum=${source} asset=${asset}"
         emit_metric "install-mdtablefix.checksum=${source}"
 
     - name: Verify mdtablefix

@@ -811,6 +811,18 @@ the runner has none and defaults to `1.24.0`. The optional `bin-dir` input
 defaults to `~/.local/bin`; the executable lands there and the directory is
 appended to `GITHUB_PATH`, so later steps call `mdtablefix` by name.
 
+After an install the action compares the executable's SHA-256 with the digest
+the release publishes beside the bare executable for the runner's platform
+(`<asset>.sha256`, fetched over HTTPS), and reports
+`install-mdtablefix.checksum=published`. A repository that wants protection
+against a replaced release passes the optional `sha256` input, the digest of
+the executable for the platform it runs on. The action then verifies against
+that digest, downloads nothing, and reports
+`install-mdtablefix.checksum=pinned`; a cached executable that does not match
+the pin is replaced rather than run. A digest that differs, a download that
+fails and a hashing error all end the run with
+`install-mdtablefix.result=checksum-failed`, and the executable is removed.
+
 ### The two-step cache pattern
 
 The action caches nothing itself, so one key keeps one owner. The workflow

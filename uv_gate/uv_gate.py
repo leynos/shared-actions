@@ -334,6 +334,20 @@ def _query_cache_dir(uv: str, env: dict[str, str]) -> Path:
     return Path(stdout.strip())
 
 
+def _copy_mode_required(
+    cache: Path,
+    environment_path: Path,
+    repo: Path,
+    device: cabc.Callable[[Path], int],
+) -> bool:
+    """Report whether copy mode is needed, refusing when the query fails."""
+    try:
+        return needs_copy_mode(cache, environment_path, repo, device)
+    except OSError as exc:
+        message = f"cannot compare the filesystems of the uv cache and project: {exc}"
+        raise GateError(message) from exc
+
+
 def build_context(
     environ: cabc.Mapping[str, str],
     repo: Path,
@@ -380,12 +394,7 @@ def build_context(
     env["UV_CACHE_DIR"] = str(cache)
     configured = env.get("UV_PROJECT_ENVIRONMENT")
     environment_path = (repo / configured) if configured else repo / ".venv"
-    try:
-        copy_mode = needs_copy_mode(cache, environment_path, repo, device)
-    except OSError as exc:
-        message = f"cannot compare the filesystems of the uv cache and project: {exc}"
-        raise GateError(message) from exc
-    if copy_mode:
+    if _copy_mode_required(cache, environment_path, repo, device):
         env["UV_LINK_MODE"] = "copy"
     context = Context(env, uv, cache)
     context.install_git_shim()
@@ -451,17 +460,25 @@ def _report(kind: Kind, status: int, *, where: str) -> None:
     say(f"{kind.value}: {where} failed with status {status}. {ADVICE[kind]}.")
 
 
+def _is_forbidden_short(name: str) -> bool:
+    """Report whether ``name`` is a forbidden single-dash alias."""
+    return name[:1] == "-" and name[1:2] not in {"", "-"} and name[1] in FORBIDDEN_SHORT
+
+
+def _is_forbidden(name: str) -> bool:
+    """Report whether ``name`` overrides the gate's own policy."""
+    return (
+        name in FORBIDDEN_FLAGS
+        or name.startswith(FORBIDDEN_PREFIXES)
+        or _is_forbidden_short(name)
+    )
+
+
 def _refuse_forbidden(arguments: cabc.Sequence[str]) -> None:
     """Refuse flags that would refresh, upgrade or go online implicitly."""
     for argument in arguments:
         name = argument.split("=", 1)[0]
-        short = (
-            len(name) > 1
-            and name[0] == "-"
-            and name[1] != "-"
-            and name[1] in FORBIDDEN_SHORT
-        )
-        if name in FORBIDDEN_FLAGS or name.startswith(FORBIDDEN_PREFIXES) or short:
+        if _is_forbidden(name):
             message = (
                 f"{name} is not allowed: the gate controls locking, freshness "
                 "and network use itself"
@@ -485,7 +502,6 @@ def prepare(ctx: Context, sync_args: cabc.Sequence[str]) -> int:
     int
         uv's exit status.
     """
-    _refuse_forbidden(sync_args)
     offline = [ctx.uv, "sync", "--locked", "--offline", *sync_args]
     status, text = _run_streaming(offline, ctx.env)
     if status == 0:
@@ -526,16 +542,7 @@ def run_gate(
     -------
     int
         The command's exit status.
-
-    Raises
-    ------
-    GateError
-        When no command is given or a forbidden flag is passed.
     """
-    _refuse_forbidden(uv_args)
-    if not command:
-        message = "run needs a command after `--`"
-        raise GateError(message)
     argv = [ctx.uv, "run", "--frozen", "--offline", *uv_args, *command]
     status, text = _run_streaming(argv, ctx.env)
     if status != 0:
@@ -623,20 +630,8 @@ def tool(
     int
         The tool's exit status.
 
-    Raises
-    ------
-    GateError
-        When the tool specification is not pinned.
     """
-    _refuse_forbidden(tool_args)
     spec = tool_spec(tool_args, command)
-    if not is_pinned(spec):
-        message = (
-            f"tool spec for {describe_spec(spec)} is not pinned; use "
-            "name==VERSION, name@VERSION "
-            "or git+URL@<full commit SHA>"
-        )
-        raise GateError(message)
     base = [ctx.uv, "tool", "run"]
     status, text = _run_streaming([*base, "--offline", *tool_args, *command], ctx.env)
     if status == 0:
@@ -715,6 +710,36 @@ def main(
     return status
 
 
+def validate_request(subcommand: str, rest: cabc.Sequence[str]) -> None:
+    """Check a request without touching the environment or the filesystem.
+
+    Parameters
+    ----------
+    subcommand:
+        One of ``prepare``, ``run`` or ``tool``.
+    rest:
+        The arguments after the subcommand.
+
+    Raises
+    ------
+    GateError
+        For a forbidden flag, a missing command, or an unpinned tool.
+    """
+    before, after = (list(rest), []) if subcommand == "prepare" else _split(rest)
+    _refuse_forbidden(before)
+    if subcommand == "run" and not after:
+        message = "run needs a command after `--`"
+        raise GateError(message)
+    if subcommand == "tool":
+        spec = tool_spec(before, after)
+        if not is_pinned(spec):
+            message = (
+                f"tool spec for {describe_spec(spec)} is not pinned; use "
+                "name==VERSION, name@VERSION or git+URL@<full commit SHA>"
+            )
+            raise GateError(message)
+
+
 def _dispatch(
     subcommand: str,
     rest: cabc.Sequence[str],
@@ -723,6 +748,7 @@ def _dispatch(
     """Run ``subcommand``; return its status and whether the helper refused."""
     context: Context | None = None
     try:
+        validate_request(subcommand, rest)
         context = build_context(os.environ if environ is None else environ, Path.cwd())
         if subcommand == "prepare":
             return prepare(context, rest), False

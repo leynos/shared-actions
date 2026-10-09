@@ -564,3 +564,23 @@ def test_the_stable_output_matches_its_snapshot(
         for name, (args, rules) in cases.items()
     }
     assert output == snapshot
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (["prepare", "--upgrade"], "--upgrade is not allowed"),
+        (["run", "--refresh"], "--refresh is not allowed"),
+        (["run"], "run needs a command"),
+        (["tool", "--", "ruff"], "not pinned"),
+        (["tool"], "tool needs"),
+    ],
+)
+def test_bad_requests_are_refused_before_uv_is_looked_up(
+    harness: Harness, args: list[str], message: str
+) -> None:
+    """Validation runs first: with no uv on PATH the refusal is still the request's."""
+    result = harness.run(args, [], env={"PATH": "/nonexistent"})
+    assert result.status == 2
+    assert message in result.stderr
+    assert "uv is not available" not in result.stderr

@@ -3292,6 +3292,27 @@ miss (`Because X was not found in the cache ... the network was disabled`). The
 online `--locked` attempt then names the real cause, `stale-lock`, and the
 helper never runs `uv lock`.
 
+### Design decisions
+
+- **Script, not action.** A gate must not fetch its own runner over a network
+  that may be failing, so the helper is a single standard-library file that
+  each repository vendors byte-for-byte as `scripts/uv_gate.py`. The concordat
+  rule compares its digest with the canonical copy's.
+- **Environment and cache.** The helper cleans inherited state (tokens, Git
+  configuration, `BASH_ENV`, and the uv switches that override its policy),
+  uses the global uv cache and selects `UV_LINK_MODE=copy` across filesystems.
+- **Bounded retry.** One offline attempt, then at most one online attempt, and
+  only for a proven cache miss (see the retry rule above).
+- **Validate, then touch the world.** `validate_request` checks forbidden
+  flags, the command and the tool pin with no environment or filesystem access.
+  Only then does `build_context` query uv for the cache directory and compare
+  devices.
+- **uv's own output is passed through unchanged.** The helper needs uv's text
+  to classify failures and does not rewrite it. uv masks credentials in the
+  URLs it prints. The helper's own lines never carry a tool specification (only
+  the package name, or "a git+ URL") and end with a bounded
+  `uv-gate: metric uv-gate.<command>=<ok|failed|refused>` line.
+
 ### Changing the classification patterns
 
 The patterns in `SIGNATURES` match output recorded from a real uv, kept under

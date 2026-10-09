@@ -369,3 +369,39 @@ def test_latest_and_empty_versions_are_never_pins(name: str, separator: str) -> 
     """``latest`` and an empty version are not exact versions."""
     assert not uv_gate.is_pinned(f"{name}{separator}latest")
     assert not uv_gate.is_pinned(f"{name}{separator}")
+
+
+def test_validate_request_is_pure_and_accepts_good_requests() -> None:
+    """Good requests pass without any environment or filesystem access."""
+    uv_gate.validate_request("prepare", ["--group", "dev"])
+    uv_gate.validate_request("run", ["--group", "dev", "--", "pytest"])
+    uv_gate.validate_request("tool", ["--from", "ruff==1", "--", "ruff"])
+
+
+@pytest.mark.parametrize(
+    ("subcommand", "rest"),
+    [
+        ("prepare", ["-U"]),
+        ("run", []),
+        ("run", ["--refresh-package", "x", "--", "pytest"]),
+        ("tool", ["--", "ruff"]),
+        ("tool", ["-n", "--from", "ruff==1", "--", "ruff"]),
+    ],
+)
+def test_validate_request_refuses_bad_requests(
+    subcommand: str, rest: list[str]
+) -> None:
+    """Forbidden flags, missing commands and unpinned tools are all refused."""
+    with pytest.raises(uv_gate.GateError):
+        uv_gate.validate_request(subcommand, rest)
+
+
+def test_flags_after_the_separator_belong_to_the_command() -> None:
+    """Only options before ``--`` are uv's; the command's own flags are free."""
+    uv_gate.validate_request("run", ["--", "pytest", "--upgrade", "-U", "-n", "4"])
+
+
+def test_prepare_checks_every_argument_it_forwards() -> None:
+    """`prepare` forwards everything to uv sync, so nothing escapes the check."""
+    with pytest.raises(uv_gate.GateError):
+        uv_gate.validate_request("prepare", ["--", "--upgrade"])

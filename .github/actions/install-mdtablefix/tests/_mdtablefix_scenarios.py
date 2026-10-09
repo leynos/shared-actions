@@ -91,6 +91,32 @@ chmod +x "$installed"
 """
 
 
+_CURL_STUB = """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$STUB_CURL_LOG"
+case "$STUB_CHECKSUM_MODE" in
+  unreachable)
+    echo "curl: (22) The requested URL returned error: 404" >&2
+    exit 22
+    ;;
+  malformed)
+    echo "<html>not a checksum</html>"
+    exit 0
+    ;;
+  mismatch)
+    printf '%064d  mdtablefix-stub\\n' 0
+    exit 0
+    ;;
+esac
+if command -v sha256sum >/dev/null 2>&1; then
+  digest="$(sha256sum -- "$STUB_STATE_DIR/installed-body" | cut -d ' ' -f 1)"
+else
+  digest="$(shasum -a 256 -- "$STUB_STATE_DIR/installed-body" | cut -d ' ' -f 1)"
+fi
+printf '%s  mdtablefix-stub\\n' "$digest"
+"""
+
+
 def _reporting_executable(output: str) -> str:
     """Return an executable body that prints ``output`` verbatim."""
     return (
@@ -135,6 +161,10 @@ class Scenario:
     binstall_fails: bool = False
     #: Whether the upstream cargo-binstall installer step itself fails.
     binstall_install_fails: bool = False
+    #: What the release's published checksum looks like to the verify step:
+    #: ``match`` (the installed bytes), ``mismatch`` (another digest),
+    #: ``unreachable`` (the download fails), or ``malformed`` (not a digest).
+    checksum: str = "match"
 
 
 @dc.dataclass(frozen=True)
@@ -145,6 +175,8 @@ class ScenarioResult:
     summary: str
     github_path: str
     cargo_log: str
+    #: Every curl invocation, one argument vector per line.
+    curl_log: str
     #: Everything the installed executable prints, or ``None`` when none exists.
     installed_output: str | None
 
@@ -212,6 +244,7 @@ class _Sandbox:
     state_dir: Path
     workspace: Path
     cargo_log: Path
+    curl_log: Path
     summary_file: Path
     path_file: Path
     bin_dir: Path
@@ -247,6 +280,7 @@ def _build_sandbox(scenario: Scenario) -> _Sandbox:
         state_dir=root / "stub-state",
         workspace=root / "workspace",
         cargo_log=root / "cargo.log",
+        curl_log=root / "curl.log",
         summary_file=root / "step-summary",
         path_file=root / "github-path",
         bin_dir=bin_dir,
@@ -259,13 +293,19 @@ def _build_sandbox(scenario: Scenario) -> _Sandbox:
         sandbox.workspace,
     ):
         directory.mkdir(parents=True, exist_ok=True)
-    for artefact in (sandbox.cargo_log, sandbox.summary_file, sandbox.path_file):
+    for artefact in (
+        sandbox.cargo_log,
+        sandbox.curl_log,
+        sandbox.summary_file,
+        sandbox.path_file,
+    ):
         artefact.touch()
     sandbox.binstall_marker.write_text(
         "true" if scenario.binstall_present else "false",
         encoding="utf-8",
     )
     _write_executable(sandbox.stub_dir / "cargo", _CARGO_STUB)
+    _write_executable(sandbox.stub_dir / "curl", _CURL_STUB)
     (sandbox.state_dir / "installed-body").write_text(
         _reporting_executable(_installed_text(scenario)),
         encoding="utf-8",
@@ -314,6 +354,8 @@ def _build_environment(
             "STUB_BINSTALL_FAILS": "true" if scenario.binstall_fails else "false",
             "STUB_BINSTALL_VERSION": scenario.binstall_version,
             "STUB_CARGO_LOG": bash_file_path(sandbox.cargo_log),
+            "STUB_CHECKSUM_MODE": scenario.checksum,
+            "STUB_CURL_LOG": bash_file_path(sandbox.curl_log),
             "STUB_INSTALL_CREATES": (
                 "true" if scenario.install_creates_executable else "false"
             ),
@@ -415,5 +457,6 @@ def run_scenario(scenario: Scenario) -> ScenarioResult:
         summary=sandbox.summary_file.read_text(encoding="utf-8"),
         github_path=sandbox.path_file.read_text(encoding="utf-8"),
         cargo_log=sandbox.cargo_log.read_text(encoding="utf-8"),
+        curl_log=sandbox.curl_log.read_text(encoding="utf-8"),
         installed_output=_installed_output(sandbox.executable),
     )

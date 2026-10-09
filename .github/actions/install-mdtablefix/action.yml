@@ -292,6 +292,69 @@ runs:
           exit "$install_status"
         fi
 
+    - name: Verify mdtablefix checksum
+      if: ${{ steps.probe.outputs.needs-install == 'true' }}
+      shell: bash
+      env:
+        MDTABLEFIX_EXECUTABLE_PATH: ${{ steps.validate-inputs.outputs.executable-path }}
+        MDTABLEFIX_VERSION: ${{ steps.validate-inputs.outputs.version }}
+        RUNNER_ARCHITECTURE: ${{ runner.arch }}
+        RUNNER_OPERATING_SYSTEM: ${{ runner.os }}
+      run: |
+        # cargo-binstall checks nothing about the archive it unpacks, so the
+        # installed executable is compared with the SHA-256 the release
+        # publishes beside the bare executable of the same platform. The
+        # archive and the bare asset carry the same bytes (checked for 0.6.1),
+        # and every release from 0.5.1 publishes a `.sha256` file for each
+        # bare asset. This is the release's own digest: it catches a corrupt
+        # or substituted download, not a release that was replaced wholesale,
+        # which only a digest pinned by the caller could catch.
+        #
+        # A missing executable is left for the next step to report, so that
+        # the "nothing was installed" outcome keeps its one result line.
+        set -euo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        step_error() {
+          echo "::error title=Install mdtablefix failed::$1" >&2
+          emit_metric "install-mdtablefix.result=checksum-failed"
+          exit 1
+        }
+        if [[ ! -f "$MDTABLEFIX_EXECUTABLE_PATH" ]]; then
+          exit 0
+        fi
+        case "${RUNNER_OPERATING_SYSTEM:-}/${RUNNER_ARCHITECTURE:-}" in
+          Linux/X64) asset=mdtablefix-linux-x86_64 ;;
+          Linux/ARM64) asset=mdtablefix-linux-aarch64 ;;
+          macOS/X64) asset=mdtablefix-macos-x86_64 ;;
+          macOS/ARM64) asset=mdtablefix-macos-aarch64 ;;
+          Windows/X64) asset=mdtablefix-windows-x86_64.exe ;;
+          *) step_error "no published checksum for ${RUNNER_OPERATING_SYSTEM:-unknown}/${RUNNER_ARCHITECTURE:-unknown}" ;;
+        esac
+        url="https://github.com/leynos/mdtablefix/releases/download/v${MDTABLEFIX_VERSION}/${asset}.sha256"
+        published_file="$(curl --fail --silent --show-error --location \
+          --proto '=https' --tlsv1.2 --retry 3 "$url")" ||
+          step_error "could not fetch the published checksum ${url}"
+        published="$(printf '%s\n' "$published_file" | head -n 1 | cut -d ' ' -f 1 | tr 'A-F' 'a-f')"
+        if [[ ! "$published" =~ ^[0-9a-f]{64}$ ]]; then
+          step_error "${url} did not start with a SHA-256 digest"
+        fi
+        if command -v sha256sum >/dev/null 2>&1; then
+          actual="$(sha256sum -- "$MDTABLEFIX_EXECUTABLE_PATH" | cut -d ' ' -f 1)"
+        else
+          actual="$(shasum -a 256 -- "$MDTABLEFIX_EXECUTABLE_PATH" | cut -d ' ' -f 1)"
+        fi
+        if [[ "$actual" != "$published" ]]; then
+          # An executable that failed verification is not left on PATH.
+          rm -f -- "$MDTABLEFIX_EXECUTABLE_PATH"
+          step_error "the installed executable's SHA-256 ${actual} does not match the published ${published} for ${asset}"
+        fi
+        echo "::notice title=Install mdtablefix::checksum=verified asset=${asset}"
+        emit_metric "install-mdtablefix.checksum=verified"
+
     - name: Verify mdtablefix
       shell: bash
       env:

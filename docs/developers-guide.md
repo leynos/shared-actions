@@ -2557,11 +2557,14 @@ failure boundary.
 ## `install-mdtablefix` action contract
 
 The composite action boundary is
-`.github/actions/install-mdtablefix/action.yml`. It declares seven steps whose
+`.github/actions/install-mdtablefix/action.yml`. It declares eight steps whose
 order is itself part of the contract: validate the inputs, reject an
 unsupported platform, probe the cache and `cargo-binstall`, install
 `cargo-binstall` when the probe asked for it, report a failure of that
-installer, run the hardened `cargo binstall`, and verify the installed version.
+installer, run the hardened `cargo binstall`, verify the executable against the
+SHA-256 the release publishes, and verify the installed version. The checksum
+step precedes the version check so that an executable which fails verification
+is removed before it is ever run.
 
 The platform gate precedes the cache probe deliberately. A cached executable
 must not be able to report success on a runner for which no prebuilt release

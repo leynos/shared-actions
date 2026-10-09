@@ -5,6 +5,18 @@ this file.
 
 ## Unreleased
 
+- Verify the installed executable against the SHA-256 the release publishes.
+  cargo-binstall checks nothing about the archive it unpacks, so a caller that
+  moved from its own download-and-verify step to this action lost its integrity
+  check. The new `Verify mdtablefix checksum` step fetches the `.sha256` file
+  published beside the bare executable of the runner's platform (every release
+  from 0.5.1 has them; the archive's executable is byte-identical), compares
+  digests, and fails closed with `install-mdtablefix.result=checksum-failed` on
+  a mismatch, a failed download or a malformed file, removing the executable. A
+  successful run adds `install-mdtablefix.checksum=verified`. A cache hit
+  downloads nothing. The check uses the release's own digest, so it does not
+  replace a digest pinned by the caller.
+
 - Support every platform mdtablefix 0.5.1 publishes, and require 0.5.1 or
   later. The platform gate admitted Linux `x86_64` and `aarch64` only, which
   was correct for 0.5.0 and left consumers with a macOS or Windows formatter

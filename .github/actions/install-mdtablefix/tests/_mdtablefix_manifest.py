@@ -27,6 +27,7 @@ STEP_NAMES = (
     "Install cargo-binstall",
     "Report cargo-binstall provisioning failure",
     "Install mdtablefix",
+    "Verify mdtablefix checksum",
     "Verify mdtablefix",
 )
 

@@ -78,6 +78,28 @@ correct metadata and the version floor refuses anything earlier, so an override
 would now second-guess a manifest the crate is responsible for. A test asserts
 the flag has not returned.
 
+## Checksum verification
+
+cargo-binstall checks nothing about the archive it unpacks, so after an install
+the action compares the executable's SHA-256 with the digest the release
+publishes. Every mdtablefix release from 0.5.1 publishes a `.sha256` file
+beside each bare platform executable (for example
+`mdtablefix-linux-x86_64.sha256`), and the executable in the archive is
+byte-identical to that asset (checked for 0.6.1). The action fetches
+`https://github.com/leynos/mdtablefix/releases/download/v<version>/<asset>.sha256`
+over HTTPS and reports `install-mdtablefix.checksum=verified` when the digests
+match.
+
+The check fails closed. A digest that differs, a download that fails, and a
+file that does not begin with a SHA-256 digest each end the run with
+`install-mdtablefix.result=checksum-failed`, and an executable that failed
+verification is removed rather than left on `PATH`. A cache hit downloads
+nothing, because the caller owns the cache.
+
+This is the release's own digest, so it catches a corrupt or substituted
+download but not a release replaced wholesale; only a digest pinned by the
+caller could catch that.
+
 ## Obtaining cargo-binstall
 
 `cargo-binstall` is probed by running `cargo binstall -V`, not by looking for a
@@ -97,7 +119,8 @@ metric at all.
 ## Metrics
 
 Each run emits exactly one `install-mdtablefix.result` line to the job summary,
-over a bounded vocabulary, and at most one `install-mdtablefix.binstall` line.
+over a bounded vocabulary, at most one `install-mdtablefix.binstall` line, and
+at most one `install-mdtablefix.checksum` line.
 
 | Metric                                           | Meaning                                      |
 | ------------------------------------------------ | -------------------------------------------- |
@@ -107,9 +130,11 @@ over a bounded vocabulary, and at most one `install-mdtablefix.binstall` line.
 | `install-mdtablefix.result=no-prebuilt`          | No prebuilt release for this runner          |
 | `install-mdtablefix.result=install-failed`       | `cargo binstall` failed                      |
 | `install-mdtablefix.result=binstall-unavailable` | cargo-binstall could not be installed        |
+| `install-mdtablefix.result=checksum-failed`      | The published SHA-256 did not verify         |
 | `install-mdtablefix.result=version-mismatch`     | The installed version was not the pinned one |
 | `install-mdtablefix.binstall=present`            | The runner already had a usable binstall     |
 | `install-mdtablefix.binstall=installed`          | The pinned upstream action provided it       |
+| `install-mdtablefix.checksum=verified`           | The published SHA-256 matched                |
 
 ## Inputs
 

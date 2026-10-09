@@ -954,3 +954,68 @@ and run 37060954668 (top `2850c782`) both completed with all five jobs success �
 `act-workflows`, `coverage`, both `python-tests` legs, and Windows included.
 The macOS leg passing is what keeps F14 closed, and the `act-workflows` leg is
 the lane this stack exists to make run.
+
+### The eighth restack, onto a main that grew a doctest tier
+
+The F15 head went `CONFLICTING`/`DIRTY` when `main` advanced to `d0c2585d`. One
+file was in conflict, and the check that established that was non-mutating:
+`git merge-tree --write-tree` names the conflicted paths without touching the
+index, so the blast radius was known before any history moved.
+
+**The conflict was `Makefile`, and it was real.** `main`'s #493 added a
+`doctest` tier — a `DOCTEST_PATHS` list, a `doctest:` target, and
+`test: .venv doctest` — while this branch's `9c829353` had reworked the `test`
+recipe for the act lane. Both sides edited the same two regions: the `.PHONY`
+list, and the `test` recipe and its prerequisites. Neither side's version is a
+superset, so neither `--ours` nor `--theirs` was correct; the resolution is the
+union.
+
+The union, region by region:
+
+- `.PHONY` carries both new names, `test-act` and `doctest`.
+- `test: .venv doctest` keeps main's prerequisite and gains the lane's
+  `ACT_WORKFLOW_TESTS=0` export on the recipe line, so docstring examples still
+  run first and the plain suite still cannot inherit the opt-in.
+- Everything main added — `DOCTEST_PATHS` with its comment block, the `doctest`
+  target, and the `ci.yml` step that runs it — is untouched.
+
+The constraint that made this worth doing carefully rather than quickly: main's
+`tests/workflows/test_doctest_target.py` executes the real `Makefile` with a
+stub `uv` and requires `test` to run doctest **first** and to stop before the
+suite if it fails, and `test_doctest_coverage.py` requires every file carrying a
+`>>>` to be named in `DOCTEST_PATHS`. A union that dropped either half fails
+both. No branch-added test file contains `>>>`, so `DOCTEST_PATHS` needed no
+addition — checked, not assumed.
+
+The replay, with the explicit invocation and the boundary this branch's own work
+starts at (`OLD_BASE` = `ff1dd759`, the last commit it inherits, not the merge
+base):
+
+```text
+git -c merge.conflictStyle=zdiff3 rebase --merge --no-fork-point \
+  --no-update-refs --no-autostash --reapply-cherry-picks --keep-empty \
+  --empty=stop --onto d0c2585d ff1dd759 fix/act-lane-runs-in-ci
+```
+
+`e69c4e80` → **`961279ab`**, 24 commits, linear, zero merges. Recovery refs
+`refs/recovery/act-lane-r8-old-head-e69c4e80`,
+`refs/recovery/act-lane-r8-old-base-ff1dd759` and
+`refs/recovery/act-lane-r8-target-d0c2585d` are retained.
+
+Audit: `range-diff ff1dd759..e69c4e80 d0c2585d..961279ab` reports **23 of 24
+entries patch-identical**. The one differing entry is #2, `9c829353` →
+`ea428571` ("Gate the plain suite off the act lane, and hold the recipes to
+it"), and it differs by exactly main's `doctest` additions — which is the
+conflict's resolution showing up where it should. `git diff --check` against
+`origin/main` is clean.
+
+The targeted contracts were run before the full gate set, so a bad resolution
+would be named rather than merely failing: 194 passed across the doctest target
+and coverage contracts, the act-lane recipe contracts, the version-assertion
+contract, the job ceilings and the platform-step contracts.
+
+This restack also split the work by layer, because two sessions were converging
+on the same stack. This session owns the bottom branch; a peer session owns the
+top branch and the merge, and neither touches the other's layer. The top is
+untouched at `55b385b3` and will be replayed by its owner with boundary
+`e69c4e80` once the bottom's push is verified.

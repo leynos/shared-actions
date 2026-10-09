@@ -987,9 +987,9 @@ suite if it fails, and `test_doctest_coverage.py` requires every file carrying a
 both. No branch-added test file contains `>>>`, so `DOCTEST_PATHS` needed no
 addition — checked, not assumed.
 
-The replay, with the explicit invocation and the boundary this branch's own work
-starts at (`OLD_BASE` = `ff1dd759`, the last commit it inherits, not the merge
-base):
+The replay, with the explicit invocation and the boundary this branch's own
+work starts at (`OLD_BASE` = `ff1dd759`, the last commit it inherits, not the
+merge base):
 
 ```text
 git -c merge.conflictStyle=zdiff3 rebase --merge --no-fork-point \

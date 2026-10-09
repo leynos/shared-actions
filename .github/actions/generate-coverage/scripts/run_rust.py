@@ -430,7 +430,7 @@ def run_cucumber_rs_coverage(
 
 
 @contextlib.contextmanager
-def ensure_nextest_config() -> typ.Iterator[Path]:
+def ensure_nextest_config() -> typ.Generator[Path]:
     """Ensure a temporary nextest config exists when none is present."""
     config_path = _resolve_nextest_config_path()
     if config_path.is_file():

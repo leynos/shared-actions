@@ -27,9 +27,11 @@ documents how to use the `install-nixie` action.
 - [Declining the job-wide sccache wrapper](./migrating-to-the-export-rustc-wrapper-input.md)
   – the `export-rustc-wrapper` input and `sccache-path` output of `setup-rust`.
 - [Migrating to `sccache-report`](./migrating-to-sccache-report.md)
-- [Scoping the `cv005-contracts` lane-upload rule](./migrating-cv005-contracts-lane-upload-scope.md)
   – replacing a handwritten `sccache --show-stats` step with the fallback-aware
   action.
+- [Scoping the `cv005-contracts` lane-upload rule](./migrating-cv005-contracts-lane-upload-scope.md)
+  – which `upload-artifact` steps `coverage.lane-hardening` judges, and the
+  0.2.0 upgrade notes.
 - [Migrating to `install-clang-lld`](./migrating-to-setup-rust-clang-lld.md)
   – replacing a handwritten `apt-get install clang lld` step with
   `setup-rust`'s input.

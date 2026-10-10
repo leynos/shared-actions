@@ -57,6 +57,58 @@ def _flag_values(args: list[str], flag: str) -> list[str]:
     ]
 
 
+def _interleave(left: list[str], right: list[str]) -> list[str]:
+    """Return *left* and *right* alternating, both exhausted.
+
+    Concatenating them would put every Linux label before every non-Linux
+    one, and an implementation that read only the first quoted string would
+    then be accidentally correct for the generated inputs. Alternating moves
+    the non-Linux label off the front for the smallest of them.
+    """
+    interleaved: list[str] = []
+    for index in range(max(len(left), len(right))):
+        if index < len(left):
+            interleaved.append(left[index])
+        if index < len(right):
+            interleaved.append(right[index])
+    return interleaved
+
+
+#: A quoted string that is not a runner label, standing in for the values a
+#: `runs-on` expression compares a context reference against. The generated
+#: text is kept free of the three spellings the reader normalizes, so a
+#: generated value means the same thing to the test and to the classifier:
+#: a single quote would splice a label into the expression, surrounding
+#: whitespace would be stripped from one side of the comparison and not the
+#: other, and a leading `${{` would be read as an expression rather than as
+#: a label. All three would make the property fail on an input it never
+#: described.
+_COMPARED_VALUE = (
+    st.text(
+        min_size=1,
+        max_size=24,
+        alphabet=st.characters(
+            exclude_characters="'",
+            exclude_categories=("Z", "C"),
+        ),
+    )
+    .filter(lambda value: not value.startswith("${{"))
+    .filter(lambda value: value not in conftest._RUNNER_LABELS)
+)
+
+#: One `include` leg's `os` binding: a runner label, a value that is not
+#: one, or a null value. The absent key is the example test's job rather
+#: than this generator's: `{"os": None}` and `{}` both reach the reader as
+#: `None` through `leg.get("os")`, so one property covers the null value
+#: and one named case pins the absent key.
+_MATRIX_LEG = st.one_of(
+    st.none(),
+    st.sampled_from(sorted(reading.RECOGNIZED_LINUX_LABELS)),
+    st.sampled_from(sorted(reading.RECOGNIZED_OTHER_LABELS)),
+    _COMPARED_VALUE,
+)
+
+
 def _git(*args: str) -> None:
     """Run one git command in the temporary repository under construction.
 
@@ -244,12 +296,7 @@ class TestPlatformClassificationIsTotal:
     @given(
         linux=st.lists(st.sampled_from(sorted(reading.RECOGNIZED_LINUX_LABELS))),
         other=st.lists(st.sampled_from(sorted(reading.RECOGNIZED_OTHER_LABELS))),
-        compared=st.lists(
-            st.text(min_size=1, max_size=24).filter(
-                lambda value: value not in conftest._RUNNER_LABELS
-            ),
-            max_size=3,
-        ),
+        compared=st.lists(_COMPARED_VALUE, max_size=3),
     )
     def test_only_expressions_of_linux_labels_are_accepted(
         self,
@@ -261,7 +308,7 @@ class TestPlatformClassificationIsTotal:
         # Interleaved rather than concatenated, so the position of a
         # non-Linux label varies and an implementation that reads only the
         # first quoted string is not accidentally correct.
-        quoted = [f"'{label}'" for label in (linux + other)]
+        quoted = [f"'{label}'" for label in _interleave(linux, other)]
         if compared:
             quoted.append(f"'{compared[0]}'")
         expression = (
@@ -292,6 +339,54 @@ class TestPlatformClassificationIsTotal:
         assert not conftest._resolves_to_one_platform(
             {"runs-on": "${{ github.event_name }}"}
         ), "an expression naming no runner label must not be accepted"
+
+    @given(legs=st.lists(_MATRIX_LEG, max_size=4))
+    def test_a_matrix_binding_is_judged_by_its_distinct_legs(
+        self, legs: list[str | None]
+    ) -> None:
+        """A matrix binding is accepted exactly when its legs are one platform.
+
+        The rule is stated from the generated legs rather than through
+        `_matrix_labels`: a binding is accepted when the distinct labels its
+        `include` legs offer are exactly the one label act is given an image
+        for. Repeats collapse, a null value is not a platform, and a second
+        label -- Linux or not -- is a platform `-P` cannot cover in the one
+        entry a whole-string binding gets.
+        """
+        job = {
+            "runs-on": "${{ matrix.os }}",
+            "strategy": {"matrix": {"include": [{"os": leg} for leg in legs]}},
+        }
+        distinct = {leg for leg in legs if leg is not None}
+
+        expected = distinct == {reading.UBICLOUD_LINUX}
+        actual = conftest._resolves_to_one_platform(job)
+
+        assert actual is expected, (
+            f"a matrix offering {sorted(distinct)} was "
+            f"{'accepted' if actual else 'refused'}; act is given one image "
+            f"per platform, so it must be "
+            f"{'accepted' if expected else 'refused'}"
+        )
+
+    def test_a_matrix_leg_naming_no_label_is_not_a_platform(self) -> None:
+        """A leg whose `os` key is absent contributes no platform.
+
+        `.get` answers `None` for an absent key, exactly as it does for a
+        null value, so the property above cannot tell the two apart. This
+        case pins the absent key itself: a matrix whose only leg names no
+        label at all would otherwise compare a set holding `None` against
+        the one accepted label and could be read as naming a platform it
+        does not.
+        """
+        job = {
+            "runs-on": "${{ matrix.os }}",
+            "strategy": {"matrix": {"include": [{}, {"os": reading.UBICLOUD_LINUX}]}},
+        }
+
+        assert conftest._resolves_to_one_platform(job), (
+            "the leg naming no label must be dropped, leaving the one platform"
+        )
 
 
 class TestContainerEnvironment:

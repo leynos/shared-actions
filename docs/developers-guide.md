@@ -2175,8 +2175,10 @@ Each fixture runs in a container act starts from
 `install-whitaker` verifies its extracted `cargo-dylint` by running
 `cargo dylint --version`, and the plain `act-latest` image ships no cargo, so
 that probe fails and the action aborts with "the repository install failed
-verification" without exercising anything. `_ACT_IMAGE` names it once, and the
-runner-label classifier below decides whether act is given an image at all.
+verification" without exercising anything. `_ACT_IMAGE` names it once, and
+`_platform_images` builds one `-P` entry per label in `_LINUX_PLATFORMS`, so
+the image map and the label vocabulary are read from the same set and a label
+cannot be added to one without the other.
 
 The container's environment is built by `_build_container_env(config, run_env)`
 from three sources, in precedence order: the lane's defaults, the case's own
@@ -2214,6 +2216,71 @@ mount already, and the resolver returns nothing rather than asking act to mount
 the host's whole filesystem. A worktree whose support is not needed (the
 `_git_common_dir` probe timing out, say) degrades to running act without the
 mount rather than failing a case over it.
+
+### The runner-label classifier, and the image guard
+
+`-P` takes one image per runner label, and act prints
+`Skipping unsupported platform` with a successful exit for a job whose label it
+has none for. That is the failure mode this harness exists to make impossible:
+no step runs, every log assertion finds nothing, and the case fails somewhere
+far from the cause, or passes without testing anything. Two readers decide
+whether a job can be given an image, and one guard applies that decision before
+act is invoked.
+
+`_labels_named_by` returns the labels a `runs-on` expression can reach, in the
+order written, by scanning its quoted strings and keeping those the vocabulary
+knows. A quoted string that is not in the vocabulary is read as a value the
+expression compares against, not as a runner: `github.event_name == 'schedule'`
+quotes the event name, and reading it as a label would have the guard judge a
+job by a runner it never runs on. Both vocabularies are read, not just the
+Linux one, because a non-Linux label is exactly what act has no image for and
+what the caller has to be told about.
+
+The vocabularies are `RECOGNIZED_LINUX_LABELS` and `RECOGNIZED_OTHER_LABELS` in
+`tests/workflows/_workflow_policy.py`. They are exact tokens rather than
+prefixes, so an unmeasured shape is refused instead of being classified by its
+name: `ubicloud-standard-2-ubuntu-2404` is not accepted as a hosted runner for
+containing `ubuntu`. The image map is `_LINUX_PLATFORMS`, read from
+`RECOGNIZED_LINUX_LABELS` rather than written out, so a fixture moved to a
+label missing from the map is a fixture that would run nowhere and still pass.
+
+`_resolves_to_one_platform` accepts a job only when act can be given one image
+for it, and it accepts exactly two shapes. A plain label is accepted when it is
+a Linux label. A whole-string `${{ matrix.<key> }}` reference is followed into
+the job's `include` legs and accepted only when the distinct labels those legs
+offer are exactly `{UBICLOUD_LINUX}` — a leg naming no label is dropped rather
+than counted. Everything else is refused, including a `&&`/`||` expression that
+names a non-Linux label beside a Linux one, because act would run the Linux arm
+and skip the other and the same case would then mean two things.
+
+`_require_an_image_for(workflow, job_id)` is the guard that applies this before
+act is given anything, and it fails closed. A job it cannot find in the
+workflow raises `TypeError` rather than skipping: a listed job renamed out of
+existence would otherwise run nothing and report success. A job that runs on a
+label no image can be mapped to raises `ValueError` naming the job. A job that
+only calls a reusable workflow has no `runs-on` of its own, so the callee's
+jobs are the ones judged, since those are the jobs act runs.
+
+The matrix rule is deliberately narrow. Every matrix job in this repository is
+a listed ceiling contract the suite reads from the workflow text, so refusing
+all of them costs the harness nothing. Widening it needs a way to give act an
+image for each label a case can actually reach, not just for the ones this
+repository writes today.
+
+### `ActionContext.github_repository`, and what it is a stand-in for
+
+`composite_fragments.py` resolves the expression subset a composite action's
+Bash fragments use, and `ActionContext` holds the context they resolve against.
+`github_repository` was added to it for a manifest that declares the repository
+it runs in as a step `env` and then reads `github.repository`.
+
+Its default is the empty string, and that is the harness's behaviour rather
+than a general rule about GitHub's own context: a manifest that reads
+`github.repository` without declaring it sees whatever the runner substitutes
+for an unset value, which is the empty string. The field exists so a test can
+supply a repository name when a manifest expects one, and the empty default
+keeps a manifest that declares nothing resolving to what a real runner would
+give it rather than to a name the harness made up.
 
 ### Deciding whether a command is runnable
 

@@ -1636,3 +1636,98 @@ had to be re-derived from the source, and one of the four turned out to be
 describing a defect that the anchor revision had and the current one does not.
 The reconciliation names the reviewed revision and the current one so the
 discrepancy is visible rather than argued.
+
+### The twelfth pass: CodeRabbit's reply, and four defects it found
+
+The reconciliation went to `coderabbitai` naming head `4f98b2e4` and base
+`d0c2585d`. It replied through
+[issue comment 6091465241](https://github.com/leynos/shared-actions/pull/583#issuecomment-6091465241),
+accepting Testing (Overall) as resolved and contesting the other three. Every
+claim was re-checked against the current source, and all four were correct:
+
+- **`docs/users-guide.md` was factually wrong about the default.** It said most
+  tools print a bare version "which is what the manifest's `version` is
+  compared against". `resolve_tool.py:194` composes
+  `f"{entry.get('version-lead', binary)} {entry['version']}"`, and
+  `test_resolve_tool.py:154` pins `brisk 2.0.0` for a leadless tool. The
+  default is `<binary> <version>`, and the section now says so.
+- **The developers-guide forward reference was dangling.** My own new prose
+  said "the runner-label classifier below decides whether act is given an image
+  at all", and the guide contained zero occurrences of
+  `_resolves_to_one_platform`, `_LINUX_PLATFORMS` or `_require_an_image_for`.
+  The original pre-merge row had asked for the label mapping and the
+  fail-closed guard, and "partially resolved" was the right verdict. There is
+  now a "The runner-label classifier, and the image guard" subsection and an
+  "`ActionContext.github_repository`" subsection.
+- **`docs/local-validation-…-act-and-pytest.md` contradicted the harness
+  twice.** It said the harness "skips automatically" when the runtime is
+  unavailable and that the target "first runs the regular test suite … then
+  re-runs only the workflow harness". `pytest_runtest_setup` *fails* an
+  opted-in lane whose runtime is missing, and `test: test-act` makes the lane a
+  **prerequisite**, so it runs first and the plain suite then forces the gate
+  off. Both statements are corrected, and `make test-act` is named as the
+  standalone command.
+- **The matrix property genuinely did not exist.** The existing matrix tests
+  were fixed examples calling the implementation as the oracle, which is what
+  the row forbade. There is now a property generating zero, one and several
+  `include` legs and asserting the rule from the generated inputs.
+
+A fifth defect was found while fixing the fourth, in my own expression property:
+`compared` was filtered only against whole-string `_RUNNER_LABELS`, so a
+generated value containing a single quote would splice a label into the
+expression. Reproduced with `compared=["x' || 'macos-15"]`, which yields
+`${{ 'ubuntu-latest' || 'x' || 'macos-15' }}` and fails a property that never
+described that input. The alphabet now excludes `'`.
+
+Both new properties were mutation-checked rather than assumed to be load-
+bearing. The first attempt patched `tests.workflows.conftest`, but pytest
+imports the module as `workflows.conftest`, so the mutant never reached the
+call path and survived — a false negative from a broken harness, not a weak
+test. Installed through a `pytest_collection_modifyitems` plugin on the module
+pytest actually loads, a first-string-only `_labels_named_by` fails 3 tests,
+and a matrix rule that accepts any non-empty leg set fails 3 more.
+
+Also recorded: the CI run for the superseded head `4f98b2e4` (`38007997738`)
+was **cancelled** by GitHub's concurrency group, not failed — "a higher
+priority waiting request for CI-refs/pull/583/merge exists". The current head
+`d60d2590` is green on all five runs, with `act-workflows` genuinely executing
+`act version 0.2.89` (`1167 passed, 110 skipped`).
+
+The same class of defect was then found twice more in the *new* matrix
+property, both by asking what the reader normalizes that the expectation does
+not. `_single_label` strips surrounding whitespace, so a leg spelled
+`" ubicloud-standard-2"` is read as the one accepted label while an expectation
+comparing raw strings says it is not. `_single_label` also refuses anything
+starting with `${{`, so a leg spelled `"${{ foo }}"` contributes no label at
+all while the expectation counts it as one. Each was reproduced before being
+fixed, and the generated text now excludes the quote, the whitespace categories
+and the expression prefix — the three spellings that make a generated value
+mean something different to the test than to the classifier.
+
+#### Two more defects, found by the gates and by re-reading
+
+The gate run on this delta came back with `make spelling` and
+`make markdownlint` **red** — the first real failure either had reported
+against this branch, and both from the same word. The local dictionary is
+en-GB-oxendict, which re-words `-ise` to `-ize`, and the two `normalises`
+spellings added this pass failed it. The gate stops at the first error, so only
+one was reported and genuine coverage required checking for the rest by
+scanning every added line for `-ise`/`-our`/doubled-`l` variants: three
+candidates, of which `cancelled` and `behaviour` are the oxendict forms and two
+`normalises` were not. Both are fixed, and the gate is green with `typos.toml`
+byte-identical — so the shared dictionary was never the problem, the prose was.
+
+`make markdownlint` never ran at all: it depends on `spelling`, so the
+prerequisite failure blocked the lint step and left markdown coverage unproven
+rather than passing. Run on its own it reports `98 file(s), 0 error(s)`. A gate
+that is blocked by a prerequisite must not be read as a gate that passed.
+
+Re-reading the new matrix property against the source found one more
+inaccuracy, in a comment rather than in code: `.get` answers `None` for an
+absent key exactly as it does for a null value, so a property generating
+`{"os": None}` exercises the null value and *not* the absent key its comment
+claimed. The named example test pins the absent key; the comment now says so
+instead of overclaiming. This is the fourth time on this branch that a claim
+was found to be one step wider than the code supporting it, and each time it
+was found by reading the source rather than by running the suite — the suite
+was green throughout.

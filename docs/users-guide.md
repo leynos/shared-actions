@@ -643,14 +643,17 @@ cargo-dylint, dylint-link, sccache, merman-cli 0.7.0 and act 0.2.89.
 
 ### Verifying a tool whose version output carries words
 
-Most tools print a bare version, which is what the manifest's `version` is
-compared against. A few put words in front of it: `act version 0.2.89` rather
-than `0.2.89`. The optional `version-lead` key records the words a tool's own
-output puts before the version, and the expectation becomes
-`<lead> <version>` — so act's entry carries `version-lead = "act version"` and
-the comparison is made against `act version 0.2.89`. A mismatch in the lead is
-a verification failure like any other, so the check still fails closed on a
-tool that changes its wording.
+The expected version string is `<binary> <version>` by default, so a manifest
+entry named `brisk` at version `2.0.0` is verified against `brisk 2.0.0`. The
+binary name leads because that is the shape most tools' `--version` output
+takes. A few tools put different words there: act prints `act version 0.2.89`.
+The optional `version-lead` key replaces the binary-name prefix, so act's entry
+carries `version-lead = "act version"` and the expectation becomes
+`act version 0.2.89`. A mismatch in the lead is a verification failure like any
+other, so the check still fails closed on a tool that changes its wording. A
+tool whose output shape is neither `<binary> <version>` nor a lead a manifest
+records is a manifest defect rather than a substring that happens to be
+accepted, because it would fail verification on a runner and nowhere earlier.
 
 The archive extensions the manifest's `url` can carry are `.tar.gz`, `.tgz`,
 `.tar.xz` and `.zip`. The extension picks the extractor: `.tar.xz` takes the

@@ -458,7 +458,10 @@ def test_probe_link_paths_turns_an_oserror_into_a_refusal(
 
 @pytest.mark.skipif(
     sys.platform == "win32",
-    reason="the fake uv is a #! script, which Windows cannot run",
+    reason=(
+        "the fake uv is a #! script, which Windows cannot execute; the timeout path "
+        "is plain Popen.communicate(timeout=) and kill(), with no platform branch"
+    ),
 )
 def test_a_stalled_cache_query_is_a_refusal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

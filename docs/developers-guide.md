@@ -2168,6 +2168,53 @@ mapping, bypassing the cache.
 be injected into the `act` subprocess - currently used to forward `DOCKER_HOST`
 when a healthy Podman socket is discovered automatically.
 
+### The fixture container: image, environment and mounts
+
+Each fixture runs in a container act starts from
+`catthehacker/ubuntu:rust-latest`. The image is the `rust-` one deliberately:
+`install-whitaker` verifies its extracted `cargo-dylint` by running
+`cargo dylint --version`, and the plain `act-latest` image ships no cargo, so
+that probe fails and the action aborts with "the repository install failed
+verification" without exercising anything. `_ACT_IMAGE` names it once, and the
+runner-label classifier below decides whether act is given an image at all.
+
+The container's environment is built by `_build_container_env(config, run_env)`
+from three sources, in precedence order: the lane's defaults, the case's own
+`container_env`, and the host variables the fixture forwards. Only
+`UV_PROJECT_ENVIRONMENT` is forwarded, because it is a host variable the case
+needs to see; a case that names it itself is not overruled, so the forwarding
+is a fallback rather than a merge in the other direction.
+
+`RUSTUP_PERMIT_COPY_RENAME=1` is the one lane default, and it is a workaround
+for an artefact of the image under act rather than for anything these actions
+do. `rust-latest` bakes its toolchain into `/usr/share/rust/.rustup`, which
+under act is a lower layer of the container's overlay filesystem. When upstream
+stable is newer than the one the image was built with (as it is whenever the
+rolling tag lags a release), the nested
+`actions-rust-lang/setup-rust-toolchain` updates that toolchain in place, and
+rustup's swap of the old toolchain's directories is a rename across overlay
+layers. Overlayfs refuses it with `Invalid cross-device link (os error 18)` and
+the install rolls back, so `setup-rust` fails for a reason the image never has
+on a real runner, where the toolchain sits in one writable layer. The variable
+is rustup's own opt-in to copy-and-delete instead of rename. It is harmless
+when the baked toolchain is already current, because rustup then never takes
+the rename path, and a case may still override it with an explicit value.
+
+A linked worktree is the second boundary. act bind-mounts the checkout at the
+path it occupies on the host, so a `.git` that points outside that path cannot
+be followed from inside the container. A linked worktree's `.git` is exactly
+that: a file pointing at `<object store>/worktrees/<name>`, which git inside
+the container reports as `fatal: not a git repository: (null)`. When
+`_git_common_dir_mount` resolves such a pointer, the object store is mounted
+back at the path the pointer names, read-only: the container may read the
+object store and must not write it, and the repository root is already
+bind-mounted read-write as the only mount a case may change. The ordinary
+checkout needs none of this, because its `.git` directory is inside the bind
+mount already, and the resolver returns nothing rather than asking act to mount
+the host's whole filesystem. A worktree whose support is not needed (the
+`_git_common_dir` probe timing out, say) degrades to running act without the
+mount rather than failing a case over it.
+
 ### Deciding whether a command is runnable
 
 `_act_command` may name a bare command or a path, and the probe answers the two

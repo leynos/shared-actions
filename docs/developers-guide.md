@@ -3502,3 +3502,65 @@ cost of 5 minutes 14 seconds a run for no information.
 `tests/workflows/test_linux_suite_executes_once.py` holds both halves of the
 rule, because forbidding the Linux run alone would be satisfied by deleting the
 coverage run instead.
+
+## `uv_gate`, the vendored uv helper
+
+`uv_gate/uv_gate.py` is the canonical copy of a standard-library helper that
+repositories vendor byte-for-byte as `scripts/uv_gate.py`. It implements the uv
+robust-execution procedure: a cleaned environment, the global uv cache,
+`UV_LINK_MODE=copy` across filesystems, offline gates, and one bounded online
+step. It is a script rather than an action because a gate must not fetch its
+own runner over the network that may be failing.
+
+### The retry rule
+
+The helper makes at most one online attempt, and only when uv's output proves a
+missing cache entry:
+
+- `prepare` runs `uv sync --locked --offline`. On a `cache-miss` or an
+  `offline-resolution` failure it runs one `uv sync --locked`.
+- `tool` runs `uv tool run --offline` and, on the same two classes, warms the
+  tool with one online run.
+- `run` never goes online and never retries.
+- Authentication failures, stale or missing locks, missing packages and
+  revisions, and anything unrecognized are reported once and never retried.
+
+`offline-resolution` exists because uv reports a stale lock offline as a cache
+miss (`Because X was not found in the cache ... the network was disabled`). The
+online `--locked` attempt then names the real cause, `stale-lock`, and the
+helper never runs `uv lock`.
+
+### Design decisions
+
+- **Script, not action.** A gate must not fetch its own runner over a network
+  that may be failing, so the helper is a single standard-library file that
+  each repository vendors byte-for-byte as `scripts/uv_gate.py`. The concordat
+  rule compares its digest with the canonical copy's.
+- **Environment and cache.** The helper cleans inherited state (tokens, Git
+  configuration, `BASH_ENV`, and the uv switches that override its policy),
+  uses the global uv cache and selects `UV_LINK_MODE=copy` across filesystems.
+- **Bounded retry.** One offline attempt, then at most one online attempt, and
+  only after a `cache-miss` or an `offline-resolution` failure (see the retry
+  rule above).
+- **Narrow adapters.** `build_context` composes small steps: `_locate_uv`,
+  `_query_cache_dir` (with a timeout), `_ensure_cache`, `probe_link_paths`
+  (resolves paths, refusing on `OSError`), `needs_copy_mode` (a pure device
+  comparison over resolved paths, with `device` injected) and `_with_git_shim`.
+  Every environmental failure becomes a `GateError`.
+- **Validate, then touch the world.** `validate_request` checks forbidden
+  flags, the command and the tool pin with no environment or filesystem access.
+  Only then does `build_context` query uv for the cache directory and compare
+  devices.
+- **uv's own output is passed through unchanged.** The helper needs uv's text
+  to classify failures and does not rewrite it. uv masks credentials in the
+  URLs it prints. The helper's own lines never carry a tool specification (only
+  the package name, or "a git+ URL") and end with a bounded
+  `uv-gate: metric uv-gate.<command>=<ok|failed|refused>` line.
+
+### Changing the classification patterns
+
+The patterns in `SIGNATURES` match output recorded from a real uv, kept under
+`uv_gate/tests/fixtures/`. When uv's wording changes, record the new output,
+update the fixture and the pattern together, and keep the black-box call-list
+tests: they are what prove that no failure class gains a retry. After a change
+to the helper, the digest every vendored copy must match changes too.

@@ -1,0 +1,17 @@
+   Updating https://github.com/benjaminp/six (0000000000000000000000000000000000000000)
+  × Failed to download and build `six @
+  │ git+https://github.com/benjaminp/six@0000000000000000000000000000000000000000`
+  ├─▶ Git operation failed
+  ├─▶ failed to find branch, tag, or commit
+  │   `0000000000000000000000000000000000000000`
+  ╰─▶ process didn't exit successfully: `/usr/sbin/git rev-parse
+      '0000000000000000000000000000000000000000^0'` (exit status: 128)
+      --- stdout
+      0000000000000000000000000000000000000000^0
+
+      --- stderr
+      fatal: ambiguous argument '0000000000000000000000000000000000000000^0':
+      unknown revision or path not in the working tree.
+      Use '--' to separate paths from revisions, like this:
+      'git <command> [<revision>...] -- [<file>...]'
+

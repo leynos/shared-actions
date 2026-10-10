@@ -36,6 +36,14 @@ GitHub Actions
 See the [Install Nixie guide](docs/users-guide.md#install-nixie) for usage,
 version inputs, and failure behaviour.
 
+## Vendored helpers
+
+These are scripts that a repository copies, not published actions.
+
+- [`uv_gate`](uv_gate/README.md): runs `uv` offline-first with one bounded
+  online step; see the
+  [users' guide](docs/users-guide.md#uv_gate-the-vendored-uv-helper).
+
 ## Reusable workflows
 
 | Name                             | Path                                         | Guide                                                                          |

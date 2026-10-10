@@ -1,0 +1,2 @@
+Resolved 2 packages in 4ms
+The lockfile at `uv.lock` needs to be updated, but `--locked` was provided. To update the lockfile, run `uv lock`.

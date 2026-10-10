@@ -69,6 +69,7 @@ DOCTEST_PATHS ?= bool_utils.py cargo_utils.py cmd_utils.py composite_fragments.p
 	tests/workflows/workflow_expressions.py \
 	tests/workflows/workflow_triggers.py \
 	tests/workflows/workflow_yaml.py \
+	uv_gate/uv_gate.py \
 	workflow_scripts/dependabot_commit_audit.py \
 	workflow_scripts/dependabot_decision.py \
 	workflow_scripts/dependabot_metrics.py
@@ -150,6 +151,8 @@ typecheck: .venv ## Run static type checking with Ty
 		--extra-search-path .github/actions/install-mdtablefix/tests \
 		--extra-search-path .github/actions/install-makeutil/scripts \
 		--extra-search-path .github/actions/install-makeutil/tests \
+		--extra-search-path uv_gate \
+		--extra-search-path uv_gate/tests \
 		cmd_utils.py \
 		composite_fragments.py \
 		.github/actions/generate-coverage/scripts \
@@ -160,6 +163,7 @@ typecheck: .venv ## Run static type checking with Ty
 		.github/actions/install-mdtablefix/tests \
 		.github/actions/install-makeutil/scripts \
 		.github/actions/install-makeutil/tests \
+		uv_gate \
 		.github/actions/windows-package/scripts
 	./.venv/bin/ty check --python .venv \
 		--extra-search-path . \

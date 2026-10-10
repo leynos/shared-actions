@@ -30,12 +30,54 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _workflow() -> dict[str, typ.Any]:
-    """Parse the reusable workflow."""
+class _Input(typ.TypedDict, total=False):
+    """The slice of a ``workflow_call`` input that these tests inspect."""
+
+    type: str
+    default: str
+
+
+#: The slice of a workflow step that these tests inspect. The functional form
+#: is needed because ``with`` is a keyword and cannot be a class attribute.
+_Step = typ.TypedDict("_Step", {"uses": str, "with": dict[str, str]}, total=False)
+
+
+class _Job(typ.TypedDict, total=False):
+    """The slice of a workflow job that these tests inspect."""
+
+    steps: list[_Step]
+
+
+class _Workflow(typ.TypedDict):
+    """The slice of the reusable workflow that these tests inspect."""
+
+    jobs: dict[str, _Job]
+
+
+def _document() -> dict[object, object]:
+    """Parse the reusable workflow into its raw mapping."""
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
 
 
-def _setup_rust_steps() -> list[dict[str, typ.Any]]:
+def _workflow() -> _Workflow:
+    """Return the parsed reusable workflow."""
+    return typ.cast("_Workflow", _document())
+
+
+def _declared_inputs() -> dict[str, _Input]:
+    """Return the ``workflow_call`` inputs, whichever way YAML read ``on``.
+
+    YAML 1.1 reads the bare key ``on`` as the boolean ``True``.
+    """
+    document = _document()
+    triggers = typ.cast(
+        "dict[str, dict[str, dict[str, _Input]]]",
+        document.get("on", document.get(True)),
+    )
+    return triggers["workflow_call"]["inputs"]
+
+
+def _setup_rust_steps() -> list[_Step]:
     """Return every step that runs the local ``setup-rust`` action."""
     return [
         step
@@ -52,8 +94,7 @@ def test_the_workflow_declares_install_clang_lld_defaulting_to_false() -> None:
     ``setup-rust`` input it feeds accepts only the strings ``true`` and
     ``false``.
     """
-    triggers = _workflow().get("on", _workflow().get(True))
-    declared = triggers["workflow_call"]["inputs"].get("install-clang-lld")
+    declared = _declared_inputs().get("install-clang-lld")
 
     assert declared is not None, "mutation-cargo.yml must expose install-clang-lld"
     assert declared.get("type") == "string"
@@ -69,7 +110,7 @@ def test_setup_rust_receives_the_callers_install_clang_lld() -> None:
 
     assert steps, "mutation-cargo.yml must run the local setup-rust action"
     for step in steps:
-        forwarded = (step.get("with") or {}).get("install-clang-lld")
+        forwarded = step.get("with", {}).get("install-clang-lld")
         assert forwarded == FORWARD, (
             "setup-rust must receive install-clang-lld from the workflow input; "
             f"got {forwarded!r}"

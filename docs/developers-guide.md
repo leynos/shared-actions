@@ -2421,6 +2421,15 @@ empirical findings, and decisions live in the
 
 Internals for maintainers:
 
+- A caller's linker needs are inputs, not caller-side `apt-get` lines.
+  `mutation-cargo.yml` declares `install-mold` and `install-clang-lld`, each a
+  string defaulting to `'false'` because the `setup-rust` inputs they feed
+  accept only the strings `true` and `false`, and forwards each to its local
+  `setup-rust` step. `install-clang-lld` installs `clang` and `lld` on Linux
+  and skips with a notice elsewhere; neither input sets a linker flag.
+  `workflow_scripts/tests/test_mutation_cargo_install_mold.py` and
+  `test_mutation_cargo_install_clang_lld.py` assert that each input is declared
+  with its default and forwarded to the step.
 - All non-trivial logic lives in `workflow_scripts/` helper scripts
   (Cyclopts, `INPUT_*` environment configuration, plumbum):
   `mutation_detect_changes.py` (change-detection guard and shard-matrix

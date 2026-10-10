@@ -95,3 +95,11 @@
   The tag breaks the repository's SHA-pinning policy, and the older releases it
   can resolve to are not intercepted by a transparent runner cache, so their
   saves became wasted upload.
+
+- Record a skipped upload: when `access-token` is empty in `upload` or `check`
+  mode, a final step writes a `CodeScene upload skipped` notice annotation and
+  a step-summary line saying no access token is configured (in `check` mode,
+  that coverage was not checked), and succeeds. The CLI resolve, cache,
+  install, verify and PATH steps are skipped too, so an unsupported runner or a
+  failed download cannot fail the skip. Previously the upload and check steps
+  were skipped silently. A present token behaves as before. Part of DF12-85.

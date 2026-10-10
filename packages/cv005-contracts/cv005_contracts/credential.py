@@ -1,9 +1,10 @@
 """Rules for where the publisher's CodeScene credential may appear.
 
-The credential reaches exactly two places. A check step, which binds
-nothing and runs one exact command, records whether the secret is set;
-the upload step's guard reads that output and the step passes the secret
-to the uploader's `access-token` input. The uploader is a composite action
+The credential reaches up to two places. The upload step passes the secret
+to the uploader's `access-token` input, which records an empty token itself.
+A publisher whose upload guard also reads an availability output must hold a
+check step, which binds nothing and runs one exact command to record whether
+the secret is set. The uploader is a composite action
 that hands its step's `env` to the nested artefact and cache steps it
 runs, so the token must not sit in that `env`, nor in any other.
 """
@@ -12,7 +13,13 @@ from __future__ import annotations
 
 import typing as typ
 
-from .publisher import check_step_id, position, upload_job, upload_step
+from .publisher import (
+    availability_ids,
+    check_step_id,
+    position,
+    upload_job,
+    upload_step,
+)
 from .reach import unnamed_secret_references
 from .reading import jobs, steps, texts
 
@@ -56,7 +63,8 @@ def check_step(document: Document) -> dict[str, object] | None:
 def check_step_violations(document: Document) -> list[str]:
     """Require the token check to run its one exact command before the upload.
 
-    Without the check step the upload guard reads a missing output as
+    A guard that reads no availability output needs no check step. Where
+    it does read one, without the check step it reads a missing output as
     empty and skips for ever, with nothing failing anywhere, so the step
     is asserted positively rather than inferred from the guard.
 
@@ -71,6 +79,8 @@ def check_step_violations(document: Document) -> list[str]:
         Every violation of the token check step's requirements.
 
     """
+    if not availability_ids(document):
+        return []
     job_steps = steps(upload_job(document))
     check = check_step(document)
     if check is None:

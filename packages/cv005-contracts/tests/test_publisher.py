@@ -57,19 +57,17 @@ def _documents(texts: dict[str, str]) -> dict[str, Document]:
         # Every required term stays whole; only the `||` refusal catches it.
         f"{GUARD} && github.actor != 'x' || github.event_name == 'workflow_dispatch'",
         f"if: {AVAILABLE}",
-        f"if: {MAIN}",
         f"if: ${{{{ !({AVAILABLE} && {MAIN}) }}}}",
         f"if: ({AVAILABLE} && {MAIN}",
         f"if: {AVAILABLE} && github.ref != 'refs/heads/main'",
-        f"if: env.CS_ACCESS_TOKEN != '' && {MAIN}",
         # An embedded expression makes the whole condition a template, and
         # the non-empty string it renders is always true.
         f"{GUARD} && ${{{{ true }}}}",
         f"if: ${{{{ {AVAILABLE} }}}} && ${{{{ {MAIN} }}}}",
     ],
 )
-def test_the_upload_guard_needs_both_terms_and_no_disjunction(guard: str) -> None:
-    """The ref and availability guard must hold as whole terms of a conjunction."""
+def test_the_upload_guard_needs_the_main_ref_and_no_disjunction(guard: str) -> None:
+    """The main-ref guard must hold as a whole term of a conjunction."""
     texts = mutate("coverage-main.yml", GUARD, guard)
     found = upload_step_violations(_publisher(texts))
     assert found, found
@@ -82,6 +80,7 @@ def test_the_upload_guard_needs_both_terms_and_no_disjunction(guard: str) -> Non
         f"{GUARD} && (github.actor != 'x' || github.run_attempt == '1')",
         f"if: ${{{{ {MAIN} && {AVAILABLE} }}}}",
         f"{GUARD} && 'a||b' != ''",
+        f"if: {MAIN}",
     ],
 )
 def test_a_narrower_upload_guard_is_accepted(guard: str) -> None:
@@ -404,3 +403,49 @@ def test_the_checksum_refresher_is_refused() -> None:
     texts = tree(extra={"get-codescene-sha.yml": refresher})
     found = retired_checksum_violations(_documents(texts))
     assert found, found
+
+
+def _main_only_publisher(*, drop_check: bool = True) -> str:
+    """Return the publisher text with a guard of the main ref alone."""
+    text = PUBLISHER.replace(GUARD, f"if: {MAIN}")
+    assert text != PUBLISHER
+    return text.replace(CHECK_STEP, "") if drop_check else text
+
+
+def test_a_main_ref_guard_alone_needs_no_check_step() -> None:
+    """The uploader records an empty token, so the guard need not read one.
+
+    With no availability term there is no check step to require; the token
+    still passes only through the `access-token` input.
+    """
+    publisher = load_workflow(_main_only_publisher())
+    found = (
+        upload_step_violations(publisher)
+        + check_step_violations(publisher)
+        + token_scope_violations(publisher)
+    )
+    assert not found, found
+
+
+def test_a_main_ref_guard_alone_still_keeps_the_token_out_of_env() -> None:
+    """Dropping the availability term does not loosen the credential's scope."""
+    text = _main_only_publisher().replace(
+        UPLOAD_NAME,
+        UPLOAD_NAME
+        + "        env:\n          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}\n",
+    )
+    assert token_scope_violations(load_workflow(text))
+
+
+def test_a_guard_reading_a_missing_check_step_is_still_refused() -> None:
+    """Where the guard does read an availability output its step must exist."""
+    texts = mutate("coverage-main.yml", CHECK_STEP, "")
+    assert check_step_violations(_publisher(texts))
+
+
+def test_a_guard_testing_the_token_in_env_is_refused_by_the_scope_rule() -> None:
+    """`env.CS_ACCESS_TOKEN != ''` needs the token in an env, which is refused."""
+    texts = mutate(
+        "coverage-main.yml", GUARD, f"if: env.CS_ACCESS_TOKEN != '' && {MAIN}"
+    )
+    assert token_scope_violations(_publisher(texts))

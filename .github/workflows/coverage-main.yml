@@ -78,18 +78,15 @@ jobs:
           baseline-python-file: .coverage-baseline.workflow-scripts.python
       # The credential is in no step's env. The upload action is composite and
       # would hand a step-level env to its nested artefact and cache steps; it
-      # binds the token itself from its access-token input. The expression
-      # below evaluates to true or false before the shell runs, so this step
-      # names the secret without exposing it.
-      - name: Check for the CodeScene credential
-        id: codescene-credential
-        run: echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+      # binds the token itself from its access-token input. An empty token is
+      # recorded by the action as a notice and a step-summary line, and the
+      # job still succeeds, so no check step stands between the secret and the
+      # upload.
       # A workflow_dispatch run selects its own ref, and the push filter says
-      # nothing about it, so the ref is checked here as well as the credential:
-      # a dispatch from a feature branch must never publish that branch's
-      # coverage as the trunk's.
+      # nothing about it, so the ref is checked here: a dispatch from a feature
+      # branch must never publish that branch's coverage as the trunk's.
       - name: Upload coverage to CodeScene
-        if: steps.codescene-credential.outputs.available == 'true' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/upload-codescene-coverage
         with:
           format: cobertura

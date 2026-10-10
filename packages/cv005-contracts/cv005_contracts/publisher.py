@@ -291,6 +291,11 @@ def check_step_id(document: Document) -> str:
 def upload_guard(document: Document) -> frozenset[str]:
     """Return the whole terms the upload step's guard must carry.
 
+    The main-ref term is mandatory. An availability term is optional: the
+    uploader records an empty token itself, so a guard of the ref alone is
+    complete. A guard that does read an availability output is still bound to
+    the check step it names (see `credential.check_step_violations`).
+
     Parameters
     ----------
     document : Document
@@ -299,8 +304,8 @@ def upload_guard(document: Document) -> frozenset[str]:
     Returns
     -------
     frozenset[str]
-        The main-ref term and the availability term for the check step.
+        The main-ref term.
 
     """
-    available = f"steps.{check_step_id(document)}.outputs.available == 'true'"
-    return frozenset({MAIN_REF_GUARD, available})
+    del document
+    return frozenset({MAIN_REF_GUARD})

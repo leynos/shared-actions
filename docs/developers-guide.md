@@ -634,6 +634,14 @@ skip's output file. `.github/workflows/test-setup-rust-clang-lld.yml` runs the
 real action on Linux (the install, both tools on `PATH`, and a toy app linked
 by lld) and on macOS and Windows (the skip).
 
+That workflow sets the top-level concurrency group
+`${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true`. The
+lane holds Linux, macOS and Windows runners to install tools and link a toy
+application, so a newer push to the same ref cancels the superseded run instead
+of letting it finish for no benefit; runs on other refs and other workflows are
+untouched. `tests/workflows/test_clang_lld_lane_concurrency.py` asserts the
+exact group and the boolean `true`.
+
 ## Rust action cache ownership
 
 The [`setup-rust`](../.github/actions/setup-rust/action.yml) and

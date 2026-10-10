@@ -639,7 +639,21 @@ dependency that changes underneath the lane, which is how a job on
 `Unable to locate executable file: undefined`.
 
 The manifest currently carries cargo-audit, cargo-nextest, cargo-llvm-cov,
-cargo-dylint, dylint-link, sccache and merman-cli 0.7.0.
+cargo-dylint, dylint-link, sccache, merman-cli 0.7.0 and act 0.2.89.
+
+### Verifying a tool whose version output carries words
+
+The expected version string is `<binary> <version>` by default, so a manifest
+entry named `brisk` at version `2.0.0` is verified against `brisk 2.0.0`. The
+binary name leads because that is the shape most tools' `--version` output
+takes. A few tools put different words there: act prints `act version 0.2.89`.
+The optional `version-lead` key replaces the binary-name prefix, so act's entry
+carries `version-lead = "act version"` and the expectation becomes
+`act version 0.2.89`. A mismatch in the lead is a verification failure like any
+other, so the check still fails closed on a tool that changes its wording. A
+tool whose output shape is neither `<binary> <version>` nor a lead a manifest
+records is a manifest defect rather than a substring that happens to be
+accepted, because it would fail verification on a runner and nowhere earlier.
 
 The archive extensions the manifest's `url` can carry are `.tar.gz`, `.tgz`,
 `.tar.xz` and `.zip`. The extension picks the extractor: `.tar.xz` takes the

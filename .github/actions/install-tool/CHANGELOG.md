@@ -63,3 +63,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rather than gaining a separate one. Both GNU tar and bsdtar detect xz
   compression from the archive itself, the same property the `.tar.gz` arm
   already relied on for gzip, so no new extraction code was needed.
+
+### Fixed
+
+- Verify tools whose version output is not `<binary> <version>`. The expected
+  string was always composed that way, so act — which prints
+  `act version 0.2.89` — could never match, and the act-workflows job failed at
+  the install step before the lane ran (#583, #516). A manifest entry may now
+  record `version-lead`, the words the tool puts in front of the version, and
+  the expected string becomes `<lead> <version>`; act's entry does. The default
+  composition is unchanged for every other tool, which matters because
+  generate-coverage and ratchet-coverage compare the string with `==` rather
+  than as a substring.

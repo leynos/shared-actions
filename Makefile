@@ -1,5 +1,5 @@
-.PHONY: all clean help test doctest lint lint-whitaker markdownlint nixie fmt \
-	check-fmt typecheck spelling
+.PHONY: all clean help test test-act doctest lint lint-whitaker markdownlint \
+	nixie fmt check-fmt typecheck spelling
 
 export GITHUB_ACTION_PATH ?= $(CURDIR)
 
@@ -12,11 +12,16 @@ endif
 all: fmt lint typecheck test spelling ## Run the complete validation suite
 
 clean: ## Remove transient artefacts
-	rm -rf .venv .pytest_cache .ruff_cache workspace/.ruff_cache .uv-cache .uv-tools
+	rm -rf .venv .venv-coverage .pytest_cache .ruff_cache workspace/.ruff_cache \
+		.uv-cache .uv-tools
 
 BUILD_JOBS ?=
 ACTION_VALIDATOR ?= $(or $(firstword $(wildcard $(HOME)/.bun/bin/action-validator) $(wildcard $(HOME)/.cargo/bin/action-validator)),action-validator)
 ACT ?= $(or $(firstword $(wildcard $(HOME)/go/bin/act) $(wildcard $(HOME)/.local/bin/act)),act)
+# Opt into the act workflow lane. `ACT_WORKFLOW_TESTS` is the canonical name the
+# pytest suite reads; `WITH_ACT` is an accepted alias so the lane can be asked
+# for by what it is rather than by the variable that gates it.
+WITH_ACT ?=
 MDLINT ?= $(shell command -v markdownlint-cli2 2>/dev/null || printf '%s' "$$HOME/.bun/bin/markdownlint-cli2")
 # `make fmt` and `make check-fmt` call mdtablefix directly. `--git` selects the
 # Markdown files Git tracks and `--include-untracked` adds the untracked files
@@ -71,12 +76,51 @@ DOCTEST_PATHS ?= bool_utils.py cargo_utils.py cmd_utils.py composite_fragments.p
 doctest: .venv ## Execute the examples in docstrings
 	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-bdd --with syrupy --with hypothesis pytest --doctest-modules -p no:cacheprovider -q $(DOCTEST_PATHS)
 
+# `tests/workflows` is inside the default testpaths, and the act-dependent
+# modules in it gate themselves on `ACT_WORKFLOW_TESTS`. The plain suite must
+# see the falsy value, or an opt-in inherited from the environment would both
+# run the lane's modules in the plain suite and leave
+# `make test ACT_WORKFLOW_TESTS=1` running `tests/workflows` twice: once through
+# the prerequisite lane, and again inside the default run, where the inherited
+# `1` would have un-skipped them.
+#
+# The gate is set in make rather than in the recipe. An inline `VAR=value`
+# prefix makes make run the whole line through a POSIX shell, and on Windows
+# that shell consumes the backslashes in the `UV=C:\...` path a caller passes,
+# so the binary is not found. A bare `$(UV)` line takes make's direct-exec path
+# and the path survives; this line is byte-identical to the one `main` runs on
+# Windows.
+#
+# Forcing the value needs both `export`, so the child pytest process sees it,
+# and `override`, so a command-line `ACT_WORKFLOW_TESTS=1` cannot beat it. Make
+# 3.81 -- what macOS ships as /usr/bin/make, and what parses this file from
+# `tests/workflows` -- cannot parse the two keywords on one target-specific
+# line ("multiple target patterns"), so `export` is global and `override` stays
+# on the target. `test_makefile_act_lane_runs_once.py` holds the pair to it.
+export ACT_WORKFLOW_TESTS
+test: override ACT_WORKFLOW_TESTS := 0
 test: .venv doctest ## Run tests, docstring examples first
 	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest -n auto --dist worksteal -v
 # Truthy values: 1, true, TRUE, True, yes, YES, Yes, on, ON, On
-ifneq ($(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS))),)
-	ACT='$(ACT)' ACT_WORKFLOW_TESTS=1 $(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest tests/workflows -v
+# `WITH_ACT` is an alias for `ACT_WORKFLOW_TESTS`: `make test WITH_ACT=1` invites
+# the act lane by name, which reads better than naming the suite's own
+# environment variable at the command line. Either variable opts in; the lane
+# still forces `ACT_WORKFLOW_TESTS=1` on itself so the pytest-side opt-in gate
+# agrees with the Makefile-side one.
+ACT_LANE_REQUESTED := $(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS) $(WITH_ACT)))
+ifneq ($(ACT_LANE_REQUESTED),)
+test: test-act
 endif
+
+# The lane turns the gate back on, and hands pytest the `ACT` it resolved.
+# Both ride on the target rather than the recipe line for the reason above: the
+# line stays a bare `$(UV)` command for make to exec directly. `override` stops
+# a command-line `ACT_WORKFLOW_TESTS=0` from turning the lane's own gate off,
+# which would leave it silently running nothing.
+test-act: export ACT := $(ACT)
+test-act: override ACT_WORKFLOW_TESTS := 1
+test-act: .venv ## Run the act workflow lane, independently of the plain suite
+	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest tests/workflows -v
 
 .venv:
 	$(UV) venv

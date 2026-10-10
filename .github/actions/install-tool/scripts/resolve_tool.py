@@ -185,7 +185,13 @@ def describe(
         # than silently skipped: dylint-link refuses every argument unless
         # RUSTUP_TOOLCHAIN is set, so there is nothing to read back.
         "version_check": "true" if version_args else "false",
-        "expected_version": f"{binary} {entry['version']}",
+        # What the tool's own output is expected to contain. Most tools print
+        # "<binary> <version>", so the binary name leads; act prints "act
+        # version 0.2.89", so its entry records the words that actually lead.
+        # A tool whose output shape is not "<name> <version>" and carries no
+        # lead is a manifest defect, not a substring that happens to be
+        # accepted: it would fail verification on a runner and nowhere else.
+        "expected_version": f"{entry.get('version-lead', binary)} {entry['version']}",
     }
 
 

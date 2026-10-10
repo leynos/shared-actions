@@ -844,6 +844,16 @@ its empty list records. Every one of these was found by running the binary
 rather than by assuming, and an assumption here fails on a runner and nowhere
 earlier.
 
+`version-lead` is the optional counterpart to `version-args` for the shape of
+what comes back. The action verifies the installed binary by looking for the
+string `<binary> <version>` in its output, which is what every tool prints
+except act: act prints `act version 0.2.89`, so its entry records
+`version-lead = "act version"` and the expectation becomes `<lead> <version>`.
+An entry that needs a lead and lacks one fails verification on whichever runner
+runs the act-workflows job — which is how #583 and #516 found it — so
+`test_the_tools_whose_output_is_not_their_name_are_the_expected_ones` records
+act as the sole exception and fails when another appears.
+
 `merman-cli` 0.7.0 illustrates an entry built from a release archive rather than
 `cargo install`. It carries `x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`
 and `aarch64-apple-darwin`, each a `.tar.xz` archive with the binary under
@@ -2158,6 +2168,133 @@ mapping, bypassing the cache.
 be injected into the `act` subprocess - currently used to forward `DOCKER_HOST`
 when a healthy Podman socket is discovered automatically.
 
+### The fixture container: image, environment and mounts
+
+Each fixture runs in a container act starts from
+`catthehacker/ubuntu:rust-latest`. The image is the `rust-` one deliberately:
+`install-whitaker` verifies its extracted `cargo-dylint` by running
+`cargo dylint --version`, and the plain `act-latest` image ships no cargo, so
+that probe fails and the action aborts with "the repository install failed
+verification" without exercising anything. `_ACT_IMAGE` names it once, and
+`_platform_images` builds one `-P` entry per label in `_LINUX_PLATFORMS`, so
+the image map and the label vocabulary are read from the same set and a label
+cannot be added to one without the other.
+
+The container's environment is built by `_build_container_env(config, run_env)`
+from three sources, in precedence order: the lane's defaults, the case's own
+`container_env`, and the host variables the fixture forwards. Only
+`UV_PROJECT_ENVIRONMENT` is forwarded, because it is a host variable the case
+needs to see; a case that names it itself is not overruled, so the forwarding
+is a fallback rather than a merge in the other direction.
+
+`RUSTUP_PERMIT_COPY_RENAME=1` is the one lane default, and it is a workaround
+for an artefact of the image under act rather than for anything these actions
+do. `rust-latest` bakes its toolchain into `/usr/share/rust/.rustup`, which
+under act is a lower layer of the container's overlay filesystem. When upstream
+stable is newer than the one the image was built with (as it is whenever the
+rolling tag lags a release), the nested
+`actions-rust-lang/setup-rust-toolchain` updates that toolchain in place, and
+rustup's swap of the old toolchain's directories is a rename across overlay
+layers. Overlayfs refuses it with `Invalid cross-device link (os error 18)` and
+the install rolls back, so `setup-rust` fails for a reason the image never has
+on a real runner, where the toolchain sits in one writable layer. The variable
+is rustup's own opt-in to copy-and-delete instead of rename. It is harmless
+when the baked toolchain is already current, because rustup then never takes
+the rename path, and a case may still override it with an explicit value.
+
+A linked worktree is the second boundary. act bind-mounts the checkout at the
+path it occupies on the host, so a `.git` that points outside that path cannot
+be followed from inside the container. A linked worktree's `.git` is exactly
+that: a file pointing at `<object store>/worktrees/<name>`, which git inside
+the container reports as `fatal: not a git repository: (null)`. When
+`_git_common_dir_mount` resolves such a pointer, the object store is mounted
+back at the path the pointer names, read-only: the container may read the
+object store and must not write it, and the repository root is already
+bind-mounted read-write as the only mount a case may change. The ordinary
+checkout needs none of this, because its `.git` directory is inside the bind
+mount already, and the resolver returns nothing rather than asking act to mount
+the host's whole filesystem. A worktree whose support is not needed (the
+`_git_common_dir` probe timing out, say) degrades to running act without the
+mount rather than failing a case over it.
+
+### The runner-label classifier, and the image guard
+
+`-P` takes one image per runner label, and act prints
+`Skipping unsupported platform` with a successful exit for a job whose label it
+has none for. That is the failure mode this harness exists to make impossible:
+no step runs, every log assertion finds nothing, and the case fails somewhere
+far from the cause, or passes without testing anything. Two readers decide
+whether a job can be given an image, and one guard applies that decision before
+act is invoked.
+
+`_labels_named_by` returns the labels a `runs-on` expression can reach, in the
+order written, by scanning its quoted strings and keeping those the vocabulary
+knows. A quoted string that is not in the vocabulary is read as a value the
+expression compares against, not as a runner: `github.event_name == 'schedule'`
+quotes the event name, and reading it as a label would have the guard judge a
+job by a runner it never runs on. Both vocabularies are read, not just the
+Linux one, because a non-Linux label is exactly what act has no image for and
+what the caller has to be told about.
+
+The vocabularies are `RECOGNIZED_LINUX_LABELS` and `RECOGNIZED_OTHER_LABELS` in
+`tests/workflows/_workflow_policy.py`. They are exact tokens rather than
+prefixes, so an unmeasured shape is refused instead of being classified by its
+name: `ubicloud-standard-2-ubuntu-2404` is not accepted as a hosted runner for
+containing `ubuntu`. The image map is `_LINUX_PLATFORMS`, read from
+`RECOGNIZED_LINUX_LABELS` rather than written out, so a fixture moved to a
+label missing from the map is a fixture that would run nowhere and still pass.
+
+`_resolves_to_one_platform` accepts a job only when act can be given one image
+for it, and it accepts three shapes. A plain label is accepted when it is a
+Linux label. A whole-string `${{ matrix.<key> }}` reference is followed into
+the job's `include` legs and accepted only when the distinct labels those legs
+offer are exactly `{UBICLOUD_LINUX}` — a leg naming no label is dropped rather
+than counted. Anything else that is a string is read for the labels it names,
+and accepted when it names at least one and every one of them is a Linux label;
+that is the shape a `||` chain of Linux labels takes, and the reason the check
+is written over the named set rather than as a single-label test. Everything
+else is refused, including any expression naming a non-Linux label beside a
+Linux one, because act would run the Linux arm and skip the other and the same
+case would then mean two things.
+
+The Linux-label set is `_LINUX_PLATFORMS`, which is read from
+`RECOGNIZED_LINUX_LABELS`, and the one matrix label is `UBICLOUD_LINUX`. Both
+labels live in the same vocabulary today, so the second and third shapes
+overlap in what they currently accept; the code paths are separate because a
+matrix binding is followed into its legs rather than read as text, and the two
+would diverge as soon as the image map grew a label the matrix rule did not
+follow.
+
+`_require_an_image_for(workflow, job_id)` is the guard that applies this before
+act is given anything, and it fails closed. A job it cannot find in the
+workflow raises `TypeError` rather than skipping: a listed job renamed out of
+existence would otherwise run nothing and report success. A job that runs on a
+label no image can be mapped to raises `ValueError` naming the job. A job that
+only calls a reusable workflow has no `runs-on` of its own, so the callee's
+jobs are the ones judged, since those are the jobs act runs.
+
+The matrix rule is deliberately narrow. Every matrix job in this repository is
+a listed ceiling contract the suite reads from the workflow text, so refusing
+all of them costs the harness nothing. Widening it needs a way to give act an
+image for each label a case can actually reach, not just for the ones this
+repository writes today.
+
+### `ActionContext.github_repository`, and what it is not
+
+`composite_fragments.py` resolves the expression subset a composite action's
+Bash fragments use, and `ActionContext` holds the context they resolve against.
+`github_repository` was added to it for a manifest that declares the repository
+it runs in as a step `env` and then reads `github.repository`.
+
+Its default is the empty string, and that is a property of this harness rather
+than of GitHub's own context. On a real runner `github.repository` is a context
+value the runner supplies; a step `env` declaration does not decide whether it
+exists, and the two are not the same thing. The field exists so a test can
+supply a repository name when a manifest expects one, and the empty default is
+simply what an unconfigured `ActionContext.github_repository` resolves to — a
+manifest that reads it without declaring a name gets a string the harness made
+empty, not a stand-in for a runner's value.
+
 ### Deciding whether a command is runnable
 
 `_act_command` may name a bare command or a path, and the probe answers the two
@@ -2192,14 +2329,58 @@ same thing. `PATHEXT` is separated by semicolons on Windows whatever
 rather than borrowed from the platform, and the tests pin `PATHEXT` rather than
 inheriting it so the outcome does not depend on the developer's shell.
 
+### Running the lane from the Makefile
+
+`make test-act` runs the act fixtures by themselves; `make test WITH_ACT=1`
+runs them first and then the ordinary suite. The lane is opt-in in both
+directions, and the two directions are separate variables so neither can be
+inherited into the other run by accident.
+
+| Variable             | Role                                                                                                                             |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `ACT_WORKFLOW_TESTS` | The canonical pytest-side gate. Truthy values are `1`, `true`, `TRUE`, `True`, `yes`, `YES`, `Yes`, `on`, `ON`, `On`.            |
+| `WITH_ACT`           | Make-side alias for the same opt-in, so the lane can be asked for by what it is: `make test WITH_ACT=1`.                         |
+| `ACT`                | The act binary the lane invokes. Defaults to `act` on `PATH`, or the first of `~/go/bin/act` and `~/.local/bin/act` that exists. |
+
+Three behaviours are worth knowing before changing the gate:
+
+- **The plain suite asserts the gate off, it does not merely leave it unset.**
+  `test` carries `override ACT_WORKFLOW_TESTS := 0`, so a command-line
+  `make test ACT_WORKFLOW_TESTS=1` cannot leak the opt-in into the default run.
+  That is a `WITH_ACT=1` request and nothing else.
+- **The lane asserts the gate on.** `test-act` carries
+  `override ACT_WORKFLOW_TESTS := 1` and `export ACT := $(ACT)`, so a
+  command-line `ACT_WORKFLOW_TESTS=0` cannot turn the lane's own gate off and
+  leave it exiting successfully without running anything.
+- **The gate lives on the target, never on the recipe line.** An inline
+  `VAR=value` prefix makes make run that line through a shell, and on Windows
+  the shell consumes the backslashes in a `UV=C:\...` path, so the binary is
+  not found. A bare `$(UV)` line takes make's direct-exec path instead. Make
+  3.81 — what macOS ships as `/usr/bin/make` — cannot parse `export` and
+  `override` together on one target line, which is why `export` is a global
+  directive and `override` stays on the target.
+
+`tests/workflows/test_makefile_act_lane_runs_once.py` holds all four shapes to
+that, and `tests/workflows/test_doctest_target.py` runs the real `make test`
+against a stub `uv` to confirm the doctest tier still precedes the suite.
+
 ### Skip Markers
 
 <!-- markdownlint-disable MD013 -->
-| Marker                       | Condition                                                    |
-| ---------------------------- | ------------------------------------------------------------ |
-| `skip_unless_act`            | Skip when `_get_act_runtime_status().available` is `False`.  |
-| `skip_unless_workflow_tests` | Skip when `ACT_WORKFLOW_TESTS` is not set to a truthy value. |
+| Marker                       | Condition                                                                                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `skip_unless_act`            | Skip when `_get_act_runtime_status().available` is `False` **and** the lane was not requested; fail instead when `ACT_WORKFLOW_TESTS` is truthy. |
+| `skip_unless_workflow_tests` | Skip when `ACT_WORKFLOW_TESTS` is not set to a truthy value.                                                                                     |
 <!-- markdownlint-enable MD013 -->
+
+The two arms of `skip_unless_act` are deliberate. Skipping is right in the
+plain suite, which collects these modules on machines that have no container
+runtime and must not fail there. It is wrong once the lane is requested,
+because a skipped case reports success for a run that executed nothing: the
+lane would exit zero having run none of the fixtures it exists to run. That is
+the failure `ci.yml`'s `act-workflows` would otherwise carry, and it is the
+same shape as the runner-label drift `test_ci_step_platforms.py` refuses —
+green, and proving nothing.
 
 ### Parsing workflows
 
@@ -3253,6 +3434,12 @@ is deliberate and uneven: the assertion tier sits far above its measurement
 because `ubicloud-standard-2` has half the vCPUs of a GitHub-hosted runner and
 because a cold cache on a new store makes the first run of any lane
 unrepresentative.
+
+One job borrows a tier rather than being measured into one: `ci.yml`'s
+`act-workflows` runs the act lane, whose ~13 minutes on an idle six-core host
+plus a multi-gigabyte image pull is not a measurement of any run this
+repository has taken. It takes the coverage tier, the widest, until a run
+history exists to size it honestly.
 
 These ceilings are the outermost of the four timers described under "Test
 timeouts: four tiers, outermost last" in the users' guide. Nothing in this

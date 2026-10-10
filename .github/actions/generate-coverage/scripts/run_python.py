@@ -159,7 +159,7 @@ def _recreate_coverage_venv(interpreter: str = "") -> Path:
 
 
 @contextlib.contextmanager
-def _project_env(venv: Path) -> cabc.Iterator[None]:
+def _project_env(venv: Path) -> cabc.Generator[None]:
     """Temporarily set UV_PROJECT_ENVIRONMENT to the given venv path."""
     previous = os.environ.get("UV_PROJECT_ENVIRONMENT")
     os.environ["UV_PROJECT_ENVIRONMENT"] = str(venv.resolve())

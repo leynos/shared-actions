@@ -90,6 +90,7 @@ class TestResolve:
             ("runner.arch", "X64"),
             ("runner.temp", "/temp"),
             ("github.action_path", "/action"),
+            ("github.repository", "leynos/shared-actions"),
             ("inputs.version", "0.5.0"),
             ("inputs.absent", ""),
             ("steps.probe.outputs.ready", "true"),
@@ -101,10 +102,24 @@ class TestResolve:
         """Verify every expression form the installer manifests use."""
         context = _context(
             runner_temp="/temp",
+            github_repository="leynos/shared-actions",
             step_outputs={"probe": {"ready": "true"}},
         )
 
         assert context.resolve(body) == expected, f"{body} resolved unexpectedly"
+
+    def test_an_undeclared_repository_resolves_to_the_empty_string(self) -> None:
+        """Verify a manifest reading ``github.repository`` without declaring it.
+
+        A runner substitutes an empty string for a context it does not carry,
+        and a fragment that reads one hears nothing rather than failing. The
+        harness has to reproduce that, or a manifest whose step omits the
+        ``env`` declaration passes here and gets an empty ``REPO`` on CI.
+        """
+        assert _context().resolve("github.repository") == "", (
+            "an undeclared github.repository must resolve empty, as a runner "
+            "does, so the harness cannot invent a repository nobody declared"
+        )
 
     def test_refuses_an_unsupported_expression(self) -> None:
         """Verify an unknown expression is a harness error, not a silent empty."""

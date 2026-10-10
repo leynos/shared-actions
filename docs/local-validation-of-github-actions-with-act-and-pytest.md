@@ -38,7 +38,7 @@ command interception is intentionally avoided; containers execute in isolation.
 - Optional but recommended: pin an image to reduce drift:
 
   ```bash
-  act pull_request -P ubuntu-latest=catthehacker/ubuntu:act-latest --list
+  act pull_request -P ubuntu-latest=catthehacker/ubuntu:rust-latest --list
   ```
 
 ## Minimal layout
@@ -136,7 +136,7 @@ def run_act(
         "-e",
         str(event_path),
         "-P",
-        "ubuntu-latest=catthehacker/ubuntu:act-latest",
+        "ubuntu-latest=catthehacker/ubuntu:rust-latest",
         "--artifact-server-path",
         str(artifact_dir),
         "--json",  # machine-parseable log stream
@@ -186,19 +186,31 @@ def test_workflow_produces_expected_artefact_and_logs(tmp_path: Path) -> None:
 - asserts that a ZIP artefact is built and logged exactly once.
 
 Because the test launches containers, it requires the same Podman/Docker setup
-described in the prerequisites. The harness skips automatically when the
-runtime, socket, or Docker-compatible container listing API is unavailable, but
-to _run_ it you must opt in:
+described in the prerequisites. In the plain suite these modules skip
+themselves when the runtime, socket, or Docker-compatible container listing API
+is unavailable, so they do not fail a machine that has none. Once the lane is
+asked for, that skip becomes a failure instead: a skipped case reports success
+for a run that executed nothing, so `make test-act` would exit zero having run
+none of the fixtures it exists to run. To _run_ the lane, opt in by name:
 
 ```bash
+# The workflow lane alone:
+make test-act
+
+# The lane and then the ordinary suite:
+make test WITH_ACT=1
+
 # Inside a sandbox where podman requires sudo:
 ACT_WORKFLOW_TESTS=1 sudo -E make test
 ```
 
-That target first runs the regular test suite as the invoking user, then
-re-runs only the workflow harness when `ACT_WORKFLOW_TESTS=1`. After running
-with sudo, remove the root-owned `.venv` (`sudo rm -rf .venv`) so future
-non-root commands can recreate it.
+`make test WITH_ACT=1` makes the lane a prerequisite, so the workflow harness
+runs **before** the ordinary suite rather than after it. The plain suite then
+forces the opt-in back off, so the lane's modules skip inside it and
+`tests/workflows` is not run twice. `ACT_WORKFLOW_TESTS` is the canonical
+pytest-side gate; `WITH_ACT` is the Make-side alias for the same opt-in, and
+either one asks for the lane. After running with sudo, remove the root-owned
+`.venv` (`sudo rm -rf .venv`) so future non-root commands can recreate it.
 
 ## Record -> replay -> verify (closing the loop)
 
@@ -257,7 +269,11 @@ loop:
 
 ## Useful `act` flags in this setup
 
-- `-P ubuntu-latest=catthehacker/ubuntu:act-latest`: pin a close runner image.
+- `-P ubuntu-latest=catthehacker/ubuntu:rust-latest`: pin a close runner image.
+  The repository's own harness uses the same image, and it is the `rust-` one
+  because the lane exercises `install-whitaker`, which verifies the extracted
+  `cargo-dylint` by running `cargo dylint --version`; `act-latest` ships no
+  cargo, so that probe fails there.
 - `-b/--bind`: bind mount the repository; enables checking file side effects.
 - `--artifact-server-path <dir>`: export uploaded artefacts to a host
   directory.

@@ -1790,3 +1790,48 @@ Two of four findings having needed a second round is the recurring shape of
 this branch: prose making a claim one step wider than the code supports. In
 this pass both were found by a reviewer rather than by the gate suite, which
 was green throughout — the same division of labour as the previous four.
+
+#### Publication of the thirteenth pass
+
+Pushed as `d14f2763` (`92f9848b..d14f2763 -> fix/act-lane-runs-in-ci`). Local
+HEAD, `origin/fix/act-lane-runs-in-ci` and PR 583's `headRefOid` all read that
+SHA after the push. Three files changed, 66 insertions and 16 deletions: the
+`#:` comment in `composite_fragments.py`, the two paragraphs and the heading in
+`docs/developers-guide.md`, and this record.
+
+The gates were run on the tree that became this commit, not on an earlier one.
+That distinction has bitten this branch three times: each time an edit landed
+while a gate run was in flight, the run's result covered a tree that no longer
+existed. This time the writes stopped before the run began, and the gate report
+says so in the terms that make it checkable — every gate's log mtime is later
+than the last write, and the content hashes of all three files are identical
+before and after the run. `composite_fragments.py`
+`714e3c5a70bef4cb4841ea8b51ee0f46062e0f8ef339b1eed051243c3043d177`,
+`docs/developers-guide.md`
+`77ad440283a36d1230e1b4b735a48e62e3a26a4766601e95a4145c60d73d20ce`, and this
+file `bc709f1a5daa623c84cc07040dde9af6350788cf5cb0548f098f77482e253e1b`. The
+commit was made from that unchanged tree, so the gate evidence and the
+published content are the same bytes.
+
+All seven targets passed: `make check-fmt`, `make lint`, `make typecheck`,
+`make test` (3842 passed, 147 skipped), `make spelling`, `make markdownlint`
+(98 files, 0 issues — and this time it genuinely ran, spelling having passed
+first), and `make nixie`. The `markdownlint` dependency trap noted earlier is
+confirmed from the Makefile itself rather than inferred: line 179 makes
+`spelling` a prerequisite of `markdownlint`
+(`markdownlint: spelling ## Lint Markdown files...`), so a spelling failure
+suppresses the lint entirely. The prior run's evidence for that is
+`/tmp/gate-prevrun-0234/gate-markdownlint-f1314.out`, which contains the
+spelling command, the `normalises` error, and
+`make: *** [Makefile:183: spelling] Error 2`, with no `markdownlint-cli2` line
+at all.
+
+One more claim checked while writing this up, because the prose turns on it:
+`make test` forcing the gate off is real. `Makefile:101` is
+`test: override ACT_WORKFLOW_TESTS := 0`, and lines 94-99 say why the two
+keywords sit on separate targets — make 3.81, which macOS ships and which
+parses this file from `tests/workflows`, cannot read `export` and `override` on
+one target-specific line, and the `override` is what stops a command-line
+`ACT_WORKFLOW_TESTS=1` from beating the forced value. So the documented "the
+plain suite then forces the opt-in back off" is the attribute's effect, not a
+restatement of intent.

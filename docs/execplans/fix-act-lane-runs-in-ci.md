@@ -1835,3 +1835,39 @@ one target-specific line, and the `override` is what stops a command-line
 `ACT_WORKFLOW_TESTS=1` from beating the forced value. So the documented "the
 plain suite then forces the opt-in back off" is the attribute's effect, not a
 restatement of intent.
+
+#### The lane in CI on the final head
+
+`1b7b5c7f` is the first head carrying both the code fix and its review
+corrections, and its `CI` run
+[38010997008](https://github.com/leynos/shared-actions/actions/runs/38010997008)
+is where the point of this branch is finally observably true rather than
+argued.
+
+The `act-workflows` job ran a step named **Run the act workflow lane**, whose
+log line is `make test-act ACT="${ACT_BIN}"`, which expanded to the bare
+`uv run ... pytest tests/workflows -v` recipe. It ended
+`1169 passed, 110 skipped in 591.89s`. The count is the load-bearing part: a
+lane that resolved its runtime and then found nothing to run would have
+reported a much smaller number or `no tests ran`, and the absent-runtime path
+would have failed loudly rather than passing. Two checks against the log
+confirm it: no line matches `no tests ran`, `cannot run here`, or
+`was requested but` — the three shapes a silent skip takes — and 40 lines name a
+`test_act_*` case.
+
+The rest of that head's CI is green as well: all 20 workflow runs report
+success except `dependabot-automerge`, which is skipped by design on a
+non-Dependabot branch.
+
+One thing to expect rather than misread: `d14f2763`'s `CI` run (38010848265)
+shows `cancelled`, and that is not a failure. `.github/workflows/ci.yml` sets
+`concurrency: group: ${{ github.workflow }}-${{ github.ref }}` with
+`cancel-in-progress: true`, so pushing `1b7b5c7f` cancelled its predecessor by
+design. A superseded run is not a red run, and the workflow that matters is the
+one on the current head.
+
+Review state moved with it. CodeRabbit approved `1b7b5c7f` in review
+5476729793, which clears the standing CHANGES_REQUESTED 5392227901 that was
+anchored at `ac4c992d` — a commit no longer in this head's ancestry. CodeScene
+also approved `1b7b5c7f` in 5476727389, continuing its approval on every head
+since `18494589`.

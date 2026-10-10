@@ -401,11 +401,15 @@ def _query_cache_dir(uv: str, env: dict[str, str]) -> Path:
 
 def _locate_uv(env: cabc.Mapping[str, str]) -> str:
     """Find uv on the cleaned ``PATH``, or refuse."""
-    found = shutil.which("uv", path=env["PATH"])
-    if found is None:
-        message = "uv is not available on the cleaned PATH; install uv and retry"
-        raise GateError(message)
-    return str(Path(found).resolve())
+    try:
+        found = shutil.which("uv", path=env["PATH"])
+        if found is not None:
+            return str(Path(found).resolve())
+    except OSError as exc:
+        message = f"cannot look for uv on the cleaned PATH: {exc}"
+        raise GateError(message) from exc
+    message = "uv is not available on the cleaned PATH; install uv and retry"
+    raise GateError(message)
 
 
 def _ensure_cache(cache: Path) -> Path:

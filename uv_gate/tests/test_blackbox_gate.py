@@ -175,16 +175,38 @@ def test_run_preserves_the_exit_status(harness: Harness) -> None:
     assert result.status == 3
 
 
-@pytest.mark.parametrize(
-    "fixture", ["cache_miss", "auth_missing_repo", "stale_lock_online"]
-)
-def test_run_never_retries_whatever_the_failure(harness: Harness, fixture: str) -> None:
-    """Even a cache-miss message in a gate's output causes no second call."""
+ALL_FAILURES = [
+    ("cache_miss", "cache-miss"),
+    ("stale_offline_ambiguous", "offline-resolution"),
+    ("stale_lock_online", "stale-lock"),
+    ("missing_lock", "missing-lock"),
+    ("missing_package", "missing-package"),
+    ("missing_revision", "missing-revision"),
+    ("auth_missing_repo", "auth"),
+]
+
+
+@pytest.mark.parametrize(("fixture", "label"), ALL_FAILURES)
+def test_run_never_retries_whatever_the_failure(
+    harness: Harness, fixture: str, label: str
+) -> None:
+    """Whatever uv says, `run` makes one call, keeps the status and names the class."""
     result = harness.run(
-        ["run", "--", "pytest"], [rule(["run"], response(1, fixture_text(fixture)))]
+        ["run", "--", "pytest"], [rule(["run"], response(7, fixture_text(fixture)))]
     )
-    assert result.status == 1
+    assert result.status == 7
     assert len(result.argvs()) == 1
+    assert f"uv-gate: {label}:" in result.stderr
+
+
+def test_run_reports_nothing_for_an_unrecognised_failure(harness: Harness) -> None:
+    """An unrecognised failure is one call, uv's status and no class line."""
+    result = harness.run(
+        ["run", "--", "pytest"], [rule(["run"], response(5, "tests failed"))]
+    )
+    assert result.status == 5
+    assert len(result.argvs()) == 1
+    assert "uv-gate: unknown" not in result.stderr
 
 
 def test_run_refuses_flags_that_refresh_or_go_online(harness: Harness) -> None:
@@ -274,14 +296,49 @@ def test_tool_online_warm_is_bounded(harness: Harness) -> None:
 
 
 @pytest.mark.parametrize(
-    "fixture", ["auth_missing_repo", "missing_package", "missing_revision"]
+    ("fixture", "label"),
+    [
+        pair
+        for pair in ALL_FAILURES
+        if pair[0] not in {"cache_miss", "stale_offline_ambiguous"}
+    ],
 )
-def test_tool_never_retries_other_failures(harness: Harness, fixture: str) -> None:
-    """Auth and missing packages or revisions stop at the first attempt."""
-    rules = [rule(["tool", "run"], response(1, fixture_text(fixture)))]
+def test_tool_never_retries_other_failures(
+    harness: Harness, fixture: str, label: str
+) -> None:
+    """Every class other than a miss stops at the first attempt and is named."""
+    rules = [rule(["tool", "run"], response(9, fixture_text(fixture)))]
+    result = harness.run(["tool", "--from", "ruff==1", "--", "ruff"], rules)
+    assert result.status == 9
+    assert len(result.argvs()) == 1
+    assert f"uv-gate: {label}:" in result.stderr
+
+
+def test_tool_does_not_retry_an_unrecognised_failure(harness: Harness) -> None:
+    """Output that matches no signature is one attempt with uv's own status."""
+    rules = [rule(["tool", "run"], response(4, "something odd"))]
+    result = harness.run(["tool", "--from", "ruff==1", "--", "ruff"], rules)
+    assert result.status == 4
+    assert len(result.argvs()) == 1
+
+
+def test_tool_warms_online_once_on_offline_resolution(harness: Harness) -> None:
+    """An ambiguous offline resolution failure is retried once, then named."""
+    rules = [
+        rule(
+            ["tool", "run", "--offline"],
+            response(1, fixture_text("stale_offline_ambiguous")),
+        ),
+        rule(
+            ["tool", "run"],
+            response(1, fixture_text("stale_lock_online")),
+            without=("--offline",),
+        ),
+    ]
     result = harness.run(["tool", "--from", "ruff==1", "--", "ruff"], rules)
     assert result.status == 1
-    assert len(result.argvs()) == 1
+    assert len(result.argvs()) == 2
+    assert "uv-gate: stale-lock:" in result.stderr
 
 
 def test_tool_online_step_can_be_forbidden(harness: Harness) -> None:
@@ -584,3 +641,32 @@ def test_bad_requests_are_refused_before_uv_is_looked_up(
     assert result.status == 2
     assert message in result.stderr
     assert "uv is not available" not in result.stderr
+
+
+def test_a_lookup_failure_for_uv_is_a_refusal(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An OSError while looking for uv becomes a GateError, not a traceback."""
+
+    def fail(*_args: object, **_kwargs: object) -> str:
+        message = "denied"
+        raise PermissionError(message)
+
+    monkeypatch.setattr(uv_gate.shutil, "which", fail)
+    with pytest.raises(uv_gate.GateError, match="cannot look for uv"):
+        uv_gate.build_context({"PATH": "/usr/bin"}, harness.repo, harness.home)
+
+
+def test_resolving_the_uv_path_can_fail_cleanly(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A uv whose real path cannot be resolved is refused as well."""
+
+    def fail(_self: Path, *_args: object, **_kwargs: object) -> Path:
+        message = "loop"
+        raise OSError(message)
+
+    monkeypatch.setattr(type(harness.root), "resolve", fail)
+    environ = {"PATH": f"{harness.bin}{os.pathsep}/usr/bin:/bin"}
+    with pytest.raises(uv_gate.GateError, match="cannot look for uv"):
+        uv_gate.build_context(environ, harness.repo, harness.home)

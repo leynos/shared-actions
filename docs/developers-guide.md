@@ -2245,13 +2245,25 @@ containing `ubuntu`. The image map is `_LINUX_PLATFORMS`, read from
 label missing from the map is a fixture that would run nowhere and still pass.
 
 `_resolves_to_one_platform` accepts a job only when act can be given one image
-for it, and it accepts exactly two shapes. A plain label is accepted when it is
-a Linux label. A whole-string `${{ matrix.<key> }}` reference is followed into
+for it, and it accepts three shapes. A plain label is accepted when it is a
+Linux label. A whole-string `${{ matrix.<key> }}` reference is followed into
 the job's `include` legs and accepted only when the distinct labels those legs
 offer are exactly `{UBICLOUD_LINUX}` — a leg naming no label is dropped rather
-than counted. Everything else is refused, including a `&&`/`||` expression that
-names a non-Linux label beside a Linux one, because act would run the Linux arm
-and skip the other and the same case would then mean two things.
+than counted. Anything else that is a string is read for the labels it names,
+and accepted when it names at least one and every one of them is a Linux label;
+that is the shape a `||` chain of Linux labels takes, and the reason the check
+is written over the named set rather than as a single-label test. Everything
+else is refused, including any expression naming a non-Linux label beside a
+Linux one, because act would run the Linux arm and skip the other and the same
+case would then mean two things.
+
+The Linux-label set is `_LINUX_PLATFORMS`, which is read from
+`RECOGNIZED_LINUX_LABELS`, and the one matrix label is `UBICLOUD_LINUX`. Both
+labels live in the same vocabulary today, so the second and third shapes
+overlap in what they currently accept; the code paths are separate because a
+matrix binding is followed into its legs rather than read as text, and the two
+would diverge as soon as the image map grew a label the matrix rule did not
+follow.
 
 `_require_an_image_for(workflow, job_id)` is the guard that applies this before
 act is given anything, and it fails closed. A job it cannot find in the
@@ -2267,20 +2279,21 @@ all of them costs the harness nothing. Widening it needs a way to give act an
 image for each label a case can actually reach, not just for the ones this
 repository writes today.
 
-### `ActionContext.github_repository`, and what it is a stand-in for
+### `ActionContext.github_repository`, and what it is not
 
 `composite_fragments.py` resolves the expression subset a composite action's
 Bash fragments use, and `ActionContext` holds the context they resolve against.
 `github_repository` was added to it for a manifest that declares the repository
 it runs in as a step `env` and then reads `github.repository`.
 
-Its default is the empty string, and that is the harness's behaviour rather
-than a general rule about GitHub's own context: a manifest that reads
-`github.repository` without declaring it sees whatever the runner substitutes
-for an unset value, which is the empty string. The field exists so a test can
-supply a repository name when a manifest expects one, and the empty default
-keeps a manifest that declares nothing resolving to what a real runner would
-give it rather than to a name the harness made up.
+Its default is the empty string, and that is a property of this harness rather
+than of GitHub's own context. On a real runner `github.repository` is a context
+value the runner supplies; a step `env` declaration does not decide whether it
+exists, and the two are not the same thing. The field exists so a test can
+supply a repository name when a manifest expects one, and the empty default is
+simply what an unconfigured `ActionContext.github_repository` resolves to — a
+manifest that reads it without declaring a name gets a string the harness made
+empty, not a stand-in for a runner's value.
 
 ### Deciding whether a command is runnable
 

@@ -1754,3 +1754,39 @@ than recalled: `resolve_tool.py:194` and `test_resolve_tool.py:154` for the
 version default, `Makefile:112` and `Makefile:101` for the prerequisite and the
 forced-off gate, `conftest.py:339-344` for fail-versus-skip, and the three
 exclusions in `_COMPARED_VALUE` for the normalization claim.
+
+#### The thirteenth pass: CodeRabbit's verdict, and two more prose defects
+
+The reconciliation drew a second reply
+([issue comment 6091763456](https://github.com/leynos/shared-actions/pull/583#issuecomment-6091763456)).
+Three of the four findings are now **resolved**. The fourth, Developer
+Documentation, is "partially resolved" against two statements in the section
+added this pass — both correct, and both verified against the source before
+being accepted.
+
+The first: the guide said `_resolves_to_one_platform` "accepts exactly two
+shapes" and then "everything else is refused". It accepts three. The
+fall-through at `conftest.py:542-543` is
+`bool(named) and named <= _LINUX_PLATFORMS`, which is the shape a `||` chain of
+Linux labels takes, and it is reachable:
+`${{ 'ubicloud-standard-2' || 'ubicloud-standard-2' }}` is accepted while
+`${{ 'ubicloud-standard-2' || 'macos-15' }}` is refused. Both confirmed by
+running the classifier rather than reading it. The prose now states three
+shapes and names the overlap: the matrix rule and the fall-through accept the
+same labels today, and are separate code paths only because a matrix binding is
+followed into its legs rather than read as text.
+
+The second: the guide said a manifest reading `github.repository` without
+declaring it "sees whatever the runner substitutes for an unset value, which is
+the empty string". On a real runner `github.repository` is a context the runner
+supplies, and a step `env` declaration does not determine whether it exists.
+The empty string is the harness's own default and stands in for nothing. This
+one had its origin in the source: the same claim sat in a `#:` comment in
+`composite_fragments.py` that is part of this PR's diff, so the comment is
+corrected too. The section heading also still said "what it is a stand-in for",
+contradicting the correction beneath it, and now says "and what it is not".
+
+Two of four findings having needed a second round is the recurring shape of
+this branch: prose making a claim one step wider than the code supports. In
+this pass both were found by a reviewer rather than by the gate suite, which
+was green throughout — the same division of labour as the previous four.

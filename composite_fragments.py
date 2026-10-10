@@ -104,9 +104,10 @@ class ActionContext:
     action_path: str
     runner_temp: str = ""
     #: Stands in for ``github.repository``, which a manifest that names the
-    #: repository it runs in declares as step ``env``. An empty default is
-    #: what a manifest reading it without declaring it would see, which is
-    #: the empty string a runner substitutes.
+    #: repository it runs in declares as step ``env``. The empty default is
+    #: a property of this harness rather than of GitHub's context: on a
+    #: runner the value is supplied as a context, independently of any step
+    #: ``env``, so an unconfigured field here is not a stand-in for it.
     github_repository: str = ""
     #: Stands in for ``github.token``. Empty by default, which is what a
     #: fragment sees when the caller passes no token, and is the case worth

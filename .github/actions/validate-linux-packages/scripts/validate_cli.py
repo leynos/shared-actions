@@ -596,7 +596,7 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
         config.release,
     )
 
-    def sandbox_factory() -> typ.ContextManager["PolytheneSession"]:  # noqa: UP037
+    def sandbox_factory() -> typ.ContextManager[PolytheneSession]:
         return polythene_rootfs(
             config.polythene_command,
             image,

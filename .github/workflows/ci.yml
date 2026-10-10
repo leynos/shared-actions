@@ -29,6 +29,8 @@ jobs:
       # --no-source-fallback, which install-whitaker always passes.
       # tests/workflows/test_whitaker_installer_floor.py holds the rule.
       WHITAKER_INSTALLER_VERSION: '0.2.9'
+      MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
+      MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     strategy:
       fail-fast: false
       matrix:
@@ -138,6 +140,12 @@ jobs:
         if: runner.os == 'Linux'
         run: make doctest
         shell: bash
+      - name: Install Makefile parser
+        if: runner.os == 'macOS'
+        uses: ./.github/actions/install-makeutil-from-source
+        with:
+          makeutil-revision: ${{ env.MAKEUTIL_REVISION }}
+          makeutil-toolchain: ${{ env.MAKEUTIL_TOOLCHAIN }}
       - name: Run tests
         # Not on Linux. The coverage job below runs this same suite under
         # the coverage action on the same trigger, and its own comment says
@@ -160,6 +168,9 @@ jobs:
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
       && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    env:
+      MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
+      MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     steps:
       - name: Checkout repository
         # v4
@@ -192,6 +203,11 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           save-cache: 'true'
+      - name: Install Makefile parser
+        uses: ./.github/actions/install-makeutil-from-source
+        with:
+          makeutil-revision: ${{ env.MAKEUTIL_REVISION }}
+          makeutil-toolchain: ${{ env.MAKEUTIL_TOOLCHAIN }}
       # Build and cache the project like the python-tests job does. Several
       # tests shell out to `uv run --script`, which builds shared-actions into
       # the script environment; without a warm build cache that emits `Using
@@ -245,6 +261,9 @@ jobs:
     permissions:
       contents: read
     runs-on: windows-latest
+    env:
+      MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
+      MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     steps:
       - name: Checkout repository
         # v4
@@ -257,6 +276,14 @@ jobs:
             **/pyproject.toml
             **/uv.lock
             **/scripts/*.py
+      - name: Install GNU Make
+        run: choco install make --no-progress --yes
+        shell: bash
+      - name: Install Makefile parser
+        uses: ./.github/actions/install-makeutil-from-source
+        with:
+          makeutil-revision: ${{ env.MAKEUTIL_REVISION }}
+          makeutil-toolchain: ${{ env.MAKEUTIL_TOOLCHAIN }}
       - name: Run tests
         run: |
           uv sync --group dev

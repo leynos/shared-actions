@@ -15,7 +15,8 @@ purpose:
 
 Keeping them apart is what lets the rule be exercised without a GitHub
 response in the way, and what stops a schema change from quietly meaning
-a different rule. Paging the connection and acting on the outcome belong
+a different rule. Connection paging belongs to
+:func:`dependabot_github.audit_whole_branch`; acting on the outcome belongs
 to :mod:`dependabot_automerge`, which composes these.
 
 See ``docs/developers-guide.md``, "Dependabot auto-merge commit audit".
@@ -55,6 +56,9 @@ DEPENDABOT_LOGINS: frozenset[str] = frozenset(login.value for login in Dependabo
 #: Stands in for a commit author GitHub did not name, so a message can
 #: still identify the commit.
 UNKNOWN_AUTHOR: typ.Final[str] = "an unnamed author"
+
+#: Stands in for a commit node whose API identifier is absent or malformed.
+UNKNOWN_OID: typ.Final[str] = "unknown-oid"
 
 #: Stands in for the authors of a commit whose credit list came back
 #: truncated. Such a commit cannot be certified as Dependabot's, so it is
@@ -111,7 +115,7 @@ class CommitRecord(typ.NamedTuple):
     Attributes
     ----------
     oid : str
-        The commit SHA.
+        The commit SHA, or :data:`UNKNOWN_OID` if GitHub returned no string.
     authors : tuple[str, ...]
         The logins credited on the commit, with :data:`UNKNOWN_AUTHOR` for
         any GitHub did not name.
@@ -167,9 +171,10 @@ class ForeignCommit(typ.NamedTuple):
     Attributes
     ----------
     oid : str
-        The commit SHA.
+        The commit SHA, or :data:`UNKNOWN_OID` if GitHub returned no string.
     author : str
-        The author's login, or ``unknown`` when the API did not name one.
+        The author's login, :data:`UNKNOWN_AUTHOR` when the API names no
+        author, or :data:`UNREAD_CO_AUTHOR` when the credit list is truncated.
     """
 
     oid: str
@@ -183,7 +188,8 @@ class ForeignCommit(typ.NamedTuple):
         str
             ``<short sha> by <author>``.
         """
-        return f"{self.oid[:8]} by {self.author}"
+        short_oid = self.oid if self.oid == UNKNOWN_OID else self.oid[:8]
+        return f"{short_oid} by {self.author}"
 
 
 def commit_authors(commit: dict[str, JsonValue]) -> tuple[tuple[str, ...], bool]:
@@ -340,7 +346,7 @@ def _commit_record(node: JsonValue) -> CommitRecord | None:
             authors, complete = commit_authors(commit)
             oid = commit.get("oid")
             return CommitRecord(
-                oid=oid if isinstance(oid, str) else UNKNOWN_AUTHOR,
+                oid=oid if isinstance(oid, str) else UNKNOWN_OID,
                 authors=authors,
                 authors_complete=complete,
             )
@@ -376,11 +382,9 @@ def foreign_commits(records: typ.Sequence[CommitRecord]) -> tuple[ForeignCommit,
     have been read. A commit whose authors
     came back truncated is reported foreign rather than waved through,
     because the check exists to certify the branch and a partial list
-    certifies nothing. That is the opposite of the unreadable-list case
-    in :func:`audit_commits`, and deliberately so: there the branch's
-    commits could not be seen at all, which is a query fault affecting
-    every consumer at once; here one visible commit could not be read to
-    the end, which is a property of that commit.
+    certifies nothing. In contrast, ``audit_whole_branch`` reports an
+    unreadable result when a GraphQL page carries no commit list or the
+    branch cannot be read to its end.
 
     Parameters
     ----------
@@ -431,37 +435,3 @@ def _judge(record: CommitRecord) -> ForeignCommit | None:
     if not record.authors_complete:
         return ForeignCommit(oid=record.oid, author=UNREAD_CO_AUTHOR)
     return None
-
-
-def audit_commits(pull_request: dict[str, JsonValue]) -> CommitAudit:
-    """Find the commits on one page that Dependabot did not write.
-
-    Callers that must cover a whole branch use :func:`fetch_pull_request`,
-    which pages the connection first. This composes the adapter and the
-    rule over a single response.
-
-    Parameters
-    ----------
-    pull_request : dict
-        The pull request node from the GraphQL query.
-
-    Returns
-    -------
-    CommitAudit
-        Whether the commit list could be read, and one entry per commit
-        with an author outside :data:`DEPENDABOT_LOGINS`. An unreadable
-        list yields no foreign commits, so the check fails open: a query
-        change that stopped returning commits would otherwise halt every
-        consumer's automerge at once, which is a worse failure than the
-        one this prevents. ``readable`` is what makes that loss visible
-        rather than silent.
-    """
-    page = commit_page(pull_request)
-    if page is None:
-        return CommitAudit(readable=False, foreign=())
-    return CommitAudit(
-        readable=True,
-        foreign=foreign_commits(page.records),
-        pages=1,
-        commits=len(page.records),
-    )

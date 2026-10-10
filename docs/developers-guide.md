@@ -32,6 +32,7 @@ repository-specific entries to the overlay instead.
 - [ADR 0004: main owns CodeScene coverage](adr/0004-main-owns-codescene-coverage.md)
 - [ADR 0005: setup-rust selects the sccache backend by runner](adr/0005-runner-aware-sccache-backend.md)
 - [ADR 0006: install-whitaker installs binaries only](adr/0006-binary-only-whitaker-install.md)
+- [ADR 0007: Four-tier Python linting architecture](adr/0007-python-linting-architecture.md)
 
 ## Python Coverage Venv Architecture
 
@@ -114,6 +115,13 @@ argument, placed before `--branch`, in the slipcover command that
 `coverage_cmd_for_fmt` builds. `main` then runs slipcover, parses coverage, and
 writes `GITHUB_OUTPUT`.
 
+The pure `_parse_pytest_workers(raw)` helper replaces the former
+`_normalize_pytest_workers` wrapper: it returns the normalized worker value and
+raises `ValueError` for invalid input. CLI callers translate that exception to
+their own command-line diagnostic. The removed `detect_host_target` helper is
+not a supported runtime API; callers needing the platform-derived Rust host
+default should use `runtime.DEFAULT_HOST_TARGET`.
+
 ### `python-source` validation
 
 `main` reads the scope from its `--python-source` option or, failing that,
@@ -189,6 +197,7 @@ to bare names on `PATH`.
 | `ACT`              | `~/go/bin/act` if present, then `~/.local/bin/act` if present, otherwise `act`                               |
 | `ACTION_VALIDATOR` | `~/.bun/bin/action-validator` if present, then `~/.cargo/bin/action-validator`, otherwise `action-validator` |
 | `MDLINT`           | `~/.bun/bin/markdownlint-cli2` if present, otherwise `markdownlint-cli2`                                     |
+| `MAKEUTIL`         | `~/.cargo/bin/makeutil` if present, otherwise `makeutil`                                                     |
 
 Override example:
 
@@ -196,6 +205,63 @@ Override example:
 make lint UV=uv
 make test ACT=/usr/local/bin/act
 ```
+
+## Python linting
+
+The lint architecture has four tiers, recorded in
+[ADR 0007](adr/0007-python-linting-architecture.md):
+
+1. Ruff checks Python source and import hygiene.
+2. action-validator checks GitHub Action metadata.
+3. Whitaker checks the Rust action fixture with warnings denied.
+4. Skylos checks production Python code for dead code.
+
+`make lint` stops at the first failing tier. The CI lint step runs the same
+target, so every pull request rejects unexplained production dead code.
+
+### Skylos dead-code policy
+
+Skylos `4.33.2` scans action implementations, workflow helpers, root modules,
+and the maintained tooling script, while excluding test directories so
+test-only imports cannot make production symbols appear live. `$(SKYLOS_CLI)`
+runs it with Python 3.14 because Skylos parses source using its own runtime
+AST; pinning that runtime prevents phantom findings from newer Python syntax.
+`$(SKYLOS)` adds scan-only options such as `--config-file`, leaving the
+command-only CLI available for subcommands.
+
+Treat each finding as dead code until a runtime caller is verified. Remove
+genuine dead code. For framework callbacks, protocol implementations, or other
+implicit runtime callers, first add a narrowly typed `[tool.skylos.dead_code]`
+entry-point rule with the full name and verified caller. Only when that
+boundary cannot be modelled as an entry point, record a named exception with:
+
+```shell
+make skylos-allow SYMBOL=registered_handler REASON="Loaded by plugin registry"
+```
+
+Both values must contain non-whitespace text. `SYMBOL` avoids WSL's injected
+hostname `NAME` environment variable. The target passes the subcommand before
+scan options as `skylos whitelist <symbol> --reason <reason>`. Do not add
+baselines, bulk exceptions, or unreasoned allow-list entries. Remove an
+allow-list entry when its dynamic boundary disappears. The helper holds the
+ignored `.skylos-whitelist.lock` through the complete whitelist update using a
+cross-platform Python lock helper, so concurrent verified exceptions cannot
+overwrite one another.
+
+The Skylos contract test parses the Makefile with Makeutil and checks the
+argument boundary with a non-mutating executable recorder. `make test` requires
+Makeutil before executing the suite. Bootstrap the pinned local parser with:
+
+```shell
+rustup toolchain install nightly-2026-05-28 --profile minimal
+RUSTFLAGS="-Zpolonius=next" cargo +nightly-2026-05-28 install \
+  --git https://github.com/leynos/makeutil \
+  --rev 29fc5a1634ffbaa18a773eed9dff1b2838a45d9c \
+  --locked --force makeutil
+```
+
+The full-suite and coverage CI jobs install this same revision and toolchain
+independently before invoking pytest.
 
 ## `setup-uv` Pinning
 
@@ -2059,6 +2125,12 @@ returns a `StageResult`. The CLI owns infrastructure concerns: it reads
 `GITHUB_WORKSPACE` and `GITHUB_OUTPUT`, emits GitHub Actions warning
 annotations for skipped optional artefacts, and writes workflow outputs.
 
+The supported staging interface is `stage_artefacts(config, ...)`, which
+returns a `StageResult`; the former `StagedArtefact` type and
+`_iter_staged_artefacts` helper have been removed. The
+`_binstall_template_context(metadata, base_context)` function is an internal
+template-building helper, not a public staging API.
+
 `stage_common.config.load_config` requires callers to pass the workspace
 explicitly via `workspace=...`; it no longer reads `GITHUB_WORKSPACE` itself.
 This keeps configuration loading independent from the process environment. The
@@ -2253,6 +2325,8 @@ Internals for maintainers:
   formats are unstable; a version bump must be paired with a parser check
   (`outcomes.json` fields for cargo-mutants; the `mutmut results --all true`
   line format for mutmut).
+- `scoped_run_matrix(buckets)` receives the bucket mapping directly. The
+  `DetectionConfig` type remains in use for the full-run and detection paths.
 - The workflow checkout has a lifecycle, and both halves of it matter. Each
   job checks the workflow repository out into `workflow-src/` inside the
   caller's workspace, then relocates it to `$RUNNER_TEMP` before any mutation
@@ -2895,9 +2969,13 @@ what stops a schema change from quietly meaning a different rule.
 
 `foreign_commits` holds the rule itself, over `CommitRecord` values alone:
 every credited login must be in `DEPENDABOT_LOGINS`, and the credit list must
-have been read to its end. `audit_commits` composes the two over a single
-response. `audit_whole_branch`, in `dependabot_github.py`, pages the connection
-first and is what the production path uses.
+have been read to its end. `audit_whole_branch`, in `dependabot_github.py`,
+pages the connection to its end before applying this rule, and is the
+production path.
+
+The former `audit_commits` wrapper has been removed. Use `commit_page` to parse
+one GraphQL page, `foreign_commits` to apply the authorship rule, and
+`audit_whole_branch` for the production whole-branch read and audit.
 
 ### The GitHub transport boundary
 

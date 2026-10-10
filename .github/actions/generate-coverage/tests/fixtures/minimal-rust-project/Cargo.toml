@@ -1,0 +1,18 @@
+# Minimal Rust project for the act fixture workflow that exercises the
+# generate-coverage `out` step. It exists so the coverage leg can run
+# end-to-end under act in a few seconds: `rust-toy-app` cannot serve here,
+# because its manpage assertion pins its build script's output to
+# `<crate>/target/generated-man/...` while `cargo llvm-cov` redirects
+# `CARGO_TARGET_DIR` to `<crate>/target/llvm-cov-target`, so the manpage is
+# written where the assertion does not look. That incompatibility predates the
+# composite-input collision this fixture guards and is unrelated to it.
+#
+# No dependencies, so the fixture needs no network access beyond the toolchain
+# act already installed.
+[package]
+name = "minimal-rust-project"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+publish = false
+license = "ISC"

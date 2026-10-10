@@ -191,7 +191,8 @@ themselves when the runtime, socket, or Docker-compatible container listing API
 is unavailable, so they do not fail a machine that has none. Once the lane is
 asked for, that skip becomes a failure instead: a skipped case reports success
 for a run that executed nothing, so `make test-act` would exit zero having run
-none of the fixtures it exists to run. To _run_ the lane, opt in by name:
+none of the fixtures it exists to run. _Running_ the lane requires an explicit
+opt-in, by name:
 
 ```bash
 # The workflow lane alone:
@@ -204,13 +205,24 @@ make test WITH_ACT=1
 ACT_WORKFLOW_TESTS=1 sudo -E make test
 ```
 
-`make test WITH_ACT=1` makes the lane a prerequisite, so the workflow harness
-runs **before** the ordinary suite rather than after it. The plain suite then
-forces the opt-in back off, so the lane's modules skip inside it and
-`tests/workflows` is not run twice. `ACT_WORKFLOW_TESTS` is the canonical
-pytest-side gate; `WITH_ACT` is the Make-side alias for the same opt-in, and
-either one asks for the lane. After running with sudo, remove the root-owned
-`.venv` (`sudo rm -rf .venv`) so future non-root commands can recreate it.
+`ACT_WORKFLOW_TESTS=1` adds the `test-act` target to `make test`, and
+`WITH_ACT=1` is an accepted alias for the same opt-in; either one asks for the
+lane. The harness lane runs first, as a prerequisite rather than as a later
+line of the `test` recipe, so a failure in the regular suite no longer prevents
+it from launching: `make test WITH_ACT=1` still reports the harness result when
+the regular suite fails, and still exits non-zero when either target fails. The
+reverse does not hold: a failing harness lane stops the run before the regular
+suite. When both outcomes are needed and the harness is failing, read the
+earlier `make test` log alongside it, or run the two targets separately
+(`make test` and `make test-act`). The plain suite forces the opt-in back off,
+so the lane's modules skip inside it and `tests/workflows` is not run twice. To
+run the harness lane alone, call `make test-act` directly.
+
+After running with sudo, remove the root-owned `.venv` (`sudo rm -rf .venv`) so
+future non-root commands can recreate it. The act harness also leaves a
+`.venv-coverage` directory behind, created inside the container by the
+`generate-coverage` action; `make clean` removes it with the other transient
+artefacts, and a privileged run may need the same `sudo` treatment.
 
 ## Record -> replay -> verify (closing the loop)
 

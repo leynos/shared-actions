@@ -3315,7 +3315,7 @@ sibling field such as `head.repo.private` changes which pull requests fall
 back, and an earlier draft of the contract let exactly that mutation past by
 concluding the lane was no longer a Linux lane at all.
 
-Five kinds of Linux job stay GitHub-hosted, each recorded with its reason in
+Six kinds of Linux job stay GitHub-hosted, each recorded with its reason in
 `HOSTED_LINUX_EXEMPTIONS`:
 
 | Job                                                                                         | Why it stays hosted                                                                                                                                                                       |
@@ -3324,6 +3324,7 @@ Five kinds of Linux job stay GitHub-hosted, each recorded with its reason in
 | `test-setup-rust-sccache.yml::exports-the-wrapper` and `::refuses_a_missing_ubicloud_proxy` | They prove `setup-rust`'s GitHub-hosted arm and that `expect-cache: ubicloud` fails where there is no proxy. On Ubicloud the action selects the proxy, so both would test the other arm.  |
 | `mutation-cargo.yml` and `mutation-mutmut.yml`                                              | Scheduled, never developer-blocking, and free on public-repository minutes.                                                                                                               |
 | `dependabot-automerge.yml::automerge`                                                       | A delayed-comment lane that waits on other checks rather than computing anything.                                                                                                         |
+| `test-generate-coverage.yml::test-generate-coverage-out-no-suffix`                          | The act fixture for `generate-coverage`'s `out` step, never run by GitHub. The harness maps only `ubuntu-latest`, so the Ubicloud label would leave act running no step.                  |
 | Caller jobs that only `uses:` another workflow                                              | They occupy no runner of their own.                                                                                                                                                       |
 
 `ubuntu-24.04-arm` is recognized alongside `windows-11-arm`, as a GitHub-hosted
@@ -3442,11 +3443,24 @@ repository has taken. It takes the coverage tier, the widest, until a run
 history exists to size it honestly.
 
 These ceilings are the outermost of the four timers described under "Test
-timeouts: four tiers, outermost last" in the users' guide. Nothing in this
-repository runs `cargo` under `generate-coverage`, so the watchdog and the two
-nextest timers do not apply; see
-`tests/workflows/test_coverage_timeout_tiers.py` for what happens to that if a
-root `Cargo.toml` ever appears.
+timeouts: four tiers, outermost last" in the users' guide. Nothing reaches
+`cargo` under `generate-coverage` here through the *root-manifest* route —
+there is no root `Cargo.toml` — so for most lanes the watchdog and the two
+nextest timers stay inert; see `tests/workflows/test_coverage_timeout_tiers.py`
+for what happens to that if a root `Cargo.toml` ever appears.
+
+One lane reaches cargo by the other route. `test-generate-coverage.yml`'s
+`test-generate-coverage-out-no-suffix` is the act fixture for the
+`generate-coverage` `out` step, and it names the fixture crate through
+`cargo-manifest`, which is what makes the run real without a root manifest. It
+is dispatch-only and never runs on GitHub, so its budget exists for act alone,
+but the rule does not care who runs the lane: it carries
+`cargo-wait-timeout: "240"`, which by the tier arithmetic below is 29 minutes,
+and the coverage tier's 30 clears it. The lane also sets
+`publish-artefact: ${{ !env.ACT }}`, so the archive step is suppressed under
+act while the run itself proceeds.
+`test_no_lane_reaches_cargo_without_stating_its_budget` holds every lane that
+can reach cargo by either route to a stated budget.
 
 ### Changing a decision
 

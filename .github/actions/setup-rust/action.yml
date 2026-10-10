@@ -534,7 +534,7 @@ runs:
       # differently by event. See docs/adr/0005-runner-aware-sccache-backend.md.
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
       # v9.0.0
-      uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
       env:
         SR_EXPECT_CACHE: ${{ inputs.expect-cache }}
         SR_CACHE_PROVIDER: ${{ inputs.cache-provider }}

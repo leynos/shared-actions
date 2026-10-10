@@ -131,6 +131,25 @@ class Outcome(typ.NamedTuple):
     outputs: dict[str, str]
 
 
+class SuffixCase(typ.NamedTuple):
+    """One row of the suffix truth table.
+
+    ``value`` is the caller's ``artefact-name-suffix``; ``None`` means the
+    input was omitted. ``pinned_tail`` is the trailing segment this row freezes
+    as a written literal, or ``None`` when the row has no segment worth
+    pinning and the derived oracle alone decides.
+
+    The pair travels together because it is one fact about one row: what the
+    caller supplied, and what that must produce. Carrying them as two
+    parameters made the assertion helper's signature the widest thing in the
+    module for no gain, and a row that pins nothing can now say so instead of
+    passing an empty literal whose ``endswith`` is vacuous.
+    """
+
+    value: str | None
+    pinned_tail: str | None = None
+
+
 def _run_out_step(tmp_path: Path, *, output_path: str, suffix: str | None) -> Outcome:
     """Run the manifest's ``out`` step and read the declared outputs.
 
@@ -210,15 +229,14 @@ def _assert_reported_the_callers_values(
     set_outputs_module: ModuleType,
     *,
     output_path: str,
-    suffix: str | None,
-    expected_segment: str | None = None,
+    suffix: SuffixCase,
 ) -> None:
     """Assert the step succeeded and reported exactly what it was handed.
 
-    *expected_segment* pins the trailing segment as a written literal. The
-    derived oracle below mirrors the implementation, so it cannot catch a
-    change to how a value is turned into a segment; a literal can. Pass it
-    wherever the case has a truth-table meaning worth freezing.
+    The derived oracle mirrors the implementation, so on its own it cannot
+    catch a change to how a value is turned into a segment -- it would follow
+    the change. A row that carries a ``pinned_tail`` is therefore also held to
+    that written literal, which the mirror cannot satisfy by construction.
     """
     combined = outcome.result.stdout + outcome.result.stderr
     assert outcome.result.returncode == 0, (
@@ -228,31 +246,33 @@ def _assert_reported_the_callers_values(
     assert outcome.outputs["file"] == output_path
     assert outcome.outputs["format"] == FMT
     reported = outcome.outputs["artefact-name"]
-    expected = _expected_name(set_outputs_module, suffix)
+    expected = _expected_name(set_outputs_module, suffix.value)
     assert reported == expected, (
         "the artefact name a caller reads must be the one composed from the "
         "caller's own inputs"
     )
-    if expected_segment is not None:
-        assert reported.endswith(expected_segment), (
-            f"expected the name to end with {expected_segment!r}, got {reported!r}"
+    if suffix.pinned_tail is not None:
+        assert reported.endswith(suffix.pinned_tail), (
+            f"expected the name to end with {suffix.pinned_tail!r}, got {reported!r}"
         )
 
 
 @pytest.mark.parametrize(
-    ("suffix", "expected_segment"),
+    "case",
     [
-        pytest.param(None, "", id="omitted"),
-        pytest.param("", "", id="empty"),
-        pytest.param("   ", "-extra", id="whitespace-only"),
-        pytest.param(" Feature Nightly ", "-feature-nightly", id="spaces"),
+        # Omitted and empty add no segment, so there is no tail to pin: the
+        # derived oracle's full-name comparison already covers them, and an
+        # empty literal here would only assert ``endswith("")``.
+        pytest.param(SuffixCase(None), id="omitted"),
+        pytest.param(SuffixCase(""), id="empty"),
+        pytest.param(SuffixCase("   ", "-extra"), id="whitespace-only"),
+        pytest.param(SuffixCase(" Feature Nightly ", "-feature-nightly"), id="spaces"),
     ],
 )
 def test_out_step_reports_the_callers_values(
     tmp_path: Path,
     set_outputs_module: ModuleType,
-    suffix: str | None,
-    expected_segment: str,
+    case: SuffixCase,
 ) -> None:
     """A path and suffix with spaces travel to the outputs intact.
 
@@ -262,17 +282,16 @@ def test_out_step_reports_the_callers_values(
     suffix cases are a truth table over what a caller can supply: omitted,
     empty, whitespace-only and real each produce the name the script's own
     normalizer predicts. Omitted and empty add no segment; whitespace-only is
-    truthy and so adds the ``extra`` fallback segment, asserted here as a
-    written literal so a change to that fallback fails rather than being
-    mirrored by the derived oracle.
+    truthy and so adds the ``extra`` fallback segment, pinned here as a written
+    literal so a change to that fallback fails rather than being mirrored by
+    the derived oracle.
     """
-    outcome = _run_out_step(tmp_path, output_path=OUTPUT_PATH, suffix=suffix)
+    outcome = _run_out_step(tmp_path, output_path=OUTPUT_PATH, suffix=case.value)
     _assert_reported_the_callers_values(
         outcome,
         set_outputs_module,
         output_path=OUTPUT_PATH,
-        suffix=suffix,
-        expected_segment=expected_segment,
+        suffix=case,
     )
 
 
@@ -302,7 +321,10 @@ def test_out_step_treats_a_suffix_as_data(
     outcome = _run_out_step(tmp_path, output_path=OUTPUT_PATH, suffix=suffix)
     try:
         _assert_reported_the_callers_values(
-            outcome, set_outputs_module, output_path=OUTPUT_PATH, suffix=suffix
+            outcome,
+            set_outputs_module,
+            output_path=OUTPUT_PATH,
+            suffix=SuffixCase(suffix),
         )
         assert not INJECTION_MARKER.exists(), (
             "a character in the suffix was interpreted by a shell rather than "
@@ -331,7 +353,10 @@ def test_out_step_treats_an_output_path_as_data(
     outcome = _run_out_step(tmp_path, output_path=poisoned, suffix="Nightly")
     try:
         _assert_reported_the_callers_values(
-            outcome, set_outputs_module, output_path=poisoned, suffix="Nightly"
+            outcome,
+            set_outputs_module,
+            output_path=poisoned,
+            suffix=SuffixCase("Nightly"),
         )
         assert not INJECTION_MARKER.exists(), (
             "a character in the output path was interpreted by a shell rather "

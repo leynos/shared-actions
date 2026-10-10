@@ -1,9 +1,11 @@
-"""The setup-rust clang and lld lane cancels runs a newer push supersedes.
+"""Test the concurrency configuration of the setup-rust clang and lld lane.
 
-The lane installs tools and builds a toy application on three operating
-systems, so a superseded run holds Linux, macOS and Windows runners for no
-benefit. The group is keyed on the workflow and the ref, which cancels an
-older run of this lane on the same branch and touches nothing else.
+The module asserts that ``test-setup-rust-clang-lld.yml`` groups runs by
+workflow and ref and cancels a run that a newer push to the same ref
+supersedes. The lane installs tools and builds a toy application on three
+operating systems, so a superseded run would otherwise hold Linux, macOS and
+Windows runners for no benefit. Keying the group on the workflow and the ref
+cancels an older run of this lane on the same branch and touches nothing else.
 """
 
 from __future__ import annotations

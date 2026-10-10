@@ -249,6 +249,10 @@ def _later_job(name: str, runs_on: str, needs: str | None) -> str:
         ("self-hosted", "build-test"),
         ("[self-hosted, linux]", "build-test"),
         ("self-hosted", "[build-test]"),
+        ("{group: my-runners}", "build-test"),
+        ("{group: my-runners, labels: [linux]}", "build-test"),
+        ("${{ matrix.os }}", "build-test"),
+        ("[linux, '${{ matrix.os }}']", "build-test"),
     ],
 )
 def test_a_later_job_on_a_self_hosted_runner_may_share_the_workspace(
@@ -280,6 +284,8 @@ def test_a_job_two_needs_after_the_lane_on_a_self_hosted_runner_is_read() -> Non
     [
         ("ubuntu-latest", "build-test"),
         ("ubicloud-standard-2", "build-test"),
+        ("not-self-hosted-x", "build-test"),
+        ("[ubuntu-latest, linux]", "build-test"),
         ("self-hosted", None),
     ],
 )
@@ -373,3 +379,30 @@ def test_the_self_hosted_dependents_match_a_reachability_oracle() -> None:
                 want = {NAMES[j] for j in _reachable(edges, lane) if hosted >> j & 1}
                 got = _dependents(document, lane)
                 assert got == want, (edges, hosted, lane, got, want)
+
+
+def test_each_report_a_lane_job_writes_is_held_against_the_upload() -> None:
+    """Scenario: two coverage legs of one job write distinct reports.
+
+    An upload of either report is refused, and an upload of neither is not, so
+    a holder that kept only one report would pass one of the two cases.
+    """
+    second = (
+        "      - name: Second leg\n        if: github.event_name == 'pull_request'\n"
+    )
+    leg = PULL_REQUEST_LANE.index("      - name: Test and Measure Coverage\n")
+    tail = PULL_REQUEST_LANE[leg:]
+    two_legs = PULL_REQUEST_LANE + tail.replace(
+        "Test and Measure Coverage", "Second leg", 1
+    ).replace("output-path: coverage.xml", "output-path: second.info").replace(
+        "        if: github.event_name == 'pull_request'\n",
+        second.splitlines()[1] + "\n",
+    )
+    for path, reports in (("coverage.xml", 1), ("second.info", 1), ("dist/", 0)):
+        upload = _upload(path)
+        text = two_legs.replace(
+            "      - name: Second leg\n", upload + "      - name: Second leg\n", 1
+        )
+        found = _findings({"ci.yml": load_workflow(text)})
+        named = [item for item in found if "artefact" in item]
+        assert len(named) == reports, (path, found)

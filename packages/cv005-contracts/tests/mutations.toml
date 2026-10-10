@@ -1788,8 +1788,8 @@ expect = "test_a_later_job_on_a_self_hosted_runner_may_share_the_workspace"
 [[mutation]]
 id = "U12 later jobs on hosted runners read too"
 file = "cv005_contracts/hardening.py"
-old = "        if \"self-hosted\" in str(declared[ident].get(\"runs-on\", \"\")).lower()"
-new = "        if True"
+old = "        if _may_persist(declared[ident].get(\"runs-on\"))\n"
+new = "        if True\n"
 expect = "test_a_later_job_on_a_fresh_runner_or_not_waiting_is_allowed"
 
 [[mutation]]
@@ -1812,3 +1812,24 @@ file = "cv005_contracts/hardening.py"
 old = "            for action in _local_actions(job, closure, repository):\n"
 new = "            for action in (_local_actions(job, closure, repository) if job is leg.job else []):\n"
 expect = "test_a_later_self_hosted_job_running_an_uploading_action_is_refused"
+
+[[mutation]]
+id = "U16 a holder keeps only its first report"
+file = "cv005_contracts/hardening.py"
+old = "        holders.setdefault(key, (held, set()))[1].add(report)\n"
+new = "        holders.setdefault(key, (held, {report}))\n"
+expect = "test_each_report_a_lane_job_writes_is_held_against_the_upload"
+
+[[mutation]]
+id = "U17 a runner group is read as a hosted runner"
+file = "cv005_contracts/hardening.py"
+old = "    return isinstance(runs_on, dict)\n"
+new = "    return False\n"
+expect = "test_a_later_job_on_a_self_hosted_runner_may_share_the_workspace"
+
+[[mutation]]
+id = "U18 a label is matched by substring"
+file = "cv005_contracts/hardening.py"
+old = "        return runs_on.strip().lower() == \"self-hosted\" or \"${{\" in runs_on\n"
+new = "        return \"self-hosted\" in runs_on.lower() or \"${{\" in runs_on\n"
+expect = "test_a_later_job_on_a_fresh_runner_or_not_waiting_is_allowed"

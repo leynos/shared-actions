@@ -287,8 +287,23 @@ def _persistent_dependents(
     return [
         (ident, declared[ident])
         for ident in sorted(reached - lane_ids)
-        if "self-hosted" in str(declared[ident].get("runs-on", "")).lower()
+        if _may_persist(declared[ident].get("runs-on"))
     ]
+
+
+def _may_persist(runs_on: object) -> bool:
+    """Return whether a `runs-on` value could name a self-hosted runner.
+
+    A label is compared exactly (`self-hosted`), so `not-self-hosted-x` is not
+    one. A mapping (`group` or `labels`) names a runner group, which is
+    self-hosted, and an unresolved expression could be anything, so both are
+    read.
+    """
+    if isinstance(runs_on, str):
+        return runs_on.strip().lower() == "self-hosted" or "${{" in runs_on
+    if isinstance(runs_on, list):
+        return any(_may_persist(label) for label in runs_on)
+    return isinstance(runs_on, dict)
 
 
 def _needs(job: dict[str, object]) -> set[str]:

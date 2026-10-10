@@ -1015,17 +1015,19 @@ The action reports the name it will publish the report under, as the
 `artefact-name` output, and that name takes the shape
 `<format>-<job>-<index>-<os>-<arch>`. The `artefact-name-suffix` input appends
 one more segment after the platform components, so a caller can tell two
-artefacts from the same job apart. A suffix that is omitted, empty, or only
-whitespace all produce the same name: the segments to be joined are stripped of
-anything that is not alphanumeric, dash, or underscore and trimmed of dashes,
-so a whitespace-only value collapses to nothing and adds no trailing segment. A
-suffix reaches the name composer as an explicit argument, alongside
-`output-path`, rather than through an environment variable named after the
-input. `nektos/act` exports composite inputs under their dashed names in
-addition to the underscored ones the action sets itself, and a variable named
-after the input would sit beside act's own copy of it, so one input would be
-read twice. Passing both values as arguments is what lets the action run under
-act at all.
+artefacts from the same job apart. An omitted or empty suffix adds no segment,
+and both produce the same name. A suffix of only whitespace is *not* the same
+case: it is a non-empty string, so it appends a segment, and because that
+string normalizes away it takes the `extra` fallback —
+`<format>-<job>-<index>-<os>-<arch>-extra`. Values with real content are
+stripped of anything that is not alphanumeric, dash, or underscore and trimmed
+of dashes, so `" Feature Nightly "` becomes `-feature-nightly`. A suffix
+reaches the name composer as an explicit argument, alongside `output-path`,
+rather than through an environment variable named after the input. `nektos/act`
+exports composite inputs under their dashed names in addition to the
+underscored ones the action sets itself, and a variable named after the input
+would sit beside act's own copy of it, so one input would be read twice.
+Passing both values as arguments is what lets the action run under act at all.
 
 Publication is controlled by `publish-artefact`, which defaults to `"true"`.
 Setting it to `"false"` suppresses only the upload: the report is still written

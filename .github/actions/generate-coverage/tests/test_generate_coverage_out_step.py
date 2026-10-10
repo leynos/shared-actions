@@ -116,8 +116,9 @@ def _expected_name(set_outputs_module: ModuleType, suffix: str | None) -> str:
     runner_os, runner_arch = set_outputs_module._detect_runner_labels(None, None)
     name = f"{FMT}-{JOB}-{JOB_INDEX}-{runner_os}-{runner_arch}"
     if suffix:
-        # A falsy suffix adds no segment at all, which is why the omitted,
-        # empty and whitespace-only cases expect the same name.
+        # Falsiness, not emptiness, is the guard: an omitted or empty suffix
+        # adds no segment, while a whitespace-only one is a truthy string that
+        # normalizes to nothing and so takes the ``extra`` fallback.
         segment = set_outputs_module._normalize_component(suffix, "extra")
         name = f"{name}-{segment}"
     return name
@@ -210,8 +211,15 @@ def _assert_reported_the_callers_values(
     *,
     output_path: str,
     suffix: str | None,
+    expected_segment: str | None = None,
 ) -> None:
-    """Assert the step succeeded and reported exactly what it was handed."""
+    """Assert the step succeeded and reported exactly what it was handed.
+
+    *expected_segment* pins the trailing segment as a written literal. The
+    derived oracle below mirrors the implementation, so it cannot catch a
+    change to how a value is turned into a segment; a literal can. Pass it
+    wherever the case has a truth-table meaning worth freezing.
+    """
     combined = outcome.result.stdout + outcome.result.stderr
     assert outcome.result.returncode == 0, (
         f"the out step exited {outcome.result.returncode}\n{combined}"
@@ -219,24 +227,32 @@ def _assert_reported_the_callers_values(
     assert "specified multiple times" not in combined, combined
     assert outcome.outputs["file"] == output_path
     assert outcome.outputs["format"] == FMT
+    reported = outcome.outputs["artefact-name"]
     expected = _expected_name(set_outputs_module, suffix)
-    assert outcome.outputs["artefact-name"] == expected, (
+    assert reported == expected, (
         "the artefact name a caller reads must be the one composed from the "
         "caller's own inputs"
     )
+    if expected_segment is not None:
+        assert reported.endswith(expected_segment), (
+            f"expected the name to end with {expected_segment!r}, got {reported!r}"
+        )
 
 
 @pytest.mark.parametrize(
-    "suffix",
+    ("suffix", "expected_segment"),
     [
-        pytest.param(None, id="omitted"),
-        pytest.param("", id="empty"),
-        pytest.param("   ", id="whitespace-only"),
-        pytest.param(" Feature Nightly ", id="spaces"),
+        pytest.param(None, "", id="omitted"),
+        pytest.param("", "", id="empty"),
+        pytest.param("   ", "-extra", id="whitespace-only"),
+        pytest.param(" Feature Nightly ", "-feature-nightly", id="spaces"),
     ],
 )
 def test_out_step_reports_the_callers_values(
-    tmp_path: Path, set_outputs_module: ModuleType, suffix: str | None
+    tmp_path: Path,
+    set_outputs_module: ModuleType,
+    suffix: str | None,
+    expected_segment: str,
 ) -> None:
     """A path and suffix with spaces travel to the outputs intact.
 
@@ -244,12 +260,19 @@ def test_out_step_reports_the_callers_values(
     quoted expansions, so the space-bearing path is the case that fails if a
     future manifest interpolates them into the command line unquoted. The
     suffix cases are a truth table over what a caller can supply: omitted,
-    empty, whitespace-only and real all produce the name the script's own
-    normalizer predicts, which for the first three is the same name.
+    empty, whitespace-only and real each produce the name the script's own
+    normalizer predicts. Omitted and empty add no segment; whitespace-only is
+    truthy and so adds the ``extra`` fallback segment, asserted here as a
+    written literal so a change to that fallback fails rather than being
+    mirrored by the derived oracle.
     """
     outcome = _run_out_step(tmp_path, output_path=OUTPUT_PATH, suffix=suffix)
     _assert_reported_the_callers_values(
-        outcome, set_outputs_module, output_path=OUTPUT_PATH, suffix=suffix
+        outcome,
+        set_outputs_module,
+        output_path=OUTPUT_PATH,
+        suffix=suffix,
+        expected_segment=expected_segment,
     )
 
 

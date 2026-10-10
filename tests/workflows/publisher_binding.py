@@ -10,7 +10,10 @@ cache steps too. The shape asserted here keeps the token out of every
 - a check step with an ``id``, no ``if:``, and the sole command
   ``echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"``,
   whose expression evaluates before the shell runs;
-- the upload step's ``if:`` requiring that output and the trunk ref;
+- the upload step's ``if:`` requiring the trunk ref and, when it reads a check
+  step's output at all, an earlier check step's, so the token's presence is
+  never an ``env`` test; a guard of the trunk ref alone is the shape for a
+  publisher whose upload action records a missing token itself;
 - ``access-token`` passed ``${{ secrets.CS_ACCESS_TOKEN }}`` directly.
 
 Each function names what is wrong, so a case can drive it on a workflow
@@ -19,14 +22,19 @@ written with one part missing.
 
 from __future__ import annotations
 
+import re
 import typing as typ
 
 from .workflow_boundary import CODESCENE_CREDENTIAL, _jobs, _steps, upload_steps
-from .workflow_expressions import TRUNK_REF_TERM, requires_every
+from .workflow_expressions import TRUNK_REF_TERM, conjuncts, requires_every
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
 
+#: A guard term reading a check step's ``available`` output.
+_AVAILABLE_TERM: typ.Final[re.Pattern[str]] = re.compile(
+    r"steps\.(?P<id>[A-Za-z_][A-Za-z0-9_-]*)\.outputs\.available == 'true'"
+)
 #: The check step's sole command, exactly.
 CHECK_COMMAND: typ.Final[str] = (
     f"echo \"available=${{{{ secrets.{CODESCENE_CREDENTIAL} != '' }}}}\" "
@@ -47,21 +55,25 @@ def _is_check(step: cabc.Mapping[str, typ.Any]) -> bool:
     )
 
 
-def _upload_guard_terms(check_id: str) -> tuple[str, str]:
-    """Return the terms the upload's ``if:`` must require, given the check id."""
-    return (f"steps.{check_id}.outputs.available == 'true'", TRUNK_REF_TERM)
-
-
 def _upload_problems(
     job_name: str, step: cabc.Mapping[str, typ.Any], checks: list[str]
 ) -> list[str]:
     """Name what one upload step lacks, given the ids of earlier checks."""
     problems: list[str] = []
     guard = str(step.get("if", ""))
-    if not any(requires_every(guard, _upload_guard_terms(i)) for i in checks):
+    if not requires_every(guard, [TRUNK_REF_TERM]):
+        problems.append(
+            f"{job_name}: the upload's if: does not require the trunk ref: {guard!r}"
+        )
+    read = [
+        match.group("id")
+        for term in conjuncts(guard) or []
+        if (match := _AVAILABLE_TERM.fullmatch(term)) is not None
+    ]
+    if any(check_id not in checks for check_id in read):
         problems.append(
             f"{job_name}: the upload's if: does not require an earlier check "
-            f"step's output and the trunk ref: {guard!r}"
+            f"step's output: {guard!r}"
         )
     passed = str((step.get("with") or {}).get(ACCESS_TOKEN_INPUT, "")).strip()
     if passed != ACCESS_TOKEN_VALUE:
@@ -74,8 +86,9 @@ def _upload_problems(
 def upload_problems(document: cabc.Mapping[typ.Any, typ.Any]) -> list[str]:
     """Name what each upload step in *document* lacks.
 
-    The check must come before the upload in the same job, and the upload's
-    guard must name that check's id.
+    The upload's guard must require the trunk ref. If it also reads a check
+    step's output, that check must come before the upload in the same job and
+    be named by id.
 
     Examples
     --------
@@ -83,7 +96,7 @@ def upload_problems(document: cabc.Mapping[typ.Any, typ.Any]) -> list[str]:
     ...         "if": "github.ref == 'refs/heads/main'",
     ...         "with": {"mode": "upload"}}
     >>> len(upload_problems({"jobs": {"a": {"steps": [step]}}}))
-    2
+    1
     """
     uploads = upload_steps(document)
     problems: list[str] = []

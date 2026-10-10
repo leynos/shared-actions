@@ -62,6 +62,18 @@ runs:
           *) echo "Unsupported mode: $INPUT_MODE" >&2; exit 1 ;;
         esac
       shell: bash
+    - name: Detect a missing access token
+      id: token-state
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+        # Evaluates to true or false before the shell runs, so the credential
+        # itself reaches no step's environment.
+        HAS_TOKEN: ${{ inputs.access-token != '' }}
+      run: |
+        if [ "$INPUT_MODE" != install ] && [ "$HAS_TOKEN" != true ]; then
+          echo "missing=true" >>"$GITHUB_OUTPUT"
+        fi
+      shell: bash
     - name: Check coverage gate applicability
       id: gate-applicability
       if: inputs.mode == 'check'
@@ -91,7 +103,9 @@ runs:
       shell: bash
     - name: Resolve trusted CodeScene CLI
       id: cli
-      if: steps.gate-applicability.outputs.skip != 'true'
+      if: >-
+        steps.gate-applicability.outputs.skip != 'true' &&
+        steps.token-state.outputs.missing != 'true'
       env:
         ACTION_PATH: ${{ github.action_path }}
         CLI_VERSION: ${{ inputs.cli-version }}
@@ -126,7 +140,9 @@ runs:
         path: ${{ steps.cov-file.outputs.path }}
     - name: Cache CodeScene Coverage CLI
       id: cs-cache
-      if: steps.gate-applicability.outputs.skip != 'true'
+      if: >-
+        steps.gate-applicability.outputs.skip != 'true' &&
+        steps.token-state.outputs.missing != 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ~/.local/bin/cs-coverage
@@ -134,6 +150,7 @@ runs:
     - name: Install CodeScene Coverage CLI
       if: >-
         steps.gate-applicability.outputs.skip != 'true' &&
+        steps.token-state.outputs.missing != 'true' &&
         steps.cs-cache.outputs.cache-hit != 'true'
       env:
         ACTION_PATH: ${{ github.action_path }}
@@ -162,7 +179,9 @@ runs:
         fi
       shell: bash
     - name: Verify CodeScene Coverage CLI
-      if: steps.gate-applicability.outputs.skip != 'true'
+      if: >-
+        steps.gate-applicability.outputs.skip != 'true' &&
+        steps.token-state.outputs.missing != 'true'
       env:
         ACTION_PATH: ${{ github.action_path }}
         CLI_VERSION: ${{ inputs.cli-version }}
@@ -188,7 +207,9 @@ runs:
         fi
       shell: bash
     - name: Add cs-coverage to PATH
-      if: steps.gate-applicability.outputs.skip != 'true'
+      if: >-
+        steps.gate-applicability.outputs.skip != 'true' &&
+        steps.token-state.outputs.missing != 'true'
       run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       shell: bash
     - name: Upload coverage to CodeScene
@@ -232,12 +253,16 @@ runs:
       shell: bash
     - name: Record skipped CodeScene upload
       if: >-
-        inputs.mode != 'install' &&
-        inputs.access-token == '' &&
+        steps.token-state.outputs.missing == 'true' &&
         steps.gate-applicability.outputs.skip != 'true'
       env:
-        NOTICE_MESSAGE: No CodeScene access token is configured, so nothing was uploaded.
+        INPUT_MODE: ${{ inputs.mode }}
       run: |
-        printf '::notice title=CodeScene upload skipped::%s\n' "$NOTICE_MESSAGE"
-        printf 'CodeScene upload skipped: %s\n' "$NOTICE_MESSAGE" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+        if [ "$INPUT_MODE" = check ]; then
+          message="No CodeScene access token is configured, so coverage was not checked."
+        else
+          message="No CodeScene access token is configured, so nothing was uploaded."
+        fi
+        printf '::notice title=CodeScene upload skipped::%s\n' "$message"
+        printf 'CodeScene upload skipped: %s\n' "$message" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
       shell: bash

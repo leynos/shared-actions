@@ -48,6 +48,11 @@ class TestTheUploadShape:
         problems = upload_problems(_publisher(CHECK, UPLOAD))
         assert problems == [], problems
 
+    def test_a_trunk_ref_guard_alone_is_complete(self) -> None:
+        """The upload action records a missing token, so the guard need not."""
+        ref_only = {**UPLOAD, "if": "github.ref == 'refs/heads/main'"}
+        assert upload_problems(_publisher(ref_only)) == []
+
     @pytest.mark.parametrize(
         ("steps", "expected"),
         [
@@ -64,9 +69,20 @@ class TestTheUploadShape:
                 id="check-guarded",
             ),
             pytest.param(
-                (CHECK, {**UPLOAD, "if": "github.ref == 'refs/heads/main'"}),
-                "does not require",
-                id="output-term-dropped",
+                (CHECK, {**UPLOAD, "if": "github.ref != 'refs/heads/main'"}),
+                "does not require the trunk ref",
+                id="ref-term-wrong",
+            ),
+            pytest.param(
+                (
+                    CHECK,
+                    {
+                        **UPLOAD,
+                        "if": "steps.codescene-credential.outputs.available == 'true'",
+                    },
+                ),
+                "does not require the trunk ref",
+                id="ref-term-dropped",
             ),
             pytest.param(
                 (

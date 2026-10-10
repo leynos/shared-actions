@@ -83,13 +83,15 @@ the retired checksum names.
     the `generate-coverage` steps; the upload step may carry `if:` (its guard
     is asserted) but not `continue-on-error`. Other steps may carry both, but a
     report-merging `run` step that carries either does not count as the merge.
-- **Token.** A check step runs exactly
-  `echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"`.
-  The upload runs only when that output is `true` and the ref is main, and it
-  passes the secret straight to `access-token`. The token appears in no `env`.
-  - The check step is the one whose `available` output the upload guard
-    reads, under any id (`codescene-token` or `codescene-credential`). The
-    guard reads exactly one such output.
+- **Token.** The upload runs only when the ref is main, and it passes the
+  secret straight to `access-token`; the uploader records an empty token as a
+  notice and a step-summary line and succeeds. The token appears in no `env`.
+  - The guard may read an availability output as well. If it does, a check
+    step runs exactly
+    `echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"`
+    and is the one whose `available` output the upload guard reads, under any
+    id (`codescene-token` or `codescene-credential`). The guard reads at most
+    one such output. A guard of the main ref alone needs no check step.
   - A `defaults.run` on the workflow or the upload job may name only a
     `bash` or `sh` shell and a working directory, which leave the command as
     written.

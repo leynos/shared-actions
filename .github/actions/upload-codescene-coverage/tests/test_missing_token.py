@@ -21,9 +21,10 @@ ACTION_YML = Path(__file__).resolve().parents[1] / "action.yml"
 NOTICE_STEP = "Record skipped CodeScene upload"
 UPLOAD_STEP = "Upload coverage to CodeScene"
 EXPECTED_IF = (
-    "inputs.mode != 'install' && inputs.access-token == '' && "
+    "steps.token-state.outputs.missing == 'true' && "
     "steps.gate-applicability.outputs.skip != 'true'"
 )
+TOKEN_PRESENT = "steps.token-state.outputs.missing != 'true'"  # noqa: S105 - an expression, not a secret.
 
 
 def _step(name: str) -> dict[str, object]:
@@ -32,7 +33,9 @@ def _step(name: str) -> dict[str, object]:
     return next(s for s in manifest["runs"]["steps"] if s.get("name") == name)
 
 
-def _run_notice(tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], str]:
+def _run_notice(
+    tmp_path: Path, mode: str = "upload"
+) -> tuple[subprocess.CompletedProcess[str], str]:
     """Run the notice step's body; return the process and the summary text."""
     if sys.platform == "win32":
         pytest.skip("bash integration tests are not supported on Windows")
@@ -41,7 +44,7 @@ def _run_notice(tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], str]:
         pytest.skip("bash not found on PATH")
     step = _step(NOTICE_STEP)
     summary = tmp_path / "summary.md"
-    env = {str(k): str(v) for k, v in step["env"].items()}  # type: ignore[union-attr]
+    env = {"INPUT_MODE": mode}
     result = subprocess.run(  # noqa: S603,TID251 - exercise the action's bash.
         [bash, "-e", "-o", "pipefail", "-c", str(step["run"])],
         check=False,
@@ -53,24 +56,29 @@ def _run_notice(tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], str]:
     return result, summary.read_text(encoding="utf-8") if summary.exists() else ""
 
 
-def test_an_empty_token_records_a_notice_and_succeeds(tmp_path: Path) -> None:
-    """The annotation and the summary line both say nothing was uploaded."""
-    result, summary = _run_notice(tmp_path)
+@pytest.mark.parametrize(
+    ("mode", "outcome"),
+    [
+        pytest.param("upload", "nothing was uploaded", id="upload"),
+        pytest.param("check", "coverage was not checked", id="check"),
+    ],
+)
+def test_an_empty_token_records_a_notice_and_succeeds(
+    tmp_path: Path, mode: str, outcome: str
+) -> None:
+    """The annotation and the summary line both say what was not done."""
+    message = f"No CodeScene access token is configured, so {outcome}."
+    result, summary = _run_notice(tmp_path, mode)
 
     assert result.returncode == 0, result.stderr
-    notice = (
-        "::notice title=CodeScene upload skipped::"
-        "No CodeScene access token is configured, so nothing was uploaded."
-    )
-    assert result.stdout.splitlines() == [notice]
-    assert summary == (
-        "CodeScene upload skipped: "
-        "No CodeScene access token is configured, so nothing was uploaded.\n"
-    )
+    assert result.stdout.splitlines() == [
+        f"::notice title=CodeScene upload skipped::{message}"
+    ]
+    assert summary == f"CodeScene upload skipped: {message}\n"
 
 
 def test_the_notice_step_runs_only_for_an_empty_token_outside_install() -> None:
-    """The guard is exactly: not install mode, empty token, gate not skipped."""
+    """The guard is exactly: token missing outside install mode, gate not skipped."""
     condition = " ".join(str(_step(NOTICE_STEP)["if"]).split())
 
     assert condition == EXPECTED_IF
@@ -83,3 +91,52 @@ def test_a_present_token_leaves_the_upload_unchanged() -> None:
     assert "inputs.access-token != ''" in condition
     assert "inputs.mode == 'upload'" in condition
     assert "inputs.access-token == ''" not in condition
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Resolve trusted CodeScene CLI",
+        "Cache CodeScene Coverage CLI",
+        "Install CodeScene Coverage CLI",
+        "Verify CodeScene Coverage CLI",
+        "Add cs-coverage to PATH",
+    ],
+)
+def test_cli_setup_is_skipped_for_an_empty_token_outside_install(name: str) -> None:
+    """Without a token nothing needs the CLI, so setup cannot fail the skip."""
+    condition = " ".join(str(_step(name)["if"]).split())
+
+    assert TOKEN_PRESENT in condition
+
+
+@pytest.mark.parametrize(
+    ("mode", "has_token", "missing"),
+    [
+        ("upload", "false", True),
+        ("check", "false", True),
+        ("install", "false", False),
+        ("upload", "true", False),
+        ("check", "true", False),
+    ],
+)
+def test_token_state_marks_only_a_missing_token_outside_install(
+    tmp_path: Path, mode: str, has_token: str, *, missing: bool
+) -> None:
+    """`missing` is output exactly when a non-install mode has no token."""
+    bash = shutil.which("bash")
+    if bash is None or sys.platform == "win32":
+        pytest.skip("bash integration tests need bash on a POSIX host")
+    output = tmp_path / "output"
+    step = _step("Detect a missing access token")
+    subprocess.run(  # noqa: S603,TID251 - exercise the action's bash.
+        [bash, "-e", "-o", "pipefail", "-c", str(step["run"])],
+        check=True,
+        capture_output=True,
+        env=os.environ
+        | {"INPUT_MODE": mode, "HAS_TOKEN": has_token, "GITHUB_OUTPUT": str(output)},
+        text=True,
+    )
+
+    written = output.read_text(encoding="utf-8") if output.exists() else ""
+    assert (written == "missing=true\n") is missing, written

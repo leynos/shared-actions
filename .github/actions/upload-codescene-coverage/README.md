@@ -70,7 +70,8 @@ When `access-token` is empty in `upload` or `check` mode, nothing is uploaded
 or checked and the job still succeeds: a final step writes a
 `CodeScene upload skipped` notice annotation and a line in the step summary
 saying that no access token is configured, so the gap is recorded rather than
-silent.
+silent. The CLI setup steps are skipped as well, so the skip succeeds on any
+runner.
 
 The check command deliberately omits `--verbose`: CodeScene's verbose output
 can include Authorization request headers. Normal command diagnostics remain in

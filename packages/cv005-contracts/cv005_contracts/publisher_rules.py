@@ -54,10 +54,11 @@ def trigger_violations(document: Document) -> list[str]:
 
 
 def _guard_violations(document: Document) -> list[str]:
-    """Require the ref and availability guard as whole `&&` terms.
+    """Require the main-ref guard as a whole `&&` term.
 
-    Two availability terms would leave the check step ambiguous, so the
-    guard must read exactly one.
+    An availability term is optional, since the uploader records an empty
+    token itself. Two availability terms would leave the check step
+    ambiguous, so a guard may read at most one.
     """
     try:
         missing = missing_terms(upload_step(document).get("if"), upload_guard(document))

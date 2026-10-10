@@ -1271,6 +1271,9 @@ A caller whose `.cargo/config.toml` selects the mold linker passes
 `install-mold: 'true'` to `mutation-cargo.yml`, which forwards it to
 `setup-rust`. See `docs/mutation-cargo-workflow.md`.
 
+A caller whose `.cargo/config.toml` selects clang or lld passes
+`install-clang-lld: 'true'` in the same way.
+
 ## The problem
 
 The nested `actions-rust-lang/setup-rust-toolchain` action exports

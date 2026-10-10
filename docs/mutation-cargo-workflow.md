@@ -95,6 +95,7 @@ jobs:
 | `allow-no-mutants`      | `false`                   | Accept a run that enumerated no mutants; left false, an empty run fails.                                                                                    |
 | `setup-commands`        | (empty)                   | Shell commands run before cargo-mutants in each mutants job (e.g. `sudo apt-get install -y mold` when the repo's `.cargo/config.toml` selects that linker). |
 | `install-mold`          | `false`                   | `"true"` installs the pinned mold linker through `setup-rust` on Linux runners, for repos whose `.cargo/config.toml` selects it. Sets no linker flag.       |
+| `install-clang-lld`     | `false`                   | `"true"` installs clang and lld through `setup-rust` on Linux runners; elsewhere it skips with a notice. Sets no linker flag.                               |
 
 ## Installing mold
 
@@ -109,6 +110,14 @@ exports `RUSTFLAGS="-D warnings"`, and Cargo takes `RUSTFLAGS` over every
 `rustflags` entry in `.cargo/config.toml`, so a mold flag set there does not
 apply in these runs; mold is installed, and used only where the configuration
 selects it through `linker`.
+
+## Installing clang and lld
+
+Pass `install-clang-lld: 'true'` when the caller's `.cargo/config.toml` selects
+clang as the linker driver or lld. The input is forwarded to the `setup-rust`
+step, which installs both packages on Linux and fails unless `clang` and
+`ld.lld` resolve on `PATH`. Prefer it to an `apt-get` line in `setup-commands`.
+Like `install-mold`, it sets no linker flag.
 
 ## Notes
 

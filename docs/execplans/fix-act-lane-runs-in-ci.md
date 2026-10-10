@@ -1560,3 +1560,79 @@ while several of my own jobs are running, the concurrency is a strong
 *temptation* to blame and a weak *explanation* — the discriminator is whether
 the failure reproduces in a single isolated run, and here it reproduced twelve
 times out of twelve.
+
+### The act lane runs in CI
+
+Run `38006382760` on `49918168` was the first green run in which the lane this
+PR adds did the thing it exists for. All five jobs passed (`act-workflows`,
+`coverage`, `python-tests` on linux, macOS and Windows), and A17's
+`act-workflows` job reported:
+
+```text
+running the lane on: act version 0.2.89 (/home/runner/.cargo/bin/act)
+================ 1167 passed, 110 skipped in 618.39s (0:10:18) =================
+```
+
+The skips are workflow-parameter scoping in four test classes, not act guards.
+That distinction is worth stating, because a skipped act case reports success
+for a run that executed nothing: `skip_unless_act` fails rather than skips when
+the lane was requested, so every module carrying the mark that reports `PASSED`
+proves act executed. All eight did, with zero skips. This is the silent-skip
+hazard the lane was built to close, and the guard held under the real CI
+runtime rather than only locally.
+
+### The merge will be by stack number, not by branch
+
+The branch sits in a remote stack (`PRS_kwDOO9OxNc4AGbC5`, stack 584) with #516
+above it. The local `gh stack` metadata in this worktree is **stale**: it
+records heads `e69c4e80` and `55b385b3`, both orphaned, and bases that no
+longer exist. A `gh stack merge` that trusted it would act on a wrong idea of
+where the branch is. `gh stack merge <number>` is a pure remote operation and
+is not exposed to that staleness, which is why the merge is named by stack
+number rather than by branch.
+
+The other review facts that gate the merge, checked against live state rather
+than the recorded ledger:
+
+- The ruleset `main-required-checks` (id 18427916) requires **only** the 21
+  status-check contexts and `deletion`. There is no review-approval rule in it,
+  and there is no classic branch protection on `main` — the API answers
+  `Branch not protected`. So `reviewDecision: CHANGES_REQUESTED` is a visible
+  signal, not a merge block.
+- That `CHANGES_REQUESTED` (review 5392227901) is a CodeRabbit review anchored
+  to `ac4c992d`, which is not an ancestor of this head. Its whole body is
+  "Pre-merge checks failed. Please resolve the failing checks before merging.",
+  and the PR has exactly one review thread, which is resolved and outdated.
+- PR 516's head `e26fac8f` now descends from `49918168`, so this branch's
+  landing will not orphan it; before the peer's restack its diff against this
+  branch was a `-374/+1` reversion of this very change.
+
+### The eleventh pass: the pre-merge rows, checked against the source
+
+CodeRabbit's first issue comment was edited in place into a "Reviews paused"
+notice, but its pre-merge block still names four rows for `ac4c992d`. Each was
+re-checked against the current source rather than the stale anchor:
+
+- **Testing (Overall)** — fixed. The `github.repository` arm and the
+  `_build_container_env` defaults both have tests now.
+- **User-Facing Documentation** — fixed. `docs/users-guide.md` carries
+  `version-lead` and act's manifest entry.
+- **Developer Documentation** — fixed. Two items in the row were genuinely
+  undocumented: the overlayfs rename failure behind
+  `RUSTUP_PERMIT_COPY_RENAME=1` and the read-only Git object-store mount a
+  linked worktree needs. Both are now in a new "The fixture container: image,
+  environment and mounts" subsection. The rest of the row was already covered —
+  including the `catthehacker/ubuntu:rust-latest` image, which the row placed
+  in the wrong file: it is documented in
+  `docs/local-validation-of-github-actions-with-act-and-pytest.md`.
+- **Testing (Property / Proof)** — fixed, and its premise is wrong. The
+  Hypothesis test it asks for exists
+  (`test_only_expressions_of_linux_labels_are_accepted`), and the claim that
+  "no PR addition uses Hypothesis" is false for this diff.
+
+A lesson here: a pre-merge row is a claim about a revision, and when the branch
+has been replayed the claim is about a revision that no longer exists. The rows
+had to be re-derived from the source, and one of the four turned out to be
+describing a defect that the anchor revision had and the current one does not.
+The reconciliation names the reviewed revision and the current one so the
+discrepancy is visible rather than argued.

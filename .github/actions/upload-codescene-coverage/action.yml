@@ -230,3 +230,14 @@ runs:
           exit "$status"
         fi
       shell: bash
+    - name: Record skipped CodeScene upload
+      if: >-
+        inputs.mode != 'install' &&
+        inputs.access-token == '' &&
+        steps.gate-applicability.outputs.skip != 'true'
+      env:
+        NOTICE_MESSAGE: No CodeScene access token is configured, so nothing was uploaded.
+      run: |
+        printf '::notice title=CodeScene upload skipped::%s\n' "$NOTICE_MESSAGE"
+        printf 'CodeScene upload skipped: %s\n' "$NOTICE_MESSAGE" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+      shell: bash

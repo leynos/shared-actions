@@ -66,6 +66,12 @@ run logs the resolved version, build, platform, and digest.
 cold-runner contract or a workflow that invokes the CLI itself. Its
 `access-token` input is unused in `install` mode and may be omitted.
 
+When `access-token` is empty in `upload` or `check` mode, nothing is uploaded
+or checked and the job still succeeds: a final step writes a
+`CodeScene upload skipped` notice annotation and a line in the step summary
+saying that no access token is configured, so the gap is recorded rather than
+silent.
+
 The check command deliberately omits `--verbose`: CodeScene's verbose output
 can include Authorization request headers. Normal command diagnostics remain in
 the job log, and a failing `cs-coverage check` retains its original exit code.

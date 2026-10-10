@@ -3304,6 +3304,11 @@ helper never runs `uv lock`.
 - **Bounded retry.** One offline attempt, then at most one online attempt, and
   only after a `cache-miss` or an `offline-resolution` failure (see the retry
   rule above).
+- **Narrow adapters.** `build_context` composes small steps: `_locate_uv`,
+  `_query_cache_dir` (with a timeout), `_ensure_cache`, `probe_link_paths`
+  (resolves paths, refusing on `OSError`), `needs_copy_mode` (a pure device
+  comparison over resolved paths, with `device` injected) and `_with_git_shim`.
+  Every environmental failure becomes a `GateError`.
 - **Validate, then touch the world.** `validate_request` checks forbidden
   flags, the command and the tool pin with no environment or filesystem access.
   Only then does `build_context` query uv for the cache directory and compare

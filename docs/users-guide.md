@@ -623,7 +623,8 @@ runner over a network that may be failing. The
 [`uv_gate` README](../uv_gate/README.md) has the full command and failure-class
 tables, and the vendoring and digest steps.
 
-Route every `uv` call in the Makefile through it:
+Route the Makefile's `uv sync`, `uv run` and `uv tool run` calls through it.
+The helper has no lock command, so lock updates (`uv lock`) stay separate:
 
 ```make
 UV_GATE := python3 scripts/uv_gate.py

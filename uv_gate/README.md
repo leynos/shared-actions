@@ -55,9 +55,10 @@ Set `UV_GATE_ALLOW_ONLINE=0` to forbid the online step entirely.
 
 ## Failure classes
 
-uv's own output is passed through unchanged. After it, the helper prints one
-line, `uv-gate: <class>: ...`. The exit status is uv's own; the helper's own
-refusals exit with status 2.
+uv's own output is passed through unchanged. After a failure, the helper prints
+one line, `uv-gate: <class>: ...`; a success prints no class line. Every
+command then ends with the metric line described below. The exit status is uv's
+own; the helper's own refusals exit with status 2.
 
 | Class                | Meaning                                                                                 | Retried?                                                              |
 | -------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |

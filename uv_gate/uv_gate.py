@@ -25,6 +25,10 @@ Its exit status is uv's exit status; its own refusals exit with status 2.
 Failures print one ``uv-gate: <class>: ...`` line on standard error after uv's
 own output, which is passed through unchanged.
 
+Only the short, fixed ``uv cache dir`` query has a timeout. The commands uv
+runs for the caller have none, because a test suite may run for a long time:
+the CI job's own timeout is their bound.
+
 Python 3.9 or later is enough: the file uses only the standard library.
 """
 
@@ -48,6 +52,9 @@ REFUSAL_STATUS = 2
 ALLOW_ONLINE_VARIABLE = "UV_GATE_ALLOW_ONLINE"
 SYSTEM_GIT = Path("/usr/bin/git")
 TAIL_BYTES = 65536
+# The cache query is short and fixed; the commands uv runs for the caller are
+# bounded only by the caller's own job timeout, since a test suite may be slow.
+CACHE_QUERY_SECONDS = 60
 
 # Inherited uv switches that would override the gate's own policy: offline or
 # no-cache state defeats the online step and the global cache, and the
@@ -247,28 +254,26 @@ def device_of(path: Path) -> int:
 
 
 def needs_copy_mode(
-    cache: Path,
-    environment_path: Path,
-    repo: Path,
+    environment_dir: Path,
+    cache_dir: Path,
     device: cabc.Callable[[Path], int] = device_of,
 ) -> bool:
-    """Report whether the cache and the project environment differ in device.
+    """Report whether two resolved directories are on different devices.
 
     ``uv`` hard-links cached files when the cache and the environment share a
-    filesystem and copies them otherwise. The environment's own device is used
-    when it exists, since a ``.venv`` may be a symlink to another filesystem.
+    filesystem and copies them otherwise. The arguments are already resolved,
+    so the only environmental access is ``device``.
 
     Parameters
     ----------
-    cache:
-        The global cache directory.
-    environment_path:
-        The project's virtual environment, which may not exist yet.
-    repo:
-        The repository root, used when the environment does not exist.
+    environment_dir:
+        The resolved directory that will hold the project environment (or the
+        repository root while the environment does not exist yet).
+    cache_dir:
+        The resolved global cache directory.
     device:
-        Returns the device number of a resolved path. Tests inject it to feed
-        two different devices without a second filesystem.
+        Returns the device number of a path. Tests inject it to feed two
+        different devices without a second filesystem.
 
     Returns
     -------
@@ -280,10 +285,63 @@ def needs_copy_mode(
     OSError
         When a device query fails (propagated from ``device``).
     """
-    device_path = (
-        environment_path.resolve() if environment_path.exists() else repo.resolve()
-    )
-    return device(device_path) != device(cache.resolve())
+    return device(environment_dir) != device(cache_dir)
+
+
+def probe_link_paths(
+    cache: Path, environment_path: Path, repo: Path
+) -> tuple[Path, Path]:
+    """Resolve the two directories whose devices decide the link mode.
+
+    The environment's own location is used when it exists, since a ``.venv``
+    may be a symlink to another filesystem; otherwise the repository root is.
+
+    Parameters
+    ----------
+    cache:
+        The global cache directory.
+    environment_path:
+        The project's virtual environment, which may not exist yet.
+    repo:
+        The repository root, used when the environment does not exist.
+
+    Returns
+    -------
+    tuple[Path, Path]
+        The resolved environment (or repository) directory and cache directory.
+
+    Raises
+    ------
+    GateError
+        When a path cannot be inspected or resolved.
+    """
+    try:
+        target = environment_path if environment_path.exists() else repo
+        return target.resolve(), cache.resolve()
+    except OSError as exc:
+        message = f"cannot resolve the uv cache and project paths: {exc}"
+        raise GateError(message) from exc
+
+
+def copy_mode_required(
+    cache: Path,
+    environment_path: Path,
+    repo: Path,
+    device: cabc.Callable[[Path], int] = device_of,
+) -> bool:
+    """Probe the paths, then report whether copy mode is needed.
+
+    Raises
+    ------
+    GateError
+        When a path cannot be resolved or a device query fails.
+    """
+    environment_dir, cache_dir = probe_link_paths(cache, environment_path, repo)
+    try:
+        return needs_copy_mode(environment_dir, cache_dir, device)
+    except OSError as exc:
+        message = f"cannot compare the filesystems of the uv cache and project: {exc}"
+        raise GateError(message) from exc
 
 
 class Context:
@@ -321,9 +379,16 @@ def _query_cache_dir(uv: str, env: dict[str, str]) -> Path:
             stderr=subprocess.PIPE,
             text=True,
         )
-        stdout, stderr = process.communicate()
+        stdout, stderr = process.communicate(timeout=CACHE_QUERY_SECONDS)
     except OSError as exc:
         message = f"cannot run {uv} to find the cache directory: {exc}"
+        raise GateError(message) from exc
+    except subprocess.TimeoutExpired as exc:
+        process.kill()
+        process.communicate()
+        message = (
+            f"`{uv} --no-config cache dir` did not answer within {CACHE_QUERY_SECONDS}s"
+        )
         raise GateError(message) from exc
     if process.returncode != 0 or not stdout.strip():
         message = (
@@ -334,18 +399,34 @@ def _query_cache_dir(uv: str, env: dict[str, str]) -> Path:
     return Path(stdout.strip())
 
 
-def _copy_mode_required(
-    cache: Path,
-    environment_path: Path,
-    repo: Path,
-    device: cabc.Callable[[Path], int],
-) -> bool:
-    """Report whether copy mode is needed, refusing when the query fails."""
+def _locate_uv(env: cabc.Mapping[str, str]) -> str:
+    """Find uv on the cleaned ``PATH``, or refuse."""
+    found = shutil.which("uv", path=env["PATH"])
+    if found is None:
+        message = "uv is not available on the cleaned PATH; install uv and retry"
+        raise GateError(message)
+    return str(Path(found).resolve())
+
+
+def _ensure_cache(cache: Path) -> Path:
+    """Create the cache directory, or refuse."""
     try:
-        return needs_copy_mode(cache, environment_path, repo, device)
+        cache.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        message = f"cannot compare the filesystems of the uv cache and project: {exc}"
+        message = f"cannot create the uv cache directory {cache}: {exc}"
         raise GateError(message) from exc
+    return cache
+
+
+def _with_git_shim(context: Context) -> Context:
+    """Install the Git shim, closing the context and refusing on failure."""
+    try:
+        context.install_git_shim()
+    except OSError as exc:
+        context.close()
+        message = f"cannot set up the Git shim directory: {exc}"
+        raise GateError(message) from exc
+    return context
 
 
 def build_context(
@@ -380,25 +461,14 @@ def build_context(
         cannot be found or created, or the filesystems cannot be compared.
     """
     env = clean_environment(environ, home or Path.home())
-    found = shutil.which("uv", path=env["PATH"])
-    if found is None:
-        message = "uv is not available on the cleaned PATH; install uv and retry"
-        raise GateError(message)
-    uv = str(Path(found).resolve())
-    cache = _query_cache_dir(uv, env)
-    try:
-        cache.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        message = f"cannot create the uv cache directory {cache}: {exc}"
-        raise GateError(message) from exc
+    uv = _locate_uv(env)
+    cache = _ensure_cache(_query_cache_dir(uv, env))
     env["UV_CACHE_DIR"] = str(cache)
     configured = env.get("UV_PROJECT_ENVIRONMENT")
     environment_path = (repo / configured) if configured else repo / ".venv"
-    if _copy_mode_required(cache, environment_path, repo, device):
+    if copy_mode_required(cache, environment_path, repo, device):
         env["UV_LINK_MODE"] = "copy"
-    context = Context(env, uv, cache)
-    context.install_git_shim()
-    return context
+    return _with_git_shim(Context(env, uv, cache))
 
 
 def _run_streaming(argv: list[str], env: dict[str, str]) -> tuple[int, str]:

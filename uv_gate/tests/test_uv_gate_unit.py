@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import pathlib
+import stat
 import typing as typ
 
 import pytest
@@ -134,7 +136,7 @@ def test_needs_copy_mode_false_on_one_device(tmp_path: Path) -> None:
     """A cache and a repository on one filesystem link rather than copy."""
     cache = tmp_path / "cache"
     cache.mkdir()
-    assert not uv_gate.needs_copy_mode(cache, tmp_path / ".venv", tmp_path)
+    assert not uv_gate.copy_mode_required(cache, tmp_path / ".venv", tmp_path)
 
 
 def test_needs_copy_mode_true_across_devices(tmp_path: Path) -> None:
@@ -145,7 +147,7 @@ def test_needs_copy_mode_true_across_devices(tmp_path: Path) -> None:
     cache = other / "uv-gate-unit-cache"
     cache.mkdir(exist_ok=True)
     try:
-        assert uv_gate.needs_copy_mode(cache, tmp_path / ".venv", tmp_path)
+        assert uv_gate.copy_mode_required(cache, tmp_path / ".venv", tmp_path)
     finally:
         cache.rmdir()
 
@@ -161,7 +163,7 @@ def test_needs_copy_mode_follows_a_symlinked_environment(tmp_path: Path) -> None
     cache.mkdir()
     (tmp_path / ".venv").symlink_to(target)
     try:
-        assert uv_gate.needs_copy_mode(cache, tmp_path / ".venv", tmp_path)
+        assert uv_gate.copy_mode_required(cache, tmp_path / ".venv", tmp_path)
     finally:
         (tmp_path / ".venv").unlink()
         target.rmdir()
@@ -200,7 +202,7 @@ def test_copy_mode_when_the_devices_differ(tmp_path: Path) -> None:
     cache = tmp_path / "cache"
     cache.mkdir()
     devices = FakeDevices({cache: 2})
-    assert uv_gate.needs_copy_mode(cache, tmp_path / ".venv", tmp_path, devices)
+    assert uv_gate.copy_mode_required(cache, tmp_path / ".venv", tmp_path, devices)
 
 
 def test_no_copy_mode_when_the_devices_match(tmp_path: Path) -> None:
@@ -208,7 +210,7 @@ def test_no_copy_mode_when_the_devices_match(tmp_path: Path) -> None:
     cache = tmp_path / "cache"
     cache.mkdir()
     devices = FakeDevices({cache: 7, tmp_path: 7})
-    assert not uv_gate.needs_copy_mode(cache, tmp_path / ".venv", tmp_path, devices)
+    assert not uv_gate.copy_mode_required(cache, tmp_path / ".venv", tmp_path, devices)
 
 
 def test_device_check_uses_the_repository_when_there_is_no_environment(
@@ -218,7 +220,7 @@ def test_device_check_uses_the_repository_when_there_is_no_environment(
     cache = tmp_path / "cache"
     cache.mkdir()
     devices = FakeDevices({tmp_path: 3, cache: 3})
-    assert not uv_gate.needs_copy_mode(cache, tmp_path / ".venv", tmp_path, devices)
+    assert not uv_gate.copy_mode_required(cache, tmp_path / ".venv", tmp_path, devices)
     assert devices.asked == [tmp_path.resolve(), cache.resolve()]
 
 
@@ -229,7 +231,7 @@ def test_device_check_uses_the_existing_environment(tmp_path: Path) -> None:
     environment = tmp_path / ".venv"
     environment.mkdir()
     devices = FakeDevices({environment: 5, cache: 5, tmp_path: 9})
-    assert not uv_gate.needs_copy_mode(cache, environment, tmp_path, devices)
+    assert not uv_gate.copy_mode_required(cache, environment, tmp_path, devices)
     assert devices.asked[0] == environment.resolve()
 
 
@@ -245,7 +247,7 @@ def test_device_check_resolves_a_symlinked_environment(tmp_path: Path) -> None:
     except OSError:  # pragma: no cover - symlinks need privilege on Windows
         pytest.skip("symlinks are not permitted here")
     devices = FakeDevices({target: 2, cache: 1, tmp_path: 1})
-    assert uv_gate.needs_copy_mode(cache, environment, tmp_path, devices)
+    assert uv_gate.copy_mode_required(cache, environment, tmp_path, devices)
     assert target.resolve() in devices.asked
 
 
@@ -259,7 +261,7 @@ def test_device_check_resolves_a_symlinked_cache(tmp_path: Path) -> None:
     except OSError:  # pragma: no cover - symlinks need privilege on Windows
         pytest.skip("symlinks are not permitted here")
     devices = FakeDevices({real: 4, tmp_path: 1})
-    assert uv_gate.needs_copy_mode(link, tmp_path / ".venv", tmp_path, devices)
+    assert uv_gate.copy_mode_required(link, tmp_path / ".venv", tmp_path, devices)
     assert real.resolve() in devices.asked
 
 
@@ -414,3 +416,90 @@ def test_prepare_checks_every_argument_it_forwards() -> None:
     """`prepare` forwards everything to uv sync, so nothing escapes the check."""
     with pytest.raises(uv_gate.GateError):
         uv_gate.validate_request("prepare", ["--", "--upgrade"])
+
+
+def test_needs_copy_mode_is_a_pure_comparison_of_two_devices(tmp_path: Path) -> None:
+    """Given resolved paths, only the injected device function is consulted."""
+    first, second = tmp_path / "a", tmp_path / "b"
+    assert uv_gate.needs_copy_mode(first, second, FakeDevices({first: 1, second: 2}))
+    assert not uv_gate.needs_copy_mode(
+        first, second, FakeDevices({first: 4, second: 4})
+    )
+
+
+def test_needs_copy_mode_never_touches_the_filesystem() -> None:
+    """Paths that do not exist are fine: nothing but ``device`` is called."""
+    seen: list[pathlib.Path] = []
+
+    def device(path: pathlib.Path) -> int:
+        seen.append(path)
+        return 1
+
+    missing = pathlib.Path("/nonexistent/uv-gate/a")
+    other = pathlib.Path("/nonexistent/uv-gate/b")
+    assert not uv_gate.needs_copy_mode(missing, other, device)
+    assert seen == [missing, other]
+
+
+def test_probe_link_paths_turns_an_oserror_into_a_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A path that cannot be inspected is a GateError, not a traceback."""
+
+    def fail(_self: Path) -> bool:
+        message = "denied"
+        raise PermissionError(message)
+
+    monkeypatch.setattr(type(tmp_path), "exists", fail)
+    with pytest.raises(uv_gate.GateError, match="cannot resolve"):
+        uv_gate.probe_link_paths(tmp_path / "cache", tmp_path / ".venv", tmp_path)
+
+
+def test_a_stalled_cache_query_is_a_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A uv that never answers `cache dir` ends in a GateError, not a hang."""
+    fake = tmp_path / "uv"
+    fake.write_text("#!/bin/sh\nexec sleep 30\n", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setattr(uv_gate, "CACHE_QUERY_SECONDS", 0.3)
+    with pytest.raises(uv_gate.GateError, match="did not answer"):
+        uv_gate._query_cache_dir(str(fake), {"PATH": "/usr/bin:/bin"})
+
+
+def test_a_failing_git_shim_is_a_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the shim directory cannot be made, the context is refused and closed."""
+
+    def fail(*_args: object, **_kwargs: object) -> str:
+        message = "no space"
+        raise OSError(message)
+
+    monkeypatch.setattr(uv_gate.tempfile, "mkdtemp", fail)
+    context = uv_gate.Context({"PATH": "/usr/bin"}, "uv", tmp_path)
+    if not (uv_gate.SYSTEM_GIT.is_file() and os.access(uv_gate.SYSTEM_GIT, os.X_OK)):
+        pytest.skip("no system git to shim")
+    with pytest.raises(uv_gate.GateError, match="Git shim"):
+        uv_gate._with_git_shim(context)
+
+
+def test_a_shim_that_fails_after_its_directory_exists_is_cleaned_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the symlink cannot be made, the half-built shim directory is removed."""
+    if not (uv_gate.SYSTEM_GIT.is_file() and os.access(uv_gate.SYSTEM_GIT, os.X_OK)):
+        pytest.skip("no system git to shim")
+    made = tmp_path / "shim"
+    made.mkdir()
+    monkeypatch.setattr(uv_gate.tempfile, "mkdtemp", lambda **_kw: str(made))
+
+    def fail(_self: Path, _target: object) -> None:
+        message = "no symlinks"
+        raise OSError(message)
+
+    monkeypatch.setattr(type(tmp_path), "symlink_to", fail)
+    context = uv_gate.Context({"PATH": "/usr/bin"}, "uv", tmp_path)
+    with pytest.raises(uv_gate.GateError, match="Git shim"):
+        uv_gate._with_git_shim(context)
+    assert not made.exists()

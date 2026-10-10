@@ -1,0 +1,1081 @@
+# Provenance: .github/workflows/ci.yml at 088cd72e (leynos/cuprum main, 2026-10-08).
+# Jobs coverage, changes and benchmark-ratchet only: the coverage lane beside uploads in other jobs.
+---
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Manual runs exist to measure warm caches on `main` without a code change.
+  # A dispatch restores every cache and saves none, because the save guards
+  # require a `push` event, so repeated dispatches read the trusted generation
+  # instead of churning it. `coverage` stays pull-request-only; the trunk
+  # coverage run has its own dispatchable workflow.
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+# One run per ref. Superseded pull-request runs are cancelled, because a
+# stale run only spends paid benchmark minutes on a diff nobody will merge.
+# Runs on `main` are not cancelled once started: each one republishes the
+# `benchmark-ratchet-main-baseline` artefact that pull-request runs compare
+# against, and a half-finished run would leave the baseline behind head.
+#
+# That is the whole of what this buys. GitHub replaces a *pending* run when a
+# newer one arrives and does not promise runs finish in the order they were
+# queued, so this is not an ordering guarantee: two merges in quick
+# succession may still publish out of commit order, and a superseded pending
+# run publishes nothing at all. Anything that needs monotonic baselines has
+# to enforce it where the artefact is written, not here.
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The Makefile defaults RUFF_VERSION and TY_VERSION with `?=`, so these
+# workflow-level values are what every `make` invocation below actually
+# runs. The pin-parity contract test in
+# cuprum/unittests/test_toolchain_pins.py keeps them aligned with the
+# Makefile defaults and the pyproject.toml dev dependencies.
+env:
+  RUFF_VERSION: '0.16.4'
+  TY_VERSION: '0.0.74'
+  PYLINT_VERSION: '4.0.9'
+  ASTROID_VERSION: '4.0.4'
+  # Every Ubicloud job in this workflow runs on `ubicloud-standard-2`, so one
+  # constant sizes nextest's test threads and Cargo's build jobs to the vCPUs
+  # the job is actually billed for. Raising the label means raising this too.
+  LINUX_RUNNER_VCPUS: '2'
+  # Schema generation for every cache key family below. Bump it to invalidate
+  # the whole family deliberately rather than by editing individual keys.
+  CACHE_GENERATION: v1
+  # Ubicloud's default image is Ubuntu 24.04 (glibc 2.39). Compiled tools
+  # restored from a 22.04 archive would fail at run time, so the release is
+  # part of every key that carries an executable.
+  UBUNTU_RELEASE: ubuntu2404
+
+jobs:
+  coverage:
+    # Pull requests only. coverage-main.yml publishes main's report and the
+    # ratchet baseline, so this lane only compares its coverage locally
+    # against the trusted baseline without generating coverage twice on main.
+    if: github.event_name == 'pull_request'
+    # A pull request from a fork cannot obtain an Ubicloud runner, so the fork
+    # arm falls back to a GitHub-hosted label and only forks take it. Keep the
+    # continuation at this indent: a more-indented continuation in a folded
+    # scalar keeps its line break and puts a newline inside the expression.
+    # GitHub evaluates the broken value regardless, so a green run is not
+    # evidence; `test_placement_expressions_parse_to_one_line` is.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    # Above the 2,700 s cargo watchdog set below plus the work either side
+    # of the coverage step, which reached 43 s on run 34071469378. Fifty
+    # minutes is the requirement, and the estate's rule is fifteen above
+    # it rather than merely reaching it, because a ceiling sitting on its
+    # requirement is cancelled by the job timer on the first run that
+    # spends the full watchdog, and a cancellation discards the log that
+    # would have explained it. This was 60, which is ten above.
+    timeout-minutes: 65
+    # The workflow default also grants `actions: read`, which this lane never
+    # uses; the shared contract holds a pull-request coverage job to exactly
+    # `contents: read`.
+    permissions:
+      contents: read
+    needs:
+      - lint-test
+      - typecheck-test
+    env:
+      # The shared coverage action kills `cargo` after this many seconds,
+      # defaulting to 1,800 and mentioning it nowhere. Written down and
+      # raised: the coverage step has never exceeded 418 s here, on run
+      # 34071469378 and read across roughly fifty successful runs, but none
+      # of those was a genuinely cold compile. rstest-bdd's cold run took
+      # about four times its warm one, which would put this at the old
+      # default's shoulder. 2,700 s is six times the worst seen, so a cold
+      # first run on a branch finishes inside it rather than being killed
+      # and read as a hang.
+      RUN_RUST_CARGO_WAIT_TIMEOUT: '2700'
+      CARGO_HTTP_MULTIPLEXING: 'false'
+      CARGO_NET_RETRY: '5'
+      MDTABLEFIX_VERSION: '0.6.0'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Started before the first cache restore, so the archive downloads and
+      # every build below fall inside the measured window. `ubicloud-standard-2`
+      # starts with about 31 GB free, and disk, not memory, is what kills a job
+      # on this shape.
+      - name: Start resource sampler
+        uses: ./.github/actions/resource-sampler
+        with:
+          mode: start
+          vcpus: ${{ env.LINUX_RUNNER_VCPUS }}
+      - name: Compute cache keys
+        uses: ./.github/actions/cache-keys
+        with:
+          python-version: '3.13'
+          generation: ${{ env.CACHE_GENERATION }}
+          ubuntu-release: ${{ env.UBUNTU_RELEASE }}
+          compiler-shape: coverage
+
+      # Pull requests only, so this job never saves: it reads the generation
+      # that the `main` writers published and publishes nothing of its own.
+      # The compiler cache is not one of those generations. It runs against
+      # Ubicloud's cache proxy, which this lane reads and writes directly. The
+      # proxy keeps Ubicloud's default branch protection: a pull request reads
+      # its own branch's entries and main's (written by coverage-upload), and
+      # its writes warm only its own later pushes. Keep that protection on;
+      # see docs/ci-cache-ownership.md.
+      - name: Restore the Cargo registry
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ env.CARGO_CACHE_KEY }}
+          restore-keys: ${{ env.CARGO_CACHE_PREFIX }}
+
+      - name: Restore the installed tools
+        id: tool-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.local/bin
+            ~/.cache/uv
+            ~/.local/share/uv
+            .uv-cache
+            .uv-tools
+          key: ${{ env.TOOL_CACHE_KEY }}
+          restore-keys: ${{ env.TOOL_CACHE_PREFIX }}
+
+      # Record the rendered key beside its result, so a reviewer can explain
+      # any miss from the run summary alone rather than by re-deriving the
+      # key from the workflow source.
+      - name: Record cache observations
+        if: always()
+        shell: bash
+        env:
+          CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
+          TOOL_CACHE_HIT: ${{ steps.tool-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          {
+            printf '### Cache observations\n\n'
+            printf '| cache | key | hit |\n| --- | --- | --- |\n'
+            printf '| registry | %s | %s |\n' \
+              "${CARGO_CACHE_KEY}" "${CARGO_CACHE_HIT:-false}"
+            printf '| tools | %s | %s |\n' \
+              "${TOOL_CACHE_KEY}" "${TOOL_CACHE_HIT:-false}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Export the Ubicloud cache credentials
+        # The runner hands `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN` to
+        # action steps, and this republishes them through `GITHUB_ENV` with the
+        # v2 cache-service flag cleared, because Ubicloud's proxy serves v1. It
+        # must precede "Set up sccache" and everything after it: sccache binds
+        # its backend once, when its server starts, and a server started
+        # without these falls back to local disk for the whole job.
+        # Split across two lines because the pinned reference is 126
+        # characters and yamllint caps workflow lines at 120. A `\` at the
+        # end of a double-quoted YAML scalar elides the break and the next
+        # line's indentation, so the value is the single reference it
+        # reads as, not two joined by a space.
+        #
+        # A fork's pull request runs this job on the GitHub-hosted fork arm,
+        # where there is no proxy and the action fails closed, so the step
+        # runs on the owned arm only.
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        uses: "leynos/shared-actions/.github/actions/\
+          export-ubicloud-cache-credentials@dbe2e22ceaf498d85512679ccded38be9dbe7777"
+
+      - name: Set up sccache
+        id: sccache
+        uses: ./.github/actions/setup-sccache
+        with:
+          # Ubicloud's own cache proxy, reached through the credentials the
+          # step above published. Branch scoped, like GitHub's: this lane
+          # reads main's entries and its own branch's, and writes its own.
+          # The fork arm has no proxy and no credentials, so it takes the
+          # directory backend and compiles cold, as every fork arm does. The
+          # arms are read by position, like the runner's.
+          backend: ${{ github.event.pull_request.head.repo.fork && 'local' || 'gha' }}
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          enable-cache: false
+
+      - name: Install Rust toolchain
+        uses: leynos/shared-actions/.github/actions/setup-rust@6cec89bac47a21cf756d68d638a9a510998e57f8
+        with:
+          toolchain: '1.85.0'
+          cache-provider: external
+          use-sccache: 'false'
+          install-binstall: 'false'
+
+      # Coverage runs the full Python suite, including native selector parity.
+      # The restored tool cache is optional, so provision the pinned binary.
+      - name: Install mdtablefix
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@c5a54701c8603a0fa756a6b34c49bc2af75a6c11
+        with:
+          version: ${{ env.MDTABLEFIX_VERSION }}
+
+      # Skipped on an exact tool-cache hit. The tool key hashes the action,
+      # which holds the pin, so the restored `~/.cargo/bin/makeutil` is
+      # already the pinned build and neither the nightly nor the compile is
+      # needed.
+      - name: Install Makefile parser
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/install-makeutil
+
+      - name: Prepare Cargo dependencies
+        run: cargo fetch --locked --manifest-path rust/cuprum-rust/Cargo.toml
+
+      - name: Install code
+        run: make build
+
+      # Python-only coverage via the shared action. cuprum's repository
+      # root has no Cargo.toml (the Rust workspace lives under rust/), so
+      # detect.py classifies it as a Python project; cobertura is
+      # mandatory for non-Rust projects. pytest runs serially
+      # (pytest-workers: '') because the suite builds and shells out to
+      # the Rust toolchain, and the ratchet fails the run if line
+      # coverage drops materially below the baseline that coverage-main.yml
+      # stores. The pinned action persists a fresh baseline per main run and
+      # treats changes within one percentage point as measurement noise.
+      #
+      - name: Generate coverage
+        uses: leynos/shared-actions/.github/actions/generate-coverage@a5765019912a8ab6882b12db049c7cde635f3a85
+        env:
+          # The same warnings posture and the same core budget the
+          # uninstrumented run used.
+          RUSTFLAGS: -D warnings
+          CARGO_BUILD_JOBS: ${{ env.LINUX_RUNNER_VCPUS }}
+          NEXTEST_TEST_THREADS: ${{ env.LINUX_RUNNER_VCPUS }}
+        with:
+          format: cobertura
+          output-path: coverage.xml
+          pytest-workers: ''
+          cache-provider: external
+          with-ratchet: 'true'
+          publish-artefact: 'false'
+          # This job is the only execution of the Rust suite for the event.
+          # `language: mixed` and the workspace manifest are what make the
+          # shared action run it: the repository root has no Cargo.toml, so
+          # detection alone would classify Cuprum as Python-only and skip the
+          # Rust tests entirely.
+          #
+          # `all-targets` and `all-features` match the flags the uninstrumented
+          # run used, so nothing silently drops out of the gate. `doctests`
+          # covers what `cargo llvm-cov nextest` skips.
+          language: mixed
+          cargo-manifest: rust/Cargo.toml
+          all-targets: 'true'
+          all-features: 'true'
+          doctests: 'true'
+
+      - name: Record compiler-cache effectiveness
+        if: always() && steps.sccache.outputs.status != 'fallback'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sccache --show-stats | tee sccache-stats.txt
+          sccache --show-stats --stats-format json > sccache-stats.json
+          fence='```'
+          {
+            printf '### sccache\n\n%stext\n' "${fence}"
+            cat sccache-stats.txt
+            printf '%s\n' "${fence}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      # `llvm-cov`'s target tree has no consumer once the report is written,
+      # and it is the second tree on a volume this job leaves 89% full.
+      # Removed before any cache save, so no archive carries it and the
+      # sampler's least-free figure reflects the job's real high-water mark
+      # rather than scratch that was about to be discarded.
+      - name: Discard the instrumented build tree
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          df -h .
+          # `cargo llvm-cov` builds beside the manifest it was given, which is
+          # `rust/Cargo.toml` here and not the repository root. Locating the
+          # tree rather than naming it keeps the reclaim correct if the
+          # manifest moves, and reporting the size keeps a run that reclaimed
+          # nothing distinguishable from one that had nothing to reclaim.
+          found=0
+          while IFS= read -r tree; do
+            found=1
+            du -sh "${tree}" || true
+            rm --recursive --force "${tree}"
+          done < <(find . -maxdepth 4 -type d \
+            \( -name llvm-cov-target -o -name llvm-cov \) -prune -print)
+          if [ "${found}" -eq 0 ]; then
+            echo "No instrumented build tree found to discard"
+          fi
+          df -h .
+
+      # Last, and unconditional, so a job that failed on disk still reports the
+      # high-water mark that explains why.
+      - name: Report peak resource use
+        if: always()
+        uses: ./.github/actions/resource-sampler
+        with:
+          mode: report
+          vcpus: ${{ env.LINUX_RUNNER_VCPUS }}
+
+  # Detects whether performance-relevant paths changed so that
+  # benchmark-ratchet can skip docs-only and Dependabot-batch pull
+  # requests. Runs on every event (cheap, GitHub-hosted) so that the
+  # `needs` edge never leaves benchmark-ratchet skipped on pushes to
+  # main, where the baseline artefact must stay fresh.
+  changes:
+    # On the paid lane because it gates a required check: `benchmark-ratchet`
+    # waits on it. Its work is a five-second paths-filter call, but on the
+    # GitHub-hosted lane it sat queued for 46 minutes on 2026-09-23 (run
+    # 35904789287) while every Ubicloud job of later runs started, and the
+    # whole pull request waited with it. A pull request from a fork cannot
+    # obtain an Ubicloud runner, so the fork arm falls back to a GitHub-hosted
+    # label and only forks take it. Keep the continuation at this indent: a
+    # more-indented continuation in a folded scalar keeps its line break and
+    # puts a newline inside the expression.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # paths-filter reads pull-request changed files through GitHub's API.
+      pull-requests: read
+    outputs:
+      bench: ${{ steps.filter.outputs.bench }}
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Detect performance-relevant changes
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
+        with:
+          filters: |
+            bench:
+              - 'cuprum/**'
+              - 'rust/**'
+              - 'benchmarks/**'
+              - 'conftest.py'
+              - 'Makefile'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/ci.yml'
+            rust:
+              - 'rust/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'scripts/run_loom.py'
+              - 'scripts/tests/test_run_loom.py'
+              - 'cuprum/unittests/test_loom_model_conformance.py'
+              - '.github/workflows/loom.yml'
+              - '.github/workflows/ci.yml'
+              - '.github/actions/cache-keys/action.yml'
+              - '.github/actions/setup-sccache/**'
+
+      # A skipped job is indistinguishable from a broken gate in the run
+      # list, so record the decision where a maintainer auditing paid-runner
+      # spend can read it: the run summary of every CI run. Every field is a
+      # closed set, so the summaries stay countable across runs — `decision`
+      # in particular is exactly {run, skip, skip-detector-failed}.
+      #
+      # `!cancelled()` rather than the implicit `success()`: a failed
+      # detector is the case most worth recording, because `benchmark-ratchet`
+      # then skips for a reason that has nothing to do with the diff, and a
+      # summary that stops being written precisely when the gate misbehaves
+      # records the runs that needed no explanation.
+      #
+      # The three bounded values are published as step outputs so the
+      # telemetry step below transports them rather than recomputing the
+      # decision. One computation cannot disagree with itself.
+      - name: Record the benchmark gate decision
+        id: gate
+        if: ${{ !cancelled() }}
+        env:
+          EVENT: ${{ github.event_name }}
+          BENCH: ${{ steps.filter.outputs.bench }}
+          DETECTOR: ${{ steps.filter.outcome }}
+        run: |
+          set -euo pipefail
+          detector="${DETECTOR:-unknown}"
+          if [ "${detector}" != 'success' ]; then
+            decision=skip-detector-failed
+          elif [ "${EVENT}" != 'pull_request' ] || [ "${BENCH}" = 'true' ]; then
+            decision=run
+          else
+            decision=skip
+          fi
+          if [ "${EVENT}" = 'pull_request' ]; then
+            event_class=pull_request
+          else
+            event_class=other
+          fi
+          case "${detector}" in
+            success|failure) detector_status="${detector}" ;;
+            *) detector_status=unknown ;;
+          esac
+          {
+            printf '### Benchmark gate\n\n'
+            printf '| event | detector | performance-relevant changes |'
+            printf ' benchmark-ratchet |\n'
+            printf '| --- | --- | --- | --- |\n'
+            printf '| %s | %s | %s | %s |\n' \
+              "${EVENT}" "${detector}" "${BENCH:-unknown}" "${decision}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          notice_title='::notice title=benchmark-gate-decision::'
+          notice="${notice_title}event_class=${event_class}"
+          notice+=" detector_status=${detector_status}"
+          notice+=" decision=${decision}"
+          printf '%s\n' "${notice}"
+          {
+            printf 'event_class=%s\n' "${event_class}"
+            printf 'detector_status=%s\n' "${detector_status}"
+            printf 'decision=%s\n' "${decision}"
+          } >> "${GITHUB_OUTPUT}"
+
+      # Keep analysable records in the existing Actions artefact service.
+      # Labels reuse the gate outputs; per-run metadata never becomes a label.
+      # The runner's preinstalled Python standard library avoids an installer
+      # or dependency sync in this cheap job (Python 3.11+ is sufficient).
+      - name: Persist the benchmark gate decision
+        id: gate-log
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          EVENT_CLASS: ${{ steps.gate.outputs.event_class }}
+          DETECTOR_STATUS: ${{ steps.gate.outputs.detector_status }}
+          DECISION: ${{ steps.gate.outputs.decision }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import datetime as dt
+          from pathlib import Path
+
+          def persist_decision():
+              """Write one bounded record without making logging gate CI."""
+              vocabularies = {
+                  "event_class": {"pull_request", "other"},
+                  "detector_status": {"success", "failure", "unknown"},
+                  "decision": {"run", "skip", "skip-detector-failed"},
+              }
+              labels = {name: os.environ.get(name.upper(), "") for name in vocabularies}
+              identity = {
+                  "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+                  "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+              }
+              if any(labels[name] not in allowed for name, allowed in vocabularies.items()) or not all(
+                  value.isascii() and value.isdecimal() for value in identity.values()
+              ):
+                  print("::warning title=benchmark-gate-log::Invalid record fields; log omitted.")
+                  return
+              record = {
+                  "schema_version": 1,
+                  "metric": "benchmark_gate_decisions_total",
+                  "value": 1,
+                  "labels": labels,
+                  **identity,
+                  "recorded_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+              }
+              encoded = json.dumps(record, separators=(",", ":"))
+              try:
+                  directory = Path(os.environ["RUNNER_TEMP"]) / "benchmark-gate"
+                  directory.mkdir(parents=True, exist_ok=True)
+                  (directory / "decisions.jsonl").write_text(encoded + "\n", encoding="utf-8")
+                  with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+                      output.write("written=true\nrecord=" + encoded + "\n")
+              except OSError:
+                  print("::warning title=benchmark-gate-log::Could not persist the decision log.")
+
+          persist_decision()
+          PYTHON
+
+      # act verifies the record and admission without starting another local
+      # service. Hosted Actions verifies the storage boundary after upload.
+      - name: Upload the benchmark gate log
+        id: gate-log-upload
+        if: ${{ !cancelled() && env.ACT != 'true' && steps.gate-log.outputs.written == 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: benchmark-gate-decision-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/benchmark-gate/decisions.jsonl
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Warn when the benchmark gate log is unavailable
+        if: ${{ !cancelled() && steps.gate-log-upload.outcome == 'failure' }}
+        run: |
+          echo '::warning title=benchmark-gate-log::Decision log upload failed; benchmark admission is unchanged.'
+
+      # The guard above keys on the *upload*, which is skipped when the writer
+      # never advertised a record. A writer that failed for any unexpected
+      # reason therefore skipped the upload and skipped this warning with it,
+      # and the telemetry outage was invisible. Keying on the writer's own
+      # outcome closes that gap; admission stays fail-open either way.
+      - name: Warn when the benchmark gate record could not be written
+        if: ${{ !cancelled() && steps.gate-log.outcome == 'failure' }}
+        run: |
+          echo '::warning title=benchmark-gate-log::Decision log write failed; benchmark admission is unchanged.'
+
+  benchmark-ratchet:
+    # The ratchet compares each scenario's within-run `rust_mean / python_mean`
+    # ratio between the baseline and the candidate, so runner speed cancels out
+    # of the comparison and the job does not need a fixed or larger shape. It
+    # therefore starts at the estate default like every other Linux gate.
+    # A pull request from a fork cannot obtain an Ubicloud runner, so the fork
+    # arm falls back to a GitHub-hosted label and only forks take it. Keep the
+    # continuation at this indent: a more-indented continuation in a folded
+    # scalar keeps its line break and puts a newline inside the expression.
+    # GitHub evaluates the broken value regardless, so a green run is not
+    # evidence; `test_placement_expressions_parse_to_one_line` is.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 60
+    needs:
+      - lint-test
+      - typecheck-test
+      - changes
+    # Benchmarks are the estate's dominant paid-runner cost, and most CI
+    # runs (Dependabot dev-dependency bumps, docs edits) cannot change
+    # pipeline throughput. Successful pushes to main always run so the ratchet
+    # baseline artefact is refreshed for every merge. A failed detector skips
+    # every event, rather than spending paid-runner time on an ungated run.
+    if: >-
+      needs.changes.result == 'success' && (github.event_name != 'pull_request' ||
+      needs.changes.outputs.bench == 'true')
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # No resource sampler here, deliberately. This job times commands that
+      # each run for about half a second and compares the ratio of two of
+      # them, so a background loop waking every 15 s to shell out to `free`
+      # and `df` is interference in the measurement rather than an observation
+      # of it. Its disk figure was taken once, in run 33857764655: 62.1 GB
+      # used with 11.0 GB free on the 72 GB volume, the same envelope as the
+      # other Ubicloud jobs.
+
+      - name: Compute cache keys
+        uses: ./.github/actions/cache-keys
+        with:
+          python-version: '3.13'
+          generation: ${{ env.CACHE_GENERATION }}
+          ubuntu-release: ${{ env.UBUNTU_RELEASE }}
+          compiler-shape: release
+
+      - name: Restore the Cargo registry
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ env.CARGO_CACHE_KEY }}
+          restore-keys: ${{ env.CARGO_CACHE_PREFIX }}
+
+      - name: Restore the installed tools
+        id: tool-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.local/bin
+            ~/.cache/uv
+            ~/.local/share/uv
+            .uv-cache
+            .uv-tools
+          key: ${{ env.TOOL_CACHE_KEY }}
+          restore-keys: ${{ env.TOOL_CACHE_PREFIX }}
+
+      # No `target` archive. sccache owns compiler output for every build
+      # shape in this repository, including this job's `--release` shape, so
+      # `rust/target` stays disposable here as it is everywhere else.
+      - name: Restore the compiler cache
+        id: sccache-dir
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/sccache
+          key: ${{ env.SCCACHE_CACHE_KEY }}
+          restore-keys: ${{ env.SCCACHE_CACHE_PREFIX }}
+
+      - name: Record cache observations
+        if: always()
+        shell: bash
+        env:
+          CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
+          TOOL_CACHE_HIT: ${{ steps.tool-cache.outputs.cache-hit }}
+          SCCACHE_CACHE_HIT: ${{ steps.sccache-dir.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          {
+            printf '### Cache observations\n\n'
+            printf '| cache | key | hit |\n| --- | --- | --- |\n'
+            printf '| registry | %s | %s |\n' \
+              "${CARGO_CACHE_KEY}" "${CARGO_CACHE_HIT:-false}"
+            printf '| tools | %s | %s |\n' \
+              "${TOOL_CACHE_KEY}" "${TOOL_CACHE_HIT:-false}"
+            printf '| sccache | %s | %s |\n' \
+              "${SCCACHE_CACHE_KEY}" "${SCCACHE_CACHE_HIT:-false}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Set up sccache
+        id: sccache
+        uses: ./.github/actions/setup-sccache
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          enable-cache: false
+
+      - name: Install hyperfine
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes hyperfine
+
+      - name: Fetch latest main benchmark baseline
+        id: baseline-artifact
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_dir="${RUNNER_TEMP}/benchmark-ratchet"
+          baseline_dir="${artifact_dir}/main-baseline"
+          mkdir -p "${artifact_dir}"
+
+          # `--run-status completed` rather than the default `success`: the
+          # baseline artefact records what a main run measured, and a run
+          # that failed its own ratchet is exactly the one whose sample the
+          # window must not lose. Filtering on success is what let a single
+          # anomalously fast measurement stay the bar (issue #219).
+          if UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools uv run python \
+            benchmarks/fetch_main_benchmark_baseline.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            --workflow "ci.yml" \
+            --artifact-name "benchmark-ratchet-main-baseline" \
+            --run-status "completed" \
+            --output-dir "${baseline_dir}"
+          then
+            echo "baseline_available=true" >> "${GITHUB_OUTPUT}"
+          else
+            status=$?
+            if [[ "${status}" -eq 3 ]]; then
+              echo "baseline_available=false" >> "${GITHUB_OUTPUT}"
+              echo "No previous completed main benchmark baseline artefact is available."
+            else
+              exit "${status}"
+            fi
+          fi
+
+      - name: Run throughput benchmarks and ratchet comparison
+        shell: bash
+        env:
+          BASELINE_AVAILABLE: ${{ steps.baseline-artifact.outputs.baseline_available }}
+        run: |
+          set -euo pipefail
+          artifact_dir="${RUNNER_TEMP}/benchmark-ratchet"
+          mkdir -p "${artifact_dir}"
+
+          run_ratchet_benchmarks() {
+            local workspace="$1"
+            local prefix="$2"
+            pushd "${workspace}" >/dev/null
+
+            # Every command below is guarded with `|| return $?`. Bash
+            # suspends `errexit` for a function body invoked as a condition
+            # operand, and the confirmation path invokes this function as
+            # `run_ratchet_benchmarks ... || confirmation_ratchet_status=$?`,
+            # so without the guards a failed `make develop` or a failed
+            # benchmark would fall through to the next command and the
+            # function would return the *last* command's status. The
+            # confirmation branch would then read a stale or missing plan as
+            # a measured result. An explicit `set -e` inside the body does not
+            # restore aborting, so the guard has to be on each command.
+
+            # `make develop` is the one definition of the extension build:
+            # `make build`, then `ensurepip --upgrade`, then `maturin
+            # develop`. The ratchet must measure an optimized build, and that
+            # is the only thing it needs differently, so it passes the flag
+            # instead of restating the sequence. This runs after `pushd
+            # "${workspace}"`, so the target's relative UV_CACHE_DIR and
+            # UV_TOOL_DIR resolve against the same directory the inline
+            # commands used.
+            CARGO_BUILD_JOBS="${LINUX_RUNNER_VCPUS}" \
+              make develop MATURIN_DEVELOP_FLAGS='--release --skip-install' || \
+              return $?
+
+            # `--ci-ratchet` selects the one payload this gate measures and
+            # `--worker-iterations 5` states the per-process iteration count
+            # that goes into the plan's profile metadata. Both are measurement
+            # protocol: five iterations is what makes a single measured run a
+            # few hundred milliseconds at that payload — the streaming part of
+            # it well past the worker start-up and per-iteration set-up the
+            # ratio used to be dominated by — long enough for hyperfine's
+            # per-command mean to be stable without pushing the job's wall
+            # clock. `ci_benchmark_ratchet_profile.py` then keeps only the
+            # two-stage scenarios inside its payload band, which is the same
+            # two per backend — one per callback mode — so four in total.
+            # Changing either value invalidates the recorded samples and needs
+            # a BENCHMARK_PROFILE_VERSION bump; see docs/cuprum-design.md 13.9.
+            #
+            # The count is also the CLI's own default for `--ci-ratchet`
+            # (`CI_RATCHET_WORKER_ITERATIONS`, the value a local reproduction
+            # gets), and a contract test in `test_benchmark_gate_ci_contract.py`
+            # fails if the two disagree. It is restated here because the
+            # protocol is part of what this job declares, not because the
+            # workflow is where it is decided.
+            UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools uv run python \
+              benchmarks/pipeline_throughput.py \
+              --ci-ratchet \
+              --dry-run \
+              --worker-iterations 5 \
+              --output "${artifact_dir}/${prefix}-full-plan.json" || \
+              return $?
+
+            UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools uv run python \
+              benchmarks/ci_benchmark_ratchet_profile.py \
+              --full-plan "${artifact_dir}/${prefix}-full-plan.json" \
+              --filtered-plan "${artifact_dir}/${prefix}-plan.json" \
+              --throughput "${artifact_dir}/${prefix}-throughput.json" || \
+              return $?
+
+            popd >/dev/null
+          }
+
+          run_ratchet_benchmarks "${GITHUB_WORKSPACE}" "candidate"
+
+          # Stage the files the baseline artefact publishes before the
+          # comparison can fail the step. A main run that measures a
+          # slowdown must still record its sample: dropping it is what
+          # biased the old baseline towards the low tail of the noise.
+          cp "${artifact_dir}/candidate-plan.json" "${artifact_dir}/main-plan.json"
+          cp "${artifact_dir}/candidate-throughput.json" "${artifact_dir}/main-throughput.json"
+
+          run_ratchet() {
+            local prefix="$1"
+            local report="$2"
+            local status=0
+            pushd "${GITHUB_WORKSPACE}" >/dev/null
+            # The window is the bar; the single-sample baseline is the
+            # fallback for a first run, an expired artefact, or a window
+            # emptied by a benchmark-profile change.
+            #
+            # All three thresholds are stated here rather than left to the
+            # script's defaults, so the workflow reads as the policy it
+            # applies. `benchmarks/ratchet_history.py` owns them and
+            # `test_the_ratchet_policy_matches_the_module_defaults` fails if
+            # these literals drift from it. `--max-regression` is the flat
+            # floor a candidate must clear whatever the spread, the noise band
+            # that widened the bar is `--noise-sigmas` times the window's own
+            # MAD-derived sigma, and `--history-window` is how many recent
+            # compatible main runs form that window. Raising the flat floor is
+            # the wrong lever for a flaky gate — it hides real regressions —
+            # so it must stay at the value the module owns.
+            UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools uv run python \
+              benchmarks/ratchet_rust_performance.py \
+              --baseline-plan "${artifact_dir}/main-baseline/main-plan.json" \
+              --baseline-throughput "${artifact_dir}/main-baseline/main-throughput.json" \
+              --baseline-history "${artifact_dir}/main-baseline/main-baseline-history.json" \
+              --candidate-plan "${artifact_dir}/${prefix}-plan.json" \
+              --candidate-throughput "${artifact_dir}/${prefix}-throughput.json" \
+              --max-regression 0.30 \
+              --noise-sigmas 3.0 \
+              --history-window 7 \
+              --output "${report}" || status=$?
+            popd >/dev/null
+            return "${status}"
+          }
+
+          write_unavailable_confirmation_report() {
+            local report="$1"
+            REPORT_PATH="${report}" \
+            UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools uv run python - <<'PY'
+          import json
+          import os
+          import pathlib as pth
+
+          report_path = pth.Path(os.environ["REPORT_PATH"])
+          report_path.write_text(
+              json.dumps(
+                  {
+                      "comparison_performed": False,
+                      "comparisons": [],
+                      "regressions": [],
+                  },
+                  indent=2,
+                  sort_keys=True,
+              ),
+              encoding="utf-8",
+          )
+          PY
+          }
+
+          if [[ "${BASELINE_AVAILABLE}" == "true" ]]; then
+            primary_status=0
+            run_ratchet "candidate" \
+              "${artifact_dir}/ratchet-report-primary.json" || primary_status=$?
+
+            if [[ "${primary_status}" -eq 0 ]]; then
+              cp "${artifact_dir}/ratchet-report-primary.json" \
+                "${artifact_dir}/ratchet-report.json"
+            elif [[ "${primary_status}" -ne 1 ]]; then
+              # Exit 2 is malformed input, not a regression. Re-measuring
+              # would spend a second benchmark to reread the same broken
+              # file, so fail on the spot.
+              exit "${primary_status}"
+            else
+              # The window makes the bar robust to one noisy run; it cannot
+              # make the candidate robust, and a single unlucky measurement
+              # otherwise needs a human to press re-run. Measure again and
+              # fail only on a scenario that regressed both times, which a
+              # flake has to hit twice to survive. This costs a second
+              # benchmark only on the runs that were about to fail.
+              #
+              # The re-measurement writes under its own prefix so
+              # `candidate-*` — and therefore the sample recorded into the
+              # main-branch window — stays the primary measurement, one per
+              # merge.
+              echo "::notice::regression reported; re-measuring to confirm"
+              confirmation_ratchet_status=0
+              run_ratchet_benchmarks "${GITHUB_WORKSPACE}" "confirmation" || \
+                confirmation_ratchet_status=$?
+              if [[ "${confirmation_ratchet_status}" -eq 0 ]]; then
+                run_ratchet "confirmation" \
+                  "${artifact_dir}/ratchet-report-confirmation.json" || \
+                  confirmation_ratchet_status=$?
+              fi
+              if [[ "${confirmation_ratchet_status}" -ne 0 && \
+                    "${confirmation_ratchet_status}" -ne 1 ]] || \
+                 [[ ! -f "${artifact_dir}/ratchet-report-confirmation.json" ]]; then
+                echo "::warning::confirmation ratchet did not produce usable evidence"
+                write_unavailable_confirmation_report \
+                  "${artifact_dir}/ratchet-report-confirmation.json"
+              fi
+              pushd "${GITHUB_WORKSPACE}" >/dev/null
+              confirmation_status=0
+              UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools uv run python \
+                benchmarks/confirm_regression.py \
+                --primary-report "${artifact_dir}/ratchet-report-primary.json" \
+                --confirmation-report "${artifact_dir}/ratchet-report-confirmation.json" \
+                --output "${artifact_dir}/ratchet-report.json" || confirmation_status=$?
+              popd >/dev/null
+              if [[ "${confirmation_status}" -eq 2 ]]; then
+                echo "::warning::confirmation report was malformed; preserving primary verdict"
+                cp "${artifact_dir}/ratchet-report-primary.json" \
+                  "${artifact_dir}/ratchet-report.json"
+                exit 1
+              fi
+              if [[ "${confirmation_status}" -ne 0 ]]; then
+                exit "${confirmation_status}"
+              fi
+            fi
+          else
+            REPORT_PATH="${artifact_dir}/ratchet-report.json" \
+            UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools uv run python - <<'PY'
+          import json
+          import os
+          import pathlib as pth
+
+          report_path = pth.Path(os.environ["REPORT_PATH"])
+          report_path.write_text(
+              json.dumps(
+                  {
+                      "baseline_available": False,
+                      "baseline_source": "none",
+                      "baseline_reason": "no_baseline_available",
+                      "compatible_sample_count": 0,
+                      "comparison_state": "skipped_no_baseline",
+                      "comparison_performed": False,
+                      "passed": True,
+                      "reason": "no_previous_main_benchmark_baseline",
+                  },
+                  indent=2,
+                  sort_keys=True,
+              ),
+              encoding="utf-8",
+          )
+          PY
+          fi
+
+      - name: Generate benchmark comparison report
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="${RUNNER_TEMP}/benchmark-ratchet"
+
+          # Only generate report if all required input files exist
+          if [[ -f "${artifact_dir}/candidate-plan.json" ]] && \
+             [[ -f "${artifact_dir}/candidate-throughput.json" ]] && \
+             [[ -f "${artifact_dir}/ratchet-report.json" ]]; then
+            UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools uv run python \
+              benchmarks/python_vs_rust_comparison_report.py \
+              --plan "${artifact_dir}/candidate-plan.json" \
+              --throughput "${artifact_dir}/candidate-throughput.json" \
+              --ratchet-report "${artifact_dir}/ratchet-report.json" \
+              --output-json "${artifact_dir}/comparison-report.json" \
+              --output-markdown "${artifact_dir}/comparison-summary.md"
+          else
+            echo "Skipping comparison report generation: required input files not found"
+            echo "This usually indicates the benchmark run failed before completing"
+          fi
+
+      - name: Publish benchmark workflow summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="${RUNNER_TEMP}/benchmark-ratchet"
+          if [[ -f "${artifact_dir}/comparison-summary.md" ]]; then
+            cat "${artifact_dir}/comparison-summary.md" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Upload benchmark ratchet artefacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: benchmark-ratchet
+          retention-days: 90
+          path: |
+            ${{ runner.temp }}/benchmark-ratchet/**/*.json
+            ${{ runner.temp }}/benchmark-ratchet/**/*.md
+
+      - name: Check candidate benchmark artefacts
+        id: candidate-artefacts
+        if: ${{ always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        shell: bash
+        run: |
+          artifact_dir="${RUNNER_TEMP}/benchmark-ratchet"
+          if [[ -f "${artifact_dir}/candidate-plan.json" ]] && \
+             [[ -f "${artifact_dir}/candidate-throughput.json" ]] && \
+             UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools uv run python - \
+               "${artifact_dir}/candidate-plan.json" \
+               "${artifact_dir}/candidate-throughput.json" <<'PY'
+          import pathlib as pth
+          import sys
+
+          from benchmarks.ratchet_ratios import load_plan, load_throughput
+
+          load_plan(pth.Path(sys.argv[1]))
+          load_throughput(pth.Path(sys.argv[2]))
+          PY
+          then
+            echo "available=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "::warning::candidate benchmark artefacts are absent or invalid"
+            echo "available=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Record compiler-cache effectiveness
+        if: always() && steps.sccache.outputs.status != 'fallback'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sccache --show-stats | tee sccache-stats.txt
+          sccache --show-stats --stats-format json > sccache-stats.json
+          fence='```'
+          {
+            printf '### sccache\n\n%stext\n' "${fence}"
+            cat sccache-stats.txt
+            printf '%s\n' "${fence}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      # Records what this run measured, pass or fail. A window fed only by
+      # passing runs is a window of low-biased samples: a measurement faster
+      # than the bar is always accepted, while the slower measurements that
+      # would correct it are the ones rejected. `!cancelled()` rather than
+      # `always()` so an interrupted, half-measured run records nothing.
+      #
+      # Nothing here depends on the ratchet's verdict, and nothing may: the
+      # condition reads the candidate artefacts, not the comparison's exit
+      # code, so a run that failed its own gate still republishes the sample
+      # and the baseline. Gating either on the ratchet passing would restore
+      # exactly the low-biased window this step exists to prevent.
+      - name: Record this run's benchmark sample
+        if: >-
+          ${{ !cancelled() && github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          steps.candidate-artefacts.outputs.available == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="${RUNNER_TEMP}/benchmark-ratchet"
+          UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools uv run python \
+            benchmarks/update_baseline_history.py \
+            --history "${artifact_dir}/main-baseline/main-baseline-history.json" \
+            --candidate-plan "${artifact_dir}/candidate-plan.json" \
+            --candidate-throughput "${artifact_dir}/candidate-throughput.json" \
+            --commit "${GITHUB_SHA}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --output "${artifact_dir}/main-baseline-history.json"
+
+      # Same independence as the step above: a main run that measured a
+      # slowdown publishes the baseline it measured, so the next run compares
+      # against a window that contains it.
+      - name: Upload main benchmark baseline artifact
+        if: >-
+          ${{ !cancelled() && github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          steps.candidate-artefacts.outputs.available == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: benchmark-ratchet-main-baseline
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/benchmark-ratchet/main-plan.json
+            ${{ runner.temp }}/benchmark-ratchet/main-throughput.json
+            ${{ runner.temp }}/benchmark-ratchet/main-baseline-history.json
+
+      - name: Save the compiler cache
+        # This is the only job that builds the extension with `--release`, so
+        # it owns the `py3.13-release` compiler-cache family. An optimized
+        # object cannot serve an unoptimized build, which is why the shape is
+        # part of the key rather than shared with `extension-tests`.
+        #
+        # The entry is a rolling generation named after the run, so there is
+        # no cache-hit guard to skip: the key is new every time, and a run
+        # that restored the previous generation republishes it with whatever
+        # it added. The event guard is what keeps a pull request, or a
+        # dispatch measuring warm caches, from publishing into a family it is
+        # not trusted to own.
+        if: >-
+          github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/sccache
+          key: ${{ env.SCCACHE_CACHE_KEY }}
+

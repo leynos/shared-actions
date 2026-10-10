@@ -27,6 +27,7 @@ documents how to use the `install-nixie` action.
 - [Declining the job-wide sccache wrapper](./migrating-to-the-export-rustc-wrapper-input.md)
   – the `export-rustc-wrapper` input and `sccache-path` output of `setup-rust`.
 - [Migrating to `sccache-report`](./migrating-to-sccache-report.md)
+- [Scoping the `cv005-contracts` lane-upload rule](./migrating-cv005-contracts-lane-upload-scope.md)
   – replacing a handwritten `sccache --show-stats` step with the fallback-aware
   action.
 - [Migrating to `install-clang-lld`](./migrating-to-setup-rust-clang-lld.md)
@@ -1606,6 +1607,19 @@ the shape the actions are written for.
   cancelled run loses its upload and its baseline write, and one group keeps
   uploads from pushes and dispatches in commit order. A manual re-run of an
   older run republishes that commit's coverage until the next push.
+- `cv005-contracts check` (the shared contract library) judges a lane's
+  `actions/upload-artifact` steps by what each `path` could select, but only
+  where the lane's report can be: the lane job's own steps, the local actions
+  that job runs directly or transitively, and later jobs that wait for it
+  (`needs`, transitively) on a runner that may persist (`self-hosted`, a runner
+  group or an unresolved expression), with their local actions. Uploads in
+  unrelated jobs, in workflows with no coverage lane, or in actions no lane job
+  runs are not judged. A path under `${{ runner.temp }}/` clears only when the
+  rest is literal text with no `..` component and no further expression, since
+  that directory lies outside the workspace. A lane job may also exclude other
+  named events (`github.event_name != 'schedule'`) when its coverage step
+  carries the pull-request guard. See
+  [the scoped upload rule](./migrating-cv005-contracts-lane-upload-scope.md).
 - Both sides pass the same `language`, the same `python-source` scope, and the
   same baseline file name, or the pull-request comparison reads a baseline
   measuring a different population, or one nothing writes.

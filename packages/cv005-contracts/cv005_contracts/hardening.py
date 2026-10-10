@@ -8,8 +8,10 @@ green, be switched off by a condition, or publish its report some other way.
 
 from __future__ import annotations
 
+import re
 import typing as typ
 
+from .closure import called_actions
 from .expressions import ConditionError, conjuncts
 from .legs import Leg, generator_legs
 from .publisher import invokes, upload_job
@@ -86,6 +88,7 @@ def _keeps_no_credentials(step: dict[str, object]) -> bool:
 def lane_hardening_violations(
     closure: dict[str, Document],
     declared: cabc.Mapping[str, frozenset[str]] | None = None,
+    repository: str = "",
 ) -> list[str]:
     """Keep each pull-request coverage lane read-only and impossible to skip.
 
@@ -96,6 +99,11 @@ def lane_hardening_violations(
     declared : Mapping[str, frozenset[str]] | None, optional
         The extra conditions each declared lane leg may carry besides the
         pull-request guard, by leg name.
+    repository : str, optional
+        The owner and name of the repository, used to follow the local actions
+        a lane's job runs. It is what lets a step naming this repository's own
+        action at an `@ref` be refused rather than read as a remote action
+        whose uploads go unjudged.
 
     Returns
     -------
@@ -111,8 +119,7 @@ def lane_hardening_violations(
         for name, leg in located
         for problem in _lane_violations(name, leg, extra.get(leg.ident, frozenset()))
     ]
-    reports = {str(_input(leg.step, "output-path")) for _, leg in located}
-    return found + _artefact_uploads(closure, reports)
+    return found + _artefact_uploads(closure, located, repository)
 
 
 def _coverage_legs(closure: dict[str, Document]) -> list[tuple[str, Leg]]:
@@ -133,7 +140,9 @@ def _lane_violations(name: str, leg: Leg, extra_terms: frozenset[str]) -> list[s
         ),
         (
             "may carry only the pull-request guard as a condition",
-            not (_only_guarded(leg.step, extra_terms) and _only_guarded(leg.job)),
+            not (
+                _only_guarded(leg.step, extra_terms) and _job_guarded(leg.job, leg.step)
+            ),
         ),
         (
             f"job permissions must be exactly {READ_ONLY}",
@@ -159,22 +168,171 @@ def _only_guarded(
         return False
 
 
-def _artefact_uploads(closure: dict[str, Document], reports: set[str]) -> list[str]:
-    """Report a pull-request step publishing a coverage report as an artefact.
+#: A job condition that the pull-request guard already implies: the event is
+#: not some other named event. It cannot switch the lane off on a pull request.
+_OTHER_EVENT: typ.Final[re.Pattern[str]] = re.compile(
+    r"^github\.event_name != '(?P<event>[a-z_]+)'$"
+)
+
+
+def _job_guarded(job: dict[str, object], step: dict[str, object]) -> bool:
+    """Return whether a lane job's condition leaves its coverage step runnable.
+
+    The job's condition is absent or the pull-request guard, as for a step.
+    It may also exclude other named events (`github.event_name != 'schedule'`)
+    when the step itself carries the pull-request guard: an event cannot be a
+    pull request and another event, so the exclusion changes nothing for a
+    pull request, and the job stays free to serve its other lanes.
+    """
+    if _only_guarded(job):
+        return True
+    if "if" not in step:
+        return False
+    try:
+        terms = frozenset(conjuncts(job["if"]))
+        carried = frozenset(conjuncts(step["if"]))
+    except ConditionError:
+        return False
+    others = terms - PULL_REQUEST_GUARD
+    return carried >= PULL_REQUEST_GUARD and all(
+        (match := _OTHER_EVENT.match(term)) is not None
+        and match["event"] != "pull_request"
+        for term in others
+    )
+
+
+def _artefact_uploads(
+    closure: dict[str, Document], located: list[tuple[str, Leg]], repository: str
+) -> list[str]:
+    """Report a lane step publishing the lane's own coverage report as an artefact.
 
     `publish-artefact: 'false'` keeps the shared action from uploading the
-    report; a separate `upload-artifact` step would publish it anyway.
+    report; a separate `upload-artifact` step would publish it anyway. Only a
+    step on the runner that holds the report can select it, so the rule reads
+    the lane job's own steps and the local actions that job runs. An upload in
+    another job, or in a workflow with no coverage lane, sees a different
+    workspace and cannot reach the report.
     """
-    return [
-        f"{name}: must not upload the coverage report {report!r} as an artefact"
-        for name, document in sorted(closure.items())
-        for job in jobs(document).values()
-        for step in steps(job)
-        if invokes(step, ARTEFACT_ACTION)
-        for report in sorted(reports)
-        if report != "None"
-        and any(
-            could_hold_the_report(entry, report)
-            for entry in entries_of(_input(step, "path"))
+    found: list[str] = []
+    for name, steps_here, reports in _report_holders(closure, located, repository):
+        found.extend(
+            f"{name}: must not upload the coverage report {report!r} as an artefact"
+            for step in steps_here
+            if invokes(step, ARTEFACT_ACTION)
+            for report in sorted(reports)
+            if report != "None"
+            and any(
+                could_hold_the_report(entry, report)
+                for entry in entries_of(_input(step, "path"))
+            )
         )
+    return found
+
+
+def _report_holders(
+    closure: dict[str, Document], located: list[tuple[str, Leg]], repository: str
+) -> list[tuple[str, list[dict[str, object]], set[str]]]:
+    """Return each place that runs beside a lane's report, with the reports.
+
+    A place is a lane job's steps, filed under its workflow, the steps of a
+    local action that job (or a later self-hosted job) runs, filed under the
+    action's path, or the steps of a later self-hosted job. A place reached by
+    several lane jobs holds the reports of all of them. Places are keyed by
+    workflow and job identifier (or action path), so the order is stable.
+    """
+    holders: dict[tuple[str, str], tuple[list[dict[str, object]], set[str]]] = {}
+
+    def file(key: tuple[str, str], held: list[dict[str, object]], report: str) -> None:
+        holders.setdefault(key, (held, set()))[1].add(report)
+
+    for name, leg in located:
+        report = str(_input(leg.step, "output-path"))
+        lane_jobs = [(_job_id(leg.document, leg.job), leg.job)]
+        lane_jobs += _persistent_dependents(leg.document, leg.job)
+        for ident, job in lane_jobs:
+            file((name, ident), steps(job), report)
+            for action in _local_actions(job, closure, repository):
+                file((action, ""), _action_steps(closure[action]), report)
+    return [
+        (name, held, reports) for (name, _), (held, reports) in sorted(holders.items())
     ]
+
+
+def _job_id(document: Document, job: dict[str, object]) -> str:
+    """Return the identifier a job is declared under."""
+    return next(ident for ident, other in jobs(document).items() if other is job)
+
+
+def _persistent_dependents(
+    document: Document, lane: dict[str, object]
+) -> list[tuple[str, dict[str, object]]]:
+    """Return the jobs after the lane job that may share its workspace.
+
+    A job that `needs` the lane job, directly or through others, and runs on a
+    `self-hosted` runner may land on the runner the lane used, and GitHub does
+    not promise a clean workspace there. It can then upload the lane's report
+    as easily as the lane can. Jobs on hosted runners start clean, so only the
+    self-hosted ones are read.
+    """
+    declared = jobs(document)
+    lane_ids = {ident for ident, job in declared.items() if job is lane}
+    reached = set(lane_ids)
+    changed = True
+    while changed:
+        changed = False
+        for ident, job in declared.items():
+            if ident not in reached and reached & _needs(job):
+                reached.add(ident)
+                changed = True
+    return [
+        (ident, declared[ident])
+        for ident in sorted(reached - lane_ids)
+        if _may_persist(declared[ident].get("runs-on"))
+    ]
+
+
+def _may_persist(runs_on: object) -> bool:
+    """Return whether a `runs-on` value could name a self-hosted runner.
+
+    A label is compared exactly (`self-hosted`), so `not-self-hosted-x` is not
+    one. A mapping (`group` or `labels`) names a runner group, which is
+    self-hosted, and an unresolved expression could be anything, so both are
+    read.
+    """
+    if isinstance(runs_on, str):
+        return runs_on.strip().lower() == "self-hosted" or "${{" in runs_on
+    if isinstance(runs_on, list):
+        return any(_may_persist(label) for label in runs_on)
+    return isinstance(runs_on, dict)
+
+
+def _needs(job: dict[str, object]) -> set[str]:
+    """Return the job identifiers a job waits for."""
+    needs = job.get("needs", [])
+    if isinstance(needs, str):
+        return {needs}
+    return (
+        {item for item in needs if isinstance(item, str)}
+        if isinstance(needs, list)
+        else set()
+    )
+
+
+def _action_steps(document: Document) -> list[dict[str, object]]:
+    """Return every step of a local action's document."""
+    return [step for job in jobs(document).values() for step in steps(job)]
+
+
+def _local_actions(
+    job: dict[str, object], closure: dict[str, Document], repository: str
+) -> list[str]:
+    """Return the closure's local actions a job runs, directly or through others."""
+    pending = sorted(called_actions({"jobs": {"lane": job}}, repository))
+    found: list[str] = []
+    while pending:
+        action = pending.pop()
+        if action in found or action not in closure:
+            continue
+        found.append(action)
+        pending.extend(sorted(called_actions(closure[action], repository)))
+    return found

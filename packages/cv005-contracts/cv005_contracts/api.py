@@ -261,7 +261,7 @@ def _coverage_clauses(
     yield (
         "coverage",
         "coverage.lane-hardening",
-        lambda: lane_hardening_violations(closure, declared),
+        lambda: lane_hardening_violations(closure, declared, config.repository),
     )
     yield (
         "coverage",

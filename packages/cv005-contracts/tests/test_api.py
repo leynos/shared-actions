@@ -234,3 +234,80 @@ def test_the_cli_runs_only_the_selected_family(tmp_path: Path) -> None:
     root = _write_tree(tmp_path, texts)
     assert check(repository=root, only=("environment",)) == EXIT_CLEAN
     assert check(repository=root, only=("publisher",)) == EXIT_VIOLATIONS
+
+
+def test_an_upload_in_a_local_action_the_lane_runs_is_refused_end_to_end(
+    tmp_path: Path,
+) -> None:
+    """The public path follows a local action the lane job runs.
+
+    The lane job runs a local composite action that uploads the workspace, so
+    the report can leave the runner through it; the breach is reported under
+    the lane-hardening clause, naming the action.
+    """
+    texts = tree()
+    texts["ci.yml"] = texts["ci.yml"].replace(
+        "      - name: Test and Measure Coverage\n",
+        "      - uses: ./.github/actions/upload\n"
+        "      - name: Test and Measure Coverage\n",
+        1,
+    )
+    texts[".github/actions/upload"] = (
+        "name: Upload\nruns:\n  using: composite\n  steps:\n"
+        "    - uses: actions/upload-artifact@v4\n      with:\n        path: .\n"
+    )
+    root = _write_tree(tmp_path, texts)
+    found = violations(root)
+    assert any(
+        item.clause == "coverage.lane-hardening"
+        and ".github/actions/upload" in item.message
+        for item in found
+    ), found
+
+
+UPLOAD_ACTION = (
+    "name: Upload\nruns:\n  using: composite\n  steps:\n"
+    "    - uses: actions/upload-artifact@v4\n      with:\n        path: .\n"
+)
+CALL = "      - uses: ./.github/actions/upload\n"
+LANE_COVERAGE_STEP = "      - name: Test and Measure Coverage\n"
+
+
+def _lane_clauses(tmp_path: Path, texts: dict[str, str]) -> list[str]:
+    """Return the messages reported under the lane-hardening clause."""
+    root = _write_tree(tmp_path, texts)
+    return [
+        item.message
+        for item in violations(root)
+        if item.clause == "coverage.lane-hardening"
+    ]
+
+
+def test_uploads_outside_the_lane_are_not_judged_end_to_end(tmp_path: Path) -> None:
+    """An unrun action and another job's upload are left alone by the public path."""
+    texts = tree()
+    texts[".github/actions/upload"] = UPLOAD_ACTION
+    texts["ci.yml"] = (
+        texts["ci.yml"].rstrip("\n")
+        + "\n  logs:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - uses: actions/upload-artifact@v4\n        with:\n          path: .\n"
+    )
+    found = _lane_clauses(tmp_path, texts)
+    assert found == [], found
+
+
+def test_an_upload_two_actions_down_from_the_lane_is_refused_end_to_end(
+    tmp_path: Path,
+) -> None:
+    """A nested local action that uploads the workspace is reported by name."""
+    texts = tree()
+    texts["ci.yml"] = texts["ci.yml"].replace(
+        LANE_COVERAGE_STEP, CALL.replace("upload", "outer") + LANE_COVERAGE_STEP, 1
+    )
+    texts[".github/actions/outer"] = (
+        "name: Outer\nruns:\n  using: composite\n  steps:\n"
+        "    - uses: ./.github/actions/upload\n      shell: bash\n"
+    )
+    texts[".github/actions/upload"] = UPLOAD_ACTION
+    found = _lane_clauses(tmp_path, texts)
+    assert any(".github/actions/upload" in item for item in found), found

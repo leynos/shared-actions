@@ -1,0 +1,318 @@
+# Provenance: .github/workflows/release.yml at 7c055dfb (leynos/mriya main, 2026-10-08).
+# Whole file: artefact uploads in jobs that run no coverage.
+---
+name: Release Binary
+
+'on':
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_call:
+    inputs:
+      publish:
+        description: >-
+          Whether the workflow should publish artefacts to the GitHub release
+          associated with the tag. Defaults to `false` when invoked as a
+          reusable workflow.
+        required: false
+        type: boolean
+        default: false
+      dry-run:
+        description: >-
+          When `true`, build artefacts without uploading them to GitHub
+          releases.
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      bin_name:
+        description: Binary name extracted from Cargo.toml
+        value: ${{ jobs.metadata.outputs.bin_name }}
+      version:
+        description: Crate version resolved from Cargo.toml
+        value: ${{ jobs.metadata.outputs.version }}
+      should_publish:
+        description: Whether artefacts should be published to the release
+        value: ${{ jobs.metadata.outputs.should_publish }}
+      dry_run:
+        description: Whether the workflow is running in dry-run mode
+        value: ${{ jobs.metadata.outputs.dry_run }}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REPO_NAME: ${{ github.event.repository.name }}
+  SHARED_ACTIONS_REF: 927edd45ae77be4251a8a18ca9eb5613a2e32cbd
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ensure_version.outputs.crate-version }}
+      bin_name: ${{ steps.bin_name.outputs.bin-name }}
+      should_publish: ${{ steps.release_modes.outputs.should-publish }}
+      dry_run: ${{ steps.release_modes.outputs.dry-run }}
+      should_upload_workflow_artifacts: >-
+        ${{ steps.release_modes.outputs.should-upload-workflow-artifacts }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: release_modes
+        name: Determine release modes
+        uses: >-
+          leynos/shared-actions/.github/actions/determine-release-modes@7d751eded578e48dacf43ab173d5820e6437c474
+        with:
+          dry-run: ${{ inputs.dry-run }}
+          publish: ${{ inputs.publish }}
+
+      - id: ensure_version
+        name: Read package version from Cargo.toml
+        uses: >-
+          leynos/shared-actions/.github/actions/ensure-cargo-version@ff1dd759dfffc0db3459e30e833f52437ee62b57
+        with:
+          check-tag: ${{ fromJSON(steps.release_modes.outputs.should-publish) }}
+
+      - id: bin_name
+        name: Extract binary name from Cargo.toml
+        uses: >-
+          leynos/shared-actions/.github/actions/export-cargo-metadata@22c1a57865e42ba7e2ca4f88ae49fa6f81f58013
+        with:
+          fields: bin-name
+          export-to-env: 'false'
+
+  build:
+    needs: metadata
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: x86_64
+            target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            ext: ''
+          - os: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            ext: ''
+          - os: windows
+            arch: x86_64
+            target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            ext: '.exe'
+          - os: windows
+            arch: aarch64
+            target: aarch64-pc-windows-msvc
+            runner: windows-latest
+            ext: '.exe'
+          - os: macos
+            arch: x86_64
+            target: x86_64-apple-darwin
+            runner: macos-15
+            ext: ''
+          - os: macos
+            arch: aarch64
+            target: aarch64-apple-darwin
+            runner: macos-15
+            ext: ''
+          - os: freebsd
+            arch: x86_64
+            target: x86_64-unknown-freebsd
+            runner: ubuntu-latest
+            ext: ''
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build release binary
+        uses: >-
+          leynos/shared-actions/.github/actions/rust-build-release@7d751eded578e48dacf43ab173d5820e6437c474
+        with:
+          target: ${{ matrix.target }}
+          bin-name: ${{ needs.metadata.outputs.bin_name }}
+
+      - name: Prepare artefact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p artifacts/${{ matrix.os }}-${{ matrix.arch }}
+          bin_name="${{ needs.metadata.outputs.bin_name }}"
+          cp "target/${{ matrix.target }}/release/${bin_name}${{ matrix.ext }}" \
+            "artifacts/${{ matrix.os }}-${{ matrix.arch }}/${bin_name}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}"
+          artefact="artifacts/${{ matrix.os }}-${{ matrix.arch }}/${bin_name}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}"
+          if command -v sha256sum &> /dev/null; then
+            sha256sum "$artefact" > "${artefact}.sha256"
+          else
+            shasum -a 256 "$artefact" > "${artefact}.sha256"
+          fi
+
+      - name: Prepare artefact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "artifacts/${{ matrix.os }}-${{ matrix.arch }}"
+          $binName = "${{ needs.metadata.outputs.bin_name }}"
+          $src = "target/${{ matrix.target }}/release/${binName}${{ matrix.ext }}"
+          $dst = "artifacts/${{ matrix.os }}-${{ matrix.arch }}/${binName}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}"
+          Copy-Item $src $dst
+          $hash = (Get-FileHash -Algorithm SHA256 $dst).Hash.ToLower()
+          $fileName = Split-Path -Leaf $dst
+          "$hash  $fileName" | Out-File -Encoding ascii "${dst}.sha256"
+
+      - name: Prepare packaging artefact (Linux/macOS only)
+        if: matrix.os == 'linux' || matrix.os == 'macos'
+        run: |
+          mkdir -p packaging-artifacts/${{ matrix.target }}/release
+          bin_name="${{ needs.metadata.outputs.bin_name }}"
+          cp "target/${{ matrix.target }}/release/${bin_name}${{ matrix.ext }}" \
+            "packaging-artifacts/${{ matrix.target }}/release/"
+
+      - name: Upload release artefact
+        if: >-
+          needs.metadata.outputs.should_upload_workflow_artifacts == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.REPO_NAME }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: artifacts/${{ matrix.os }}-${{ matrix.arch }}
+
+      - name: Upload packaging artefact (Linux/macOS only)
+        if: >-
+          (matrix.os == 'linux' || matrix.os == 'macos') &&
+          needs.metadata.outputs.should_upload_workflow_artifacts == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.REPO_NAME }}-packaging-${{ matrix.target }}
+          path: packaging-artifacts/${{ matrix.target }}
+
+  linux-packages:
+    needs: [metadata, build]
+    if: needs.metadata.outputs.should_upload_workflow_artifacts == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            arch: amd64
+            artifact_suffix: linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            arch: arm64
+            artifact_suffix: linux-aarch64
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download packaging artefact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ env.REPO_NAME }}-packaging-${{ matrix.target }}
+          path: target/${{ matrix.target }}
+
+      - name: Package Linux artefacts
+        uses: >-
+          leynos/shared-actions/.github/actions/linux-packages@22c1a57865e42ba7e2ca4f88ae49fa6f81f58013
+        with:
+          project-dir: .
+          package-name: ${{ needs.metadata.outputs.bin_name }}
+          bin-name: ${{ needs.metadata.outputs.bin_name }}
+          target: ${{ matrix.target }}
+          version: ${{ needs.metadata.outputs.version }}
+          formats: deb,rpm
+          maintainer: Payton McIntosh <pmcintosh@df12.net>
+          license: ISC
+          description: CLI cloud compute instance runner
+          outdir: dist
+          deb-depends: openssh-client, rsync
+          rpm-depends: openssh-clients, rsync
+
+      - name: Clean packaging metadata
+        run: rm -rf dist/.man dist/nfpm.yaml 2>/dev/null || true
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.REPO_NAME }}-packages-${{ matrix.artifact_suffix }}
+          path: dist
+
+  macos-package:
+    name: macos-package (${{ matrix.pkg_arch_suffix }})
+    needs: [metadata, build]
+    if: needs.metadata.outputs.should_upload_workflow_artifacts == 'true'
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            artifact_suffix: x86_64-apple-darwin
+            pkg_arch_suffix: x86_64
+          - runner: macos-15
+            artifact_suffix: aarch64-apple-darwin
+            pkg_arch_suffix: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download packaging artefact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ env.REPO_NAME }}-packaging-${{ matrix.artifact_suffix }}
+          path: staging
+
+      - name: Build macOS installer package
+        id: package_macos
+        uses: >-
+          leynos/shared-actions/.github/actions/macos-package@22c1a57865e42ba7e2ca4f88ae49fa6f81f58013
+        with:
+          name: ${{ needs.metadata.outputs.bin_name }}
+          identifier: net.df12.mriya
+          binary: staging/release/${{ needs.metadata.outputs.bin_name }}
+          license-file: LICENSE
+          version: ${{ needs.metadata.outputs.version }}
+
+      - name: Rename package with architecture suffix
+        run: |
+          mkdir -p dist
+          bin_name="${{ needs.metadata.outputs.bin_name }}"
+          version="${{ needs.metadata.outputs.version }}"
+          mv "${{ steps.package_macos.outputs.pkg-path }}" \
+            "dist/${bin_name}-${version}-macos-${{ matrix.pkg_arch_suffix }}.pkg"
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.REPO_NAME }}-package-macos-${{ matrix.pkg_arch_suffix }}
+          path: dist
+
+  release:
+    if: needs.metadata.outputs.should_publish == 'true'
+    permissions:
+      contents: write
+    needs:
+      - metadata
+      - build
+      - linux-packages
+      - macos-package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+
+      - name: Download all artefacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: ${{ env.REPO_NAME }}-*
+
+      - name: Upload assets to release
+        run: |
+          set -euo pipefail
+          for dir in artifacts/${{ env.REPO_NAME }}-*; do
+            for file in "$dir"/*; do
+              if [ -f "$file" ]; then
+                gh release upload "${{ github.ref_name }}" "$file" --clobber
+              fi
+            done
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

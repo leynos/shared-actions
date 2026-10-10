@@ -1,0 +1,152 @@
+# Provenance: .github/workflows/property-tests.yml at 330f611b (leynos/chutoro main, 2026-10-08).
+# Whole file: proptest-regression uploads.
+name: Property Tests
+
+"on":
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/property-tests.yml"
+      - ".config/nextest.toml"
+      - "chutoro-core/**"
+      - "chutoro-providers/dense/**"
+      - "chutoro-test-support/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  schedule:
+    - cron: "0 2 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  property-tests-pr:
+    if: ${{ github.event_name == 'pull_request' }}
+    # Right-sized on measurement. On `ubicloud-standard-8` the whole "Run
+    # property suite" step, compilation and 250 cases together, measured 21
+    # to 24 seconds across the four suites (run 33852441511), inside jobs of
+    # 51 to 57 seconds. A 15-second compile does not need eight cores, and
+    # the four suites run in parallel off the critical path that
+    # build-test's coverage step defines. Before and after wall times are
+    # recorded in the developers guide.
+    # A pull request from a fork cannot obtain an Ubicloud runner, so it
+    # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    # Keep this above the 600-second HNSW idempotency nextest timeout so setup
+    # and the earlier property tests do not consume the whole job budget.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [hnsw, edge_harvest, mst, dense_simd]
+    env:
+      CARGO_TERM_COLOR: always
+      PROGTEST_CASES: "250"
+      PROPTEST_CASES: "250"
+      CHUTORO_PBT_FORK: "false"
+      PROPTEST_FORK: "false"
+      CHUTORO_HNSW_PBT_MIN_RECALL: "0.60"
+      CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS: "12"
+    steps:
+      - &checkout_step
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # These suites carry no compiler cache. Their whole "Run property
+      # suite" step, compilation and 250 cases together, measures 21 to 24
+      # seconds on run 33852441511, and they run four ways in parallel well
+      # off the critical path that build-test's coverage step defines.
+      # Giving them a cache would mean a second owner: coverage-main.yml
+      # owns the one compiler-cache key in this repository and writes only
+      # the shapes build-test reads, so these suites would need either that
+      # writer to compile their shape too or a second key with a writer of
+      # its own. Installing sccache without either would be worse still,
+      # leaving a server writing to a local directory nothing ever moves.
+      - &setup_rust_step
+        name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@7d751eded578e48dacf43ab173d5820e6437c474
+        with:
+          use-sccache: 'false'
+      # Downloads the pinned nextest release archive and verifies the
+      # SHA-256 recorded in tools/nextest/SHA256SUMS, replacing the former
+      # unpinned binary resolution. The archive is a few megabytes, so a
+      # cache entry would cost more restore and save time than it saves;
+      # the download is deliberately unowned by any cache.
+      - &install_nextest_step
+        name: Install cargo-nextest
+        run: scripts/install-nextest.sh
+      - &run_property_suite_step
+        name: Run property suite
+        run: |
+          set -o pipefail
+          case "${{ matrix.suite }}" in
+            hnsw)
+              cargo nextest run --profile ci -p chutoro-core \
+                hnsw::tests::property::tests::hnsw_search_matches_brute_force_proptest \
+                hnsw::tests::property::tests::hnsw_mutations_preserve_invariants_proptest \
+                hnsw::tests::property::tests::hnsw_idempotency_preserved_proptest \
+                2>&1 | tee /tmp/property-${{ matrix.suite }}.log
+              ;;
+            edge_harvest)
+              cargo nextest run --profile ci -p chutoro-core \
+                hnsw::tests::property::edge_harvest_suite:: \
+                hnsw::tests::property::edge_harvest_output::suite:: \
+                2>&1 | tee /tmp/property-${{ matrix.suite }}.log
+              ;;
+            mst)
+              cargo nextest run --profile ci -p chutoro-core \
+                mst::property::tests:: \
+                2>&1 | tee /tmp/property-${{ matrix.suite }}.log
+              ;;
+            dense_simd)
+              cargo nextest run --profile ci -p chutoro-providers-dense \
+                simd::tests::parity:: \
+                2>&1 | tee /tmp/property-${{ matrix.suite }}.log
+              ;;
+            *)
+              echo "unknown property suite: ${{ matrix.suite }}" >&2
+              exit 1
+              ;;
+          esac
+      - &upload_proptest_regressions_step
+        name: Upload proptest regressions
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: proptest-regressions-${{ matrix.suite }}
+          path: |
+            **/proptest-regressions/**
+            /tmp/property-${{ matrix.suite }}.log
+
+  property-tests-weekly:
+    if: ${{ github.event_name != 'pull_request' }}
+    # Weekly and scheduled work never runs on a paid runner: it is off the
+    # developer feedback path, so it does not benefit from shorter queues
+    # and its long, forked 25,000-case suites would dominate the bill.
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [hnsw, edge_harvest, mst, dense_simd]
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: "1"
+      PROGTEST_CASES: "25000"
+      PROPTEST_CASES: "25000"
+      CHUTORO_PBT_FORK: "true"
+      PROPTEST_FORK: "true"
+      CHUTORO_HNSW_PBT_MIN_RECALL: "0.60"
+      CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS: "12"
+    steps:
+      - *checkout_step
+      - *setup_rust_step
+      - *install_nextest_step
+      - *run_property_suite_step
+      - *upload_proptest_regressions_step

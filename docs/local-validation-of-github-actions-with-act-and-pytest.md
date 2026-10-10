@@ -207,10 +207,10 @@ ACT_WORKFLOW_TESTS=1 sudo -E make test
 
 `ACT_WORKFLOW_TESTS=1` adds the `test-act` target to `make test`, and
 `WITH_ACT=1` is an accepted alias for the same opt-in; either one asks for the
-lane. The harness lane runs first, as a prerequisite rather than as a later line
-of the `test` recipe, so a failure in the regular suite no longer prevents it
-from launching: `make test WITH_ACT=1` still reports the harness result when the
-regular suite fails, and still exits non-zero when either target fails. The
+lane. The harness lane runs first, as a prerequisite rather than as a later
+line of the `test` recipe, so a failure in the regular suite no longer prevents
+it from launching: `make test WITH_ACT=1` still reports the harness result when
+the regular suite fails, and still exits non-zero when either target fails. The
 reverse does not hold: a failing harness lane stops the run before the regular
 suite. When both outcomes are needed and the harness is failing, read the
 earlier `make test` log alongside it, or run the two targets separately

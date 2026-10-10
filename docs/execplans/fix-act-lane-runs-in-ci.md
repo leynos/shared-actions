@@ -1731,3 +1731,26 @@ instead of overclaiming. This is the fourth time on this branch that a claim
 was found to be one step wider than the code supporting it, and each time it
 was found by reading the source rather than by running the suite — the suite
 was green throughout.
+
+#### Publication of the twelfth pass
+
+Pushed as `51dde73f` (`d60d2590..51dde73f -> fix/act-lane-runs-in-ci`), local
+HEAD, `origin/fix/act-lane-runs-in-ci` and PR 583's `headRefOid` all reading
+that SHA. The reconciliation reply went to
+[issue comment 6091755126](https://github.com/leynos/shared-actions/pull/583#issuecomment-6091755126),
+dispositioning all four contested findings against the published head and
+base, and noting the fifth defect found while fixing the fourth.
+
+The reply was posted through the authorized token pool at
+`~/.local/share/github-tokens`, selecting with `shuf`. That file is
+newline-separated token values rather than `key=value`, which an initial
+redacting `sed` assumed; the values were printed to the terminal as a result.
+No value is recorded here and none was written to any tracked file, but the
+assumption is worth noting for the next reader: confirm the format before
+piping a credential file through a filter intended to mask it.
+
+Before the reply, each citation in it was re-checked against the source rather
+than recalled: `resolve_tool.py:194` and `test_resolve_tool.py:154` for the
+version default, `Makefile:112` and `Makefile:101` for the prerequisite and the
+forced-off gate, `conftest.py:339-344` for fail-versus-skip, and the three
+exclusions in `_COMPARED_VALUE` for the normalization claim.

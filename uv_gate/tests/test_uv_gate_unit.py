@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import pathlib
 import stat
+import sys
 import typing as typ
 
 import pytest
@@ -455,6 +456,10 @@ def test_probe_link_paths_turns_an_oserror_into_a_refusal(
         uv_gate.probe_link_paths(tmp_path / "cache", tmp_path / ".venv", tmp_path)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the fake uv is a #! script, which Windows cannot run",
+)
 def test_a_stalled_cache_query_is_a_refusal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

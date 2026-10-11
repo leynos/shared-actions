@@ -22,5 +22,9 @@
       'uv-gate: cache-miss: a required file is not in the uv cache; warming ruff online once.',
       'uv-gate: metric uv-gate.tool=ok',
     ]),
+    'warmed tool for a missing python': list([
+      'uv-gate: missing-python: a managed Python interpreter is not installed and uv is offline; warming ruff online once.',
+      'uv-gate: metric uv-gate.tool=ok',
+    ]),
   })
 # ---

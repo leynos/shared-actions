@@ -533,7 +533,11 @@ def test_only_the_online_recoverable_classes_earn_a_retry() -> None:
     assert expected == uv_gate.ONLINE_RECOVERABLE
 
 
-def test_the_version_is_reported() -> None:
-    """`--version` prints the helper's own version and exits 0."""
-    assert uv_gate.main(["--version"]) == 0
+@pytest.mark.parametrize("flag", ["--version", "-V"])
+def test_the_version_is_reported(flag: str, capsys: pytest.CaptureFixture[str]) -> None:
+    """Either switch prints exactly the helper's version, nothing else, and exits 0."""
+    assert uv_gate.main([flag]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "uv_gate 0.2.0\n"
+    assert captured.err == ""
     assert uv_gate.VERSION == "0.2.0"

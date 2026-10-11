@@ -3537,7 +3537,7 @@ own runner over the network that may be failing.
 ### The retry rule
 
 The helper makes at most one online attempt, and only when uv's output proves a
-missing cache entry:
+missing cache entry or a missing managed Python:
 
 - `prepare` runs `uv sync --locked --offline`. On a `cache-miss`, an
   `offline-resolution` or a `missing-python` failure it runs one

@@ -2,10 +2,13 @@ name: Test install-yaml-lint
 
 on:
   pull_request:
-    # A library-only change cannot affect this lane; see
-    # tests/workflows/test_cv005_contracts_lane.py.
-    paths-ignore:
-      - 'packages/cv005-contracts/**'
+    # The lane downloads real archives, so it runs only when the action, which
+    # embeds every digest, or this workflow changes; a change elsewhere cannot
+    # affect it. A `paths` filter replaces `paths-ignore` here, since a trigger
+    # takes only one of the two.
+    paths:
+      - '.github/actions/install-yaml-lint/**'
+      - '.github/workflows/test-install-yaml-lint.yml'
   workflow_dispatch:
 
 permissions:

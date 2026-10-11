@@ -8,6 +8,7 @@ directory up to the boundary and nothing else.
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import sys
 import tempfile
@@ -90,53 +91,71 @@ _VERSIONS = st.tuples(st.integers(1, 2), st.integers(0, 99)).map(
 )
 
 
-@settings(max_examples=60, deadline=None)
-@given(
+@dataclasses.dataclass(frozen=True)
+class Layout:
+    """A member crate below a checkout, and where a workspace value may sit."""
+
+    depth: list[str]
+    own: str | None
+    inherit: bool
+    shared: str | None
+    shared_level: int
+
+
+_LAYOUTS = st.builds(
+    Layout,
     depth=st.lists(_NAMES, min_size=0, max_size=4),
     own=st.one_of(st.none(), _VERSIONS),
     inherit=st.booleans(),
     shared=st.one_of(st.none(), _VERSIONS),
     shared_level=st.integers(0, 4),
 )
-def test_version_selection_follows_cargo_inheritance(
-    depth: list[str],
-    own: str | None,
-    inherit: bool,  # noqa: FBT001 - a generated decision, not an API flag
-    shared: str | None,
-    shared_level: int,
-) -> None:
+
+
+def _member_key(layout: Layout) -> str:
+    """Return the member's `rust-version` line, or nothing."""
+    if layout.own is not None:
+        return f'rust-version = "{layout.own}"\n'
+    return "rust-version.workspace = true\n" if layout.inherit else ""
+
+
+def _materialise(layout: Layout, boundary: Path) -> tuple[Path, Path | None]:
+    """Write the layout under *boundary*; return the member and workspace manifests."""
+    chain = [boundary]
+    for name in layout.depth:
+        chain.append(chain[-1] / name)
+    member = chain[-1]
+    member.mkdir(parents=True, exist_ok=True)
+    (member / "Cargo.toml").write_text(
+        f'[package]\nname = "m"\n{_member_key(layout)}', encoding="utf-8"
+    )
+    holder = chain[min(layout.shared_level, len(chain) - 1)]
+    if holder == member or layout.shared is None:
+        return member / "Cargo.toml", None
+    (holder / "Cargo.toml").write_text(
+        f'[workspace.package]\nrust-version = "{layout.shared}"\n', encoding="utf-8"
+    )
+    return member / "Cargo.toml", holder / "Cargo.toml"
+
+
+def _expected_version(layout: Layout, workspace: Path | None) -> str | None:
+    """Return what Cargo's rules select: own value, else inherited, else none."""
+    if layout.own is not None:
+        return layout.own
+    return layout.shared if layout.inherit and workspace is not None else None
+
+
+@settings(max_examples=60, deadline=None)
+@given(_LAYOUTS)
+def test_version_selection_follows_cargo_inheritance(layout: Layout) -> None:
     """A direct value wins; a workspace value counts only on explicit inheritance."""
     with tempfile.TemporaryDirectory() as scratch:
         boundary = Path(scratch).resolve()
-        chain = [boundary]
-        for name in depth:
-            chain.append(chain[-1] / name)
-        member = chain[-1]
-        member.mkdir(parents=True, exist_ok=True)
-        key = ""
-        if own is not None:
-            key = f'rust-version = "{own}"\n'
-        elif inherit:
-            key = "rust-version.workspace = true\n"
-        (member / "Cargo.toml").write_text(
-            f'[package]\nname = "m"\n{key}', encoding="utf-8"
-        )
-        holder = chain[min(shared_level, len(chain) - 1)]
-        if holder != member and shared is not None:
-            (holder / "Cargo.toml").write_text(
-                f'[workspace.package]\nrust-version = "{shared}"\n', encoding="utf-8"
-            )
-        expected = (
-            own
-            if own is not None
-            else (
-                shared if inherit and holder != member and shared is not None else None
-            )
-        )
+        manifest, workspace = _materialise(layout, boundary)
 
         try:
-            found = msrv_check.read_rust_version(member / "Cargo.toml", boundary)
+            found = msrv_check.read_rust_version(manifest, boundary)
         except msrv_check.MsrvError:
             found = None
 
-        assert found == expected, (found, expected, own, inherit, shared, shared_level)
+        assert found == _expected_version(layout, workspace), (found, layout)

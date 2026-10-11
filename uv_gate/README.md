@@ -23,11 +23,11 @@ test: prepare
 	$(UV_GATE) run --group dev -- pytest -q
 ```
 
-| Command                                         | Runs                                   | Network                                                                           |
-| ----------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------- |
-| `prepare [UV_SYNC_ARGS...]`                     | `uv sync --locked --offline`           | One `uv sync --locked`, only after a `cache-miss` or `offline-resolution` failure |
-| `run [UV_RUN_ARGS...] -- COMMAND...`            | `uv run --frozen --offline COMMAND...` | Never                                                                             |
-| `tool [--from SPEC] [ARGS...] -- EXECUTABLE...` | `uv tool run --offline ...`            | One warming run, only after one of those two failures                             |
+| Command                                         | Runs                                   | Network                                                                                             |
+| ----------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `prepare [UV_SYNC_ARGS...]`                     | `uv sync --locked --offline`           | One `uv sync --locked`, only after a `cache-miss`, `offline-resolution` or `missing-python` failure |
+| `run [UV_RUN_ARGS...] -- COMMAND...`            | `uv run --frozen --offline COMMAND...` | Never                                                                                               |
+| `tool [--from SPEC] [ARGS...] -- EXECUTABLE...` | `uv tool run --offline ...`            | One warming run, only after one of those three failures                                             |
 
 Pass the same groups, extras and Python version to `prepare` and to every `run`.
 `tool` refuses a spec that is not pinned: use `name==VERSION`, `name@VERSION`
@@ -64,6 +64,7 @@ own; the helper's own refusals exit with status 2.
 | -------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `cache-miss`         | A required file is not in the cache (offline)                                           | `prepare` and `tool`: one online run                                  |
 | `offline-resolution` | Offline resolution needs uncached data; a stale lock looks the same offline             | `prepare` and `tool`: one online run, which then names the real cause |
+| `missing-python`     | A managed Python download is available, but uv is offline (uv names both)               | `prepare` and `tool`: one online run, which downloads it              |
 | `stale-lock`         | `uv.lock` is out of date                                                                | No. Run `uv lock` yourself and commit it                              |
 | `missing-lock`       | No `uv.lock`                                                                            | No                                                                    |
 | `missing-package`    | A package or version is not in the registry                                             | No                                                                    |

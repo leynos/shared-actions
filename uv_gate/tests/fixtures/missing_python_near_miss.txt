@@ -1,0 +1,1 @@
+error: No interpreter found for PyPy 3.12 in managed installations

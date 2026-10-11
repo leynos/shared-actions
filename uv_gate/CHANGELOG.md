@@ -4,6 +4,19 @@ All notable changes to `uv_gate` will be documented in this file.
 
 ## Unreleased
 
+## 0.2.0
+
+- Add the `missing-python` failure class: uv reports "No interpreter found for
+  … in managed installations" with the hint "A managed Python download is
+  available for …, but uv is set to offline mode" when an interpreter such as
+  PyPy has not been downloaded yet. Both lines are required, so the header
+  alone stays `unknown`. `prepare` and `tool` make their one online attempt for
+  it, which downloads the interpreter; `run` still never goes online. Add
+  `--version` and `VERSION`. Found in the cmd-mox pilot, whose CI runner had no
+  managed PyPy.
+
+## 0.1.0
+
 - Add `uv_gate.py`: a stdlib-only helper with `prepare`, `run` and `tool`
   commands implementing the uv robust-execution procedure (cleaned environment,
   global cache, copy mode across filesystems, offline gates, one bounded online

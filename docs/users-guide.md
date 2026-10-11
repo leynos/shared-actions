@@ -641,11 +641,11 @@ lint:
 ```
 
 - `prepare` runs `uv sync --locked --offline`, and makes one online
-  `uv sync --locked` only after a `cache-miss` or an `offline-resolution`
-  failure.
+  `uv sync --locked` only after a `cache-miss`, an `offline-resolution` or a
+  `missing-python` failure.
 - `run` runs `uv run --frozen --offline` and never goes online.
 - `tool` runs a pinned tool with `uv tool run --offline`, warming it online
-  once after one of the same two failures. The spec must be `name==VERSION`,
+  once after one of the same three failures. The spec must be `name==VERSION`,
   `name@VERSION` or `git+URL@<full 40-character commit SHA>`.
 - Set `UV_GATE_ALLOW_ONLINE=0` to forbid the online step entirely.
 - The helper refuses (exit status 2) any `--refresh*`, `--upgrade*` or

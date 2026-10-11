@@ -306,3 +306,19 @@ def test_an_unreadable_manifest_is_a_named_error(
 
     assert status == 1, harness.calls()
     assert "cannot be read" in capsys.readouterr().err
+
+
+def test_a_manifest_outside_the_checkout_is_refused(
+    harness: Harness, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Removal walks up from the manifest, so the manifest must be inside."""
+    _write(tmp_path, "elsewhere/Cargo.toml", '[package]\nrust-version = "1.86"\n')
+    _write(tmp_path, "elsewhere/.cargo/config.toml", "[build]\n")
+    harness.env["INPUT_MANIFEST_PATH"] = str(tmp_path / "elsewhere" / "Cargo.toml")
+
+    status = msrv_check.main(harness.env)
+
+    assert status == 1, harness.calls()
+    assert harness.calls() == [], harness.calls()
+    assert (tmp_path / "elsewhere" / ".cargo" / "config.toml").exists()
+    assert "outside the checkout" in capsys.readouterr().err

@@ -12,12 +12,12 @@ job.
 
 ## Inputs
 
-| Name                | Description                                                   | Required | Default                         |
-| ------------------- | ------------------------------------------------------------- | -------- | ------------------------------- |
-| `manifest-path`     | Cargo.toml that declares `rust-version`, relative to the root | no       | `Cargo.toml`                    |
-| `working-directory` | Directory the check runs in                                   | no       | `.`                             |
-| `cargo-args`        | Arguments for `cargo check`                                   | no       | `--lib --locked --all-features` |
-| `keep-cargo-config` | Keep the repository's `.cargo/config.toml`                    | no       | `false`                         |
+| Name                | Type   | Required | Default                         | Description                                                           |
+| ------------------- | ------ | -------- | ------------------------------- | --------------------------------------------------------------------- |
+| `manifest-path`     | string | no       | `Cargo.toml`                    | Cargo.toml that declares `rust-version`, inside the checkout          |
+| `working-directory` | string | no       | `.`                             | Directory the check runs in                                           |
+| `cargo-args`        | string | no       | `--lib --locked --all-features` | Arguments for `cargo check`, split with shell quoting rules           |
+| `keep-cargo-config` | string | no       | `false`                         | Keep the repository's `.cargo/config.toml` (`true`, `1`, `yes`, `on`) |
 
 ## Outputs
 
@@ -28,9 +28,9 @@ job.
 ## Behaviour
 
 - A manifest with no `rust-version`, directly or through its workspace
-  (`rust-version.workspace = true` resolves from the nearest enclosing
-  `[workspace.package]`), fails the job with a named error before any toolchain
-  is installed.
+  (a member inherits the workspace value only when it writes
+  `rust-version.workspace = true`, as Cargo does), fails the job with a named
+  error before any toolchain is installed.
 - By default the action drops `.cargo/config.toml` (and the legacy
   `.cargo/config`) from the **runner's checkout** for this job and sets an empty
   `RUSTFLAGS`. A development config usually names nightly-only keys such as a
@@ -67,3 +67,7 @@ For a workspace, name the member and the packages:
 
 The `concordat` rule `rust-toolchain-policy` (RT-026) recognizes a step that
 uses this action as exercising the declared MSRV.
+
+## Release history
+
+See [CHANGELOG](CHANGELOG.md).

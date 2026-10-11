@@ -212,7 +212,8 @@ def read_settings(env: dict[str, str]) -> Settings:
     Raises
     ------
     MsrvError
-        If `cargo-args` has unbalanced quotes.
+        If `cargo-args` has unbalanced quotes, or the manifest lies outside the
+        checkout (removal walks up from the manifest, so it must stay inside).
     """
     root = Path(env.get("INPUT_WORKING_DIRECTORY") or ".").resolve()
     workspace = (
@@ -225,10 +226,14 @@ def read_settings(env: dict[str, str]) -> Settings:
         message = f"cargo-args is not valid shell quoting: {error}"
         raise MsrvError(message) from error
     keep = (env.get("INPUT_KEEP_CARGO_CONFIG") or "false").strip().lower()
+    manifest = (root / (env.get("INPUT_MANIFEST_PATH") or "Cargo.toml")).resolve()
+    if boundary not in (manifest, *manifest.parents):
+        message = f"manifest-path {manifest} is outside the checkout {boundary}"
+        raise MsrvError(message)
     return Settings(
         root=root,
         boundary=boundary,
-        manifest=(root / (env.get("INPUT_MANIFEST_PATH") or "Cargo.toml")).resolve(),
+        manifest=manifest,
         cargo_args=cargo_args,
         keep_config=keep in TRUTHY,
     )

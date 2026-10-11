@@ -80,6 +80,7 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ("test-generate-coverage.yml", "test-generate-coverage-out-no-suffix"): "coverage",
     ("test-install-mdtablefix.yml", "install-mdtablefix"): "install",
     ("test-install-mdtablefix.yml", "install-mdtablefix-no-prebuilt"): "install",
+    ("test-install-yaml-lint.yml", "install-yaml-lint"): "install",
     ("test-install-makeutil.yml", "install-makeutil"): "install",
     ("test-install-makeutil.yml", "install-makeutil-cache-restore"): "install",
     ("test-install-makeutil.yml", "install-makeutil-digest-mismatch"): "install",

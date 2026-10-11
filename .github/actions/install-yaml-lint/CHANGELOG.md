@@ -9,3 +9,6 @@
   mismatches fail closed.
 - Reuse a version-scoped cache directory when both binaries already report the
   pinned versions.
+- Put the verified release directory after uv's on `PATH`, so it takes
+  precedence over any other `actionlint` or `shellcheck`.
+- Emit bounded cache and result metrics for each installation decision.

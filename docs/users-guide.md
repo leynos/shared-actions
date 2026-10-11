@@ -1562,7 +1562,7 @@ other platform fails closed.
 
 ```yaml
 - name: Install YAML lint tools
-  uses: leynos/shared-actions/.github/actions/install-yaml-lint@<SHA>
+  uses: leynos/shared-actions/.github/actions/install-yaml-lint@<40-hex-commit-sha>
 
 - name: Lint
   run: make lint

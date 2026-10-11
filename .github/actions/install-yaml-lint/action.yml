@@ -21,13 +21,24 @@ runs:
         actionlint_version="1.7.12"
         shellcheck_version="0.11.0"
 
+        # Emitted to the log for a scraper and to the summary for a reader.
+        # The values are a fixed vocabulary, never the tool's own output.
+        emit_metric() {
+          echo "metric $1"
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "metric $1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+
         fail() {
+          emit_metric "install-yaml-lint.result=$2"
           echo "::error title=Install YAML lint tools::$1" >&2
           exit 1
         }
 
         for required in uv curl tar install; do
-          command -v "$required" >/dev/null 2>&1 || fail "${required} is required on PATH"
+          command -v "$required" >/dev/null 2>&1 ||
+            fail "${required} is required on PATH" missing-prerequisite
         done
 
         sha256_of() {
@@ -67,7 +78,7 @@ runs:
             shellcheck_sha256="56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79"
             ;;
           *)
-            fail "no verified release is configured for ${RUNNER_OS:-unknown}/${RUNNER_ARCH:-unknown}"
+            fail "no verified release is configured for ${RUNNER_OS:-unknown}/${RUNNER_ARCH:-unknown}" unsupported-platform
             ;;
         esac
 
@@ -84,16 +95,16 @@ runs:
           curl --connect-timeout 15 --max-time 120 --retry 3 --retry-delay 2 \
             --retry-max-time 180 --fail --location --silent --show-error \
             --proto '=https' --tlsv1.2 --output "${temporary_dir}/${asset}" "$url" ||
-            fail "could not download ${asset}"
+            fail "could not download ${asset}" download-failed
           actual="$(sha256_of "${temporary_dir}/${asset}")"
           if [[ "$actual" != "$expected" ]]; then
-            fail "checksum mismatch for ${asset}: expected ${expected}, received ${actual}"
+            fail "checksum mismatch for ${asset}: expected ${expected}, received ${actual}" digest-mismatch
           fi
           mkdir -p -- "${temporary_dir}/${target}"
           tar -xf "${temporary_dir}/${asset}" -C "${temporary_dir}/${target}" ||
-            fail "could not extract ${asset}"
+            fail "could not extract ${asset}" extract-failed
           [[ -f "${temporary_dir}/${target}/${member}" ]] ||
-            fail "${member} is not in ${asset}"
+            fail "${member} is not in ${asset}" missing-member
           install -m 0755 "${temporary_dir}/${target}/${member}" "${bin_dir}/${target}"
         }
 
@@ -103,27 +114,38 @@ runs:
           [[ "$reported" == *"$2"* ]]
         }
 
-        if ! reports "${bin_dir}/actionlint" "${actionlint_version}" -version; then
+        if reports "${bin_dir}/actionlint" "${actionlint_version}" -version; then
+          emit_metric "install-yaml-lint.actionlint=cache-hit"
+        else
+          emit_metric "install-yaml-lint.actionlint=install"
           install_release \
             "https://github.com/rhysd/actionlint/releases/download/v${actionlint_version}/${actionlint_asset}" \
             "$actionlint_asset" "$actionlint_sha256" actionlint actionlint
         fi
-        if ! reports "${bin_dir}/shellcheck" "version: ${shellcheck_version}" --version; then
+        if reports "${bin_dir}/shellcheck" "version: ${shellcheck_version}" --version; then
+          emit_metric "install-yaml-lint.shellcheck=cache-hit"
+        else
+          emit_metric "install-yaml-lint.shellcheck=install"
           install_release \
             "https://github.com/koalaman/shellcheck/releases/download/v${shellcheck_version}/${shellcheck_asset}" \
             "$shellcheck_asset" "$shellcheck_sha256" "shellcheck-v${shellcheck_version}/shellcheck" shellcheck
         fi
 
-        uv tool install "yamllint==${yamllint_version}"
+        uv tool install "yamllint==${yamllint_version}" ||
+          fail "uv could not install yamllint==${yamllint_version}" uv-install-failed
         uv_bin_dir="$(uv tool dir --bin)" || exit $?
 
-        printf '%s\n' "${bin_dir}" >> "${GITHUB_PATH}"
+        # The runner prepends each GITHUB_PATH line, so the later one wins: the
+        # verified release directory goes last, so an actionlint or shellcheck
+        # that happens to sit in uv's directory cannot shadow the verified one.
         printf '%s\n' "${uv_bin_dir}" >> "${GITHUB_PATH}"
+        printf '%s\n' "${bin_dir}" >> "${GITHUB_PATH}"
 
         # The last word is the installed binary's own.
         reports "${bin_dir}/actionlint" "${actionlint_version}" -version ||
-          fail "actionlint ${actionlint_version} did not report its version"
+          fail "actionlint ${actionlint_version} did not report its version" version-mismatch
         reports "${bin_dir}/shellcheck" "version: ${shellcheck_version}" --version ||
-          fail "shellcheck ${shellcheck_version} did not report its version"
+          fail "shellcheck ${shellcheck_version} did not report its version" version-mismatch
         reports "${uv_bin_dir}/yamllint" "yamllint ${yamllint_version}" --version ||
-          fail "yamllint ${yamllint_version} did not report its version"
+          fail "yamllint ${yamllint_version} did not report its version" version-mismatch
+        emit_metric "install-yaml-lint.result=ok"

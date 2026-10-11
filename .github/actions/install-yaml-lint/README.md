@@ -39,16 +39,42 @@ anything. The runner must provide `uv`, `curl`, `tar` and `install`, and
 
 ## Usage
 
+From this repository, check it out and reference the action by path:
+
 ```yaml
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  with:
+    persist-credentials: false
+
 - name: Install YAML lint tools
-  uses: leynos/shared-actions/.github/actions/install-yaml-lint@<SHA>
+  uses: ./.github/actions/install-yaml-lint
 
 - name: Lint
   run: make lint
 ```
 
+From another repository, reference the action by the full 40-character commit
+SHA of the shared-actions revision to use; a tag or branch is not accepted by
+the Concordat `yaml-lint-baseline` rule:
+
+```yaml
+- name: Install YAML lint tools
+  uses: leynos/shared-actions/.github/actions/install-yaml-lint@<40-hex-commit-sha>
+```
+
 The step must precede the one that runs `make lint`, which then finds
-`yamllint` and `actionlint` on `PATH`.
+`yamllint` and `actionlint` on `PATH`. The verified release directory is added
+to `PATH` after uv's, so it wins over any other `actionlint` or `shellcheck`.
+
+## Metrics
+
+The action logs, and writes to the step summary, one bounded line per decision:
+`install-yaml-lint.actionlint` and `install-yaml-lint.shellcheck` are
+`cache-hit` or `install`, and `install-yaml-lint.result` is `ok`,
+`missing-prerequisite`, `unsupported-platform`, `download-failed`,
+`digest-mismatch`, `extract-failed`, `missing-member`, `uv-install-failed` or
+`version-mismatch`. The values are a fixed vocabulary, never a tool's own
+output.
 
 ## Release history
 

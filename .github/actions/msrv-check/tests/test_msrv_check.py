@@ -322,3 +322,81 @@ def test_a_manifest_outside_the_checkout_is_refused(
     assert harness.calls() == [], harness.calls()
     assert (tmp_path / "elsewhere" / ".cargo" / "config.toml").exists()
     assert "outside the checkout" in capsys.readouterr().err
+
+
+def test_a_failing_phase_is_annotated_with_its_status(
+    harness: Harness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The install and the check each name themselves and their exit status."""
+    _write(harness.root, "Cargo.toml", '[package]\nname = "x"\nrust-version = "1.86"\n')
+    harness.env["STUB_RUSTUP_EXIT"] = "4"
+    msrv_check.main(harness.env)
+    assert "install 1.86 failed with exit status 4" in capsys.readouterr().err
+
+    harness.env["STUB_RUSTUP_EXIT"] = "0"
+    harness.env["STUB_CARGO_EXIT"] = "3"
+    msrv_check.main(harness.env)
+    assert "cargo +1.86 check failed with exit status 3" in capsys.readouterr().err
+
+
+def test_a_missing_toolchain_command_is_a_named_error(
+    harness: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A runner without rustup fails by name instead of raising."""
+    _write(harness.root, "Cargo.toml", '[package]\nname = "x"\nrust-version = "1.86"\n')
+    harness.env["PATH"] = str(harness.root / "empty")
+    monkeypatch.setenv("PATH", str(harness.root / "empty"))
+
+    status = msrv_check.main(harness.env)
+
+    assert status == 1, harness.calls()
+    assert "cannot start install 1.86" in capsys.readouterr().err
+
+
+def test_an_unwritable_output_file_is_a_named_error(
+    harness: Harness, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A GITHUB_OUTPUT that cannot be appended to is reported, not raised."""
+    _write(harness.root, "Cargo.toml", '[package]\nname = "x"\nrust-version = "1.86"\n')
+    harness.env["GITHUB_OUTPUT"] = str(tmp_path / "no-such-dir" / "output")
+
+    status = msrv_check.main(harness.env)
+
+    assert status == 1, harness.calls()
+    assert harness.calls() == [], harness.calls()
+    assert "cannot write the msrv output" in capsys.readouterr().err
+
+
+def test_a_config_that_cannot_be_removed_is_a_named_error(
+    harness: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A refusal to unlink the config is reported, and nothing is installed."""
+    _write(harness.root, "Cargo.toml", '[package]\nname = "x"\nrust-version = "1.86"\n')
+    _write(harness.root, ".cargo/config.toml", "[build]\n")
+
+    def refuse(self: Path, *, missing_ok: bool = False) -> None:
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "unlink", refuse)
+
+    status = msrv_check.main(harness.env)
+
+    assert status == 1, harness.calls()
+    assert harness.calls() == [], harness.calls()
+    assert "cannot remove" in capsys.readouterr().err
+
+
+def test_a_non_utf8_manifest_is_a_named_error(
+    harness: Harness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Bytes that are not UTF-8 are reported as an unreadable manifest."""
+    (harness.root / "Cargo.toml").write_bytes(b'[package]\nname = "\xff\xfe"\n')
+
+    status = msrv_check.main(harness.env)
+
+    assert status == 1, harness.calls()
+    assert "cannot be read" in capsys.readouterr().err

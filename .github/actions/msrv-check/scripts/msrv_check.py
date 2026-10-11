@@ -161,6 +161,11 @@ def drop_cargo_config(start: Path, boundary: Path) -> list[Path]:
     -------
     list[Path]
         The files removed, from *start* upward.
+
+    Raises
+    ------
+    MsrvError
+        If a config file cannot be removed.
     """
     removed = [
         path
@@ -169,7 +174,11 @@ def drop_cargo_config(start: Path, boundary: Path) -> list[Path]:
         if (path := directory / name).is_file()
     ]
     for path in removed:
-        path.unlink()
+        try:
+            path.unlink()
+        except OSError as error:
+            message = f"cannot remove {path}: {error}"
+            raise MsrvError(message) from error
     return removed
 
 
@@ -177,11 +186,28 @@ def _run(command: list[str], env: dict[str, str], cwd: Path, label: str) -> int:
     """Run *command* and return its exit status.
 
     The log names *label*, not the command line: the cargo arguments come from
-    a caller-controlled input and are not echoed.
+    a caller-controlled input and are not echoed. A non-zero status is
+    annotated with the phase that failed.
+
+    Raises
+    ------
+    MsrvError
+        If the command cannot be started (for example, `rustup` is missing).
     """
     print(f"+ {label}", flush=True)
-    # Stdlib only: the job runs on the runner's python3 with no plumbum install.
-    return subprocess.run(command, env=env, cwd=cwd, check=False).returncode  # noqa: TID251, S603
+    try:
+        # Stdlib only: the job runs on the runner's python3, with no plumbum.
+        status = subprocess.run(command, env=env, cwd=cwd, check=False).returncode  # noqa: TID251, S603
+    except OSError as error:
+        message = f"cannot start {label}: {error}"
+        raise MsrvError(message) from error
+    if status != 0:
+        print(
+            f"::error title=msrv-check::{label} failed with exit status {status}",
+            file=sys.stderr,
+            flush=True,
+        )
+    return status
 
 
 class Settings(typ.NamedTuple):
@@ -266,11 +292,40 @@ def _prepare(settings: Settings, env: dict[str, str]) -> None:
 
 
 def _publish_version(env: dict[str, str], version: str) -> None:
-    """Write the `msrv` output when the runner provides an output file."""
+    """Write the `msrv` output when the runner provides an output file.
+
+    Raises
+    ------
+    MsrvError
+        If the output file cannot be written.
+    """
     output = env.get("GITHUB_OUTPUT")
-    if output:
+    if not output:
+        return
+    try:
         with Path(output).open("a", encoding="utf-8") as handle:
             handle.write(f"msrv={version}\n")
+    except OSError as error:
+        message = f"cannot write the msrv output to {output}: {error}"
+        raise MsrvError(message) from error
+
+
+def _check(env: dict[str, str]) -> int:
+    """Run the pipeline; raise `MsrvError` for anything the job should name."""
+    settings = read_settings(env)
+    version = read_rust_version(settings.manifest, settings.boundary)
+    _prepare(settings, env)
+    _publish_version(env, version)
+    install = ["rustup", "toolchain", "install", version, "--profile", "minimal"]
+    status = _run(
+        [*install, "--no-self-update"], env, settings.root, f"install {version}"
+    )
+    if status != 0:
+        return status
+    check = ["cargo", f"+{version}", "check", f"--manifest-path={settings.manifest}"]
+    return _run(
+        [*check, *settings.cargo_args], env, settings.root, f"cargo +{version} check"
+    )
 
 
 def main(environ: dict[str, str] | None = None) -> int:
@@ -285,28 +340,16 @@ def main(environ: dict[str, str] | None = None) -> int:
     Returns
     -------
     int
-        0 when the crate builds on its MSRV; 1 for an input or manifest error;
+        0 when the crate builds on its MSRV; 1 for an input, manifest or
+        filesystem error, or a toolchain command that cannot be started;
         otherwise the failing toolchain command's exit status.
     """
     env = dict(os.environ if environ is None else environ)
     try:
-        settings = read_settings(env)
-        version = read_rust_version(settings.manifest, settings.boundary)
+        return _check(env)
     except MsrvError as error:
         print(f"::error title=msrv-check::{error}", file=sys.stderr, flush=True)
         return 1
-    _prepare(settings, env)
-    _publish_version(env, version)
-    install = ["rustup", "toolchain", "install", version, "--profile", "minimal"]
-    status = _run(
-        [*install, "--no-self-update"], env, settings.root, f"install {version}"
-    )
-    if status != 0:
-        return status
-    check = ["cargo", f"+{version}", "check", f"--manifest-path={settings.manifest}"]
-    return _run(
-        [*check, *settings.cargo_args], env, settings.root, f"cargo +{version} check"
-    )
 
 
 if __name__ == "__main__":

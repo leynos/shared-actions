@@ -83,3 +83,60 @@ def test_the_directory_walk_ends_at_the_boundary(depth: list[str]) -> None:
     assert walk[-1] == boundary, walk
     assert len(walk) == len(depth) + 1, walk
     assert all(a.parent == b for a, b in itertools.pairwise(walk)), walk
+
+
+_VERSIONS = st.tuples(st.integers(1, 2), st.integers(0, 99)).map(
+    lambda pair: f"{pair[0]}.{pair[1]}"
+)
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    depth=st.lists(_NAMES, min_size=0, max_size=4),
+    own=st.one_of(st.none(), _VERSIONS),
+    inherit=st.booleans(),
+    shared=st.one_of(st.none(), _VERSIONS),
+    shared_level=st.integers(0, 4),
+)
+def test_version_selection_follows_cargo_inheritance(
+    depth: list[str],
+    own: str | None,
+    inherit: bool,  # noqa: FBT001 - a generated decision, not an API flag
+    shared: str | None,
+    shared_level: int,
+) -> None:
+    """A direct value wins; a workspace value counts only on explicit inheritance."""
+    with tempfile.TemporaryDirectory() as scratch:
+        boundary = Path(scratch).resolve()
+        chain = [boundary]
+        for name in depth:
+            chain.append(chain[-1] / name)
+        member = chain[-1]
+        member.mkdir(parents=True, exist_ok=True)
+        key = ""
+        if own is not None:
+            key = f'rust-version = "{own}"\n'
+        elif inherit:
+            key = "rust-version.workspace = true\n"
+        (member / "Cargo.toml").write_text(
+            f'[package]\nname = "m"\n{key}', encoding="utf-8"
+        )
+        holder = chain[min(shared_level, len(chain) - 1)]
+        if holder != member and shared is not None:
+            (holder / "Cargo.toml").write_text(
+                f'[workspace.package]\nrust-version = "{shared}"\n', encoding="utf-8"
+            )
+        expected = (
+            own
+            if own is not None
+            else (
+                shared if inherit and holder != member and shared is not None else None
+            )
+        )
+
+        try:
+            found = msrv_check.read_rust_version(member / "Cargo.toml", boundary)
+        except msrv_check.MsrvError:
+            found = None
+
+        assert found == expected, (found, expected, own, inherit, shared, shared_level)

@@ -65,5 +65,5 @@ For a workspace, name the member and the packages:
     cargo-args: -p core --lib --locked --all-features
 ```
 
-The `concordat` rule `rust-toolchain-policy` (RT-026) recognises a step that
+The `concordat` rule `rust-toolchain-policy` (RT-026) recognizes a step that
 uses this action as exercising the declared MSRV.

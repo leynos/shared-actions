@@ -15,6 +15,11 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the stubs are POSIX shell scripts and the action runs on Linux",
+)
+
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 

@@ -25,9 +25,11 @@ import os
 import subprocess
 import sys
 import tomllib
+import typing as typ
 from pathlib import Path
 
 TRUTHY = frozenset({"true", "1", "yes", "on"})
+DEFAULT_ARGS = "--lib --locked --all-features"
 CONFIG_FILES = (".cargo/config.toml", ".cargo/config")
 
 
@@ -117,51 +119,64 @@ def _run(command: list[str], env: dict[str, str], cwd: Path) -> int:
     return subprocess.run(command, env=env, cwd=cwd, check=False).returncode  # noqa: TID251, S603
 
 
-def main(environ: dict[str, str] | None = None) -> int:
-    """Run the check; return the process exit status."""
-    env = dict(os.environ if environ is None else environ)
+class Settings(typ.NamedTuple):
+    """The action's inputs, resolved against their defaults."""
+
+    root: Path
+    manifest: Path
+    cargo_args: list[str]
+    keep_config: bool
+
+
+def read_settings(env: dict[str, str]) -> Settings:
+    """Resolve the action inputs from *env*."""
     root = Path(env.get("INPUT_WORKING_DIRECTORY") or ".").resolve()
-    manifest = (root / (env.get("INPUT_MANIFEST_PATH") or "Cargo.toml")).resolve()
-    cargo_args = (
-        env.get("INPUT_CARGO_ARGS") or "--lib --locked --all-features"
-    ).split()
-    keep = (env.get("INPUT_KEEP_CARGO_CONFIG") or "false").strip().lower() in TRUTHY
-    try:
-        version = read_rust_version(manifest, root)
-    except MsrvError as error:
-        print(f"::error title=msrv-check::{error}", file=sys.stderr, flush=True)
-        return 1
-    if not keep:
-        for path in drop_cargo_config(root, manifest):
-            print(
-                f"::notice title=msrv-check::dropped {path} from the runner checkout",
-                flush=True,
-            )
-        env["RUSTFLAGS"] = ""
+    keep = (env.get("INPUT_KEEP_CARGO_CONFIG") or "false").strip().lower()
+    return Settings(
+        root=root,
+        manifest=(root / (env.get("INPUT_MANIFEST_PATH") or "Cargo.toml")).resolve(),
+        cargo_args=(env.get("INPUT_CARGO_ARGS") or DEFAULT_ARGS).split(),
+        keep_config=keep in TRUTHY,
+    )
+
+
+def _prepare(settings: Settings, env: dict[str, str]) -> None:
+    """Drop the cargo config and empty RUSTFLAGS unless the config is kept."""
+    if settings.keep_config:
+        return
+    for path in drop_cargo_config(settings.root, settings.manifest):
+        print(
+            f"::notice title=msrv-check::dropped {path} from the runner checkout",
+            flush=True,
+        )
+    env["RUSTFLAGS"] = ""
+
+
+def _publish_version(env: dict[str, str], version: str) -> None:
+    """Write the `msrv` output when the runner provides an output file."""
     output = env.get("GITHUB_OUTPUT")
     if output:
         with Path(output).open("a", encoding="utf-8") as handle:
             handle.write(f"msrv={version}\n")
-    status = _run(
-        [
-            "rustup",
-            "toolchain",
-            "install",
-            version,
-            "--profile",
-            "minimal",
-            "--no-self-update",
-        ],
-        env,
-        root,
-    )
+
+
+def main(environ: dict[str, str] | None = None) -> int:
+    """Run the check; return the process exit status."""
+    env = dict(os.environ if environ is None else environ)
+    settings = read_settings(env)
+    try:
+        version = read_rust_version(settings.manifest, settings.root)
+    except MsrvError as error:
+        print(f"::error title=msrv-check::{error}", file=sys.stderr, flush=True)
+        return 1
+    _prepare(settings, env)
+    _publish_version(env, version)
+    install = ["rustup", "toolchain", "install", version, "--profile", "minimal"]
+    status = _run([*install, "--no-self-update"], env, settings.root)
     if status != 0:
         return status
-    return _run(
-        ["cargo", f"+{version}", "check", f"--manifest-path={manifest}", *cargo_args],
-        env,
-        root,
-    )
+    check = ["cargo", f"+{version}", "check", f"--manifest-path={settings.manifest}"]
+    return _run([*check, *settings.cargo_args], env, settings.root)
 
 
 if __name__ == "__main__":

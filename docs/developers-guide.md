@@ -947,6 +947,51 @@ every later step still receives the native path. The tests in
 stub `cygpath` and the resolve script and assert on the value the script
 received.
 
+## `msrv-check` action contract
+
+`msrv-check` is a composite action around one standard-library Python script,
+`scripts/msrv_check.py`. It has no Python dependencies, so a calling job needs
+no `uv` or `pip` step; it runs on the runner's `python3` (3.11 or newer, for
+`tomllib`). The repository's lint bans `subprocess.run` in favour of `plumbum`;
+the script keeps its one call with a justified `noqa` for that reason.
+
+The script is a pipeline of four small steps, each separately tested:
+
+1. `read_settings` resolves the inputs. The checkout boundary is
+   `GITHUB_WORKSPACE` when it is an ancestor of `working-directory`, otherwise
+   `working-directory` itself. `cargo-args` is split with `shlex`, so quoted
+   values keep their grouping, and unbalanced quotes are an input error.
+2. `read_rust_version` reads the manifest. A member inherits the workspace value
+   only when it writes `rust-version.workspace = true`, as Cargo does; a member
+   that omits the key declares no MSRV even when its workspace defines one. The
+   workspace search walks from the manifest's directory up to the boundary.
+3. `drop_cargo_config` removes `.cargo/config.toml` and `.cargo/config` from the
+   manifest's directory up to the boundary, because Cargo reads the config of
+   every parent directory. Nothing above the boundary is touched, and nothing
+   is committed: the files are removed from the runner's checkout for this job
+   only. `RUSTFLAGS` is set empty and `CARGO_ENCODED_RUSTFLAGS` is removed,
+   since Cargo reads the encoded form first. `keep-cargo-config: true` skips
+   both.
+4. `main` installs the toolchain with `rustup` and runs
+   `cargo +<version> check`. `cargo +<version>` selects the toolchain over any
+   `rust-toolchain.toml`, so that file is not removed.
+
+Every anticipated failure (a missing, unreadable or invalid manifest, a missing
+`rust-version`, an inherited value the workspace lacks, malformed `cargo-args`)
+is a `MsrvError`, which `main` reports as an error annotation and exit status
+one. A failing `rustup` or `cargo` returns that command's own status. The job
+log names the step, not the command line, because the cargo arguments come from
+a caller-controlled input.
+
+The unit tests drive the script over stub `rustup` and `cargo` commands that
+record their arguments, `RUSTFLAGS` and `CARGO_ENCODED_RUSTFLAGS`, and skip on
+Windows because the stubs are POSIX shell scripts. A Hypothesis property checks
+that removal takes exactly the configs on the path from the start to the
+boundary. `.github/workflows/test-msrv-check.yml` is the real-run lane: it runs
+the action on a fixture crate whose `.cargo/config.toml` names a codegen
+backend, which a stable Cargo rejects outright, so the lane passes only if the
+config is dropped.
+
 ## `export-ubicloud-cache-credentials` action contract
 
 A GitHub Actions runner exposes `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`

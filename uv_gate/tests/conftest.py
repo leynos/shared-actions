@@ -22,7 +22,7 @@ _GATE_DIR = Path(__file__).resolve().parents[1]
 if str(_GATE_DIR) not in sys.path:
     sys.path.insert(0, str(_GATE_DIR))
 
-from _harness import Harness  # noqa: E402
+from _harness import Harness
 
 collect_ignore_glob = ["test_blackbox*.py"] if sys.platform == "win32" else []
 

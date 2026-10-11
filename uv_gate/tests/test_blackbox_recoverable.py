@@ -19,23 +19,60 @@ from _harness import (
     rule,
 )
 
+RECOVERABLE = [
+    ("missing_python", "missing-python"),
+    ("missing_git_source", "missing-git-source"),
+]
 
-def test_prepare_missing_python_goes_online_exactly_once(harness: Harness) -> None:
-    """A managed interpreter that needs a download earns one online sync."""
-    result = harness.run(["prepare"], offline_then_online("missing_python"))
+
+@pytest.mark.parametrize(("fixture", "label"), RECOVERABLE)
+def test_prepare_goes_online_exactly_once(
+    harness: Harness, fixture: str, label: str
+) -> None:
+    """A miss that going online can fix earns one online sync, and it is named."""
+    result = harness.run(["prepare"], offline_then_online(fixture))
     assert result.status == 0
     assert result.argvs() == [OFFLINE_SYNC, ONLINE_SYNC]
-    assert "missing-python" in result.stderr
-    assert "one online" in result.stderr
+    assert label in result.stderr
 
 
-def test_prepare_missing_python_retry_is_bounded(harness: Harness) -> None:
-    """If the online sync still cannot find the interpreter, it stops there."""
-    result = harness.run(
-        ["prepare"], offline_then_online("missing_python", "missing_python")
-    )
+@pytest.mark.parametrize(("fixture", "label"), RECOVERABLE)
+def test_prepare_retry_is_bounded(harness: Harness, fixture: str, label: str) -> None:
+    """If the online sync fails the same way, it stops after two calls."""
+    result = harness.run(["prepare"], offline_then_online(fixture, fixture))
     assert result.status == 1
     assert len(result.argvs()) == 2
+    assert label in result.stderr
+
+
+@pytest.mark.parametrize(("fixture", "_label"), RECOVERABLE)
+def test_prepare_respects_the_online_switch(
+    harness: Harness, fixture: str, _label: str
+) -> None:
+    """UV_GATE_ALLOW_ONLINE=0 forbids the download or fetch."""
+    result = harness.run(
+        ["prepare"], offline_then_online(fixture), env={"UV_GATE_ALLOW_ONLINE": "0"}
+    )
+    assert result.status == 1
+    assert result.argvs() == [OFFLINE_SYNC]
+
+
+@pytest.mark.parametrize(("fixture", "_label"), RECOVERABLE)
+def test_tool_respects_the_online_switch(
+    harness: Harness, fixture: str, _label: str
+) -> None:
+    """UV_GATE_ALLOW_ONLINE=0 forbids the download or fetch for a tool too."""
+    rules = [
+        rule(["tool", "run", "--offline"], response(1, fixture_text(fixture))),
+        rule(["tool", "run"], response(0), without=("--offline",)),
+    ]
+    result = harness.run(
+        ["tool", "--from", "ruff==1", "--", "ruff"],
+        rules,
+        env={"UV_GATE_ALLOW_ONLINE": "0"},
+    )
+    assert result.status == 1
+    assert len(result.argvs()) == 1
 
 
 def test_prepare_near_miss_for_a_missing_python_is_not_retried(
@@ -48,34 +85,6 @@ def test_prepare_near_miss_for_a_missing_python_is_not_retried(
     assert result.argvs() == [OFFLINE_SYNC]
 
 
-def test_prepare_missing_python_respects_the_online_switch(harness: Harness) -> None:
-    """UV_GATE_ALLOW_ONLINE=0 forbids the interpreter download as well."""
-    result = harness.run(
-        ["prepare"],
-        offline_then_online("missing_python"),
-        env={"UV_GATE_ALLOW_ONLINE": "0"},
-    )
-    assert result.status == 1
-    assert result.argvs() == [OFFLINE_SYNC]
-
-
-def test_prepare_missing_git_source_goes_online_exactly_once(harness: Harness) -> None:
-    """A Git source that is not cached earns one online sync."""
-    result = harness.run(["prepare"], offline_then_online("missing_git_source"))
-    assert result.status == 0
-    assert result.argvs() == [OFFLINE_SYNC, ONLINE_SYNC]
-    assert "missing-git-source" in result.stderr
-
-
-def test_prepare_missing_git_source_retry_is_bounded(harness: Harness) -> None:
-    """If the online sync still fails the same way, it stops after two calls."""
-    result = harness.run(
-        ["prepare"], offline_then_online("missing_git_source", "missing_git_source")
-    )
-    assert result.status == 1
-    assert len(result.argvs()) == 2
-
-
 @pytest.mark.parametrize(
     "fixture", ["git_operation_failed_no_reason", "git_fetches_forbidden_elsewhere"]
 )
@@ -85,19 +94,6 @@ def test_prepare_git_near_misses_are_not_retried(
     """Without uv's reason, a Git failure is `unknown`: one call, no retry."""
     rules = [rule(OFFLINE_SYNC, response(1, fixture_text(fixture)))]
     result = harness.run(["prepare"], rules)
-    assert result.status == 1
-    assert result.argvs() == [OFFLINE_SYNC]
-
-
-def test_prepare_missing_git_source_respects_the_online_switch(
-    harness: Harness,
-) -> None:
-    """UV_GATE_ALLOW_ONLINE=0 forbids the Git fetch as well."""
-    result = harness.run(
-        ["prepare"],
-        offline_then_online("missing_git_source"),
-        env={"UV_GATE_ALLOW_ONLINE": "0"},
-    )
     assert result.status == 1
     assert result.argvs() == [OFFLINE_SYNC]
 
@@ -130,21 +126,6 @@ def test_tool_warms_online_once_on_a_missing_python(harness: Harness) -> None:
     assert "missing-python" in result.stderr
 
 
-def test_tool_missing_python_respects_the_online_switch(harness: Harness) -> None:
-    """UV_GATE_ALLOW_ONLINE=0 forbids the interpreter download for a tool too."""
-    rules = [
-        rule(["tool", "run", "--offline"], response(1, fixture_text("missing_python"))),
-        rule(["tool", "run"], response(0), without=("--offline",)),
-    ]
-    result = harness.run(
-        ["tool", "--from", "ruff==1", "--", "ruff"],
-        rules,
-        env={"UV_GATE_ALLOW_ONLINE": "0"},
-    )
-    assert result.status == 1
-    assert len(result.argvs()) == 1
-
-
 def test_tool_near_miss_for_a_missing_python_is_not_retried(harness: Harness) -> None:
     """The header without the download hint stays `unknown` for a tool too."""
     rules = [
@@ -175,24 +156,6 @@ def test_tool_warms_online_once_on_a_missing_git_source(harness: Harness) -> Non
     assert "--offline" not in online
     assert online[2:] == ["--python", "3.13", "--from", spec, "x"]
     assert "missing-git-source" in result.stderr
-
-
-def test_tool_missing_git_source_respects_the_online_switch(harness: Harness) -> None:
-    """UV_GATE_ALLOW_ONLINE=0 forbids the Git fetch for a tool too."""
-    rules = [
-        rule(
-            ["tool", "run", "--offline"],
-            response(1, fixture_text("missing_git_source")),
-        ),
-        rule(["tool", "run"], response(0), without=("--offline",)),
-    ]
-    result = harness.run(
-        ["tool", "--from", "ruff==1", "--", "ruff"],
-        rules,
-        env={"UV_GATE_ALLOW_ONLINE": "0"},
-    )
-    assert result.status == 1
-    assert len(result.argvs()) == 1
 
 
 DIRECT_SPEC = (

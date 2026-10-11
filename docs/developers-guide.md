@@ -3555,12 +3555,13 @@ own runner over the network that may be failing.
 ### The retry rule
 
 The helper makes at most one online attempt, and only when uv's output proves a
-missing cache entry or a missing managed Python:
+missing cache entry, a missing managed Python or a Git source that is not
+cached:
 
 - `prepare` runs `uv sync --locked --offline`. On a `cache-miss`, an
-  `offline-resolution` or a `missing-python` failure it runs one
-  `uv sync --locked`.
-- `tool` runs `uv tool run --offline` and, on the same three classes, warms the
+  `offline-resolution`, a `missing-python` or a `missing-git-source` failure it
+  runs one `uv sync --locked`.
+- `tool` runs `uv tool run --offline` and, on the same four classes, warms the
   tool with one online run.
 - `run` never goes online and never retries.
 - Authentication failures, stale or missing locks, missing packages and
@@ -3581,8 +3582,8 @@ helper never runs `uv lock`.
   configuration, `BASH_ENV`, and the uv switches that override its policy),
   uses the global uv cache and selects `UV_LINK_MODE=copy` across filesystems.
 - **Bounded retry.** One offline attempt, then at most one online attempt, and
-  only after a `cache-miss`, an `offline-resolution` or a `missing-python`
-  failure (see the retry rule above).
+  only after a `cache-miss`, an `offline-resolution`, a `missing-python` or a
+  `missing-git-source` failure (see the retry rule above).
 - **Narrow adapters.** `build_context` composes small steps: `_locate_uv`,
   `_query_cache_dir` (with a timeout), `_ensure_cache`, `probe_link_paths`
   (resolves paths, refusing on `OSError`), `needs_copy_mode` (a pure device

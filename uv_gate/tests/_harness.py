@@ -128,3 +128,20 @@ def other_device_dir(than: Path) -> Path | None:
 def remove_tree(path: Path) -> None:
     """Remove a directory made by a test."""
     shutil.rmtree(path, ignore_errors=True)
+
+
+OFFLINE_SYNC = ["sync", "--locked", "--offline"]
+ONLINE_SYNC = ["sync", "--locked"]
+
+
+def offline_then_online(offline: str, online: str | None = None) -> list[dict]:
+    """Script an offline failure followed by an online result."""
+    rules = [rule(OFFLINE_SYNC, response(1, fixture_text(offline)))]
+    rules.append(
+        rule(
+            ONLINE_SYNC,
+            response(0) if online is None else response(1, fixture_text(online)),
+            without=("--offline",),
+        )
+    )
+    return rules

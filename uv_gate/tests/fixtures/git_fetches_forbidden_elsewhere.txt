@@ -1,0 +1,2 @@
+error: Failed to resolve `--with` requirement
+  cause: Remote Git fetches are not allowed by this configuration

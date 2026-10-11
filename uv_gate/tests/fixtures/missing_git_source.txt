@@ -1,0 +1,6 @@
+   Updating https://github.com/leynos/shared-actions (a38feb9be25755c30eca5bda96bd3786a5b89c6b)
+error: Failed to resolve `--with` requirement
+  cause: Git operation failed
+  cause: failed to clone into: /home/runner/.cache/uv/git-v1/db/bf4bc6d60e1a497d
+  cause: failed to fetch commit `a38feb9be25755c30eca5bda96bd3786a5b89c6b`
+  cause: Remote Git fetches are not allowed because network connectivity is disabled (i.e., with `--offline`)

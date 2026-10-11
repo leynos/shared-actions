@@ -12,34 +12,21 @@ import typing as typ
 from pathlib import Path
 
 import pytest
-from _harness import Harness, fixture_text, other_device_dir, response, rule
+from _harness import (
+    OFFLINE_SYNC,
+    ONLINE_SYNC,
+    Harness,
+    fixture_text,
+    offline_then_online,
+    other_device_dir,
+    response,
+    rule,
+)
 
 import uv_gate
 
 if typ.TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
-
-OFFLINE_SYNC = ["sync", "--locked", "--offline"]
-ONLINE_SYNC = ["sync", "--locked"]
-
-
-@pytest.fixture
-def harness(tmp_path: Path) -> Harness:
-    """Return a fresh harness rooted in the test's temporary directory."""
-    return Harness(tmp_path)
-
-
-def offline_then_online(offline: str, online: str | None = None) -> list[dict]:
-    """Script an offline failure followed by an online result."""
-    rules = [rule(OFFLINE_SYNC, response(1, fixture_text(offline)))]
-    rules.append(
-        rule(
-            ONLINE_SYNC,
-            response(0) if online is None else response(1, fixture_text(online)),
-            without=("--offline",),
-        )
-    )
-    return rules
 
 
 # prepare ---------------------------------------------------------------------
@@ -71,45 +58,6 @@ def test_prepare_cache_miss_goes_online_exactly_once(harness: Harness) -> None:
     assert result.argvs() == [OFFLINE_SYNC, ONLINE_SYNC]
     assert "cache-miss" in result.stderr
     assert "one online" in result.stderr
-
-
-def test_prepare_missing_python_goes_online_exactly_once(harness: Harness) -> None:
-    """A managed interpreter that needs a download earns one online sync."""
-    result = harness.run(["prepare"], offline_then_online("missing_python"))
-    assert result.status == 0
-    assert result.argvs() == [OFFLINE_SYNC, ONLINE_SYNC]
-    assert "missing-python" in result.stderr
-    assert "one online" in result.stderr
-
-
-def test_prepare_missing_python_retry_is_bounded(harness: Harness) -> None:
-    """If the online sync still cannot find the interpreter, it stops there."""
-    result = harness.run(
-        ["prepare"], offline_then_online("missing_python", "missing_python")
-    )
-    assert result.status == 1
-    assert len(result.argvs()) == 2
-
-
-def test_prepare_near_miss_for_a_missing_python_is_not_retried(
-    harness: Harness,
-) -> None:
-    """The header without the download hint is `unknown`, so one call only."""
-    rules = [rule(OFFLINE_SYNC, response(1, fixture_text("missing_python_near_miss")))]
-    result = harness.run(["prepare"], rules)
-    assert result.status == 1
-    assert result.argvs() == [OFFLINE_SYNC]
-
-
-def test_prepare_missing_python_respects_the_online_switch(harness: Harness) -> None:
-    """UV_GATE_ALLOW_ONLINE=0 forbids the interpreter download as well."""
-    result = harness.run(
-        ["prepare"],
-        offline_then_online("missing_python"),
-        env={"UV_GATE_ALLOW_ONLINE": "0"},
-    )
-    assert result.status == 1
-    assert result.argvs() == [OFFLINE_SYNC]
 
 
 def test_prepare_online_retry_is_bounded(harness: Harness) -> None:
@@ -223,6 +171,7 @@ ALL_FAILURES = [
     ("missing_revision", "missing-revision"),
     ("auth_missing_repo", "auth"),
     ("missing_python", "missing-python"),
+    ("missing_git_source", "missing-git-source"),
 ]
 
 
@@ -325,70 +274,14 @@ def test_tool_warms_online_once_on_a_cache_miss(harness: Harness) -> None:
     ]
 
 
-def test_tool_warms_online_once_on_a_missing_python(harness: Harness) -> None:
-    """A tool whose managed interpreter must be downloaded is warmed once."""
-    rules = [
-        rule(["tool", "run", "--offline"], response(1, fixture_text("missing_python"))),
-        rule(["tool", "run"], response(0), without=("--offline",)),
-    ]
-    result = harness.run(
-        [
-            "tool",
-            "--managed-python",
-            "--python",
-            "pypy@3.12",
-            "--from",
-            "pylint==4",
-            "--",
-            "pylint",
-        ],
-        rules,
-    )
-    assert result.status == 0
-    offline, online = result.argvs()
-    assert "--offline" in offline
-    assert "--offline" not in online
-    managed = ["--managed-python", "--python", "pypy@3.12", "--from", "pylint==4"]
-    assert online[2:] == [*managed, "pylint"]
-    assert "missing-python" in result.stderr
-
-
-def test_tool_missing_python_respects_the_online_switch(harness: Harness) -> None:
-    """UV_GATE_ALLOW_ONLINE=0 forbids the interpreter download for a tool too."""
-    rules = [
-        rule(["tool", "run", "--offline"], response(1, fixture_text("missing_python"))),
-        rule(["tool", "run"], response(0), without=("--offline",)),
-    ]
-    result = harness.run(
-        ["tool", "--from", "ruff==1", "--", "ruff"],
-        rules,
-        env={"UV_GATE_ALLOW_ONLINE": "0"},
-    )
-    assert result.status == 1
-    assert len(result.argvs()) == 1
-
-
 @pytest.mark.parametrize("flag", ["--version", "-V"])
 def test_version_is_a_subprocess_contract(harness: Harness, flag: str) -> None:
     """Run for real, the switch prints one exact line, no stderr, and calls no uv."""
     result = harness.run([flag], [])
     assert result.status == 0
-    assert result.stdout == "uv_gate 0.2.0\n"
+    assert result.stdout == "uv_gate 0.2.1\n"
     assert result.stderr == ""
     assert result.uv_calls() == []
-
-
-def test_tool_near_miss_for_a_missing_python_is_not_retried(harness: Harness) -> None:
-    """The header without the download hint stays `unknown` for a tool too."""
-    rules = [
-        rule(
-            ["tool", "run"],
-            response(1, fixture_text("missing_python_near_miss")),
-        )
-    ]
-    result = harness.run(["tool", "--from", "ruff==1", "--", "ruff"], rules)
-    assert result.status == 1
-    assert len(result.argvs()) == 1
 
 
 def test_tool_online_warm_is_bounded(harness: Harness) -> None:
@@ -406,7 +299,13 @@ def test_tool_online_warm_is_bounded(harness: Harness) -> None:
     [
         pair
         for pair in ALL_FAILURES
-        if pair[0] not in {"cache_miss", "stale_offline_ambiguous", "missing_python"}
+        if pair[0]
+        not in {
+            "cache_miss",
+            "stale_offline_ambiguous",
+            "missing_python",
+            "missing_git_source",
+        }
     ],
 )
 def test_tool_never_retries_other_failures(

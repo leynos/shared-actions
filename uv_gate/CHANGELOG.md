@@ -4,6 +4,19 @@ All notable changes to `uv_gate` will be documented in this file.
 
 ## Unreleased
 
+## 0.2.1
+
+- Add the `missing-git-source` failure class: uv says "Remote Git fetches are
+  not allowed because network connectivity is disabled (i.e., with
+  `--offline`)" when a tool or project depends on a Git source that is not
+  cached yet. `prepare` and `tool` make their one online attempt for it; `run`
+  never goes online. Only that sentence matches: the bare "Git operation
+  failed" from an older uv stays `unknown`, because a failed fetch is not fixed
+  by a retry. Recorded from the uv that setup-uv installed (0.13.0).
+- Accept a PEP 508 direct reference at a full commit,
+  `name[extra] @ git+URL@<40 hex digits>`, as a pin; a branch, a tag, a short
+  SHA or a non-Git URL in that form is still refused.
+
 ## 0.2.0
 
 - Add the `missing-python` failure class: uv reports "No interpreter found for

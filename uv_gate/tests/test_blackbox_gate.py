@@ -112,6 +112,49 @@ def test_prepare_missing_python_respects_the_online_switch(harness: Harness) -> 
     assert result.argvs() == [OFFLINE_SYNC]
 
 
+def test_prepare_missing_git_source_goes_online_exactly_once(harness: Harness) -> None:
+    """A Git source that is not cached earns one online sync."""
+    result = harness.run(["prepare"], offline_then_online("missing_git_source"))
+    assert result.status == 0
+    assert result.argvs() == [OFFLINE_SYNC, ONLINE_SYNC]
+    assert "missing-git-source" in result.stderr
+
+
+def test_prepare_missing_git_source_retry_is_bounded(harness: Harness) -> None:
+    """If the online sync still fails the same way, it stops after two calls."""
+    result = harness.run(
+        ["prepare"], offline_then_online("missing_git_source", "missing_git_source")
+    )
+    assert result.status == 1
+    assert len(result.argvs()) == 2
+
+
+@pytest.mark.parametrize(
+    "fixture", ["git_operation_failed_no_reason", "git_fetches_forbidden_elsewhere"]
+)
+def test_prepare_git_near_misses_are_not_retried(
+    harness: Harness, fixture: str
+) -> None:
+    """Without uv's reason, a Git failure is `unknown`: one call, no retry."""
+    rules = [rule(OFFLINE_SYNC, response(1, fixture_text(fixture)))]
+    result = harness.run(["prepare"], rules)
+    assert result.status == 1
+    assert result.argvs() == [OFFLINE_SYNC]
+
+
+def test_prepare_missing_git_source_respects_the_online_switch(
+    harness: Harness,
+) -> None:
+    """UV_GATE_ALLOW_ONLINE=0 forbids the Git fetch as well."""
+    result = harness.run(
+        ["prepare"],
+        offline_then_online("missing_git_source"),
+        env={"UV_GATE_ALLOW_ONLINE": "0"},
+    )
+    assert result.status == 1
+    assert result.argvs() == [OFFLINE_SYNC]
+
+
 def test_prepare_online_retry_is_bounded(harness: Harness) -> None:
     """If the online sync also reports a miss, there is no third attempt."""
     rules = [
@@ -223,6 +266,7 @@ ALL_FAILURES = [
     ("missing_revision", "missing-revision"),
     ("auth_missing_repo", "auth"),
     ("missing_python", "missing-python"),
+    ("missing_git_source", "missing-git-source"),
 ]
 
 
@@ -373,7 +417,7 @@ def test_version_is_a_subprocess_contract(harness: Harness, flag: str) -> None:
     """Run for real, the switch prints one exact line, no stderr, and calls no uv."""
     result = harness.run([flag], [])
     assert result.status == 0
-    assert result.stdout == "uv_gate 0.2.0\n"
+    assert result.stdout == "uv_gate 0.2.1\n"
     assert result.stderr == ""
     assert result.uv_calls() == []
 
@@ -387,6 +431,43 @@ def test_tool_near_miss_for_a_missing_python_is_not_retried(harness: Harness) ->
         )
     ]
     result = harness.run(["tool", "--from", "ruff==1", "--", "ruff"], rules)
+    assert result.status == 1
+    assert len(result.argvs()) == 1
+
+
+def test_tool_warms_online_once_on_a_missing_git_source(harness: Harness) -> None:
+    """A tool whose Git source is not cached is warmed once, with its own options."""
+    rules = [
+        rule(
+            ["tool", "run", "--offline"],
+            response(1, fixture_text("missing_git_source")),
+        ),
+        rule(["tool", "run"], response(0), without=("--offline",)),
+    ]
+    spec = f"git+https://example.invalid/x.git@{'0123456789abcdef' * 2}01234567"
+    result = harness.run(["tool", "--python", "3.13", "--from", spec, "--", "x"], rules)
+    assert result.status == 0
+    offline, online = result.argvs()
+    assert "--offline" in offline
+    assert "--offline" not in online
+    assert online[2:] == ["--python", "3.13", "--from", spec, "x"]
+    assert "missing-git-source" in result.stderr
+
+
+def test_tool_missing_git_source_respects_the_online_switch(harness: Harness) -> None:
+    """UV_GATE_ALLOW_ONLINE=0 forbids the Git fetch for a tool too."""
+    rules = [
+        rule(
+            ["tool", "run", "--offline"],
+            response(1, fixture_text("missing_git_source")),
+        ),
+        rule(["tool", "run"], response(0), without=("--offline",)),
+    ]
+    result = harness.run(
+        ["tool", "--from", "ruff==1", "--", "ruff"],
+        rules,
+        env={"UV_GATE_ALLOW_ONLINE": "0"},
+    )
     assert result.status == 1
     assert len(result.argvs()) == 1
 
@@ -406,7 +487,13 @@ def test_tool_online_warm_is_bounded(harness: Harness) -> None:
     [
         pair
         for pair in ALL_FAILURES
-        if pair[0] not in {"cache_miss", "stale_offline_ambiguous", "missing_python"}
+        if pair[0]
+        not in {
+            "cache_miss",
+            "stale_offline_ambiguous",
+            "missing_python",
+            "missing_git_source",
+        }
     ],
 )
 def test_tool_never_retries_other_failures(

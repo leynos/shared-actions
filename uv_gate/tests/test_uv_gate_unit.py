@@ -32,6 +32,7 @@ SEP = os.pathsep
         ("missing_revision", uv_gate.Kind.MISSING_REVISION),
         ("auth_missing_repo", uv_gate.Kind.AUTH),
         ("missing_python", uv_gate.Kind.MISSING_PYTHON),
+        ("missing_git_source", uv_gate.Kind.MISSING_GIT_SOURCE),
     ],
 )
 def test_classify_recognises_recorded_uv_output(
@@ -516,7 +517,13 @@ def test_a_shim_that_fails_after_its_directory_exists_is_cleaned_up(
 
 @pytest.mark.parametrize(
     "fixture",
-    ["missing_python_near_miss", "no_interpreter_elsewhere", "download_hint_only"],
+    [
+        "missing_python_near_miss",
+        "no_interpreter_elsewhere",
+        "download_hint_only",
+        "git_operation_failed_no_reason",
+        "git_fetches_forbidden_elsewhere",
+    ],
 )
 def test_near_misses_for_a_missing_interpreter_stay_unknown(fixture: str) -> None:
     """The header alone, or another search location, does not prove a download."""
@@ -529,6 +536,7 @@ def test_only_the_online_recoverable_classes_earn_a_retry() -> None:
         uv_gate.Kind.CACHE_MISS,
         uv_gate.Kind.OFFLINE_RESOLUTION,
         uv_gate.Kind.MISSING_PYTHON,
+        uv_gate.Kind.MISSING_GIT_SOURCE,
     }
     assert expected == uv_gate.ONLINE_RECOVERABLE
 
@@ -538,6 +546,47 @@ def test_the_version_is_reported(flag: str, capsys: pytest.CaptureFixture[str]) 
     """Either switch prints exactly the helper's version, nothing else, and exits 0."""
     assert uv_gate.main([flag]) == 0
     captured = capsys.readouterr()
-    assert captured.out == "uv_gate 0.2.0\n"
+    assert captured.out == "uv_gate 0.2.1\n"
     assert captured.err == ""
-    assert uv_gate.VERSION == "0.2.0"
+    assert uv_gate.VERSION == "0.2.1"
+
+
+SHA = "0123456789abcdef0123456789abcdef01234567"
+URL = "git+https://example.invalid/org/tool.git"
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        f"tool[extra] @ {URL}@{SHA}",
+        f"tool[a,b] @ {URL}@{SHA}",
+        f"tool[extra]@{URL}@{SHA}",
+        f"tool[extra]   @   {URL}@{SHA}",
+        f"tool[extra] @ {URL}@{SHA}#subdirectory=packages/x",
+        f"tool @ {URL}@{SHA}",
+    ],
+)
+def test_is_pinned_accepts_a_direct_reference_at_a_full_commit(spec: str) -> None:
+    """`pkg[extra] @ git+URL@<40-hex>` is a pin, with or without a fragment."""
+    assert uv_gate.is_pinned(spec)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        f"tool[extra] @ {URL}@main",
+        f"tool[extra] @ {URL}@v1.2.3",
+        f"tool[extra] @ {URL}@{SHA[:12]}",
+        f"tool[extra] @ {URL}@{SHA}0",
+        f"tool[extra] @ {URL}",
+        "tool[extra] @ https://example.invalid/tool-1.0.tar.gz",
+        f"tool[extra] @ {URL}@{SHA.upper()}",
+        f"[extra] @ {URL}@{SHA}",
+        f" @ {URL}@{SHA}",
+    ],
+)
+def test_is_pinned_rejects_a_direct_reference_that_is_not_a_full_commit(
+    spec: str,
+) -> None:
+    """A branch, a tag, a short or long SHA, no ref, or a non-Git URL is no pin."""
+    assert not uv_gate.is_pinned(spec)

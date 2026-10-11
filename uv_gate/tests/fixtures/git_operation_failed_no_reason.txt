@@ -1,0 +1,3 @@
+   Updating https://github.com/leynos/shared-actions (a38feb9be25755c30eca5bda96bd3786a5b89c6b)
+  × Failed to resolve `--with` requirement
+  ╰─▶ Git operation failed

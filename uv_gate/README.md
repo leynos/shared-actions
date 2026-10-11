@@ -23,15 +23,16 @@ test: prepare
 	$(UV_GATE) run --group dev -- pytest -q
 ```
 
-| Command                                         | Runs                                   | Network                                                                                             |
-| ----------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `prepare [UV_SYNC_ARGS...]`                     | `uv sync --locked --offline`           | One `uv sync --locked`, only after a `cache-miss`, `offline-resolution` or `missing-python` failure |
-| `run [UV_RUN_ARGS...] -- COMMAND...`            | `uv run --frozen --offline COMMAND...` | Never                                                                                               |
-| `tool [--from SPEC] [ARGS...] -- EXECUTABLE...` | `uv tool run --offline ...`            | One warming run, only after one of those three failures                                             |
+| Command                                         | Runs                                   | Network                                                                                                                   |
+| ----------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `prepare [UV_SYNC_ARGS...]`                     | `uv sync --locked --offline`           | One `uv sync --locked`, only after a `cache-miss`, `offline-resolution`, `missing-python` or `missing-git-source` failure |
+| `run [UV_RUN_ARGS...] -- COMMAND...`            | `uv run --frozen --offline COMMAND...` | Never                                                                                                                     |
+| `tool [--from SPEC] [ARGS...] -- EXECUTABLE...` | `uv tool run --offline ...`            | One warming run, only after one of those four failures                                                                    |
 
 Pass the same groups, extras and Python version to `prepare` and to every `run`.
 `tool` refuses a spec that is not pinned: use `name==VERSION`, `name@VERSION`
-or `git+URL@<full 40-character commit SHA>`.
+or `git+URL@<full 40-character commit SHA>`; the same Git URL as a PEP 508
+direct reference, `name[extra] @ git+URL@<full commit SHA>`, is also a pin.
 
 Set `UV_GATE_ALLOW_ONLINE=0` to forbid the online step entirely.
 
@@ -60,17 +61,18 @@ one line, `uv-gate: <class>: ...`; a success prints no class line. Every
 command then ends with the metric line described below. The exit status is uv's
 own; the helper's own refusals exit with status 2.
 
-| Class                | Meaning                                                                                 | Retried?                                                              |
-| -------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `cache-miss`         | A required file is not in the cache (offline)                                           | `prepare` and `tool`: one online run                                  |
-| `offline-resolution` | Offline resolution needs uncached data; a stale lock looks the same offline             | `prepare` and `tool`: one online run, which then names the real cause |
-| `missing-python`     | A managed Python download is available, but uv is offline (uv names both)               | `prepare` and `tool`: one online run, which downloads it              |
-| `stale-lock`         | `uv.lock` is out of date                                                                | No. Run `uv lock` yourself and commit it                              |
-| `missing-lock`       | No `uv.lock`                                                                            | No                                                                    |
-| `missing-package`    | A package or version is not in the registry                                             | No                                                                    |
-| `missing-revision`   | A pinned Git revision does not exist                                                    | No                                                                    |
-| `auth`               | Authentication failed, or the repository is not accessible with the current credentials | No                                                                    |
-| (unrecognized)       | Anything else                                                                           | No                                                                    |
+| Class                | Meaning                                                                                                                                    | Retried?                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `cache-miss`         | A required file is not in the cache (offline)                                                                                              | `prepare` and `tool`: one online run                                  |
+| `offline-resolution` | Offline resolution needs uncached data; a stale lock looks the same offline                                                                | `prepare` and `tool`: one online run, which then names the real cause |
+| `missing-python`     | A managed Python download is available, but uv is offline (uv names both)                                                                  | `prepare` and `tool`: one online run, which downloads it              |
+| `missing-git-source` | A Git source is not in the cache and uv is offline (uv says "Remote Git fetches are not allowed because network connectivity is disabled") | `prepare` and `tool`: one online run, which fetches it                |
+| `stale-lock`         | `uv.lock` is out of date                                                                                                                   | No. Run `uv lock` yourself and commit it                              |
+| `missing-lock`       | No `uv.lock`                                                                                                                               | No                                                                    |
+| `missing-package`    | A package or version is not in the registry                                                                                                | No                                                                    |
+| `missing-revision`   | A pinned Git revision does not exist                                                                                                       | No                                                                    |
+| `auth`               | Authentication failed, or the repository is not accessible with the current credentials                                                    | No                                                                    |
+| (unrecognized)       | Anything else                                                                                                                              | No                                                                    |
 
 Helper refusals (status 2): `uv` absent from the cleaned `PATH`, a cache
 directory that cannot be created, an unpinned tool, a forbidden flag

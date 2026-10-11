@@ -1,0 +1,172 @@
+name: Test install-yaml-lint
+
+on:
+  pull_request:
+    # The lane downloads real archives, so it runs only when the action, which
+    # embeds every digest, or this workflow changes; a change elsewhere cannot
+    # affect it. A `paths` filter replaces `paths-ignore` here, since a trigger
+    # takes only one of the two.
+    paths:
+      - '.github/actions/install-yaml-lint/**'
+      - '.github/workflows/test-install-yaml-lint.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install-yaml-lint:
+    # The Intel macOS archives have no recognised runner in this repository's
+    # placement policy; the `release-digests` job below proves their digests.
+    # The unit suite drives the action's script against a stubbed `uv` and
+    # `curl`, so it cannot see the real archive layouts, the executables'
+    # names, or what real `uv` does with the pin. A runner can, so each
+    # supported platform installs the real tools. Named by platform word, not
+    # by runner: the Linux leg's label is an expression whose value depends on
+    # whether the pull request came from a fork, so a name interpolating it
+    # gives the lane two check names.
+    name: Install and reuse yaml lint tools (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+          - platform: macos
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+
+      - name: Install the YAML lint tools
+        uses: ./.github/actions/install-yaml-lint
+
+      - name: Verify the installed versions and their precedence
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin_dir="${XDG_CACHE_HOME:-${HOME}/.cache}/yaml-lint/1.7.12-0.11.0/bin"
+          # Each tool must resolve to the verified binary, not to another copy
+          # earlier on PATH, and report exactly the pinned version.
+          test "$(command -v actionlint)" = "${bin_dir}/actionlint"
+          test "$(command -v shellcheck)" = "${bin_dir}/shellcheck"
+          actionlint -version | head -n 1 | grep -Fx '1.7.12'
+          shellcheck --version | grep -Fx 'version: 0.11.0'
+          yamllint --version | grep -Fx 'yamllint 1.38.0'
+          # actionlint reaches shellcheck through PATH: a script with a real
+          # finding proves the integration works end to end.
+          mkdir -p "${RUNNER_TEMP}/lint-probe/.github/workflows"
+          cat > "${RUNNER_TEMP}/lint-probe/.github/workflows/probe.yml" <<'PROBE'
+          name: probe
+          on: push
+          jobs:
+            probe:
+              runs-on: ubuntu-latest
+              steps:
+                - run: echo $UNQUOTED
+          PROBE
+          cd "${RUNNER_TEMP}/lint-probe"
+          # actionlint finds a project by its Git root, so the probe needs one.
+          git init --quiet .
+          # The finding must be shellcheck's own (SC2086, unquoted expansion),
+          # not any other actionlint failure.
+          if report="$(actionlint -no-color 2>&1)"; then
+            echo "actionlint reported nothing for a script shellcheck flags" >&2
+            exit 1
+          fi
+          printf '%s\n' "${report}"
+          grep -F 'SC2086' <<< "${report}"
+
+      - name: Poison curl before the second invocation
+        shell: bash
+        run: |
+          # The cached outcome is asserted by making any other outcome
+          # impossible: a second invocation that reaches curl runs this stub
+          # and fails the job.
+          set -euo pipefail
+          poisoned="${RUNNER_TEMP}/poisoned-curl"
+          mkdir -p "${poisoned}"
+          cat > "${poisoned}/curl" <<'POISONED_CURL'
+          #!/usr/bin/env bash
+          echo "the second invocation must be served from the cache, not from curl" >&2
+          exit 1
+          POISONED_CURL
+          chmod +x "${poisoned}/curl"
+          printf '%s\n' "${poisoned}" >> "$GITHUB_PATH"
+
+      - name: Install the YAML lint tools again
+        uses: ./.github/actions/install-yaml-lint
+
+      - name: Verify the second installation changed nothing
+        shell: bash
+        run: |
+          set -euo pipefail
+          actionlint -version | head -n 1 | grep -Fx '1.7.12'
+          shellcheck --version | grep -Fx 'version: 0.11.0'
+
+  release-digests:
+    # The matrix above installs on the platforms runners exist for, but the
+    # action configures a release for each of four platform pairs. This job
+    # downloads every configured archive and compares its digest with the one
+    # embedded in the action, so an archive no runner here exercises cannot
+    # carry a wrong digest or a wrong asset name unnoticed.
+    name: Verify every configured release digest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download each archive and compare its digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'VERIFY'
+          import hashlib
+          import pathlib
+          import re
+          import urllib.request
+
+          # The script is read as text, so the runner needs no YAML library.
+          script = pathlib.Path(
+              ".github/actions/install-yaml-lint/action.yml"
+          ).read_text()
+          versions = dict(re.findall(r'^\s*(\w+_version)="([^"]+)"$', script, re.M))
+          arms = re.findall(
+              r"(?ms)^\s*(?:Linux|macOS)/\w+\)\n(.*?)^\s*;;", script
+          )
+          assert len(arms) == 4, len(arms)
+          urls = {
+              "actionlint_asset": "https://github.com/rhysd/actionlint/releases/download/v{av}/{asset}",
+              "shellcheck_asset": "https://github.com/koalaman/shellcheck/releases/download/v{sv}/{asset}",
+          }
+          checked = 0
+          for arm in arms:
+              for tool in ("actionlint", "shellcheck"):
+                  asset = re.search(rf'{tool}_asset="([^"]+)"', arm).group(1)
+                  asset = asset.replace("${actionlint_version}", versions["actionlint_version"])
+                  asset = asset.replace("${shellcheck_version}", versions["shellcheck_version"])
+                  expected = re.search(rf'{tool}_sha256="([0-9a-f]{{64}})"', arm).group(1)
+                  url = urls[f"{tool}_asset"].format(
+                      av=versions["actionlint_version"],
+                      sv=versions["shellcheck_version"],
+                      asset=asset,
+                  )
+                  with urllib.request.urlopen(url, timeout=120) as response:
+                      actual = hashlib.sha256(response.read()).hexdigest()
+                  assert actual == expected, (asset, expected, actual)
+                  print(f"{asset} {actual}")
+                  checked += 1
+          assert checked == 8, checked
+          VERIFY

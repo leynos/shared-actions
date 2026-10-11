@@ -2774,6 +2774,24 @@ download/checksum path, checksum and unsupported-version failures, normal and
 forced Nixie reconciliation, Nixie installer failure, and the no-PATH-export
 failure boundary.
 
+## `install-yaml-lint` Action Maintenance
+
+The composite action boundary is
+`.github/actions/install-yaml-lint/action.yml`. It has one step and no inputs:
+the three tool versions and the per-platform SHA-256 digests live as literals
+at the top of the script. To bump a tool, download every archive for the four
+supported platforms, compute each digest from the download (actionlint's
+published checksums file is a cross-check, not the source), and change the
+version, digests, action README, changelog, the users' guide and the tests
+together. yamllint is installed with an exact `==` pin and without
+`UV_CACHE_DIR` or `UV_TOOL_DIR`, so the Concordat uv rules have nothing to flag.
+
+`.github/actions/install-yaml-lint/tests/test_install_yaml_lint.py` is the
+behavioural test boundary. It runs the script against stubbed `uv` and `curl`,
+substituting the fixture archives' digests for the pinned ones, and must keep
+covering the cold install, the warm cache, a digest mismatch, an unsupported
+platform and a missing `uv`.
+
 ## `install-mdtablefix` action contract
 
 The composite action boundary is

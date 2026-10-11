@@ -1551,6 +1551,30 @@ not use `nixie --version` as a probe. After both executable checks succeed, the
 action appends the Merman and Nixie binary directories to `GITHUB_PATH`. Later
 workflow steps can therefore invoke `nixie` and `merman-cli` directly.
 
+## Install YAML lint tools
+
+The `install-yaml-lint` action installs the pinned YAML and workflow lint
+tools: yamllint 1.38.0 through `uv`, and checksum-verified actionlint 1.7.12
+and shellcheck 0.11.0 release archives. The three install together because
+actionlint runs shellcheck on every `run:` script it finds on `PATH`. The
+action has no inputs, so every consumer lints with the same versions. The
+runner must provide `uv`, `curl`, `tar` and `install`, and either `sha256sum` or
+`shasum`; only Linux and macOS on x86-64 and ARM64 are supported, and any
+other platform fails closed.
+
+```yaml
+- name: Install YAML lint tools
+  uses: leynos/shared-actions/.github/actions/install-yaml-lint@<40-hex-commit-sha>
+
+- name: Lint
+  run: make lint
+```
+
+Run the step before the step that runs `make lint`. The binaries are stored in
+`${XDG_CACHE_HOME:-${HOME}/.cache}/yaml-lint/1.7.12-0.11.0/bin` and reused only
+while they report the pinned versions. Reference the action by commit SHA so
+Dependabot moves every consumer when the pins change.
+
 ## CodeScene coverage checks
 
 `upload-codescene-coverage` installs its default CLI from the committed

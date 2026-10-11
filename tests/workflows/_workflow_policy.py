@@ -116,6 +116,11 @@ HOSTED_ARM_LINUX_JOBS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
         "so it must run on the same architecture. The x86_64 leg follows the "
         "ordinary Ubicloud placement."
     ),
+    ("test-install-yaml-lint.yml", "install-yaml-lint"): (
+        "The aarch64 actionlint and shellcheck archives are proved only on real "
+        "Arm hardware, and this repository has measured no Ubicloud Arm shape. "
+        "The job's x86_64 leg follows the ordinary Ubicloud placement."
+    ),
     ("test-setup-rust-mold.yml", "installs-on-linux"): (
         "The aarch64 mold archive is proved only on real Arm hardware, and "
         "this repository has measured no Ubicloud Arm shape. The job's x86_64 "

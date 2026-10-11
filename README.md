@@ -22,6 +22,7 @@ GitHub Actions
 | Install YAML lint tools           | `.github/actions/install-yaml-lint`                                                | unreleased   |
 | Linux packages                    | `.github/actions/linux-packages`                                                   | v1           |
 | macOS package                     | `.github/actions/macos-package`                                                    | v1           |
+| MSRV check                        | `.github/actions/msrv-check`                                                       | unreleased   |
 | Ratchet coverage                  | `.github/actions/ratchet-coverage`                                                 | v1           |
 | Release to PyPI (uv)              | `.github/actions/release-to-pypi-uv`                                               | v1           |
 | Rust build release                | `.github/actions/rust-build-release`                                               | v1           |

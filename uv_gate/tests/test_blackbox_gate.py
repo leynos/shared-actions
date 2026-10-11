@@ -472,6 +472,45 @@ def test_tool_missing_git_source_respects_the_online_switch(harness: Harness) ->
     assert len(result.argvs()) == 1
 
 
+DIRECT_SPEC = (
+    f"tool[extra] @ git+https://example.invalid/t.git@{'0123456789abcdef' * 2}01234567"
+)
+
+
+def test_tool_accepts_a_direct_reference_at_a_full_commit(harness: Harness) -> None:
+    """The extras form is a pin: uv runs once, offline, with the spec unchanged."""
+    result = harness.run(
+        ["tool", "--from", DIRECT_SPEC, "--", "tool", "--version"],
+        [rule(["tool", "run"], response(0))],
+    )
+    assert result.status == 0
+    assert result.argvs() == [
+        ["tool", "run", "--offline", "--from", DIRECT_SPEC, "tool", "--version"]
+    ]
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "tool[extra] @ git+https://example.invalid/t.git@main",
+        "tool[extra] @ git+https://example.invalid/t.git@v1.2.3",
+        "tool[extra] @ git+https://example.invalid/t.git@0123456",
+        "tool[extra] @ https://example.invalid/tool-1.0.tar.gz",
+    ],
+    ids=["branch", "tag", "short-sha", "not-git"],
+)
+def test_tool_refuses_a_direct_reference_that_is_not_a_full_commit(
+    harness: Harness, spec: str
+) -> None:
+    """A branch, tag, short SHA or non-Git URL is refused before uv is called."""
+    result = harness.run(
+        ["tool", "--from", spec, "--", "tool"], [rule(["tool", "run"], response(0))]
+    )
+    assert result.status == 2
+    assert "not pinned" in result.stderr
+    assert result.argvs() == []
+
+
 def test_tool_online_warm_is_bounded(harness: Harness) -> None:
     """If the warming run also reports a miss, there is no third attempt."""
     rules = [

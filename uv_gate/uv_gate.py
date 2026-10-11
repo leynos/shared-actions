@@ -5,13 +5,18 @@
 byte-for-byte as ``scripts/uv_gate.py``. It implements the procedure in
 ``uv-robust-execution.md``:
 
-* ``prepare`` runs ``uv sync --locked --offline``. Only when uv proves that a
-  required file is missing from the cache, or that a managed Python download is
-  available but uv is offline, does it run **one** online ``uv sync --locked``.
+* ``prepare`` runs ``uv sync --locked --offline``. Only when uv proves one of
+  four recoverable misses does it run **one** online ``uv sync --locked``: a
+  required file missing from the cache (``cache-miss``), an offline resolution
+  that needs uncached data (``offline-resolution``), a managed Python download
+  that is available but blocked by the offline switch (``missing-python``), or a
+  Git source that is not cached (``missing-git-source``).
 * ``run`` runs ``uv run --frozen --offline <command>``. It never goes online
-  and never retries.
-* ``tool`` runs ``uv tool run --offline`` for a version-pinned tool. Like
-  ``prepare``, it goes online once, and only for the same two proven misses.
+  and never retries, whatever the failure.
+* ``tool`` runs ``uv tool run --offline`` for a pinned tool. Like ``prepare``,
+  it goes online once, and only for the same four proven misses. A tool spec is
+  pinned by ``name==VERSION``, ``name@VERSION``, ``git+URL@<full commit SHA>`` or
+  the direct reference ``name[extra] @ git+URL@<full commit SHA>``.
 
 Every invocation uses a cleaned environment (no inherited Git configuration,
 tokens or ``BASH_ENV``, no ``~/.lody`` on ``PATH``, no Git prompts, and

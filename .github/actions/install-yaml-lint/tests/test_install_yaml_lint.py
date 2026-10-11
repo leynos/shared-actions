@@ -184,8 +184,8 @@ def test_cold_install_verifies_installs_and_exports_path(tmp_path: Path) -> None
         "tool install yamllint==1.38.0",
         "tool dir --bin",
     ]
-    assert "metric install-yaml-lint.actionlint=install" in result.stdout
-    assert "metric install-yaml-lint.shellcheck=install" in result.stdout
+    assert "metric install-yaml-lint.actionlint=cache-miss" in result.stdout
+    assert "metric install-yaml-lint.shellcheck=cache-miss" in result.stdout
     assert "metric install-yaml-lint.result=ok" in result.stdout
 
 
@@ -247,3 +247,95 @@ def test_a_changed_pin_leaves_no_yamllint_and_fails(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert "uv could not install yamllint==1.38.1" in result.stderr
     assert "metric install-yaml-lint.result=uv-install-failed" in result.stdout
+
+
+def _bin_dir(tmp_path: Path) -> Path:
+    """Return the version-scoped directory the action installs the releases into."""
+    return tmp_path / "cache" / "yaml-lint" / "1.7.12-0.11.0" / "bin"
+
+
+@posix_only
+def test_a_stale_cache_entry_is_reinstalled_and_reported(tmp_path: Path) -> None:
+    """A binary that reports the wrong version is stale, not a hit and not a miss."""
+    sandbox, script = _sandbox(tmp_path, pin_fixtures=True)
+    bin_dir = _bin_dir(tmp_path)
+    bin_dir.mkdir(parents=True)
+    _executable(bin_dir / "actionlint", "#!/bin/sh\necho '1.0.0'\n")
+
+    result = sandbox.run(script)
+
+    assert result.returncode == 0, result.stderr
+    assert "metric install-yaml-lint.actionlint=cache-stale" in result.stdout
+    assert "metric install-yaml-lint.shellcheck=cache-miss" in result.stdout
+    assert "1.7.12" in (bin_dir / "actionlint").read_text(encoding="utf-8")
+
+
+@posix_only
+def test_metrics_reach_the_step_summary(tmp_path: Path) -> None:
+    """Each decision is written to the step summary as well as the log."""
+    sandbox, script = _sandbox(tmp_path, pin_fixtures=True)
+    summary = tmp_path / "summary.md"
+
+    result = sandbox.run(script, GITHUB_STEP_SUMMARY=str(summary))
+
+    assert result.returncode == 0, result.stderr
+    lines = summary.read_text(encoding="utf-8").splitlines()
+    assert lines == [
+        line for line in result.stdout.splitlines() if line.startswith("metric ")
+    ]
+    assert "metric install-yaml-lint.result=ok" in lines
+
+
+def test_every_failure_result_is_documented() -> None:
+    """The metric vocabulary in the script and in the README cannot drift apart."""
+    emitted = set(re.findall(r'" ([a-z]+(?:-[a-z]+)+)\n?$', _script(), re.MULTILINE))
+    emitted |= set(re.findall(r"\) ([a-z]+(?:-[a-z]+)+)$", _script(), re.MULTILINE))
+    readme = (ACTION_PATH.parent / "README.md").read_text(encoding="utf-8")
+    documented = set(re.findall(r"`([a-z]+(?:-[a-z]+)+)`", readme))
+    results = {
+        name
+        for name in emitted
+        if name not in {"cache-hit", "cache-miss", "cache-stale"}
+    }
+    assert results, "the script should name its failure results"
+    assert results <= documented, sorted(results - documented)
+
+
+@posix_only
+@pytest.mark.parametrize(
+    ("stub", "body", "result"),
+    [
+        ("sha256sum", "exit 1", "hash-failed"),
+        ("install", "exit 1", "install-failed"),
+    ],
+)
+def test_a_failing_system_tool_is_a_categorised_failure(
+    tmp_path: Path, stub: str, body: str, result: str
+) -> None:
+    """Hashing and installing fail closed with their own result, not silently."""
+    sandbox, script = _sandbox(tmp_path, pin_fixtures=True)
+    _executable(tmp_path / "stubs" / stub, f"#!/bin/sh\n{body}\n")
+
+    completed = sandbox.run(script)
+
+    assert completed.returncode == 1
+    assert f"metric install-yaml-lint.result={result}" in completed.stdout
+
+
+@posix_only
+def test_a_uv_that_cannot_report_its_directory_is_a_categorised_failure(
+    tmp_path: Path,
+) -> None:
+    """The directory lookup fails closed with its own result."""
+    sandbox, script = _sandbox(tmp_path, pin_fixtures=True)
+    uv_stub = tmp_path / "stubs" / "uv"
+    text = uv_stub.read_text(encoding="utf-8").replace(
+        'if [ "$*" = "tool dir --bin" ]; then',
+        'if [ "$*" = "tool dir --bin" ]; then exit 1; fi\nif false; then',
+    )
+    uv_stub.write_text(text, encoding="utf-8")
+
+    completed = sandbox.run(script)
+
+    assert completed.returncode == 1
+    assert "metric install-yaml-lint.result=uv-dir-failed" in completed.stdout

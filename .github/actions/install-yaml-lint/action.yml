@@ -96,7 +96,8 @@ runs:
             --retry-max-time 180 --fail --location --silent --show-error \
             --proto '=https' --tlsv1.2 --output "${temporary_dir}/${asset}" "$url" ||
             fail "could not download ${asset}" download-failed
-          actual="$(sha256_of "${temporary_dir}/${asset}")"
+          actual="$(sha256_of "${temporary_dir}/${asset}")" ||
+            fail "could not hash ${asset}" hash-failed
           if [[ "$actual" != "$expected" ]]; then
             fail "checksum mismatch for ${asset}: expected ${expected}, received ${actual}" digest-mismatch
           fi
@@ -105,7 +106,8 @@ runs:
             fail "could not extract ${asset}" extract-failed
           [[ -f "${temporary_dir}/${target}/${member}" ]] ||
             fail "${member} is not in ${asset}" missing-member
-          install -m 0755 "${temporary_dir}/${target}/${member}" "${bin_dir}/${target}"
+          install -m 0755 "${temporary_dir}/${target}/${member}" "${bin_dir}/${target}" ||
+            fail "could not install ${target} into ${bin_dir}" install-failed
         }
 
         reports() {
@@ -114,18 +116,33 @@ runs:
           [[ "$reported" == *"$2"* ]]
         }
 
-        if reports "${bin_dir}/actionlint" "${actionlint_version}" -version; then
+        # The cache is the version-scoped directory itself. A binary that is
+        # absent is a miss; one that is present but does not report the pinned
+        # version is stale, which names a corrupted or replaced cache entry.
+        cache_state() {
+          if [[ ! -e "$1" ]]; then
+            echo miss
+          elif reports "$@"; then
+            echo hit
+          else
+            echo stale
+          fi
+        }
+
+        actionlint_state="$(cache_state "${bin_dir}/actionlint" "${actionlint_version}" -version)"
+        if [[ "$actionlint_state" == hit ]]; then
           emit_metric "install-yaml-lint.actionlint=cache-hit"
         else
-          emit_metric "install-yaml-lint.actionlint=install"
+          emit_metric "install-yaml-lint.actionlint=cache-${actionlint_state}"
           install_release \
             "https://github.com/rhysd/actionlint/releases/download/v${actionlint_version}/${actionlint_asset}" \
             "$actionlint_asset" "$actionlint_sha256" actionlint actionlint
         fi
-        if reports "${bin_dir}/shellcheck" "version: ${shellcheck_version}" --version; then
+        shellcheck_state="$(cache_state "${bin_dir}/shellcheck" "version: ${shellcheck_version}" --version)"
+        if [[ "$shellcheck_state" == hit ]]; then
           emit_metric "install-yaml-lint.shellcheck=cache-hit"
         else
-          emit_metric "install-yaml-lint.shellcheck=install"
+          emit_metric "install-yaml-lint.shellcheck=cache-${shellcheck_state}"
           install_release \
             "https://github.com/koalaman/shellcheck/releases/download/v${shellcheck_version}/${shellcheck_asset}" \
             "$shellcheck_asset" "$shellcheck_sha256" "shellcheck-v${shellcheck_version}/shellcheck" shellcheck
@@ -133,7 +150,8 @@ runs:
 
         uv tool install "yamllint==${yamllint_version}" ||
           fail "uv could not install yamllint==${yamllint_version}" uv-install-failed
-        uv_bin_dir="$(uv tool dir --bin)" || exit $?
+        uv_bin_dir="$(uv tool dir --bin)" ||
+          fail "uv could not report its tool directory" uv-dir-failed
 
         # The runner prepends each GITHUB_PATH line, so the later one wins: the
         # verified release directory goes last, so an actionlint or shellcheck

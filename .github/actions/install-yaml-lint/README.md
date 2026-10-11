@@ -70,11 +70,12 @@ to `PATH` after uv's, so it wins over any other `actionlint` or `shellcheck`.
 
 The action logs, and writes to the step summary, one bounded line per decision:
 `install-yaml-lint.actionlint` and `install-yaml-lint.shellcheck` are
-`cache-hit` or `install`, and `install-yaml-lint.result` is `ok`,
-`missing-prerequisite`, `unsupported-platform`, `download-failed`,
-`digest-mismatch`, `extract-failed`, `missing-member`, `uv-install-failed` or
-`version-mismatch`. The values are a fixed vocabulary, never a tool's own
-output.
+`cache-hit`, `cache-miss` (absent) or `cache-stale` (present, wrong version),
+and `install-yaml-lint.result` is `ok`, `missing-prerequisite`,
+`unsupported-platform`, `download-failed`, `hash-failed`, `digest-mismatch`,
+`extract-failed`, `missing-member`, `install-failed`, `uv-install-failed`,
+`uv-dir-failed` or `version-mismatch`. The values are a fixed vocabulary, never
+a tool's own output.
 
 ## Release history
 

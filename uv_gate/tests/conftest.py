@@ -12,8 +12,22 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
+_TESTS_DIR = Path(__file__).resolve().parent
+if str(_TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TESTS_DIR))
+
 _GATE_DIR = Path(__file__).resolve().parents[1]
 if str(_GATE_DIR) not in sys.path:
     sys.path.insert(0, str(_GATE_DIR))
 
+from _harness import Harness  # noqa: E402
+
 collect_ignore_glob = ["test_blackbox*.py"] if sys.platform == "win32" else []
+
+
+@pytest.fixture
+def harness(tmp_path: Path) -> Harness:
+    """Return a fresh harness rooted in the test's temporary directory."""
+    return Harness(tmp_path)

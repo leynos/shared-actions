@@ -7,11 +7,19 @@ import io
 import os
 import re
 import subprocess
+import sys
 import tarfile
 import typing as typ
 from pathlib import Path
 
+import pytest
 import yaml
+
+# The action supports Linux and macOS only, and its tests drive the script
+# through POSIX shell stubs, so they have nothing to say on a Windows runner.
+posix_only = pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX shell stubs; the action is Linux/macOS only"
+)
 
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
 _LINUX_X64_DIGESTS = {
@@ -148,6 +156,7 @@ def test_tool_versions_are_exact_pins() -> None:
     assert "UV_CACHE_DIR" not in script
 
 
+@posix_only
 def test_cold_install_verifies_installs_and_exports_path(tmp_path: Path) -> None:
     """A verified download installs both binaries and exports both directories."""
     sandbox, script = _sandbox(tmp_path, pin_fixtures=True)
@@ -161,6 +170,7 @@ def test_cold_install_verifies_installs_and_exports_path(tmp_path: Path) -> None
     assert len(sandbox.curl_log.read_text(encoding="utf-8").splitlines()) == 2
 
 
+@posix_only
 def test_warm_install_does_not_download_again(tmp_path: Path) -> None:
     """A second run finds both binaries at the pinned versions and fetches nothing."""
     sandbox, script = _sandbox(tmp_path, pin_fixtures=True)
@@ -171,6 +181,7 @@ def test_warm_install_does_not_download_again(tmp_path: Path) -> None:
     assert not sandbox.curl_log.exists(), "warm cache should not call curl"
 
 
+@posix_only
 def test_digest_mismatch_fails_closed(tmp_path: Path) -> None:
     """An archive that does not match the pin is refused and nothing is installed."""
     sandbox, script = _sandbox(tmp_path, pin_fixtures=False)
@@ -181,6 +192,7 @@ def test_digest_mismatch_fails_closed(tmp_path: Path) -> None:
     assert not (bin_dir / "actionlint").exists()
 
 
+@posix_only
 def test_unsupported_platform_fails_closed(tmp_path: Path) -> None:
     """Windows has no configured release, so the action refuses rather than guesses."""
     sandbox, script = _sandbox(tmp_path, pin_fixtures=True)
@@ -189,6 +201,7 @@ def test_unsupported_platform_fails_closed(tmp_path: Path) -> None:
     assert "no verified release is configured for Windows/X64" in result.stderr
 
 
+@posix_only
 def test_missing_uv_fails_before_downloading(tmp_path: Path) -> None:
     """The action names the missing prerequisite and touches nothing."""
     sandbox, script = _sandbox(tmp_path, pin_fixtures=True)

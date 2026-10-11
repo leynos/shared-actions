@@ -76,6 +76,8 @@ jobs:
                 - run: echo $UNQUOTED
           PROBE
           cd "${RUNNER_TEMP}/lint-probe"
+          # actionlint finds a project by its Git root, so the probe needs one.
+          git init --quiet .
           # The finding must be shellcheck's own (SC2086, unquoted expansion),
           # not any other actionlint failure.
           if report="$(actionlint -no-color 2>&1)"; then

@@ -31,6 +31,7 @@ SEP = os.pathsep
         ("missing_package", uv_gate.Kind.MISSING_PACKAGE),
         ("missing_revision", uv_gate.Kind.MISSING_REVISION),
         ("auth_missing_repo", uv_gate.Kind.AUTH),
+        ("missing_python", uv_gate.Kind.MISSING_PYTHON),
     ],
 )
 def test_classify_recognises_recorded_uv_output(
@@ -511,3 +512,32 @@ def test_a_shim_that_fails_after_its_directory_exists_is_cleaned_up(
     with pytest.raises(uv_gate.GateError, match="Git shim"):
         uv_gate._with_git_shim(context)
     assert not made.exists()
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    ["missing_python_near_miss", "no_interpreter_elsewhere", "download_hint_only"],
+)
+def test_near_misses_for_a_missing_interpreter_stay_unknown(fixture: str) -> None:
+    """The header alone, or another search location, does not prove a download."""
+    assert uv_gate.classify(fixture_text(fixture)) is uv_gate.Kind.UNKNOWN
+
+
+def test_only_the_online_recoverable_classes_earn_a_retry() -> None:
+    """The set is exactly the proven misses; a new class must be added here."""
+    expected = {
+        uv_gate.Kind.CACHE_MISS,
+        uv_gate.Kind.OFFLINE_RESOLUTION,
+        uv_gate.Kind.MISSING_PYTHON,
+    }
+    assert expected == uv_gate.ONLINE_RECOVERABLE
+
+
+@pytest.mark.parametrize("flag", ["--version", "-V"])
+def test_the_version_is_reported(flag: str, capsys: pytest.CaptureFixture[str]) -> None:
+    """Either switch prints exactly the helper's version, nothing else, and exits 0."""
+    assert uv_gate.main([flag]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "uv_gate 0.2.0\n"
+    assert captured.err == ""
+    assert uv_gate.VERSION == "0.2.0"

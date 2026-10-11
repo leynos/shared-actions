@@ -1,0 +1,1 @@
+hint: A managed Python download is available for PyPy 3.12, but uv is set to offline mode

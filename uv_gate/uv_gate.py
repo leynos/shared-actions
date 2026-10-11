@@ -149,7 +149,8 @@ SIGNATURES: tuple[tuple[Kind, re.Pattern[str]], ...] = (
     ),
     (
         # Both lines are required: the header alone also appears when no download
-        # exists, and only the hint proves that going online can fix it.
+        # exists, and only the hint proves that going online can fix it. Recorded
+        # from uv 0.13.0; another wording is `unknown`.
         Kind.MISSING_PYTHON,
         re.compile(
             r"No\s+interpreter\s+found\s+for\s+[^\n]+?\s+in\s+managed\s+installations"
@@ -158,9 +159,11 @@ SIGNATURES: tuple[tuple[Kind, re.Pattern[str]], ...] = (
         ),
     ),
     (
-        # uv's own sentence for a Git source that is not in the cache. An older uv
+        # uv's own sentence for a Git source that is not in the cache, recorded
+        # from uv 0.13.0 (the version setup-uv installed on 2026-10-11). uv 0.9.21
         # prints only "Git operation failed" without the reason, which stays
-        # `unknown`: that wording also covers a failed fetch, which a retry may not fix.
+        # `unknown`: that wording also covers a failed fetch, which a retry may
+        # not fix. A different wording in any other uv version is `unknown` too.
         Kind.MISSING_GIT_SOURCE,
         re.compile(
             r"Remote\s+Git\s+fetches\s+are\s+not\s+allowed\s+because\s+network"

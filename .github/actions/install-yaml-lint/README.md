@@ -31,8 +31,11 @@ unsupported platform or a missing prerequisite fails the step.
 | `actionlint` | `1.7.12` | `rhysd/actionlint` release archives    |
 | `shellcheck` | `0.11.0` | `koalaman/shellcheck` release archives |
 
-Supported runners are Linux and macOS on x86-64 and ARM64. The runner must
-provide `uv`, `curl`, `tar` and `install`, and `sha256sum` or `shasum`.
+Supported runners are Linux and macOS on x86-64 and ARM64. Windows runners are
+not supported: the action fails there with
+`no verified release is configured for Windows/X64` before it downloads
+anything. The runner must provide `uv`, `curl`, `tar` and `install`, and
+`sha256sum` or `shasum`.
 
 ## Usage
 

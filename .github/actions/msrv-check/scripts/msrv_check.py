@@ -194,6 +194,31 @@ class Settings(typ.NamedTuple):
     keep_config: bool
 
 
+def _checkout_boundary(env: dict[str, str], root: Path) -> Path:
+    """Return `GITHUB_WORKSPACE` when it contains *root*, otherwise *root*."""
+    workspace = env.get("GITHUB_WORKSPACE")
+    candidate = Path(workspace).resolve() if workspace else root
+    return candidate if candidate in (root, *root.parents) else root
+
+
+def _split_args(text: str) -> list[str]:
+    """Split the `cargo-args` input with shell quoting rules."""
+    try:
+        return shlex.split(text)
+    except ValueError as error:
+        message = f"cargo-args is not valid shell quoting: {error}"
+        raise MsrvError(message) from error
+
+
+def _contained_manifest(env: dict[str, str], root: Path, boundary: Path) -> Path:
+    """Return the manifest path, which must lie inside the checkout."""
+    manifest = (root / (env.get("INPUT_MANIFEST_PATH") or "Cargo.toml")).resolve()
+    if boundary not in (manifest, *manifest.parents):
+        message = f"manifest-path {manifest} is outside the checkout {boundary}"
+        raise MsrvError(message)
+    return manifest
+
+
 def read_settings(env: dict[str, str]) -> Settings:
     """Resolve the action inputs from *env*.
 
@@ -216,25 +241,13 @@ def read_settings(env: dict[str, str]) -> Settings:
         checkout (removal walks up from the manifest, so it must stay inside).
     """
     root = Path(env.get("INPUT_WORKING_DIRECTORY") or ".").resolve()
-    workspace = (
-        Path(env["GITHUB_WORKSPACE"]).resolve() if env.get("GITHUB_WORKSPACE") else root
-    )
-    boundary = workspace if workspace in (root, *root.parents) else root
-    try:
-        cargo_args = shlex.split(env.get("INPUT_CARGO_ARGS") or DEFAULT_ARGS)
-    except ValueError as error:
-        message = f"cargo-args is not valid shell quoting: {error}"
-        raise MsrvError(message) from error
+    boundary = _checkout_boundary(env, root)
     keep = (env.get("INPUT_KEEP_CARGO_CONFIG") or "false").strip().lower()
-    manifest = (root / (env.get("INPUT_MANIFEST_PATH") or "Cargo.toml")).resolve()
-    if boundary not in (manifest, *manifest.parents):
-        message = f"manifest-path {manifest} is outside the checkout {boundary}"
-        raise MsrvError(message)
     return Settings(
         root=root,
         boundary=boundary,
-        manifest=manifest,
-        cargo_args=cargo_args,
+        manifest=_contained_manifest(env, root, boundary),
+        cargo_args=_split_args(env.get("INPUT_CARGO_ARGS") or DEFAULT_ARGS),
         keep_config=keep in TRUTHY,
     )
 

@@ -30,7 +30,7 @@ from plumbum import local
 from workflow_scripts import skylos_allow
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-_MAKEUTIL_REVISION: typ.Final = "29fc5a1634ffbaa18a773eed9dff1b2838a45d9c"
+_MAKEUTIL_REVISION: typ.Final = "7ab9b7b73a8f50ef1d3df548c7def7b94db35ba2"
 _MAKEUTIL_TOOLCHAIN: typ.Final = "nightly-2026-05-28"
 _GNU_MAKE_INSTALL_TOKENS: typ.Final = (
     "choco",
@@ -95,6 +95,8 @@ _TYPECHECK_FIRST_EXTRA_PATHS: typ.Final = (
     ".github/actions/install-mdtablefix/tests",
     ".github/actions/install-makeutil/scripts",
     ".github/actions/install-makeutil/tests",
+    "uv_gate",
+    "uv_gate/tests",
 )
 _TYPECHECK_FIRST_SOURCE_PATHS: typ.Final = (
     "cmd_utils.py",
@@ -107,6 +109,7 @@ _TYPECHECK_FIRST_SOURCE_PATHS: typ.Final = (
     ".github/actions/install-mdtablefix/tests",
     ".github/actions/install-makeutil/scripts",
     ".github/actions/install-makeutil/tests",
+    "uv_gate",
     ".github/actions/windows-package/scripts",
 )
 _TYPECHECK_SECOND_EXTRA_PATHS: typ.Final = (
@@ -399,11 +402,21 @@ def _windows_style_path(path: Path) -> str:
 
 
 def _uv_passthrough_launcher(directory: Path) -> Path:
-    """Create an executable uv stand-in that launches the requested Python command."""
+    """Create an executable uv stand-in that launches the requested Python command.
+
+    The stand-in re-spawns through :mod:`subprocess` rather than ``os.execv``.
+    On Windows, ``os.exec*`` joins the argument list into a command line with
+    single spaces and no quoting, and the C runtime splits it again on the way
+    in, so any argument containing a space or a double quote arrives as several
+    arguments. CPython documents the behaviour and declined to change it:
+    https://github.com/python/cpython/issues/64650. ``subprocess`` builds the
+    Windows command line with ``list2cmdline``, which quotes each element, so
+    every argument survives as exactly one argument on every platform.
+    """
     launcher = directory / "uv-launcher"
     launcher.write_text(
         "#!/usr/bin/env python3\n"
-        "import os\n"
+        "import subprocess\n"
         "import sys\n"
         "from pathlib import Path\n\n"
         f"python = {sys.executable!r}\n"
@@ -413,7 +426,7 @@ def _uv_passthrough_launcher(directory: Path) -> Path:
         "        or arguments[3] != 'python'\n"
         "        or Path(arguments[2]).resolve() != Path(project).resolve()):\n"
         "    raise SystemExit('unexpected uv arguments')\n"
-        "os.execv(python, [python, *arguments[4:]])\n",
+        "raise SystemExit(subprocess.call([python, *arguments[4:]]))\n",
         encoding="utf-8",
     )
     launcher.chmod(0o755)

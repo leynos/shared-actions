@@ -42,7 +42,7 @@ TYPOS_CONFIG_BUILDER = $(UV_ENV) $(UV) tool run --python 3.14 --from \
 	"git+https://github.com/leynos/typos-config-builder.git@$(TYPOS_CONFIG_BUILDER_VERSION)" \
 	typos-config-builder
 SKYLOS_VERSION ?= 4.33.2
-MAKEUTIL_REVISION := 29fc5a1634ffbaa18a773eed9dff1b2838a45d9c
+MAKEUTIL_REVISION := 7ab9b7b73a8f50ef1d3df548c7def7b94db35ba2
 MAKEUTIL_TOOLCHAIN := nightly-2026-05-28
 MAKEUTIL ?= $(if $(wildcard $(HOME)/.cargo/bin/makeutil),$(HOME)/.cargo/bin/makeutil,makeutil)
 # Skylos parses source using its own Python AST, so Python 3.14 prevents

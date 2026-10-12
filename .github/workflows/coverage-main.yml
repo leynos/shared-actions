@@ -29,7 +29,7 @@ jobs:
     permissions:
       contents: read
     env:
-      MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
+      MAKEUTIL_REVISION: '7ab9b7b73a8f50ef1d3df548c7def7b94db35ba2'
       MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     steps:
       - name: Checkout repository

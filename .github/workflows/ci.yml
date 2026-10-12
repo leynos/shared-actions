@@ -29,7 +29,7 @@ jobs:
       # --no-source-fallback, which install-whitaker always passes.
       # tests/workflows/test_whitaker_installer_floor.py holds the rule.
       WHITAKER_INSTALLER_VERSION: '0.2.9'
-      MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
+      MAKEUTIL_REVISION: '7ab9b7b73a8f50ef1d3df548c7def7b94db35ba2'
       MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     strategy:
       fail-fast: false
@@ -169,7 +169,7 @@ jobs:
       ${{ github.event.pull_request.head.repo.fork
       && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     env:
-      MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
+      MAKEUTIL_REVISION: '7ab9b7b73a8f50ef1d3df548c7def7b94db35ba2'
       MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     steps:
       - name: Checkout repository
@@ -338,7 +338,7 @@ jobs:
       contents: read
     runs-on: windows-latest
     env:
-      MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
+      MAKEUTIL_REVISION: '7ab9b7b73a8f50ef1d3df548c7def7b94db35ba2'
       MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     steps:
       - name: Checkout repository

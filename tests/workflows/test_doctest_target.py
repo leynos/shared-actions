@@ -94,6 +94,7 @@ class Workspace(typ.NamedTuple):
                 "Makefile",
                 target,
                 f"UV={self.root / 'uv-stub'}",
+                f"MAKEUTIL={self.root / 'makeutil-stub'}",
                 *arguments,
             ],
             cwd=self.root,
@@ -122,6 +123,14 @@ def workspace(tmp_path: Path) -> Workspace:
     stub = tmp_path / "uv-stub"
     stub.write_text(_STUB_SOURCE, encoding="utf-8")
     stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+    # `make test` also depends on the `makeutil` target, which only asserts
+    # that its configured executable resolves. The real parser is a Rust
+    # binary this workspace has no reason to build, and the run under test
+    # never invokes it, so an empty executable satisfies the guard the same
+    # way the empty `.venv` directory satisfies its own.
+    makeutil_stub = tmp_path / "makeutil-stub"
+    makeutil_stub.write_text("", encoding="utf-8")
+    makeutil_stub.chmod(makeutil_stub.stat().st_mode | stat.S_IXUSR)
     return Workspace(tmp_path, tmp_path / "stub.log")
 
 

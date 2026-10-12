@@ -256,7 +256,7 @@ Makeutil before executing the suite. Bootstrap the pinned local parser with:
 rustup toolchain install nightly-2026-05-28 --profile minimal
 RUSTFLAGS="-Zpolonius=next" cargo +nightly-2026-05-28 install \
   --git https://github.com/leynos/makeutil \
-  --rev 29fc5a1634ffbaa18a773eed9dff1b2838a45d9c \
+  --rev 7ab9b7b73a8f50ef1d3df548c7def7b94db35ba2 \
   --locked --force makeutil
 ```
 

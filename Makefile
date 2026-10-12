@@ -53,6 +53,7 @@ SKYLOS_PRODUCTION_TARGETS ?= .github/actions workflow_scripts scripts \
 	actions_common.py bool_utils.py cargo_utils.py cmd_utils.py cmd_utils_importer.py
 SKYLOS_EXCLUDE_FOLDERS ?= tests
 SKYLOS_WHITELIST_LOCK ?= .skylos-whitelist.lock
+SKYLOS_LOCK_PROJECT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 SKYLOS_LOCK_HELPER ?= $(dir $(abspath $(lastword $(MAKEFILE_LIST))))workflow_scripts/skylos_allow.py
 
 # Modules whose docstring examples are executed.
@@ -162,7 +163,7 @@ skylos-allow: ## Document one named Skylos exception, not an entry point
 	@case "$${SKYLOS_SYMBOL}" in *[![:space:]]*) ;; *) printf "Error: SYMBOL is required for a named whitelist exception\\n" >&2; exit 2;; esac
 	@case "$${SKYLOS_SYMBOL}" in *\**|*\?*|*\[*) printf "Error: SYMBOL must not contain wildcard characters (*, ?, or [)\\n" >&2; exit 2;; esac
 	@case "$${SKYLOS_REASON}" in *[![:space:]]*) ;; *) printf "Error: REASON is required for a named whitelist exception\\n" >&2; exit 2;; esac
-	$(UV_SHELL) run --no-project python "$(SKYLOS_LOCK_HELPER)" \
+	$(UV_SHELL) run --project "$(SKYLOS_LOCK_PROJECT)" python "$(SKYLOS_LOCK_HELPER)" \
 		--lock-file "$(SKYLOS_WHITELIST_LOCK)" -- \
 		$(SKYLOS_CLI) whitelist "$${SKYLOS_SYMBOL}" --reason "$${SKYLOS_REASON}"
 

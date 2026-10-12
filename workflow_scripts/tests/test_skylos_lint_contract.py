@@ -151,7 +151,8 @@ _SKYLOS_LINT_TOKENS: typ.Final = (
 _SKYLOS_WHITELIST_TOKENS: typ.Final = (
     "$(UV_SHELL)",
     "run",
-    "--no-project",
+    "--project",
+    "$(SKYLOS_LOCK_PROJECT)",
     "python",
     "$(SKYLOS_LOCK_HELPER)",
     "--lock-file",
@@ -403,11 +404,16 @@ def _uv_passthrough_launcher(directory: Path) -> Path:
     launcher.write_text(
         "#!/usr/bin/env python3\n"
         "import os\n"
-        "import sys\n\n"
+        "import sys\n"
+        "from pathlib import Path\n\n"
+        f"python = {sys.executable!r}\n"
+        f"project = {str(_REPOSITORY_ROOT)!r}\n"
         "arguments = sys.argv[1:]\n"
-        "if arguments[:3] != ['run', '--no-project', 'python']:\n"
+        "if (len(arguments) < 5 or arguments[:2] != ['run', '--project']\n"
+        "        or arguments[3] != 'python'\n"
+        "        or Path(arguments[2]).resolve() != Path(project).resolve()):\n"
         "    raise SystemExit('unexpected uv arguments')\n"
-        "os.execv(sys.executable, [sys.executable, *arguments[3:]])\n",
+        "os.execv(python, [python, *arguments[4:]])\n",
         encoding="utf-8",
     )
     launcher.chmod(0o755)

@@ -56,7 +56,7 @@ _FAILING_EXAMPLE: typ.Final[str] = _PASSING_EXAMPLE.replace("\n2\n", "\n3\n")
 
 
 class Workspace(typ.NamedTuple):
-    """An isolated directory holding the real Makefile and a stub `uv`."""
+    """An isolated directory holding the real Makefile and its tool stubs."""
 
     root: Path
     log: Path
@@ -94,6 +94,7 @@ class Workspace(typ.NamedTuple):
                 "Makefile",
                 target,
                 f"UV={self.root / 'uv-stub'}",
+                f"MAKEUTIL={self.root / 'makeutil-stub'}",
                 *arguments,
             ],
             cwd=self.root,
@@ -114,7 +115,7 @@ class Workspace(typ.NamedTuple):
 
 @pytest.fixture
 def workspace(tmp_path: Path) -> Workspace:
-    """Return a temporary workspace with the real Makefile and a stub `uv`."""
+    """Return a temporary workspace with the real Makefile and tool stubs."""
     shutil.copy2(coverage.MAKEFILE, tmp_path / "Makefile")
     # The target depends on `.venv`; an existing directory satisfies it, so
     # no environment is built and no network is touched.
@@ -122,6 +123,18 @@ def workspace(tmp_path: Path) -> Workspace:
     stub = tmp_path / "uv-stub"
     stub.write_text(_STUB_SOURCE, encoding="utf-8")
     stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+    # `make test` also depends on the `makeutil` target, which only asserts
+    # that its configured executable resolves. The real parser is a Rust
+    # binary this workspace has no reason to build, and the run under test
+    # never invokes it, so a stand-in satisfies the guard the same way the
+    # empty `.venv` directory satisfies its own. The shebang is what makes
+    # the stand-in executable to the shell the target runs under: on
+    # Windows, MSYS resolves a file with no extension as executable only
+    # when it begins with `#!`, so an empty file fails `command -v` there
+    # while passing it on Linux and macOS.
+    makeutil_stub = tmp_path / "makeutil-stub"
+    makeutil_stub.write_text(f"#!{sys.executable}\n", encoding="utf-8")
+    makeutil_stub.chmod(makeutil_stub.stat().st_mode | stat.S_IXUSR)
     return Workspace(tmp_path, tmp_path / "stub.log")
 
 

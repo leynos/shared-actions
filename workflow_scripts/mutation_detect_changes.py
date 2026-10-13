@@ -341,9 +341,7 @@ def _root_first_key(item: tuple[str, list[str]]) -> tuple[bool, str]:
     return (root_rank, alphabetical_key)
 
 
-def scoped_run_matrix(
-    buckets: dict[str, list[str]]
-) -> list[MatrixEntry]:
+def scoped_run_matrix(buckets: dict[str, list[str]]) -> list[MatrixEntry]:
     """Build the single-shard matrix for a scoped (scheduled) run."""
     ordered = sorted(buckets.items(), key=_root_first_key)  # pragma: no mutate
     return [

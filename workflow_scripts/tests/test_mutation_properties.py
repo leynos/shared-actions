@@ -63,7 +63,7 @@ def test_scoped_matrix_orders_root_first_then_alphabetically(
     """Root leads every scoped matrix and remaining targets are alphabetical."""
     targets = [*extras, *(["."] if include_root else [])]
     buckets = {target: [f"{target}/src/lib.rs"] for target in reversed(targets)}
-    entries = detect.scoped_run_matrix(buckets, detect.DetectionConfig())
+    entries = detect.scoped_run_matrix(buckets)
     expected = sorted(targets, key=lambda target: (target != ".", target))
     assert [entry.dir for entry in entries] == expected
 

@@ -95,6 +95,9 @@ jobs:
 | `allow-no-mutants`      | `false`                   | Accept a run that enumerated no mutants; left false, an empty run fails.                                                                                    |
 | `setup-commands`        | (empty)                   | Shell commands run before cargo-mutants in each mutants job (e.g. `sudo apt-get install -y mold` when the repo's `.cargo/config.toml` selects that linker). |
 | `install-mold`          | `false`                   | `"true"` installs the pinned mold linker through `setup-rust` on Linux runners, for repos whose `.cargo/config.toml` selects it. Sets no linker flag.       |
+| `install-mdtablefix`    | `false`                   | `"true"` installs the pinned mdtablefix binary before caller setup commands, using the shared trusted installer.                                            |
+| `mdtablefix-version`    | `0.6.1`                   | Exact mdtablefix release to install when `install-mdtablefix` is `"true"`.                                                                                  |
+| `mdtablefix-sha256`     | (empty)                   | Optional SHA-256 digest for the installed mdtablefix executable.                                                                                            |
 | `install-clang-lld`     | `false`                   | `"true"` installs clang and lld through `setup-rust` on Linux runners; elsewhere it skips with a notice. Sets no linker flag.                               |
 
 ## Installing mold
@@ -118,6 +121,18 @@ clang as the linker driver or lld. The input is forwarded to the `setup-rust`
 step, which installs both packages on Linux and fails unless `clang` and
 `ld.lld` resolve on `PATH`. Prefer it to an `apt-get` line in `setup-commands`.
 Like `install-mold`, it sets no linker flag.
+
+## Installing mdtablefix
+
+Pass `install-mdtablefix: 'true'` when the mutation baseline launches
+`mdtablefix` as a subprocess. The workflow calls the repository's shared
+`install-mdtablefix` composite action by full commit SHA, with the requested
+version and optional caller-pinned SHA-256 digest, after `Setup Rust` and
+before caller `setup-commands`. An empty digest uses the release's published
+checksum; a supplied digest replaces that checksum. The pinned action works
+whether the reusable workflow source needs a separate checkout or is already
+available in a local `act` workspace. It installs a trusted prebuilt release
+binary; it does not compile mdtablefix from source.
 
 ## Notes
 

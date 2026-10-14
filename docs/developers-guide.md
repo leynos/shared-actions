@@ -2510,6 +2510,13 @@ Internals for maintainers:
   `workflow_scripts/tests/test_mutation_cargo_install_mold.py` and
   `test_mutation_cargo_install_clang_lld.py` assert that each input is declared
   with its default and forwarded to the step.
+- `install-mdtablefix` defaults to `'false'`; when enabled, its version defaults
+  to `0.6.1` and the workflow calls the trusted shared composite action by full
+  commit SHA after `Setup Rust` and before caller `setup-commands`. The
+  optional SHA-256 input replaces the release-published checksum. The
+  `test_mutation_cargo_install_mdtablefix.py` contract checks the inputs and
+  ordering, while `tests/workflows/test_mutation_workflows.py` exercises the
+  opt-in, opt-out and input-failure paths under `act`.
 - All non-trivial logic lives in `workflow_scripts/` helper scripts
   (Cyclopts, `INPUT_*` environment configuration, plumbum):
   `mutation_detect_changes.py` (change-detection guard and shard-matrix

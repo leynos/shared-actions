@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: "0 12 31 2 *" # Never fires (31 February); act-only trigger
   workflow_dispatch:
+    inputs:
+      act-mdtablefix-mode:
+        description: Exercise the mdtablefix installer under act.
+        type: choice
+        options:
+          - skip
+          - install
+          - invalid-digest
+        default: skip
 
 # Default the token to no scopes; jobs opt in explicitly.
 permissions: {}
@@ -19,4 +28,18 @@ jobs:
       # the skip path regardless of recent repository history.
       paths: "act-test-no-such-dir/"
       base-ref: HEAD
-      shard-count: 3
+      shard-count: 1
+      install-mdtablefix: >-
+        ${{ (inputs.act-mdtablefix-mode == 'install' ||
+            inputs.act-mdtablefix-mode == 'invalid-digest') && 'true' || 'false' }}
+      mdtablefix-sha256: >-
+        ${{ inputs.act-mdtablefix-mode == 'invalid-digest' && 'invalid' || '' }}
+      setup-commands: >-
+        ${{ inputs.act-mdtablefix-mode == 'install' && 'mdtablefix --version;
+        printf "%s\n" act-test-stop-after-mdtablefix; exit 73' ||
+        inputs.act-mdtablefix-mode == 'skip' && 'if command -v mdtablefix
+        >/dev/null 2>&1; then printf "%s\n"
+        act-test-mdtablefix-unexpectedly-present; exit 74; fi; printf
+        "%s\n" act-test-mdtablefix-absent; exit 73' ||
+        inputs.act-mdtablefix-mode == 'invalid-digest' && 'printf "%s\n"
+        act-test-setup-ran-after-installer-failure; exit 75' || '' }}

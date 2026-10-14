@@ -1369,6 +1369,13 @@ A caller whose `.cargo/config.toml` selects the mold linker passes
 A caller whose `.cargo/config.toml` selects clang or lld passes
 `install-clang-lld: 'true'` in the same way.
 
+A mutation baseline that runs `mdtablefix` as a subprocess passes
+`install-mdtablefix: 'true'`. The reusable workflow installs the pinned
+prebuilt binary before `setup-commands`; its `mdtablefix-version` defaults to
+`0.6.1`, and an optional `mdtablefix-sha256` replaces the release-published
+checksum. The input defaults to off. See the
+[mutation workflow guide](mutation-cargo-workflow.md#installing-mdtablefix).
+
 ## The problem
 
 The nested `actions-rust-lang/setup-rust-toolchain` action exports

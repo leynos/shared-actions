@@ -337,7 +337,8 @@ def test_manifest_installs_cargo_binstall_only_when_missing() -> None:
         {
             "name": "Install cargo-binstall",
             "if": "steps.check-cargo-binstall.outputs.installed != 'true'",
-            "uses": "cargo-bins/cargo-binstall@8f137732cada3c067cb574fe3537fedfe2a6451d",
+            "uses": "cargo-bins/cargo-binstall@"
+            "8f137732cada3c067cb574fe3537fedfe2a6451d",
         },
     ]
 

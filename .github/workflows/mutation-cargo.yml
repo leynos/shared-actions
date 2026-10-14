@@ -82,6 +82,20 @@ on:
           how RUSTFLAGS interacts with the caller's configuration.
         type: string
         default: 'false'
+      install-mdtablefix:
+        description: >-
+          Install the pinned mdtablefix binary through the shared composite
+          action ("true" or "false") before caller setup commands.
+        type: string
+        default: 'false'
+      mdtablefix-version:
+        description: Exact mdtablefix version to install when enabled.
+        type: string
+        default: "0.6.1"
+      mdtablefix-sha256:
+        description: Optional SHA-256 digest for the mdtablefix executable.
+        type: string
+        default: ""
       install-clang-lld:
         description: >-
           Install clang and lld through setup-rust on Linux runners ("true"
@@ -232,6 +246,13 @@ jobs:
         with:
           install-mold: ${{ inputs.install-mold }}
           install-clang-lld: ${{ inputs.install-clang-lld }}
+
+      - name: Install mdtablefix
+        if: ${{ inputs.install-mdtablefix == 'true' }}
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@aea9c14c24b73042e99f0be8245a4f171b67c31a
+        with:
+          version: ${{ inputs.mdtablefix-version }}
+          sha256: ${{ inputs.mdtablefix-sha256 }}
 
       - name: Install cargo-mutants
         if: ${{ env.ACT != 'true' }}

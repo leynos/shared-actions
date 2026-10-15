@@ -55,6 +55,8 @@ INPUT_EXCLUDE_GLOBS : str, optional
 INPUT_EXTRA_ARGS : str, optional
     Extra arguments appended verbatim (shell-lexed), e.g.
     ``--all-features`` so feature-gated tests run.
+INPUT_RUSTFLAGS : str, optional
+    Nonempty literal replacement; removes encoded Rustflags in the child only.
 INPUT_ALLOW_NO_MUTANTS : str, optional
     ``true`` to accept a run that found no mutants. Default: ``false``.
 
@@ -69,18 +71,26 @@ As a workflow step::
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import pathlib
-import shlex
 import typing as typ
 
 from cyclopts import App, Parameter
 from plumbum import RETCODE, local
 
 if __package__:
+    from .mutation_cargo_command import (
+        MutantsInvocation,
+        build_arguments,
+        cargo_command,
+    )
     from .output import emit, fail
 else:
+    from mutation_cargo_command import (
+        MutantsInvocation,
+        build_arguments,
+        cargo_command,
+    )
     from output import emit, fail  # type: ignore[import-not-found,no-redef]
 
 if typ.TYPE_CHECKING:
@@ -99,69 +109,6 @@ EXIT_CODE_MEANINGS = {
     4: "baseline tests failing",
     70: "internal error",
 }
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class MutantsInvocation:
-    """Configuration for one ``cargo mutants`` matrix target.
-
-    Attributes
-    ----------
-    files : str
-        Space-separated file paths relative to ``target_dir``.
-    shard : int
-        Zero-based shard index.
-    shard_count : int
-        Total shard count; only values above 1 emit ``--shard``.
-    timeout_multiplier : str
-        Per-mutant timeout multiplier.
-    exclude_globs : str
-        Comma-separated ``--exclude`` globs.
-    extra_args : str
-        Extra arguments appended verbatim (shell-lexed).
-    target_dir : str
-        Crate directory; values other than ``.`` emit ``--dir``.
-    """
-
-    files: str = ""
-    shard: int = 0
-    shard_count: int = 1
-    timeout_multiplier: str = "3"
-    exclude_globs: str = ""
-    extra_args: str = ""
-    target_dir: str = "."
-
-
-def build_arguments(invocation: MutantsInvocation) -> list[str]:
-    """Build the ``cargo mutants`` argument list for one matrix target.
-
-    Parameters
-    ----------
-    invocation : MutantsInvocation
-        Target configuration (scoped files, sharding, excludes).
-
-    Returns
-    -------
-    list[str]
-        Arguments for ``cargo``, starting with ``mutants``.
-    """
-    arguments = [
-        "mutants",
-        "--in-place",
-        "--timeout-multiplier",
-        invocation.timeout_multiplier,
-    ]
-    if invocation.target_dir != ".":
-        arguments.extend(["--dir", invocation.target_dir])
-    if invocation.shard_count > 1:
-        arguments.extend(["--shard", f"{invocation.shard}/{invocation.shard_count}"])
-    for name in invocation.files.split():
-        arguments.extend(["--file", name])
-    for glob in (g.strip() for g in invocation.exclude_globs.split(",")):
-        if glob:
-            arguments.extend(["--exclude", glob])
-    arguments.extend(shlex.split(invocation.extra_args))
-    return arguments
 
 
 #: Where cargo-mutants records the mutants it enumerated for this run.
@@ -358,40 +305,56 @@ def report_outcome(
         raise SystemExit(code or 1)
 
 
+def _run_invocation(
+    invocation: MutantsInvocation, *, rustflags: str, allow_no_mutants: str
+) -> None:
+    """Validate and execute one mutation target, then report its tool outcome."""
+    if invocation.shard_count < 1:
+        fail(f"shard-count must be at least 1, got {invocation.shard_count}")
+    if not 0 <= invocation.shard < invocation.shard_count:
+        fail(f"shard must be in [0, {invocation.shard_count}), got {invocation.shard}")
+
+    arguments = build_arguments(invocation)
+    emit("mutation_cargo_command", ["cargo", *arguments])
+    try:
+        command = cargo_command(local, arguments, rustflags)
+    except ValueError as error:
+        fail(str(error))
+    code = command & RETCODE(FG=True)
+    report_outcome(
+        code=code,
+        output_dir=resolve_output_dir(invocation.target_dir, arguments),
+        sharded=invocation.shard_count > 1,
+        allow_no_mutants=allow_no_mutants,
+    )
+
+
+#: Frozen scalar target defaults are safe to share across CLI invocations.
+_DEFAULT_INVOCATION: typ.Final = MutantsInvocation()
+
+
 @app.default
 def main(
     *,
-    target_dir: typ.Annotated[str, Parameter(env_var="INPUT_DIR")] = ".",
-    files: typ.Annotated[str, Parameter(env_var="INPUT_FILES")] = "",
-    shard: typ.Annotated[int, Parameter(env_var="INPUT_SHARD")] = 0,
-    shard_count: typ.Annotated[int, Parameter(env_var="INPUT_SHARD_COUNT")] = 1,
-    timeout_multiplier: typ.Annotated[
-        str, Parameter(env_var="INPUT_TIMEOUT_MULTIPLIER")
-    ] = "3",
-    exclude_globs: typ.Annotated[str, Parameter(env_var="INPUT_EXCLUDE_GLOBS")] = "",
-    extra_args: typ.Annotated[str, Parameter(env_var="INPUT_EXTRA_ARGS")] = "",
+    invocation: typ.Annotated[
+        MutantsInvocation, Parameter(name="*")
+    ] = _DEFAULT_INVOCATION,
+    rustflags: typ.Annotated[str, Parameter(env_var="INPUT_RUSTFLAGS")] = "",
     allow_no_mutants: typ.Annotated[
         str, Parameter(env_var="INPUT_ALLOW_NO_MUTANTS")
     ] = "false",
 ) -> None:
     """Run cargo-mutants for one matrix target.
 
+    Python callers can use ``main(invocation=MutantsInvocation(files="src/lib.rs"))``
+    to mutate that file; command-line options remain flat.
+
     Parameters
     ----------
-    target_dir : str
-        Crate directory to mutate.
-    files : str
-        Space-separated scoped files relative to ``target_dir``.
-    shard : int
-        Zero-based shard index.
-    shard_count : int
-        Total shard count.
-    timeout_multiplier : str
-        Per-mutant timeout multiplier.
-    exclude_globs : str
-        Comma-separated ``--exclude`` globs.
-    extra_args : str
-        Extra arguments appended verbatim.
+    invocation : MutantsInvocation
+        Mutation target; Cyclopts exposes its fields as the existing flat options.
+    rustflags : str
+        Nonempty literal replacement for the Cargo child; empty inherits flags.
     allow_no_mutants : str
         ``true`` to accept a run that enumerated no mutants.
 
@@ -403,28 +366,9 @@ def main(
         with 1 when an unsharded run enumerated no mutants and the caller
         did not opt in to that.
     """
-    if shard_count < 1:
-        fail(f"shard-count must be at least 1, got {shard_count}")
-    if not 0 <= shard < shard_count:
-        fail(f"shard must be in [0, {shard_count}), got {shard}")
-
-    arguments = build_arguments(
-        MutantsInvocation(
-            files=files,
-            shard=shard,
-            shard_count=shard_count,
-            timeout_multiplier=timeout_multiplier,
-            exclude_globs=exclude_globs,
-            extra_args=extra_args,
-            target_dir=target_dir,
-        )
-    )
-    emit("mutation_cargo_command", ["cargo", *arguments])
-    code = local["cargo"][arguments] & RETCODE(FG=True)
-    report_outcome(
-        code=code,
-        output_dir=resolve_output_dir(target_dir, arguments),
-        sharded=shard_count > 1,
+    _run_invocation(
+        invocation,
+        rustflags=rustflags,
         allow_no_mutants=allow_no_mutants,
     )
 

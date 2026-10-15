@@ -152,6 +152,12 @@ package = true
 [tool.skylos.gate]
 strict = true
 
+[[tool.skylos.dead_code.entrypoints]]
+type = "import"
+name = ["MutantsInvocation", "build_arguments", "cargo_command"]
+path = "workflow_scripts/mutation_run_cargo.py"
+reason = "The live mutation runner calls these package facade and direct-script fallback imports; cargo_command receives its injected command provider."
+
 [tool.skylos.whitelist]
 names = [
     "JsonValue",

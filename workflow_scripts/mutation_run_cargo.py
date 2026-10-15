@@ -319,7 +319,9 @@ def _run_invocation(
     try:
         command = cargo_command(local, arguments, rustflags)
     except ValueError as error:
+        emit("mutation_cargo_rustflags_mode", "invalid")
         fail(str(error))
+    emit("mutation_cargo_rustflags_mode", "override" if rustflags else "inherited")
     code = command & RETCODE(FG=True)
     report_outcome(
         code=code,

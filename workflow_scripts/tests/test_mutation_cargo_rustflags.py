@@ -99,8 +99,10 @@ def child(tmp_path: pathlib.Path) -> _Child:
 
 def _mapping(value: object) -> dict[str, object]:
     """Narrow an external JSON or YAML mapping after checking its shape."""
-    assert isinstance(value, dict)
-    assert all(isinstance(key, str) for key in value)
+    assert isinstance(value, dict), "JSON or YAML payload must be a mapping"
+    assert all(isinstance(key, str) for key in value), (
+        "Mapping keys must all be strings"
+    )
     return typ.cast("dict[str, object]", value)
 
 
@@ -118,11 +120,20 @@ class TestChildFlags:
         }
         if replacement is not None:
             values["INPUT_RUSTFLAGS"] = replacement
-        code, _, stderr = child.run(values)
+        code, stdout, stderr = child.run(values)
         assert code == 0, stderr
+        assert "mutation_cargo_rustflags_mode=inherited\n" in stdout, (
+            "Default flag inheritance must be observable without printing flag values"
+        )
+        assert values["RUSTFLAGS"] not in stdout + stderr, (
+            "Inherited flag contents must not leak into runner events"
+        )
+        assert values["CARGO_ENCODED_RUSTFLAGS"] not in stdout + stderr, (
+            "Inherited encoded flag contents must not leak into runner events"
+        )
         assert child.record()["env"] == {
             key: value for key, value in values.items() if key in OBSERVED
-        }
+        }, "An omitted or empty replacement must preserve both inherited flag variables"
 
     @pytest.mark.parametrize("encoded", [None, "", "-Z\x1fcodegen-backend=cranelift"])
     @pytest.mark.parametrize(
@@ -151,23 +162,44 @@ class TestChildFlags:
         }
         if encoded is not None:
             values["CARGO_ENCODED_RUSTFLAGS"] = encoded
-        code, _, _ = child.run(values)
-        assert code == 0
+        code, stdout, stderr = child.run(values)
+        assert "mutation_cargo_rustflags_mode=override\n" in stdout, (
+            "A literal replacement must report only the selected mode"
+        )
+        assert replacement not in stdout + stderr, (
+            "Replacement flag contents must not leak into runner events"
+        )
+        assert code == 0, "Literal override must complete successfully"
         expected = {key: value for key, value in values.items() if key in OBSERVED}
         expected.pop("CARGO_ENCODED_RUSTFLAGS", None)
         expected["RUSTFLAGS"] = replacement
-        assert child.record()["env"] == expected
-        assert not (child.root / "sentinel").exists()
+        assert child.record()["env"] == expected, (
+            "Override must remove encoded flags and preserve all unrelated "
+            "child environment values"
+        )
+        assert not (child.root / "sentinel").exists(), (
+            "Literal flags must never execute shell substitution"
+        )
 
     @pytest.mark.parametrize("replacement", ["-D warnings\n-C opt-level=2", "x\ry"])
     def test_multiline_input_fails_before_cargo(
         self, child: _Child, replacement: str
     ) -> None:
         """An invalid environment value produces a useful diagnostic without a run."""
-        code, _, stderr = child.run({"INPUT_RUSTFLAGS": replacement})
-        assert code == 1
-        assert "rustflags must be a single line without CR, LF or NUL" in stderr
-        assert not (child.root / "record.json").exists()
+        code, stdout, stderr = child.run({"INPUT_RUSTFLAGS": replacement})
+        assert "mutation_cargo_rustflags_mode=invalid\n" in stdout, (
+            "Rejected flags must report invalid mode"
+        )
+        assert replacement not in stdout + stderr, (
+            "Rejected flag contents must not leak into runner events"
+        )
+        assert code == 1, "Multiline flags must fail with the input-error exit code"
+        assert "rustflags must be a single line without CR, LF or NUL" in stderr, (
+            "Invalid flags must explain the single-line constraint"
+        )
+        assert not (child.root / "record.json").exists(), (
+            "Invalid flags must be rejected before Cargo is launched"
+        )
 
     def test_nul_is_rejected_before_tool_resolution(self) -> None:
         """NUL cannot cross an OS environment boundary, so validate it directly."""
@@ -198,7 +230,9 @@ class TestInvocationCompatibility:
             "FAKE_CARGO_EXIT": str(tool_exit),
         }
         code, stdout, _ = child.run(values, as_module=as_module)
-        assert code == expected
+        assert code == expected, (
+            "Cargo exit classification must preserve the informational outcome contract"
+        )
         assert child.record()["argv"] == [
             "mutants",
             "--in-place",
@@ -219,9 +253,13 @@ class TestInvocationCompatibility:
             "--all-features",
             "--output",
             "report dir",
-        ]
-        assert f"mutation_cargo_exit_code={tool_exit}" in stdout
-        assert "mutation_cargo_outcome=" in stdout
+        ], "Cargo must receive the complete ordered invocation arguments"
+        assert f"mutation_cargo_exit_code={tool_exit}" in stdout, (
+            "The existing exit-code event must remain observable"
+        )
+        assert "mutation_cargo_outcome=" in stdout, (
+            "The existing outcome event must remain observable"
+        )
 
     @pytest.mark.parametrize("as_module", [False, True])
     def test_flat_cli_overrides_grouped_environment(
@@ -252,7 +290,9 @@ class TestInvocationCompatibility:
             "--allow-no-mutants=false",
         )
         code, _, _ = child.run(values, as_module=as_module, arguments=arguments)
-        assert code == 0
+        assert code == 0, (
+            "Flat CLI arguments must override grouped environment defaults"
+        )
         assert child.record()["argv"] == [
             "mutants",
             "--in-place",
@@ -267,8 +307,10 @@ class TestInvocationCompatibility:
             "--exclude",
             "cli.rs",
             "--no-shuffle",
-        ]
-        assert child.record()["env"] == {"RUSTFLAGS": "-D warnings -C opt-level=2"}
+        ], "Flat CLI options must retain Cargo argument ordering"
+        assert child.record()["env"] == {"RUSTFLAGS": "-D warnings -C opt-level=2"}, (
+            "CLI replacement must reach the child literally and remove encoded flags"
+        )
 
     def test_runner_preserves_the_injected_command_provider(
         self, monkeypatch: pytest.MonkeyPatch
@@ -281,8 +323,15 @@ class TestInvocationCompatibility:
             provider: LocalMachine, arguments: list[str], rustflags: str
         ) -> BaseCommand:
             providers.append(provider)
-            assert arguments == ["mutants", "--in-place", "--timeout-multiplier", "3"]
-            assert rustflags == "-D warnings"
+            assert arguments == [
+                "mutants",
+                "--in-place",
+                "--timeout-multiplier",
+                "3",
+            ], "The command builder must receive the existing default Cargo arguments"
+            assert rustflags == "-D warnings", (
+                "The runner must forward the replacement unchanged"
+            )
             return local["true"]
 
         def ignore_report(**_kwargs: object) -> None:
@@ -293,13 +342,15 @@ class TestInvocationCompatibility:
         monkeypatch.setattr(runner, "cargo_command", recording_builder)
         monkeypatch.setattr(runner, "report_outcome", ignore_report)
         runner.main(rustflags="-D warnings")
-        assert providers == [injected]
+        assert providers == [injected], (
+            "The command builder must retain the runner-injected provider"
+        )
 
 
 def _read_workflow() -> dict[str, object]:
     """Normalize PyYAML's YAML 1.1 boolean interpretation of the on key."""
     parsed = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    assert isinstance(parsed, dict)
+    assert isinstance(parsed, dict), "The workflow document must parse as a mapping"
     if True in parsed:
         parsed["on"] = parsed.pop(True)
     return _mapping(parsed)
@@ -310,25 +361,37 @@ def _assert_workflow_contract(workflow: dict[str, object]) -> None:
     triggers = _mapping(workflow["on"])
     inputs = _mapping(_mapping(triggers["workflow_call"])["inputs"])
     declared = _mapping(inputs["rustflags"])
-    assert declared["type"] == "string"
-    assert declared["default"] == ""
+    assert declared["type"] == "string", (
+        "Rustflags must remain an optional string input"
+    )
+    assert declared["default"] == "", "Rustflags must preserve the empty default"
     jobs = _mapping(workflow["jobs"])
     bindings = []
     for job in jobs.values():
         steps = _mapping(job).get("steps", [])
-        assert isinstance(steps, list)
+        assert isinstance(steps, list), "Workflow job steps must be a list"
         for raw in steps:
             step = _mapping(raw)
             run = step.get("run", "")
-            assert isinstance(run, str)
-            assert FORWARD not in run
+            assert isinstance(run, str), "Workflow run bodies must be strings"
+            assert FORWARD not in run, (
+                "Rustflags expressions must never be interpolated into shell text"
+            )
             environment = _mapping(step.get("env", {}))
             if "INPUT_RUSTFLAGS" in environment:
-                assert step.get("name") == "Run mutation testing"
-                assert "mutation_run_cargo.py" in run
+                assert step.get("name") == "Run mutation testing", (
+                    "Only the mutation helper step may receive INPUT_RUSTFLAGS"
+                )
+                assert "mutation_run_cargo.py" in run, (
+                    "The binding must target the actual Cargo mutation helper"
+                )
                 bindings.append(environment["INPUT_RUSTFLAGS"])
-            assert FORWARD not in _mapping(step.get("with", {})).values()
-    assert bindings == [FORWARD]
+            assert FORWARD not in _mapping(step.get("with", {})).values(), (
+                "The replacement must not be forwarded through action inputs"
+            )
+    assert bindings == [FORWARD], (
+        "Exactly one mutation helper binding must forward the Rustflags input"
+    )
 
 
 def _mutation_environments(workflow: dict[str, object]) -> list[dict[str, object]]:
@@ -336,7 +399,7 @@ def _mutation_environments(workflow: dict[str, object]) -> list[dict[str, object
     environments: list[dict[str, object]] = []
     for job in _mapping(workflow["jobs"]).values():
         steps = _mapping(job).get("steps", [])
-        assert isinstance(steps, list)
+        assert isinstance(steps, list), "Workflow job steps must be a list"
         for raw in steps:
             step = _mapping(raw)
             if step.get("name") == "Run mutation testing":

@@ -7,6 +7,7 @@ import dataclasses
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import typing as typ
 
@@ -16,6 +17,7 @@ from plumbum import local
 
 from workflow_scripts import mutation_cargo_command as command
 from workflow_scripts import mutation_run_cargo as runner
+from workflow_scripts.tests.mutation_cargo_fixture import install_recording_cargo
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/mutation-cargo.yml"
@@ -70,15 +72,16 @@ class _Child:
             if as_module
             else [str(ROOT / "workflow_scripts/mutation_run_cargo.py")]
         )
-        # env -i prevents Plumbum's environment merge from contaminating this child.
-        invocation = local["env"][
-            "-i",
-            *(f"{key}={value}" for key, value in environment.items()),
-            sys.executable,
-            *entry,
-            *arguments,
-        ]
-        return invocation.run(retcode=None, cwd=str(self.root))
+        with subprocess.Popen(  # noqa: S603 - fixed Python helper and authored test argv.
+            [sys.executable, *entry, *arguments],
+            env=environment,
+            cwd=self.root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ) as process:
+            stdout, stderr = process.communicate()
+            return process.returncode, stdout, stderr
 
     def record(self) -> dict[str, object]:
         """Read only the fake Cargo's safe observation fields."""
@@ -90,25 +93,7 @@ def child(tmp_path: pathlib.Path) -> _Child:
     """Install a recording Cargo that never compiles or contacts the network."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    cargo = bin_dir / "cargo"
-    cargo.write_text(
-        f"#!{sys.executable}\n"
-        "import json, os, pathlib, sys\n"
-        f"keys = {OBSERVED!r}\n"
-        "record = {'argv': sys.argv[1:], 'env': "
-        "{key: os.environ[key] for key in keys if key in os.environ}}\n"
-        "pathlib.Path(os.environ['RECORD']).write_text(json.dumps(record))\n"
-        "args = sys.argv[1:]\n"
-        "base = args[args.index('--output') + 1] if '--output' in args else \
-"
-        "    args[args.index('--dir') + 1] if '--dir' in args else '.'\n"
-        "directory = pathlib.Path(base) / 'mutants.out'\n"
-        "directory.mkdir(parents=True, exist_ok=True)\n"
-        "(directory / 'mutants.json').write_text('[{}]')\n"
-        "sys.exit(int(os.environ.get('FAKE_CARGO_EXIT', '0')))\n",
-        encoding="utf-8",
-    )
-    cargo.chmod(0o700)
+    install_recording_cargo(bin_dir, OBSERVED)
     return _Child(tmp_path, bin_dir)
 
 
@@ -133,8 +118,8 @@ class TestChildFlags:
         }
         if replacement is not None:
             values["INPUT_RUSTFLAGS"] = replacement
-        code, _, _ = child.run(values)
-        assert code == 0
+        code, _, stderr = child.run(values)
+        assert code == 0, stderr
         assert child.record()["env"] == {
             key: value for key, value in values.items() if key in OBSERVED
         }
@@ -153,13 +138,14 @@ class TestChildFlags:
         self, child: _Child, encoded: str | None, replacement: str
     ) -> None:
         """Encoded removal is observable even when its inherited value was empty."""
+        preserved = child.root / "preserved"
         values = {
             "INPUT_RUSTFLAGS": replacement,
             "RUSTFLAGS": "-Z old",
-            "RUSTC_WRAPPER": "/preserved/wrapper",
-            "RUSTDOC": "/preserved/rustdoc",
-            "CARGO_TARGET_DIR": "/preserved/target",
-            "CARGO_HOME": "/preserved/cache",
+            "RUSTC_WRAPPER": str(preserved / "wrapper"),
+            "RUSTDOC": str(preserved / "rustdoc"),
+            "CARGO_TARGET_DIR": str(preserved / "target"),
+            "CARGO_HOME": str(preserved / "cache"),
             "RUSTUP_TOOLCHAIN": "preserved-toolchain",
             "UNRELATED": "preserved",
         }

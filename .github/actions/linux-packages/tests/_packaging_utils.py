@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 import typing as typ
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 from plumbum import local
@@ -19,6 +19,9 @@ from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
 from syspath_hack import add_to_syspath
 
 from cmd_utils_importer import import_cmd_utils
+
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
 
 run_cmd = import_cmd_utils().run_cmd
 
@@ -77,6 +80,7 @@ class PackagingProject:
     build_script: Path
     package_script: Path
     polythene_command: Command
+    target_root: Path | None = None
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -110,6 +114,60 @@ def packaging_project() -> PackagingProject:
     )
 
 
+def _reject_drive_relative_target(inherited: str) -> None:
+    """Reject a target whose meaning depends on Windows' per-drive current directory.
+
+    ```python
+    _reject_drive_relative_target("build")  # accepted: Cargo-cwd relative
+    _reject_drive_relative_target("D:/build")  # accepted: absolute on Windows
+    _reject_drive_relative_target("D:build")  # raises ValueError
+    ```
+    """
+    windows_path = PureWindowsPath(inherited)
+    if windows_path.drive and not windows_path.root:
+        message = f"drive-relative Cargo target is ambiguous: {inherited}"
+        raise ValueError(message)
+
+
+def _effective_target_root(project_dir: Path, inherited: str | None) -> Path:
+    """Resolve Cargo's environment path relative to its invocation directory.
+
+    ```python
+    _effective_target_root(Path("/work/project"), "../build")
+    # Path("/work/project/../build"), the same root Cargo resolves from that cwd
+    ```
+    """
+    if inherited:
+        _reject_drive_relative_target(inherited)
+        candidate = Path(inherited)
+        root = candidate if candidate.is_absolute() else project_dir / candidate
+        if root.resolve().is_relative_to(
+            Path("/tmp").resolve(),  # noqa: S108 - fixed rejection boundary, no allocation.
+        ):
+            message = f"integration Cargo target must be outside /tmp: {root}"
+            raise ValueError(message)
+        return root
+    repository = Path(__file__).resolve().parents[4]
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
+    parent = repository / "target" / "pytest-integration" / worker
+    parent.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix="packaging-", dir=parent))
+
+
+def _project_target_root(project: PackagingProject) -> Path:
+    """Return the root frozen when the integration fixture was cloned.
+
+    ```python
+    _project_target_root(cloned_project)  # its frozen external target Path
+    _project_target_root(packaging_project())  # raises ValueError: not cloned
+    ```
+    """
+    if project.target_root is None:
+        message = "build fixtures must be cloned before resolving their target root"
+        raise ValueError(message)
+    return project.target_root
+
+
 def clone_packaging_project(
     tmp_path: Path, project: PackagingProject
 ) -> PackagingProject:
@@ -129,11 +187,17 @@ def clone_packaging_project(
             shutil.rmtree(stale_path)
         else:
             stale_path.unlink()
-    return dc.replace(project, project_dir=destination)
+    return dc.replace(
+        project,
+        project_dir=destination,
+        target_root=_effective_target_root(
+            destination, os.environ.get("CARGO_TARGET_DIR")
+        ),
+    )
 
 
 def _resolve_man_page(
-    project_dir: Path,
+    target_root: Path,
     target: str,
     config: PackagingConfig,
 ) -> Path:
@@ -144,12 +208,12 @@ def _resolve_man_page(
     absent.  Raises ``FileNotFoundError`` when no match is found and
     ``RuntimeError`` when multiple legacy matches are found.
     """
-    stable = project_dir / f"target/generated-man/{target}/release/{config.bin_name}.1"
+    stable = target_root / f"generated-man/{target}/release/{config.bin_name}.1"
     if stable.exists():
         return stable
     matches = list(
-        project_dir.glob(
-            f"target/{target}/release/build/{config.name}-*/out/{config.bin_name}.1"
+        target_root.glob(
+            f"{target}/release/build/{config.name}-*/out/{config.bin_name}.1"
         )
     )
     if len(matches) == 0:
@@ -168,6 +232,34 @@ def _resolve_man_page(
     return matches[0]
 
 
+def _build_child_environment(
+    target_root: Path,
+    plumbum_environment: cabc.Mapping[str, str],
+    process_environment: cabc.Mapping[str, str],
+    *,
+    container_engine: str | None = None,
+) -> dict[str, str]:
+    """Preserve effective command controls while routing only this child build.
+
+    ```python
+    _build_child_environment(
+        Path("/build/shared"), {"PLUMBUM_ONLY": "kept"},
+        {"RUSTDOC": "admitted-rustdoc"}, container_engine="podman",
+    )
+    # Keeps PLUMBUM_ONLY and RUSTDOC, sets CARGO_TARGET_DIR=/build/shared
+    # and CROSS_CONTAINER_ENGINE=podman; neither input mapping is mutated.
+    ```
+    """
+    effective = {
+        **{key: str(value) for key, value in plumbum_environment.items()},
+        **{key: str(value) for key, value in process_environment.items()},
+        "CARGO_TARGET_DIR": str(target_root),
+    }
+    if container_engine is not None:
+        effective["CROSS_CONTAINER_ENGINE"] = container_engine
+    return effective
+
+
 def build_release_artefacts(
     project: PackagingProject,
     target: str,
@@ -175,6 +267,7 @@ def build_release_artefacts(
     config: PackagingConfig = DEFAULT_CONFIG,
 ) -> BuildArtefacts:
     """Compile the Rust project and return the artefacts needed for packaging."""
+    target_root = _project_target_root(project)
     with local.cwd(project.project_dir):
         run_cmd(
             local["rustup"][
@@ -186,9 +279,16 @@ def build_release_artefacts(
                 "--no-self-update",
             ]
         )
-        with local.env(CROSS_CONTAINER_ENGINE="podman"):
-            run_cmd(local[sys.executable][project.build_script.as_posix(), target])
-        man_src = _resolve_man_page(project.project_dir, target, config)
+        run_cmd(
+            local[sys.executable][project.build_script.as_posix(), target],
+            env=_build_child_environment(
+                target_root,
+                typ.cast("cabc.Mapping[str, str]", local.env),
+                os.environ,
+                container_engine="podman",
+            ),
+        )
+        man_src = _resolve_man_page(target_root, target, config)
     return BuildArtefacts(target=target, man_page=man_src)
 
 
@@ -228,7 +328,7 @@ def package_project(
                 "INPUT_FORMATS": "\n".join(ordered_formats),
                 "INPUT_MAN_PATHS": build.man_page.as_posix(),
                 "INPUT_MAN_SECTION": "1",
-                "INPUT_BINARY_DIR": "target",
+                "INPUT_BINARY_DIR": str(_project_target_root(project)),
                 "INPUT_OUTDIR": "dist",
                 "INPUT_CONFIG_PATH": "dist/nfpm.yaml",
             }

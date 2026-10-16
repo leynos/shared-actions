@@ -82,7 +82,7 @@ To override the Nixie and Python pins:
   crates.io package metadata and checksums, and the binary sources selected by
   cargo-binstall (the crate's release metadata and/or its quick-install binary
   source). Downloads use cargo-binstall's HTTPS handling and signatures are
-  checked when supplied, but unsigned binary artifacts are allowed. The action
+  checked when supplied, but unsigned binary artefacts are allowed. The action
   no longer embeds or checks release-specific SHA-256 digests for Merman binary
   archives. Its local verification confirms that the installed command runs and
   reports the requested version; that version check does not authenticate the

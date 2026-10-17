@@ -1416,6 +1416,17 @@ prebuilt binary before `setup-commands`; its `mdtablefix-version` defaults to
 checksum. The input defaults to off. See the
 [mutation workflow guide](mutation-cargo-workflow.md#installing-mdtablefix).
 
+The optional `rustflags` input controls flags for the mutation Cargo child.
+Omitting it, or passing `rustflags: ''`, preserves inherited `RUSTFLAGS` and
+`CARGO_ENCODED_RUSTFLAGS`. A nonempty value replaces `RUSTFLAGS` literally and
+removes `CARGO_ENCODED_RUSTFLAGS` in that child; whitespace is a nonempty
+value. For example, `rustflags: '-D warnings -C link-arg=-fuse-ld=mold'`
+selects those flags without inheriting an encoded development-backend setting.
+This does not install mold: use `install-mold: 'true'` when that linker is
+required. CR, LF and NUL are rejected before tool lookup. See the
+[mutation workflow inputs](mutation-cargo-workflow.md#inputs) for the full
+contract.
+
 ## The problem
 
 The nested `actions-rust-lang/setup-rust-toolchain` action exports

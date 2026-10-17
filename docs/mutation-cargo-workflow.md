@@ -92,6 +92,7 @@ jobs:
 | `shard-count`           | `6`                       | Fan-out for full dispatch runs (scoped runs stay single-shard).                                                                                             |
 | `cargo-mutants-version` | pinned                    | Tool version; the summary parser is validated against it.                                                                                                   |
 | `extra-args`            | (empty)                   | Extra cargo-mutants arguments (shell-lexed), e.g. `--all-features`.                                                                                         |
+| `rustflags`             | (empty)                   | Nonempty literal Cargo-child `RUSTFLAGS` replacement; removes inherited `CARGO_ENCODED_RUSTFLAGS`. Empty preserves both.                                    |
 | `allow-no-mutants`      | `false`                   | Accept a run that enumerated no mutants; left false, an empty run fails.                                                                                    |
 | `setup-commands`        | (empty)                   | Shell commands run before cargo-mutants in each mutants job (e.g. `sudo apt-get install -y mold` when the repo's `.cargo/config.toml` selects that linker). |
 | `install-mold`          | `false`                   | `"true"` installs the pinned mold linker through `setup-rust` on Linux runners, for repos whose `.cargo/config.toml` selects it. Sets no linker flag.       |
@@ -99,6 +100,18 @@ jobs:
 | `mdtablefix-version`    | `0.6.1`                   | Exact mdtablefix release to install when `install-mdtablefix` is `"true"`.                                                                                  |
 | `mdtablefix-sha256`     | (empty)                   | Optional SHA-256 digest for the installed mdtablefix executable.                                                                                            |
 | `install-clang-lld`     | `false`                   | `"true"` installs clang and lld through `setup-rust` on Linux runners; elsewhere it skips with a notice. Sets no linker flag.                               |
+
+## Replacing Rustflags for mutation testing
+
+Set `rustflags: '-D warnings'` to replace `RUSTFLAGS` only in the Cargo-mutants
+child and remove that child's inherited `CARGO_ENCODED_RUSTFLAGS`. Include any
+production flags you need in the replacement. Omitted or empty input preserves
+both inherited variables exactly; an explicit empty replacement is not
+supported.
+
+The value is passed literally, without shell evaluation or whitespace trimming.
+Carriage returns, newlines and NUL are rejected. This late child override does
+not change `setup-rust`, the selected compiler or any mutation warning default.
 
 ## Installing mold
 

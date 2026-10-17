@@ -2647,6 +2647,29 @@ Internals for maintainers:
   `mutation_summarize_cargo.py` (merges shard `outcomes.json` artefacts and
   renders the job summary), and `mutation_run_mutmut.py` (module-glob scoping,
   results parsing, and summary in one pass — mutmut has no shard support).
+- Python callers pass target settings as the frozen `MutantsInvocation` value:
+
+  ```python
+  from workflow_scripts.mutation_run_cargo import MutantsInvocation, main
+
+  main(
+      invocation=MutantsInvocation(files="src/lib.rs", target_dir="crate"),
+      rustflags="-D warnings",
+  )
+  ```
+
+  `build_arguments(invocation)` constructs the ordered Cargo argument list;
+  `cargo_command(provider, arguments, rustflags)` binds that list to Cargo
+  resolved through the injected provider. The runner retains all nine flat CLI
+  options and their existing `INPUT_*` environment names. Empty Rustflags bind
+  Cargo directly, preserving both inherited flag variables. Nonempty Rustflags
+  become one literal `RUSTFLAGS` assignment through `env -u`, which removes
+  `CARGO_ENCODED_RUSTFLAGS` for that child only. No shell parses the
+  replacement, and unrelated environment variables remain inherited. CR, LF and
+  NUL are rejected before any tool lookup. The runner emits
+  `mutation_cargo_rustflags_mode=inherited`, `override` or `invalid` through
+  the existing `emit` seam without printing any flag contents; command,
+  inventory, exit-code and outcome events retain their contracts.
 - Tool version pins default in the workflows because both report
   formats are unstable; a version bump must be paired with a parser check
   (`outcomes.json` fields for cargo-mutants; the `mutmut results --all true`
@@ -2686,7 +2709,15 @@ Internals for maintainers:
   `PATH`; those tests are skipped on Windows (the workflows only run on
   `ubuntu-latest`). Property-based tests in
   `workflow_scripts/tests/test_mutation_properties.py` cover the bucketing,
-  translation, and parsing invariants.
+  translation, and parsing invariants. The Rustflags tests additionally retain
+  native recording-child cases on Linux and Windows. Cheap properties in
+  `test_mutation_cargo_rustflags_properties.py` sample Unicode scalar strings
+  up to 256 characters, excluding CR, LF and NUL, and insert each forbidden
+  character into generated prefixes and suffixes. They check literal command
+  binding, encoded-key removal instructions, inherited values, input
+  immutability, and rejection before tool lookup. They launch no subprocesses;
+  actual child-environment removal remains covered by the finite integration
+  cases. These bounds are sampled evidence, not a proof for arbitrary lengths.
 - The act integration tests
   (`tests/workflows/test_mutation_workflows.py`) exercise the change-detection
   skip path end-to-end; the mutation-run path cannot be act-tested because stub

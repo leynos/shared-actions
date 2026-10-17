@@ -185,24 +185,86 @@ def cpu_figures(samples: list[Sample], nproc: int, clk_tck: int) -> Cpu | None:
     )
 
 
+def _identity_value(key: str, value: str | None) -> str | int | None:
+    """Return *value*, as an integer for the keys that are integers."""
+    if value and key in INTEGER_IDENTITY and value.isdigit():
+        return int(value)
+    return value or None
+
+
 def identity(env: typ.Mapping[str, str]) -> dict[str, typ.Any]:
     """Return the record's identity fields from the runner's ``GITHUB_*`` env.
 
     Only these named variables are read, so no secret can reach the record.
     ``run_id`` and ``attempt`` are integers when they look like integers.
     """
-    fields: dict[str, typ.Any] = {}
-    for key, variable in IDENTITY_ENV:
-        value = env.get(variable) or None
-        if value is not None and key in INTEGER_IDENTITY and value.isdigit():
-            fields[key] = int(value)
-        else:
-            fields[key] = value
-    return fields
+    return {
+        key: _identity_value(key, env.get(variable)) for key, variable in IDENTITY_ENV
+    }
 
 
 def _round(value: float | None, places: int) -> float | None:
     return None if value is None else round(value, places)
+
+
+def _cpu_fields(cpu: Cpu | None) -> dict[str, float | None]:
+    """Return the rounded CPU fields, all None when there is no figure."""
+    if cpu is None:
+        return dict.fromkeys(CPU_KEYS)
+    return {
+        "cpu_core_seconds": _round(cpu.core_seconds, 3),
+        "cpu_busy_cores_avg": _round(cpu.avg, 4),
+        "cpu_busy_cores_p95": _round(cpu.p95, 4),
+        "cpu_busy_cores_max": _round(cpu.peak, 4),
+        "cpu_saturation_fraction": _round(cpu.saturation, 4),
+        "cpu_steal_fraction": _round(cpu.steal, 4),
+        "cpu_efficiency": _round(cpu.efficiency, 4),
+    }
+
+
+def _memory_fields(samples: list[Sample]) -> dict[str, int | None]:
+    """Return peak and total memory in MiB, None without samples."""
+    if not samples:
+        return dict.fromkeys(MEMORY_KEYS)
+    used = max(s.mem_total_kib - s.mem_available_kib for s in samples)
+    return {
+        "peak_memory_mib": used // KIB_PER_MIB,
+        "mem_total_mib": samples[0].mem_total_kib // KIB_PER_MIB,
+    }
+
+
+def _disk_fields(samples: list[Sample]) -> dict[str, int | None]:
+    """Return the minimum free disk in MiB, None without samples."""
+    if not samples:
+        return dict.fromkeys(DISK_KEYS)
+    return {"min_free_disk_mib": min(s.free_disk_kib for s in samples) // KIB_PER_MIB}
+
+
+def _wall_seconds(
+    meta: typ.Mapping[str, typ.Any] | None, samples: list[Sample], end_ns: int
+) -> float | None:
+    """Return the sampled span, or start-to-finish when nothing was sampled."""
+    if samples:
+        return _round((samples[-1].t_ns - samples[0].t_ns) / NS_PER_SECOND, 3)
+    started = (meta or {}).get("started_ns")
+    return None if started is None else _round((end_ns - started) / NS_PER_SECOND, 3)
+
+
+def _shape(meta: typ.Mapping[str, typ.Any] | None) -> dict[str, typ.Any]:
+    """Return the sampler kind and the machine's shape from ``meta.json``."""
+    if meta is None:
+        return {
+            "sampler": "not-started",
+            "nproc": None,
+            "clk_tck": None,
+            "interval_seconds": None,
+        }
+    return {
+        "sampler": str(meta["sampler"]),
+        "nproc": int(meta["nproc"]),
+        "clk_tck": int(meta["clk_tck"]),
+        "interval_seconds": meta["interval_seconds"],
+    }
 
 
 def build_record(
@@ -211,7 +273,6 @@ def build_record(
     samples: list[Sample],
     env: typ.Mapping[str, str],
     end_ns: int,
-    sampler_state: str = "",
 ) -> dict[str, typ.Any]:
     """Build the telemetry record.
 
@@ -225,8 +286,6 @@ def build_record(
         The environment to read identity fields from.
     end_ns : int
         The monotonic clock at finish, for jobs that took no samples.
-    sampler_state : str
-        Free text on how the sampler ended, for the human summary only.
 
     Returns
     -------
@@ -234,48 +293,22 @@ def build_record(
         The record. CPU fields are None unless ``sampler`` is ``proc-stat``;
         memory and CPU are None in a container, where ``/proc`` shows the host.
     """
-    kind = "not-started" if meta is None else str(meta["sampler"])
-    nproc = None if meta is None else int(meta["nproc"])
-    tck = None if meta is None else int(meta["clk_tck"])
-    record: dict[str, typ.Any] = {
+    shape = _shape(meta)
+    kind = shape["sampler"]
+    measured = kind == "proc-stat"
+    cpu = cpu_figures(samples, shape["nproc"], shape["clk_tck"]) if measured else None
+    on_disk = kind in {"proc-stat", "container"}
+    return {
         "schema": SCHEMA,
         "event": EVENT,
-        "sampler": kind,
         **identity(env),
-        "nproc": nproc,
-        "clk_tck": tck,
-        "interval_seconds": None if meta is None else meta["interval_seconds"],
+        **shape,
         "sample_count": len(samples),
+        "wall_seconds": _wall_seconds(meta, samples, end_ns),
+        **_cpu_fields(cpu),
+        **_memory_fields(samples if measured else []),
+        **_disk_fields(samples if on_disk else []),
     }
-    start_ns = samples[0].t_ns if samples else (meta or {}).get("started_ns")
-    last_ns = samples[-1].t_ns if samples else end_ns
-    record["wall_seconds"] = (
-        None if start_ns is None else _round((last_ns - start_ns) / NS_PER_SECOND, 3)
-    )
-    for key in (*CPU_KEYS, *MEMORY_KEYS, *DISK_KEYS):
-        record[key] = None
-    if kind == "proc-stat" and nproc and tck:
-        cpu = cpu_figures(samples, nproc, tck)
-        if cpu is not None:
-            record["cpu_core_seconds"] = _round(cpu.core_seconds, 3)
-            record["cpu_busy_cores_avg"] = _round(cpu.avg, 4)
-            record["cpu_busy_cores_p95"] = _round(cpu.p95, 4)
-            record["cpu_busy_cores_max"] = _round(cpu.peak, 4)
-            record["cpu_saturation_fraction"] = _round(cpu.saturation, 4)
-            record["cpu_steal_fraction"] = _round(cpu.steal, 4)
-            record["cpu_efficiency"] = _round(cpu.efficiency, 4)
-    if kind == "proc-stat" and samples:
-        record["peak_memory_mib"] = (
-            max(s.mem_total_kib - s.mem_available_kib for s in samples) // KIB_PER_MIB
-        )
-        record["mem_total_mib"] = samples[0].mem_total_kib // KIB_PER_MIB
-    if kind in {"proc-stat", "container"} and samples:
-        record["min_free_disk_mib"] = (
-            min(s.free_disk_kib for s in samples) // KIB_PER_MIB
-        )
-    if sampler_state:
-        record["_sampler_state"] = sampler_state
-    return record
 
 
 def marker_line(record: typ.Mapping[str, typ.Any]) -> str:

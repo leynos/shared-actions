@@ -40,24 +40,32 @@ ENV = {
 }
 
 
-def _cpu(
-    cores: float,
-    peak: float,
-    core_seconds: float,
-    efficiency: float,
-    p95: float | None = None,
-    saturation: float = 0.0,
-    steal: float = 0.0,
-) -> dict[str, float]:
-    return {
-        "cpu_core_seconds": core_seconds,
-        "cpu_busy_cores_avg": cores,
-        "cpu_busy_cores_p95": cores if p95 is None else p95,
-        "cpu_busy_cores_max": peak,
-        "cpu_saturation_fraction": saturation,
-        "cpu_steal_fraction": steal,
-        "cpu_efficiency": efficiency,
-    }
+class _Cpu(typ.NamedTuple):
+    """The seven CPU figures of a record, as the fixtures expect them."""
+
+    cores: float
+    peak: float
+    core_seconds: float
+    efficiency: float
+    p95: float | None = None
+    saturation: float = 0.0
+    steal: float = 0.0
+
+    def figures(self) -> dict[str, float]:
+        """Return the figures under the record's field names."""
+        return {
+            "cpu_core_seconds": self.core_seconds,
+            "cpu_busy_cores_avg": self.cores,
+            "cpu_busy_cores_p95": self.cores if self.p95 is None else self.p95,
+            "cpu_busy_cores_max": self.peak,
+            "cpu_saturation_fraction": self.saturation,
+            "cpu_steal_fraction": self.steal,
+            "cpu_efficiency": self.efficiency,
+        }
+
+
+def _cpu(*args: float, **named: float) -> dict[str, float]:
+    return _Cpu(*args, **named).figures()
 
 
 def _memdisk(peak_mib: int = 4000, disk_mib: int = 20000) -> dict[str, int]:

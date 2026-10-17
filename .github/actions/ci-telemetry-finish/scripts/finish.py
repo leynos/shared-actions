@@ -127,13 +127,13 @@ def finish(directory: Path, env: typ.Mapping[str, str]) -> dict[str, typ.Any]:
             except (OSError, ValueError, KeyError) as exc:
                 print(f"::warning title=ci-telemetry::final sample failed: {exc}")
     text = samples_path.read_text(encoding="utf-8") if samples_path.exists() else ""
-    return summarise.build_record(
+    record = summarise.build_record(
         meta=meta,
         samples=summarise.parse_samples(text),
         env=env,
         end_ns=time.monotonic_ns(),
-        sampler_state=state,
     )
+    return {**record, "_sampler_state": state}
 
 
 def emit(

@@ -4,6 +4,22 @@ description: >-
   one `DF12_CI_TELEMETRY {json}` line, plus a summary table, for the central
   collector. Call it last in a job, under `if: always()`.
 
+inputs:
+  sccache-status:
+    description: >-
+      The `sccache-status` output of setup-rust: `started` or `fallback`. When
+      empty the status is inferred: `absent` with no sccache binary, `fallback`
+      with an empty `RUSTC_WRAPPER` or no server listening, otherwise
+      `started`. Only a `started` job gets counts and ratios.
+    required: false
+    default: ''
+  sccache-stats-file:
+    description: >-
+      The JSON file `sccache-report` wrote. It is read when it exists;
+      otherwise finish asks sccache for its statistics once.
+    required: false
+    default: sccache-stats.json
+
 outputs:
   record-path:
     description: Path of the record's JSON, without the marker.
@@ -23,6 +39,8 @@ runs:
       shell: bash
       env:
         CT_FINISH: ${{ github.action_path }}/scripts/finish.py
+        CT_SCCACHE_STATUS: ${{ inputs.sccache-status }}
+        CT_SCCACHE_STATS_FILE: ${{ inputs.sccache-stats-file }}
       run: |
         set -euo pipefail
         py="$(command -v python3 || command -v python || true)"

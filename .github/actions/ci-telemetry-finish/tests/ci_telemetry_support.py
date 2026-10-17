@@ -35,6 +35,11 @@ def summarize() -> ModuleType:
     return load("ct_summarize", SCRIPTS / "summarize.py")
 
 
+def sccache_stats() -> ModuleType:
+    """Return the ``sccache_stats`` module."""
+    return load("ct_sccache_stats", SCRIPTS / "sccache_stats.py")
+
+
 def finish() -> ModuleType:
     """Return the ``finish`` module."""
     return load("ct_finish", SCRIPTS / "finish.py")

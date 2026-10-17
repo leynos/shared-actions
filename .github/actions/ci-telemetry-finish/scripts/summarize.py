@@ -346,4 +346,8 @@ def summary_rows(record: typ.Mapping[str, typ.Any]) -> list[tuple[str, str]]:
         ("Core-seconds used", show("cpu_core_seconds")),
         ("Peak memory used", show("peak_memory_mib", " MiB")),
         ("Minimum free disk", show("min_free_disk_mib", " MiB")),
+        ("sccache status", show("sccache_status")),
+        ("sccache hits", show("sccache_hits")),
+        ("sccache misses", show("sccache_misses")),
+        ("sccache hit ratio", show("sccache_hit_ratio")),
     ]

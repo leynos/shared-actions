@@ -187,9 +187,11 @@ def cpu_figures(samples: list[Sample], nproc: int, clk_tck: int) -> Cpu | None:
 
 def _identity_value(key: str, value: str | None) -> str | int | None:
     """Return *value*, as an integer for the keys that are integers."""
-    if value and key in INTEGER_IDENTITY and value.isdigit():
-        return int(value)
-    return value or None
+    if not value:
+        return None
+    if key not in INTEGER_IDENTITY:
+        return value
+    return int(value) if value.isdigit() else value
 
 
 def identity(env: typ.Mapping[str, str]) -> dict[str, typ.Any]:

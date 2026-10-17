@@ -651,14 +651,24 @@ over `counts`), `version` and `cache_location`. Missing or wrongly typed fields
 raise `StatsError` and give `sccache_stats_source: unreadable`, since a shape
 change must surface rather than become a healthy-looking zero.
 
+The module keeps three layers apart. `normalize` and `decide_status` are pure.
+`read_stats_file`, `run_stats` and `server_reachable` touch the machine and
+return what happened (an `Outcome` of `ok`, `absent`, `unreadable`, `invalid`,
+`failed` or `timeout`, or a bool) instead of hiding failure as `None`; the
+socket probe is a loopback connection only, on `SCCACHE_SERVER_UDS` when set,
+else the TCP port in `SCCACHE_SERVER_PORT` (default 4226). `collect`
+orchestrates them over the injected `Probes`.
+
 The status decides whether counts exist. `started` and `fallback` come from
-`setup-rust`'s `sccache-status` when given; otherwise `infer_status` returns
-`absent` (no binary), `fallback` (empty `RUSTC_WRAPPER`, or nobody listening on
-`SCCACHE_SERVER_PORT`, default 4226) or `started`. Only `started` reads
-statistics, first from the `sccache-report` file and then, once, from sccache.
-`--show-stats` with no server prints empty defaults, so a fallback job carries
-null counts. `Probes` holds the four machine-facing calls (`which`, the port
-probe, the file read, the sccache run) so tests replace them.
+`setup-rust`'s `sccache-status` when given, and nothing is probed then.
+Otherwise `gather_facts` asks for the binary and the server and `decide_status`
+returns `absent` (no binary), `started` (a server listening) or `fallback`.
+`RUSTC_WRAPPER` is not consulted, since sccache also serves C and C++ compilers
+as a launcher. Only `started` reads statistics: the `sccache-report` file, and
+sccache itself once, only when that file is absent. A file that exists but is
+unreadable or invalid is reported through `sccache_stats_problem`, not replaced
+by a rerun. `--show-stats` with no server prints empty defaults, so a fallback
+job carries null counts.
 
 The fixtures under `tests/fixtures/sccache/` are real output: probe-crate
 captures from the 0.12.0, 0.16.0, 0.17.0 and 0.18.0 release binaries, the

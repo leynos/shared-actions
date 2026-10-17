@@ -80,26 +80,29 @@ actually presented.
 Every record carries these fields; they are null unless `sccache_status` is
 `started`.
 
-| Field                                                             | Meaning                                                                                                |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `sccache_status`                                                  | `started`, `fallback` or `absent`. From `sccache-status` when given; otherwise inferred.               |
-| `sccache_stats_source`                                            | `file` (the `sccache-report` file), `sccache` (finish ran `--show-stats`) or `unreadable`.             |
-| `sccache_version`, `sccache_cache_location_kind`                  | The release, and the backend kind: `local`, `ghac`, `s3`, `gcs`, `azure`, `redis`, and so on.          |
-| `sccache_compile_requests`                                        | All compile requests sccache saw, cacheable or not.                                                    |
-| `sccache_hits`, `sccache_misses`                                  | Sums of the per-language `cache_hits` and `cache_misses` counts.                                       |
-| `sccache_hit_ratio`                                               | Hits over hits plus misses; null with no hits or misses.                                               |
-| `sccache_cacheable_ratio`                                         | Hits plus misses over compile requests; null with no requests.                                         |
-| `sccache_read_errors`, `sccache_write_errors`, `sccache_timeouts` | Backend errors and timeouts.                                                                           |
-| `sccache_non_cacheable`, `sccache_requests_not_cacheable`         | sccache's `non_cacheable_compilations` and `requests_not_cacheable`. The second is the one that moves. |
-| `sccache_raw`                                                     | The statistics as printed, only when under 2 KB of compact JSON.                                       |
+| Field                                                             | Meaning                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sccache_status`                                                  | `started`, `fallback` or `absent`. From `sccache-status` when given; otherwise inferred.                                                                                                                                                 |
+| `sccache_stats_source`, `sccache_stats_problem`                   | `file` (the `sccache-report` file), `sccache` (finish ran `--show-stats`) or `unreadable`, with the problem: `file-invalid`, `file-unreadable`, `file-shape`, `sccache-failed`, `sccache-timeout`, `sccache-invalid` or `sccache-shape`. |
+| `sccache_version`, `sccache_cache_location_kind`                  | The release, and the backend kind: `local`, `ghac`, `s3`, `gcs`, `azure`, `redis`, and so on.                                                                                                                                            |
+| `sccache_compile_requests`                                        | All compile requests sccache saw, cacheable or not.                                                                                                                                                                                      |
+| `sccache_hits`, `sccache_misses`                                  | Sums of the per-language `cache_hits` and `cache_misses` counts.                                                                                                                                                                         |
+| `sccache_hit_ratio`                                               | Hits over hits plus misses; null with no hits or misses.                                                                                                                                                                                 |
+| `sccache_cacheable_ratio`                                         | Hits plus misses over compile requests; null with no requests.                                                                                                                                                                           |
+| `sccache_read_errors`, `sccache_write_errors`, `sccache_timeouts` | Backend errors and timeouts.                                                                                                                                                                                                             |
+| `sccache_non_cacheable`, `sccache_requests_not_cacheable`         | sccache's `non_cacheable_compilations` and `requests_not_cacheable`. The second is the one that moves.                                                                                                                                   |
+| `sccache_raw`                                                     | The statistics as printed, only when under 2 KB of compact JSON.                                                                                                                                                                         |
 
-The status is inferred as `absent` with no `sccache` binary, `fallback` with an
-empty `RUSTC_WRAPPER` or no server listening on `SCCACHE_SERVER_PORT` (default
-4226), and `started` otherwise. A server that never started prints empty
-default statistics, which look like an idle cache; a `fallback` job therefore
-carries null counts and ratios, never zeros. Statistics that lack a field
-sccache has printed since 0.12, or give it the wrong type, are `unreadable`,
-not zero.
+The status is inferred as `absent` with no `sccache` binary, `started` when a
+server accepts connections (on `SCCACHE_SERVER_UDS` if set, else on
+`SCCACHE_SERVER_PORT`, default 4226) and `fallback` otherwise; `RUSTC_WRAPPER`
+is not consulted, since sccache also serves C and C++ compilers as a launcher.
+A server that never started prints empty default statistics, which look like an
+idle cache; a `fallback` job therefore carries null counts and ratios, never
+zeros. Finish asks sccache only when the report file is absent; one that exists
+but cannot be read or parsed is a problem to report, not a reason to ask again.
+Statistics that lack a field sccache has printed since 0.12, or give it the
+wrong type, are `unreadable`, not zero.
 
 How CPU time is counted, from `/proc/stat` deltas between samples:
 

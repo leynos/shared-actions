@@ -13,6 +13,12 @@ like a healthy cache that was never asked to do anything. The record therefore
 carries an explicit ``sccache_status`` (``started``, ``fallback`` or
 ``absent``), and only a ``started`` job gets counts and ratios; the others
 carry null, so a fallback never reads as healthy.
+
+The module keeps three layers apart. ``normalize`` and ``decide_status`` are
+pure. ``read_stats_file``, ``run_stats`` and ``server_reachable`` touch the
+machine and return a result that says what happened (``Outcome``, a bool)
+rather than hiding failure as ``None``. ``collect`` orchestrates them over the
+injected ``Probes``.
 """
 
 from __future__ import annotations
@@ -46,6 +52,7 @@ LOCATION_KINDS = {
 FIELDS = (
     "sccache_status",
     "sccache_stats_source",
+    "sccache_stats_problem",
     "sccache_version",
     "sccache_cache_location_kind",
     "sccache_compile_requests",
@@ -74,12 +81,15 @@ class StatsError(ValueError):
     """The statistics lack a field this module needs, or it has the wrong type."""
 
 
-def empty_fields(status: str, source: str | None = None) -> dict[str, typ.Any]:
-    """Return every sccache field as null except the status and source."""
+def empty_fields(
+    status: str, source: str | None = None, problem: str | None = None
+) -> dict[str, typ.Any]:
+    """Return every sccache field as null except status, source and problem."""
     return {
         **dict.fromkeys(FIELDS),
         "sccache_status": status,
         "sccache_stats_source": source,
+        "sccache_stats_problem": problem,
     }
 
 
@@ -106,6 +116,15 @@ def _language_total(stats: typ.Mapping[str, typ.Any], key: str) -> int:
         message = f"stats.{key}.counts is missing"
         raise StatsError(message)
     return sum(_count(counts, language) for language in counts)
+
+
+def _text(document: typ.Mapping[str, typ.Any], key: str) -> str:
+    """Return a required, non-empty string field of the document."""
+    value = document.get(key)
+    if not isinstance(value, str) or not value:
+        message = f"{key} is missing or not a string"
+        raise StatsError(message)
+    return value
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:
@@ -135,11 +154,12 @@ def normalize(document: typ.Any) -> dict[str, typ.Any]:  # noqa: ANN401 - parsed
     fields = {name: _count(stats, key) for name, key in INTEGER_STATS.items()}
     hits = _language_total(stats, "cache_hits")
     misses = _language_total(stats, "cache_misses")
-    location = document.get("cache_location")
+    version = _text(document, "version")
+    location = _text(document, "cache_location")
     return {
         **fields,
-        "sccache_version": str(document.get("version") or "") or None,
-        "sccache_cache_location_kind": location_kind(str(location or "")),
+        "sccache_version": version,
+        "sccache_cache_location_kind": location_kind(location),
         "sccache_hits": hits,
         "sccache_misses": misses,
         "sccache_hit_ratio": _ratio(hits, hits + misses),
@@ -150,42 +170,98 @@ def normalize(document: typ.Any) -> dict[str, typ.Any]:  # noqa: ANN401 - parsed
     }
 
 
-def server_reachable(port: int) -> bool:
-    """Report whether something accepts connections on the sccache port."""
+ABSENT = "absent"
+OK = "ok"
+UNREADABLE = "unreadable"
+INVALID = "invalid"
+FAILED = "failed"
+TIMEOUT = "timeout"
+
+
+@dc.dataclass(frozen=True)
+class Outcome:
+    """What reading one source of statistics came to."""
+
+    kind: str
+    document: typ.Any = None
+
+
+def server_reachable(env: typ.Mapping[str, str]) -> bool:
+    """Report whether an sccache server accepts connections.
+
+    This is the one network-facing call, and it is a loopback connection only:
+    a Unix socket when ``SCCACHE_SERVER_UDS`` names one, else the TCP port in
+    ``SCCACHE_SERVER_PORT`` (default 4226).
+    """
+    uds = env.get("SCCACHE_SERVER_UDS") or ""
     try:
-        with socket.create_connection(("127.0.0.1", port), SERVER_TIMEOUT_SECONDS):
+        if uds:
+            with socket.socket(socket.AF_UNIX) as sock:
+                sock.settimeout(SERVER_TIMEOUT_SECONDS)
+                sock.connect(uds)
             return True
-    except OSError:
+        with socket.create_connection(
+            ("127.0.0.1", _port(env)), SERVER_TIMEOUT_SECONDS
+        ):
+            return True
+    except (OSError, AttributeError):
         return False
 
 
-def read_stats_file(path: str) -> typ.Any:  # noqa: ANN401 - parsed JSON
-    """Return the parsed JSON in *path*, or None if it is absent or not JSON."""
+def read_stats_file(path: str) -> Outcome:
+    """Read the report file and say what happened.
+
+    Returns
+    -------
+    Outcome
+        ``absent`` for no path or no such file (the only case in which asking
+        sccache instead is reasonable), ``unreadable`` for any other read
+        failure, ``invalid`` for text that is not JSON, else ``ok``.
+    """
     if not path:
-        return None
+        return Outcome(ABSENT)
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+        text = Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return Outcome(ABSENT)
+    except (OSError, UnicodeDecodeError):
+        return Outcome(UNREADABLE)
+    try:
+        return Outcome(OK, json.loads(text))
+    except ValueError:
+        return Outcome(INVALID)
 
 
-def run_stats() -> typ.Any:  # noqa: ANN401 - parsed JSON
-    """Run ``sccache --show-stats --stats-format=json``; None on any failure."""
+def run_stats() -> Outcome:
+    """Run ``sccache --show-stats --stats-format=json`` and say what happened.
+
+    Returns
+    -------
+    Outcome
+        ``timeout``, ``failed`` (no binary, or a nonzero exit), ``invalid``
+        (output that is not JSON), else ``ok``.
+    """
+    command = [
+        shutil.which("sccache") or "sccache",
+        "--show-stats",
+        "--stats-format=json",
+    ]
     try:
         done = subprocess.run(  # noqa: S603,TID251 - fixed argv, no shell
-            [
-                shutil.which("sccache") or "sccache",
-                "--show-stats",
-                "--stats-format=json",
-            ],
+            command,
             capture_output=True,
             text=True,
             check=True,
             timeout=STATS_TIMEOUT_SECONDS,
         )
-        return json.loads(done.stdout)
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return None
+    except subprocess.TimeoutExpired:
+        return Outcome(TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        return Outcome(FAILED)
+    try:
+        return Outcome(OK, json.loads(done.stdout))
+    except ValueError:
+        return Outcome(INVALID)
 
 
 @dc.dataclass(frozen=True)
@@ -193,9 +269,9 @@ class Probes:
     """The machine-facing calls, replaceable in tests."""
 
     which: typ.Callable[[str], str | None] = shutil.which
-    reachable: typ.Callable[[int], bool] = server_reachable
-    read_file: typ.Callable[[str], typ.Any] = read_stats_file
-    run: typ.Callable[[], typ.Any] = run_stats
+    reachable: typ.Callable[[typ.Mapping[str, str]], bool] = server_reachable
+    read_file: typ.Callable[[str], Outcome] = read_stats_file
+    run: typ.Callable[[], Outcome] = run_stats
 
 
 def _port(env: typ.Mapping[str, str]) -> int:
@@ -206,29 +282,60 @@ def _port(env: typ.Mapping[str, str]) -> int:
         return DEFAULT_PORT
 
 
-def infer_status(given: str, env: typ.Mapping[str, str], probes: Probes) -> str:
-    """Return ``started``, ``fallback`` or ``absent`` for this job.
+@dc.dataclass(frozen=True)
+class Facts:
+    """What the machine said about sccache, gathered before deciding."""
 
-    A status from ``setup-rust`` is used as it is. Otherwise: no ``sccache``
-    binary is ``absent``; an empty ``RUSTC_WRAPPER``, or a server nobody is
-    listening to, is ``fallback``; anything else is ``started``.
+    binary_present: bool
+    server_listening: bool
+
+
+def gather_facts(env: typ.Mapping[str, str], probes: Probes) -> Facts:
+    """Probe the machine for the facts ``decide_status`` needs.
+
+    The server is probed only when there is a binary: with none, nothing can
+    be listening that sccache owns.
+    """
+    present = probes.which("sccache") is not None
+    return Facts(present, present and probes.reachable(env))
+
+
+def decide_status(given: str, facts: Facts | None) -> str:
+    """Return ``started``, ``fallback`` or ``absent``; pure.
+
+    A ``started`` or ``fallback`` from ``setup-rust`` is used as it is. Without
+    it: no binary is ``absent``; a binary with no server listening is
+    ``fallback`` (the job runs without the cache); a listening server is
+    ``started``. ``RUSTC_WRAPPER`` is not consulted, since sccache also serves
+    C and C++ compilers as a launcher.
     """
     if given in GIVEN_STATUSES:
         return given
-    if probes.which("sccache") is None:
+    if facts is None or not facts.binary_present:
         return "absent"
-    if not (env.get("RUSTC_WRAPPER") or "").strip():
-        return "fallback"
-    return "started" if probes.reachable(_port(env)) else "fallback"
+    return "started" if facts.server_listening else "fallback"
 
 
-def _document(stats_file: str, probes: Probes) -> tuple[str | None, typ.Any]:
-    """Return ``(source, document)``: the report's file first, else sccache."""
-    document = probes.read_file(stats_file)
-    if document is not None:
-        return "file", document
-    document = probes.run()
-    return ("sccache", document) if document is not None else (None, None)
+def _source(stats_file: str, probes: Probes) -> tuple[str, Outcome]:
+    """Return ``(source, outcome)``: the report file, else sccache, once.
+
+    Only an absent file falls through to sccache. A file that exists but cannot
+    be read or parsed is a problem to report, not a reason to ask again.
+    """
+    from_file = probes.read_file(stats_file)
+    if from_file.kind != ABSENT:
+        return "file", from_file
+    return "sccache", probes.run()
+
+
+def _from_outcome(status: str, source: str, outcome: Outcome) -> dict[str, typ.Any]:
+    """Return the record fields for one source's outcome."""
+    if outcome.kind != OK:
+        return empty_fields(status, UNREADABLE, f"{source}-{outcome.kind}")
+    try:
+        return {**empty_fields(status, source), **normalize(outcome.document)}
+    except StatsError:
+        return empty_fields(status, UNREADABLE, f"{source}-shape")
 
 
 def collect(
@@ -239,18 +346,14 @@ def collect(
 ) -> dict[str, typ.Any]:
     """Return the record's sccache fields; never raises.
 
-    Only a ``started`` job gets counts. When statistics cannot be read, or fail
-    validation, the status stays and ``sccache_stats_source`` says
-    ``unreadable`` so the gap is visible.
+    Only a ``started`` job gets counts. When statistics cannot be read or fail
+    validation the status stays, ``sccache_stats_source`` says ``unreadable``
+    and ``sccache_stats_problem`` names the source and what went wrong.
     """
     probes = probes or Probes()
-    status = infer_status(given_status, env, probes)
+    facts = None if given_status in GIVEN_STATUSES else gather_facts(env, probes)
+    status = decide_status(given_status, facts)
     if status != "started":
         return empty_fields(status)
-    source, document = _document(stats_file, probes)
-    if document is None:
-        return empty_fields(status, "unreadable")
-    try:
-        return {**empty_fields(status, source), **normalize(document)}
-    except StatsError:
-        return empty_fields(status, "unreadable")
+    source, outcome = _source(stats_file, probes)
+    return _from_outcome(status, source, outcome)

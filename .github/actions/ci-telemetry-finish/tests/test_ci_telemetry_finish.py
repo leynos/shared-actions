@@ -301,3 +301,61 @@ def test_outputs_name_the_record_path_and_sampler(tmp_path: Path) -> None:
         f"record-path={tmp_path / 'r.json'}",
         "sampler=proc-stat",
     ]
+
+
+SUMMARIZE = load("ct_summarize_rows", SCRIPTS / "summarize.py")
+SCCACHE_RECORD = {
+    "sampler": "proc-stat",
+    "sccache_status": "started",
+    "sccache_hits": 1197,
+    "sccache_misses": 372,
+    "sccache_hit_ratio": 0.7629,
+}
+SCCACHE_ROWS = [
+    ("sccache status", "started"),
+    ("sccache hits", "1197"),
+    ("sccache misses", "372"),
+    ("sccache hit ratio", "0.7629"),
+]
+
+
+def test_summary_rows_carry_the_sccache_figures() -> None:
+    """The four sccache rows come last, in order, with their values."""
+    rows = SUMMARIZE.summary_rows(SCCACHE_RECORD)
+    assert rows[-4:] == SCCACHE_ROWS
+
+
+def test_null_sccache_values_render_as_not_available() -> None:
+    """A fallback job shows n/a, not zero, for hits, misses and the ratio."""
+    rows = dict(
+        SUMMARIZE.summary_rows({"sampler": "proc-stat", "sccache_status": "fallback"})
+    )
+    assert rows["sccache status"] == "fallback"
+    assert [
+        rows[k] for k in ("sccache hits", "sccache misses", "sccache hit ratio")
+    ] == [
+        "n/a",
+        "n/a",
+        "n/a",
+    ]
+
+
+def test_console_and_markdown_summaries_show_the_sccache_rows(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Both human-readable outputs carry the rows with their values."""
+    F.print_summary(SCCACHE_RECORD)
+    printed = {}
+    for line in capsys.readouterr().out.splitlines():
+        parts = line.strip().rsplit(None, 1)
+        if len(parts) == 2:
+            printed[parts[0]] = parts[1]
+    for measure, value in SCCACHE_ROWS:
+        assert printed[measure] == value
+    target = tmp_path / "summary.md"
+    F.write_job_summary(
+        SCCACHE_RECORD, {"GITHUB_STEP_SUMMARY": str(target), "GITHUB_JOB": "j"}
+    )
+    text = target.read_text(encoding="utf-8")
+    for measure, value in SCCACHE_ROWS:
+        assert f"| {measure} | {value} |" in text

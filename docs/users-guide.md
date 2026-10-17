@@ -367,8 +367,10 @@ Start goes after checkout and samples CPU, memory and free disk every 10
 seconds. Finish goes last and must carry `if: always()`: a failed or cancelled
 job is the one you most want to see. It prints exactly one
 `DF12_CI_TELEMETRY {json}` line and a summary table. Start takes
-`interval-seconds` (default `10`) and `disk-path` (default `.`); finish takes
-no inputs and has two outputs, `record-path` and `sampler`.
+`interval-seconds` (default `10`) and `disk-path` (default `.`). Finish takes
+two optional inputs for sccache, `sccache-status` (default empty, inferred) and
+`sccache-stats-file` (default `sccache-stats.json`), and has two outputs,
+`record-path` and `sampler`.
 
 The record has the average, 95th-percentile and maximum busy cores, core
 seconds, efficiency (core-seconds over wall time times `nproc`), the fraction
@@ -378,11 +380,27 @@ it is reported on its own and is not counted as busy. `nproc` is what the
 machine presented, never derived from a runner label.
 
 With sccache, pass `setup-rust`'s `sccache-status` output to finish through its
-`sccache-status` input. The record then carries the hit and miss counts, the
-hit and cacheable ratios, backend errors and the cache backend kind, read from
-the file `sccache-report` wrote (or from sccache itself when that file is
-absent). A job whose sccache server fell back to an uncached build carries null
-counts rather than zeros, so it never reads as a healthy idle cache.
+`sccache-status` input, and call `sccache-report` first if you want the
+statistics from its file; a custom path goes in `sccache-stats-file`:
+
+```yaml
+- id: sccache
+  uses: leynos/shared-actions/.github/actions/sccache-report@<sha>
+  if: always()
+  with:
+    status: ${{ steps.setup-rust.outputs.sccache-status }}
+- uses: leynos/shared-actions/.github/actions/ci-telemetry-finish@<sha>
+  if: always()
+  with:
+    sccache-status: ${{ steps.setup-rust.outputs.sccache-status }}
+    sccache-stats-file: sccache-stats.json
+```
+
+The record then carries the hit and miss counts, the hit and cacheable ratios,
+backend errors and the cache backend kind, read from the file `sccache-report`
+wrote (or from sccache itself when that file is absent). A job whose sccache
+server fell back to an uncached build carries null counts rather than zeros, so
+it never reads as a healthy idle cache.
 
 On Windows and macOS (`sampler: unsupported-os`) every measurement is null. In
 a container job (`container`) `/proc` shows the host, so CPU and memory are

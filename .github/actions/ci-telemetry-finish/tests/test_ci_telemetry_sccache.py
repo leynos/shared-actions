@@ -21,10 +21,13 @@ import typing as typ
 
 import pytest
 from ci_telemetry_support import ACTION_DIR, FIXTURES, finish, sccache_stats
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
+LANGUAGES = ["Rust", "C/C++", "Assembler"]
 S = sccache_stats()
 F = finish()
 SCCACHE_FIXTURES = FIXTURES / "sccache"
@@ -123,6 +126,7 @@ def test_every_release_has_the_same_field_names() -> None:
     assert set(names.pop()) == set(S.FIELDS) - {
         "sccache_status",
         "sccache_stats_source",
+        "sccache_stats_problem",
     }
 
 
@@ -146,6 +150,10 @@ def test_a_large_document_drops_the_raw_copy_but_keeps_the_figures() -> None:
         lambda d: d["stats"].update(cache_misses=3),
         lambda d: d["stats"]["cache_hits"].update(counts={"Rust": "1"}),
         lambda d: d["stats"].pop("requests_not_cacheable"),
+        lambda d: d.pop("version"),
+        lambda d: d.update(version=18),
+        lambda d: d.pop("cache_location"),
+        lambda d: d.update(cache_location=""),
     ],
     ids=[
         "no-stats",
@@ -156,6 +164,10 @@ def test_a_large_document_drops_the_raw_copy_but_keeps_the_figures() -> None:
         "misses-not-a-map",
         "string-hit-count",
         "no-not-cacheable",
+        "no-version",
+        "numeric-version",
+        "no-location",
+        "empty-location",
     ],
 )
 def test_output_missing_a_field_is_refused_not_read_as_zero(
@@ -166,6 +178,36 @@ def test_output_missing_a_field_is_refused_not_read_as_zero(
     mutate(document)
     with pytest.raises(S.StatsError):
         S.normalize(document)
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    hits=st.dictionaries(st.sampled_from(LANGUAGES), st.integers(0, 10**6)),
+    misses=st.dictionaries(st.sampled_from(LANGUAGES), st.integers(0, 10**6)),
+    requests=st.integers(0, 10**7),
+)
+def test_normalized_totals_and_ratios_follow_the_maps(
+    hits: dict[str, int], misses: dict[str, int], requests: int
+) -> None:
+    """Sums equal the map sums; ratios use their denominators or are null."""
+    document = copy.deepcopy(_load("real-0.18.0-local.json"))
+    document["stats"]["cache_hits"] = {"counts": hits}
+    document["stats"]["cache_misses"] = {"counts": misses}
+    document["stats"]["compile_requests"] = requests
+    fields = S.normalize(document)
+    total_hits, total_misses = sum(hits.values()), sum(misses.values())
+    assert fields["sccache_hits"] == total_hits
+    assert fields["sccache_misses"] == total_misses
+    attempts = total_hits + total_misses
+    if attempts:
+        assert fields["sccache_hit_ratio"] == round(total_hits / attempts, 4)
+        assert 0.0 <= fields["sccache_hit_ratio"] <= 1.0
+    else:
+        assert fields["sccache_hit_ratio"] is None
+    if requests:
+        assert fields["sccache_cacheable_ratio"] == round(attempts / requests, 4)
+    else:
+        assert fields["sccache_cacheable_ratio"] is None
 
 
 def test_a_non_object_document_is_refused() -> None:
@@ -191,111 +233,147 @@ def test_cache_location_kinds(location: str, kind: str) -> None:
     assert S.location_kind(location) == kind
 
 
-# --- status and the three ways to get statistics --------------------------
+# --- status and the ways to get statistics -------------------------------
 
 
 def _probes(
     *,
     binary: bool = True,
     listening: bool = True,
-    file_doc: object = None,
-    run_doc: object = None,
+    file: typ.Any = None,  # noqa: ANN401 - an Outcome
+    run: typ.Any = None,  # noqa: ANN401
 ) -> tuple[typ.Any, list[str]]:
+    """Return injected probes and the log of what they were asked."""
     calls: list[str] = []
 
     def which(_name: str) -> str | None:
         return "/usr/bin/sccache" if binary else None
 
-    def reachable(port: int) -> bool:
-        calls.append(f"reachable:{port}")
+    def reachable(env: typ.Mapping[str, str]) -> bool:
+        calls.append(f"reachable:{env.get('SCCACHE_SERVER_PORT', '')}")
         return listening
 
-    def read_file(path: str) -> object:
+    def read_file(path: str) -> typ.Any:  # noqa: ANN401
         calls.append(f"read:{path}")
-        return file_doc
+        return file or S.Outcome(S.ABSENT)
 
-    def run() -> object:
+    def run_stats() -> typ.Any:  # noqa: ANN401
         calls.append("run")
-        return run_doc
+        return run or S.Outcome(S.FAILED)
 
-    return S.Probes(which, reachable, read_file, run), calls
+    return S.Probes(which, reachable, read_file, run_stats), calls
 
 
-WRAPPED = {"RUSTC_WRAPPER": "sccache"}
+def _ok(document: object) -> typ.Any:  # noqa: ANN401
+    return S.Outcome(S.OK, document)
+
+
 GOOD = _load("real-0.18.0-local.json")
 
 
 def test_started_reads_the_report_file_first() -> None:
     """With sccache-report's file present, sccache is not asked again."""
-    probes, calls = _probes(file_doc=GOOD, run_doc={"never": "used"})
-    fields = S.collect(WRAPPED, "started", "sccache-stats.json", probes)
+    probes, calls = _probes(file=_ok(GOOD), run=_ok({"never": "used"}))
+    fields = S.collect({}, "started", "sccache-stats.json", probes)
     assert fields["sccache_status"] == "started"
     assert fields["sccache_stats_source"] == "file"
+    assert fields["sccache_stats_problem"] is None
     assert fields["sccache_hits"] == 1
     assert calls == ["read:sccache-stats.json"]
 
 
 def test_started_without_the_file_asks_sccache_once() -> None:
     """The fallback path: no file, so run sccache --show-stats."""
-    probes, calls = _probes(file_doc=None, run_doc=GOOD)
-    fields = S.collect(WRAPPED, "started", "missing.json", probes)
+    probes, calls = _probes(run=_ok(GOOD))
+    fields = S.collect({}, "started", "missing.json", probes)
     assert fields["sccache_stats_source"] == "sccache"
     assert fields["sccache_misses"] == 1
     assert calls == ["read:missing.json", "run"]
 
 
-def test_started_with_no_readable_statistics_says_unreadable() -> None:
-    """Neither source works: the status stays, the counts are null, the gap shows."""
-    probes, _ = _probes()
-    fields = S.collect(WRAPPED, "started", "x.json", probes)
+@pytest.mark.parametrize("kind", [S.UNREADABLE, S.INVALID])
+def test_a_present_but_bad_report_file_is_not_replaced_by_a_rerun(kind: str) -> None:
+    """Only an absent file falls through; a bad one is reported as a problem."""
+    probes, calls = _probes(file=S.Outcome(kind), run=_ok(GOOD))
+    fields = S.collect({}, "started", "x.json", probes)
+    assert fields["sccache_stats_source"] == "unreadable"
+    assert fields["sccache_stats_problem"] == f"file-{kind}"
+    assert fields["sccache_hits"] is None
+    assert calls == ["read:x.json"]
+
+
+@pytest.mark.parametrize("kind", [S.FAILED, S.TIMEOUT, S.INVALID])
+def test_no_file_and_a_failing_sccache_names_the_problem(kind: str) -> None:
+    """Neither source works: counts are null and the problem says why."""
+    probes, _ = _probes(run=S.Outcome(kind))
+    fields = S.collect({}, "started", "x.json", probes)
     assert fields["sccache_status"] == "started"
     assert fields["sccache_stats_source"] == "unreadable"
-    assert fields["sccache_hits"] is None
+    assert fields["sccache_stats_problem"] == f"sccache-{kind}"
     assert fields["sccache_hit_ratio"] is None
 
 
-def test_invalid_statistics_are_unreadable_not_zero() -> None:
-    """A shape that fails validation gives null counts, never a healthy zero."""
-    probes, _ = _probes(file_doc={"stats": {}})
-    fields = S.collect(WRAPPED, "started", "x.json", probes)
+def test_statistics_of_the_wrong_shape_are_a_shape_problem_not_zero() -> None:
+    """A document failing validation gives null counts and a shape problem."""
+    probes, _ = _probes(file=_ok({"stats": {}}))
+    fields = S.collect({}, "started", "x.json", probes)
     assert fields["sccache_stats_source"] == "unreadable"
+    assert fields["sccache_stats_problem"] == "file-shape"
     assert fields["sccache_compile_requests"] is None
 
 
 def test_a_fallback_with_zero_statistics_never_reads_as_healthy() -> None:
     """setup-rust said fallback; even a file of zeros is not consulted."""
-    zeros = _load("real-0.17.0-no-server.json")
-    probes, calls = _probes(file_doc=zeros, run_doc=zeros)
-    fields = S.collect(WRAPPED, "fallback", "sccache-stats.json", probes)
+    zeros = _ok(_load("real-0.17.0-no-server.json"))
+    probes, calls = _probes(file=zeros, run=zeros)
+    fields = S.collect({}, "fallback", "sccache-stats.json", probes)
     assert fields["sccache_status"] == "fallback"
-    assert all(fields[name] is None for name in S.FIELDS if name != "sccache_status")
+    assert all(fields[n] is None for n in S.FIELDS if n != "sccache_status")
     assert calls == []
 
 
 @pytest.mark.parametrize(
-    ("binary", "wrapper", "listening", "expected"),
-    [
-        (False, "sccache", True, "absent"),
-        (True, "", True, "fallback"),
-        (True, "   ", True, "fallback"),
-        (True, "sccache", False, "fallback"),
-        (True, "sccache", True, "started"),
-    ],
+    ("binary", "listening", "expected"),
+    [(False, True, "absent"), (True, False, "fallback"), (True, True, "started")],
 )
 def test_status_is_inferred_when_setup_rust_did_not_say(
-    *, binary: bool, wrapper: str, listening: bool, expected: str
+    *, binary: bool, listening: bool, expected: str
 ) -> None:
-    """absent: no binary; fallback: empty wrapper or no server; else started."""
-    probes, _ = _probes(binary=binary, listening=listening, file_doc=GOOD, run_doc=GOOD)
-    fields = S.collect({"RUSTC_WRAPPER": wrapper}, "", "x.json", probes)
+    """absent: no binary; fallback: nobody listening; else started."""
+    probes, _ = _probes(
+        binary=binary, listening=listening, file=_ok(GOOD), run=_ok(GOOD)
+    )
+    fields = S.collect({}, "", "x.json", probes)
     assert fields["sccache_status"] == expected
     assert (fields["sccache_hits"] is not None) == (expected == "started")
+
+
+def test_an_empty_rustc_wrapper_does_not_mean_fallback() -> None:
+    """Sccache also serves C and C++ compilers as a launcher; the server decides."""
+    probes, _ = _probes(listening=True, file=_ok(GOOD))
+    fields = S.collect({"RUSTC_WRAPPER": ""}, "", "x.json", probes)
+    assert fields["sccache_status"] == "started"
 
 
 def test_an_unrecognized_given_status_is_inferred_instead() -> None:
     """Only started and fallback are taken from setup-rust."""
     probes, _ = _probes(binary=False)
-    assert S.collect(WRAPPED, "weird", "", probes)["sccache_status"] == "absent"
+    assert S.collect({}, "weird", "", probes)["sccache_status"] == "absent"
+
+
+def test_a_given_status_probes_nothing() -> None:
+    """With setup-rust's word, neither the binary nor the server is asked about."""
+    probes, calls = _probes(file=_ok(GOOD))
+    S.collect({}, "started", "x.json", probes)
+    assert not any(c.startswith("reachable") for c in calls)
+
+
+def test_decide_status_is_pure() -> None:
+    """The status rule needs only the given status and the gathered facts."""
+    facts = S.Facts(binary_present=True, server_listening=False)
+    assert S.decide_status("", facts) == "fallback"
+    assert S.decide_status("", None) == "absent"
+    assert S.decide_status("started", None) == "started"
 
 
 @pytest.mark.parametrize(
@@ -306,11 +384,19 @@ def test_an_unrecognized_given_status_is_inferred_instead() -> None:
         ({"SCCACHE_SERVER_PORT": "x"}, 4226),
     ],
 )
-def test_the_server_probe_uses_sccaches_port(env: dict[str, str], port: int) -> None:
+def test_the_server_probe_uses_sccaches_port(
+    env: dict[str, str], port: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The configured port is probed, with a bad value giving the default."""
-    probes, calls = _probes(listening=True, file_doc=GOOD)
-    S.collect({**env, **WRAPPED}, "", "x.json", probes)
-    assert f"reachable:{port}" in calls
+    seen: list[int] = []
+
+    def refuse(address: tuple[str, int], _timeout: float) -> typ.Any:  # noqa: ANN401
+        seen.append(address[1])
+        raise OSError
+
+    monkeypatch.setattr(S.socket, "create_connection", refuse)
+    assert S.server_reachable(env) is False
+    assert seen == [port]
 
 
 def test_server_reachable_sees_a_listening_socket() -> None:
@@ -318,26 +404,42 @@ def test_server_reachable_sees_a_listening_socket() -> None:
     with socket.socket() as server:
         server.bind(("127.0.0.1", 0))
         server.listen(1)
-        port = server.getsockname()[1]
-        assert S.server_reachable(port) is True
-    assert S.server_reachable(port) is False
+        env = {"SCCACHE_SERVER_PORT": str(server.getsockname()[1])}
+        assert S.server_reachable(env) is True
+    assert S.server_reachable(env) is False
 
 
-def test_read_stats_file_returns_none_for_missing_and_junk(tmp_path: Path) -> None:
-    """Absent, empty-path and non-JSON files are all just 'no file'."""
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="needs Unix sockets")
+def test_server_reachable_sees_a_unix_socket(tmp_path: Path) -> None:
+    """SCCACHE_SERVER_UDS is probed instead of the TCP port when set."""
+    path = tmp_path / "s"
+    env = {"SCCACHE_SERVER_UDS": str(path), "SCCACHE_SERVER_PORT": "1"}
+    assert S.server_reachable(env) is False
+    with socket.socket(socket.AF_UNIX) as server:
+        server.bind(str(path))
+        server.listen(1)
+        assert S.server_reachable(env) is True
+
+
+def test_read_stats_file_tells_absent_unreadable_and_invalid_apart(
+    tmp_path: Path,
+) -> None:
+    """Each way a report file can fail has its own outcome."""
     junk = tmp_path / "junk.json"
     junk.write_text("{nope", encoding="utf-8")
-    assert S.read_stats_file("") is None
-    assert S.read_stats_file(str(tmp_path / "absent.json")) is None
-    assert S.read_stats_file(str(junk)) is None
+    (tmp_path / "dir").mkdir()
+    assert S.read_stats_file("").kind == S.ABSENT
+    assert S.read_stats_file(str(tmp_path / "absent.json")).kind == S.ABSENT
+    assert S.read_stats_file(str(junk)).kind == S.INVALID
+    assert S.read_stats_file(str(tmp_path / "dir")).kind == S.UNREADABLE
     good = tmp_path / "good.json"
     good.write_text(json.dumps(GOOD), encoding="utf-8")
-    assert S.read_stats_file(str(good)) == GOOD
+    assert S.read_stats_file(str(good)) == S.Outcome(S.OK, GOOD)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="stub is a POSIX script")
 class TestRunStats:
-    """``run_stats`` calls the sccache on PATH, and survives its failures."""
+    """``run_stats`` calls the sccache on PATH, and says how it failed."""
 
     def _stub(self, tmp_path: Path, body: str) -> Path:
         stub = tmp_path / "sccache"
@@ -350,24 +452,36 @@ class TestRunStats:
     ) -> None:
         """The stub echoes its arguments to a file and prints a fixture."""
         fixture = SCCACHE_FIXTURES / "real-0.18.0-local.json"
-        bin_dir = self._stub(
-            tmp_path, f'echo "$@" > "{tmp_path}/args"; cat "{fixture}"'
-        )
+        body = f'echo "$@" > "{tmp_path}/args"; cat "{fixture}"'
+        bin_dir = self._stub(tmp_path, body)
         monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-        assert S.run_stats() == GOOD
-        assert (
-            tmp_path / "args"
-        ).read_text().strip() == "--show-stats --stats-format=json"
+        assert S.run_stats() == S.Outcome(S.OK, GOOD)
+        args = (tmp_path / "args").read_text().strip()
+        assert args == "--show-stats --stats-format=json"
 
     @pytest.mark.parametrize(
-        "body", ["exit 3", "echo not json", "echo '[1]' >&2; exit 0"]
+        ("body", "kind"),
+        [("exit 3", S.FAILED), ("echo not json", S.INVALID), ("sleep 5", S.TIMEOUT)],
     )
-    def test_failures_give_none(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str
+    def test_failures_say_what_failed(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        body: str,
+        kind: str,
     ) -> None:
-        """A failing or junk-printing sccache is 'no statistics'."""
-        monkeypatch.setenv("PATH", str(self._stub(tmp_path, body)))
-        assert S.run_stats() is None
+        """A failing, junk-printing or hanging sccache has its own outcome."""
+        stub_dir = self._stub(tmp_path, body)
+        monkeypatch.setenv("PATH", f"{stub_dir}{os.pathsep}/usr/bin:/bin")
+        monkeypatch.setattr(S, "STATS_TIMEOUT_SECONDS", 1)
+        assert S.run_stats().kind == kind
+
+    def test_no_binary_is_a_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With no sccache on PATH the command cannot run."""
+        monkeypatch.setenv("PATH", str(tmp_path))
+        assert S.run_stats().kind == S.FAILED
 
 
 # --- through the finish script -------------------------------------------

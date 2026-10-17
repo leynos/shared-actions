@@ -15,6 +15,14 @@ import sys
 import time
 
 
+def _available_cpus() -> int:
+    """Return the processors this process may use, as ``nproc`` does."""
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        return os.cpu_count() or 1
+
+
 def spin(seconds: float) -> None:
     """Busy-loop for *seconds* of wall time."""
     end = time.monotonic() + seconds
@@ -27,7 +35,7 @@ def main(argv: list[str]) -> int:
     if len(argv) != 3 or argv[1] not in {"one", "all"}:
         print(f"usage: {argv[0]} {{one|all}} SECONDS", file=sys.stderr)
         return 2
-    count = 1 if argv[1] == "one" else len(os.sched_getaffinity(0))
+    count = 1 if argv[1] == "one" else _available_cpus()
     seconds = float(argv[2])
     print(f"ci-telemetry calibration: {count} busy process(es) for {seconds:g}s")
     workers = [

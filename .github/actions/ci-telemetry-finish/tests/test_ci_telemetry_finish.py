@@ -230,6 +230,7 @@ def test_a_process_that_cannot_be_inspected_is_reported_as_such(
     assert F.stop_sampler(directory) == "inspection-failed"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no SIGKILL")
 def test_a_sampler_that_ignores_sigterm_is_killed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

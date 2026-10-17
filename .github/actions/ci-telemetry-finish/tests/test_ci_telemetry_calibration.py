@@ -14,6 +14,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import typing as typ
 from pathlib import Path
 
@@ -185,7 +186,7 @@ def test_load_really_runs_and_exits_zero() -> None:
     """The script end to end with a short duration."""
     done = subprocess.run(  # noqa: S603,TID251 - the script under test.
         [
-            shutil.which("python3") or "python3",
+            sys.executable,
             str(SCRIPTS / "ci_telemetry_load.py"),
             "one",
             "0.3",
@@ -223,7 +224,10 @@ def _run_fragment(
     )
 
 
-@pytest.mark.skipif(not shutil.which("bash"), reason="needs bash")
+@pytest.mark.skipif(
+    sys.platform == "win32" or not shutil.which("bash"),
+    reason="needs POSIX bash and sh",
+)
 @pytest.mark.parametrize(
     ("action", "variable"),
     [(START_ACTION, "CT_SAMPLER"), (FINISH_ACTION, "CT_FINISH")],

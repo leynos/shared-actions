@@ -124,6 +124,39 @@ def stop_sampler(directory: Path) -> str:
     return "killed"
 
 
+META_REQUIRED = ("sampler", "nproc", "clk_tck", "interval_seconds")
+
+
+def _meta_text(directory: Path) -> str | None:
+    """Return ``meta.json``'s text; None when it is absent.
+
+    Raises
+    ------
+    StateError
+        If the file exists but cannot be read.
+    """
+    try:
+        return (directory / "meta.json").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        message = f"meta.json is unreadable: {exc}"
+        raise StateError(message) from exc
+
+
+def _parse_meta(text: str) -> dict[str, typ.Any]:
+    """Return the parsed metadata, or raise ``StateError`` if it is not valid."""
+    try:
+        meta = json.loads(text)
+    except ValueError as exc:
+        message = "meta.json is not valid JSON"
+        raise StateError(message) from exc
+    if not isinstance(meta, dict) or any(key not in meta for key in META_REQUIRED):
+        message = "meta.json lacks the fields the record needs"
+        raise StateError(message)
+    return meta
+
+
 def read_meta(directory: Path) -> dict[str, typ.Any] | None:
     """Return ``meta.json``; None when the start action never wrote it.
 
@@ -133,24 +166,8 @@ def read_meta(directory: Path) -> dict[str, typ.Any] | None:
         If the file exists but cannot be read, is not JSON, or lacks the
         fields the record needs.
     """
-    try:
-        text = (directory / "meta.json").read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return None
-    except OSError as exc:
-        message = f"meta.json is unreadable: {exc}"
-        raise StateError(message) from exc
-    try:
-        meta = json.loads(text)
-        required = ("sampler", "nproc", "clk_tck", "interval_seconds")
-        valid = isinstance(meta, dict) and all(key in meta for key in required)
-    except ValueError as exc:
-        message = "meta.json is not valid JSON"
-        raise StateError(message) from exc
-    if not valid:
-        message = "meta.json lacks the fields the record needs"
-        raise StateError(message)
-    return meta
+    text = _meta_text(directory)
+    return None if text is None else _parse_meta(text)
 
 
 def _final_sample(directory: Path, meta: typ.Mapping[str, typ.Any]) -> None:

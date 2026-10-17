@@ -54,7 +54,11 @@ def _check_name(job_id: str, job: reading.JobBody) -> str:
 
 def _name_offences(name: str, runner_key: str | None) -> list[str]:
     """Return every way *name* lets a runner decide what the job is called."""
-    recognized = reading.RECOGNIZED_LINUX_LABELS | reading.RECOGNIZED_OTHER_LABELS
+    recognized = (
+        reading.RECOGNIZED_LINUX_LABELS
+        | reading.RECOGNIZED_OTHER_LABELS
+        | reading.UBICLOUD_CALIBRATION_LABELS
+    )
     offences = [
         f"names the runner label {label!r} literally"
         for label in sorted(recognized)

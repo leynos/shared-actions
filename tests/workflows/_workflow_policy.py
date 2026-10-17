@@ -43,6 +43,26 @@ RECOGNIZED_OTHER_LABELS: typ.Final[frozenset[str]] = frozenset(
     {"macos-15", "windows-latest", "windows-11-arm", HOSTED_ARM_LINUX}
 )
 
+#: Ubicloud shapes that only the telemetry calibration job names. They are not
+#: Linux placement labels: no ordinary lane may use them (the placement rule
+#: still demands `UBICLOUD_LINUX` of every other job), and the act vocabulary
+#: does not give them an image. They are recognized so the calibration job can
+#: be judged at all.
+UBICLOUD_CALIBRATION_LABELS: typ.Final[frozenset[str]] = frozenset(
+    {"ubicloud-standard-4", "ubicloud-standard-8"}
+)
+
+#: Jobs that exist to measure a runner shape, each with the reason. They may
+#: name every shape the calibration compares and no other, and their workflow
+#: must be dispatch-only because they spend paid minutes.
+CALIBRATION_JOBS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
+    ("calibrate-ci-telemetry.yml", "calibrate"): (
+        "The job tests whether /proc/stat sampling reports the cores a job "
+        "got, which needs one run on each shape the estate right-sizes "
+        "between: standard-2, -4 and -8, and GitHub's hosted runner."
+    ),
+}
+
 _MUTATION_REASON: typ.Final[str] = (
     "Mutation lanes stay GitHub-hosted: they are scheduled, they never "
     "block a developer, and public-repository minutes are free there."

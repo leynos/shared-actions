@@ -147,7 +147,10 @@ def _reaches_linux(value: str) -> bool:
     """Return True when a `runs-on` value can land on a Linux runner."""
     if _is_unparsed_expression(value):
         return True
-    return bool(_expand(value) & reading.RECOGNIZED_LINUX_LABELS)
+    return bool(
+        _expand(value)
+        & (reading.RECOGNIZED_LINUX_LABELS | reading.UBICLOUD_CALIBRATION_LABELS)
+    )
 
 
 class TestJobDeclaresExactlyOneRunnerSource:
@@ -187,7 +190,11 @@ class TestRunnerLabelRecognition:
         labels = _runner_labels(job)
         identifier = reading.identifier(workflow, job_id)
         assert labels, f"{identifier} resolves to no runner label"
-        recognized = reading.RECOGNIZED_LINUX_LABELS | reading.RECOGNIZED_OTHER_LABELS
+        recognized = (
+            reading.RECOGNIZED_LINUX_LABELS
+            | reading.RECOGNIZED_OTHER_LABELS
+            | reading.UBICLOUD_CALIBRATION_LABELS
+        )
         unrecognized = labels - recognized
         assert not unrecognized, (
             f"{identifier} names unrecognized runner labels "
@@ -217,6 +224,17 @@ class TestLinuxPlacementRule:
         values = {value for value in _runs_on_values(job) if _reaches_linux(value)}
         if not values:
             pytest.skip("no Linux arm")
+        if (workflow, job_id) in reading.CALIBRATION_JOBS:
+            shapes = {
+                reading.UBICLOUD_LINUX,
+                reading.HOSTED_LINUX,
+                *reading.UBICLOUD_CALIBRATION_LABELS,
+            }
+            assert values == shapes, (
+                f"{identifier} is a calibration job and must compare exactly "
+                f"{sorted(shapes)}, but declares {sorted(values)}"
+            )
+            return
         if (workflow, job_id) in reading.HOSTED_LINUX_EXEMPTIONS:
             assert values == {reading.HOSTED_LINUX}, (
                 f"{identifier} is exempt from the Ubicloud "
@@ -248,6 +266,26 @@ class TestLinuxPlacementRule:
             f"{identifier} neither falls back for forks nor "
             f"needs to, so it must name {reading.UBICLOUD_LINUX!r} outright rather "
             f"than {sorted(values)}"
+        )
+
+
+class TestCalibrationLanes:
+    """A calibration job spends paid minutes, so only a person starts it."""
+
+    @pytest.mark.parametrize(
+        ("workflow", "job_id"), sorted(reading.CALIBRATION_JOBS), ids=reading.identifier
+    )
+    def test_a_calibration_workflow_is_dispatch_only(
+        self, workflow: str, job_id: str
+    ) -> None:
+        """The workflow declares `workflow_dispatch` and no other trigger."""
+        assert job_id in dict(reading.jobs(workflow)), (
+            f"{reading.identifier(workflow, job_id)} is a calibration job but "
+            "no such job exists; delete the entry"
+        )
+        assert _triggers(workflow) == {"workflow_dispatch"}, (
+            f"{workflow} spends paid runner minutes on every shape it "
+            f"compares, so it must be dispatch-only, not {sorted(_triggers(workflow))}"
         )
 
 

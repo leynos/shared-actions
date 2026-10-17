@@ -33,6 +33,7 @@ repository-specific entries to the overlay instead.
 - [ADR 0005: setup-rust selects the sccache backend by runner](adr/0005-runner-aware-sccache-backend.md)
 - [ADR 0006: install-whitaker installs binaries only](adr/0006-binary-only-whitaker-install.md)
 - [ADR 0007: Four-tier Python linting architecture](adr/0007-python-linting-architecture.md)
+- [ADR 0008: CI telemetry is a start action, a finish action and a file](adr/0008-ci-telemetry-start-and-finish.md)
 
 ## Python Coverage Venv Architecture
 
@@ -585,6 +586,89 @@ output. `test_sccache_report.py` runs the shipped script against a stub
 sccache: a fallback never invokes sccache, reports `false` and writes nothing;
 any other status writes text and JSON and the summary; a missing binary stands
 down instead of failing. Seven mutations each fail a named case.
+
+## `ci-telemetry-start` and `ci-telemetry-finish`
+
+The pair measures a job's CPU, memory and disk and prints one record. The
+decision and its reasons are in
+[ADR 0008](adr/0008-ci-telemetry-start-and-finish.md); this section is the
+contract a maintainer needs.
+
+### State files
+
+Both actions use `$RUNNER_TEMP/ci-telemetry/` (falling back to `/tmp`):
+
+- `meta.json`, written by start: `format`, `sampler`, `nproc` (the processors
+  the process may use), `clk_tck`, `interval_seconds`, `disk_path`,
+  `started_ns` and `runner_os`.
+- `samples.tsv`, appended by the sampler and by finish's own final sample. One
+  line per sample, tab-separated, in the order of `SAMPLE_COLUMNS`: monotonic
+  nanoseconds, the ten aggregate `cpu` counters of `/proc/stat` (user, nice,
+  system, idle, iowait, irq, softirq, steal, guest, guest_nice), `MemTotal`,
+  `MemAvailable` and free disk in KiB.
+- `sampler.pid` and `record.json`.
+
+Start clears all four before it writes. The reader skips a line that is
+truncated, has the wrong number of columns, is not numeric, or whose timestamp
+does not advance, so a sampler killed mid-write never corrupts the record.
+
+### Sampler lifecycle
+
+Start detaches `sampler.py run` with `start_new_session=True`, so it survives
+the step. Finish stops it by PID, SIGTERM first and SIGKILL after 15 s, after
+checking that `/proc/<pid>/cmdline` still names `sampler.py` (a recycled PID is
+not signalled). The runner's orphan-process cleanup runs after a job's steps,
+so the sampler may already be gone; finish then takes its own final sample and
+builds the record from the file. `stop_sampler` reports `stopped`,
+`already-exited`, `killed`, `no-pid` or `inspection-failed`.
+
+### Reducing samples
+
+`summarize.py` is pure. `Sample.busy` excludes steal and does not add guest;
+`Sample.total` adds idle, iowait and steal. Each consecutive pair gives an
+interval; an interval whose total did not advance, or whose busy time went
+backwards, is skipped. Busy cores per interval are utilization times `nproc`;
+the average is time-weighted over all intervals, p95 is nearest-rank, and
+saturation is the fraction of intervals above 0.90 utilization (strictly).
+Core-seconds are busy jiffies over `CLK_TCK`; efficiency divides them by the
+counted intervals' wall time times `nproc`.
+
+### Platform and degraded states
+
+`sampler.classify` returns `proc-stat`, `unsupported-os` (not Linux),
+`container` (`/.dockerenv`, or a container runtime in the init cgroup) or
+`unknown-environment` (the probe could not read its files). Only `proc-stat`
+reports CPU and memory; `container` and `unknown-environment` keep disk. Finish
+adds `not-started`, `state-invalid` and `error`. Each exists so a degraded job
+is visible in the record rather than shaped like a healthy one.
+
+### Runtime requirements
+
+Standard-library Python 3.10 or later (`python3`, else `python`); no `uv`, no
+packages. Without Python each action warns and exits 0. Every script exits 0
+whatever happens.
+
+### Telemetry tests
+
+The summarize tests run recorded sample files (`tests/fixtures/*.tsv`) and
+compare to figures worked by hand in comments. The contract tests hold the
+marker out of every echoed command and script, require the README example to
+run finish last under `if: always()`, and keep secrets out of both manifests.
+The end-to-end test runs the real start and finish scripts on Linux. Changes to
+the formula are proved by mutation: a steal-counted-as-busy, guest-added,
+p95-as-max and `>=`-for-`>` mutation each fail a named fixture.
+
+### Calibration workflow
+
+`.github/workflows/calibrate-ci-telemetry.yml` is dispatch-only. It runs each of
+`ubicloud-standard-2`, `-4`, `-8` and `ubuntu-latest` twice, holding one
+processor and then all of them busy for 60 s
+(`.github/scripts/ci_telemetry_load.py`), and prints each record and a gate G3
+verdict as notice annotations (`.github/scripts/ci_telemetry_verdict.py`). Read
+the annotations from the check-run annotations API. The placement contracts
+know the job through `CALIBRATION_JOBS` and `UBICLOUD_CALIBRATION_LABELS` in
+`tests/workflows/_workflow_policy.py`: it must name exactly those four shapes,
+and its workflow must be dispatch-only.
 
 ## `setup-rust` and the mold linker
 

@@ -21,6 +21,9 @@ import typing as typ
 from pathlib import Path
 
 from ._workflow_policy import (
+    CALIBRATION_JOBS as CALIBRATION_JOBS,
+)
+from ._workflow_policy import (
     CALLER_JOBS as CALLER_JOBS,
 )
 from ._workflow_policy import (
@@ -58,6 +61,9 @@ from ._workflow_policy import (
 )
 from ._workflow_policy import (
     RECOGNIZED_OTHER_LABELS as RECOGNIZED_OTHER_LABELS,
+)
+from ._workflow_policy import (
+    UBICLOUD_CALIBRATION_LABELS as UBICLOUD_CALIBRATION_LABELS,
 )
 
 # Re-exported so a contract reads one module; see `_workflow_policy.py`.

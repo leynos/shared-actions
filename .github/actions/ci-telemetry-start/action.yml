@@ -1,0 +1,35 @@
+name: CI telemetry start
+description: >-
+  Start sampling CPU, memory and disk in the background so that
+  `ci-telemetry-finish` can print one telemetry record when the job ends. Call
+  it first in a job, after checkout.
+
+inputs:
+  interval-seconds:
+    description: Seconds between samples. Values below 1 are raised to 1.
+    required: false
+    default: '10'
+  disk-path:
+    description: >-
+      A directory on the volume whose minimum free space is recorded. Defaults
+      to the working directory.
+    required: false
+    default: '.'
+
+runs:
+  using: composite
+  steps:
+    - name: Start the telemetry sampler
+      shell: bash
+      env:
+        CT_INTERVAL_SECONDS: ${{ inputs.interval-seconds }}
+        CT_DISK_PATH: ${{ inputs.disk-path }}
+        CT_SAMPLER: ${{ github.action_path }}/scripts/sampler.py
+      run: |
+        set -euo pipefail
+        py="$(command -v python3 || command -v python || true)"
+        if [[ -z "${py}" ]]; then
+          echo "::warning title=ci-telemetry::no Python on PATH; telemetry is off for this job"
+          exit 0
+        fi
+        "${py}" "${CT_SAMPLER}" start

@@ -1,0 +1,32 @@
+name: CI telemetry finish
+description: >-
+  Stop the telemetry sampler started by `ci-telemetry-start` and print exactly
+  one `DF12_CI_TELEMETRY {json}` line, plus a summary table, for the central
+  collector. Call it last in a job, under `if: always()`.
+
+outputs:
+  record-path:
+    description: Path of the record's JSON, without the marker.
+    value: ${{ steps.finish.outputs.record-path }}
+  sampler:
+    description: >-
+      `proc-stat`, `unsupported-os`, `container` or `not-started`. CPU fields
+      in the record are null unless this is `proc-stat`.
+    value: ${{ steps.finish.outputs.sampler }}
+
+runs:
+  using: composite
+  steps:
+    - name: Print the telemetry record
+      id: finish
+      shell: bash
+      env:
+        CT_FINISH: ${{ github.action_path }}/scripts/finish.py
+      run: |
+        set -euo pipefail
+        py="$(command -v python3 || command -v python || true)"
+        if [[ -z "${py}" ]]; then
+          echo "::warning title=ci-telemetry::no Python on PATH; no telemetry record"
+          exit 0
+        fi
+        "${py}" "${CT_FINISH}"

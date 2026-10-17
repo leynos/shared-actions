@@ -1,0 +1,67 @@
+name: Calibrate CI telemetry
+# Runs the ci-telemetry actions on real runners under a known load, to test the
+# CI observability plan's H3 (gate G3): does /proc/stat sampling report the
+# cores the job actually got? Each leg holds k processors busy for 60 s, with
+# k = 1 and k = nproc, and prints its record and a verdict as notice
+# annotations. Dispatch only: it spends Ubicloud minutes, so it has no schedule
+# and no pull_request trigger.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  calibrate:
+    name: calibrate ${{ matrix.leg }} (${{ matrix.load }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubicloud-standard-2, ubicloud-standard-4, ubicloud-standard-8, ubuntu-latest]
+        load: [one, all]
+        include:
+          - runner: ubicloud-standard-2
+            leg: ubicloud-2
+            label-cores: 2
+          - runner: ubicloud-standard-4
+            leg: ubicloud-4
+            label-cores: 4
+          - runner: ubicloud-standard-8
+            leg: ubicloud-8
+            label-cores: 8
+          # This repository is public, so ubuntu-latest has 4 vCPUs.
+          - runner: ubuntu-latest
+            leg: hosted
+            label-cores: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/ci-telemetry-start
+        with:
+          interval-seconds: '5'
+      - name: Hold the load
+        shell: bash
+        env:
+          LOAD: ${{ matrix.load }}
+        run: python3 .github/scripts/ci_telemetry_load.py "${LOAD}" 60
+      - uses: ./.github/actions/ci-telemetry-finish
+        id: telemetry
+        if: always()
+      - name: Judge against G3
+        if: always() && steps.telemetry.outputs.record-path != ''
+        shell: bash
+        env:
+          RECORD_PATH: ${{ steps.telemetry.outputs.record-path }}
+          RUNNER_LABEL: ${{ matrix.runner }}
+          LABEL_CORES: ${{ matrix.label-cores }}
+          LOAD: ${{ matrix.load }}
+        run: >-
+          python3 .github/scripts/ci_telemetry_verdict.py
+          "${RECORD_PATH}" "${RUNNER_LABEL}" "${LABEL_CORES}" "${LOAD}"

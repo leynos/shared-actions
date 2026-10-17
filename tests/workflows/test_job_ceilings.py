@@ -51,6 +51,9 @@ TIMEOUT_TIERS: typ.Final[cabc.Mapping[str, int]] = {
 #: is in neither this mapping nor `CONSUMER_OWNED_JOBS` nor
 #: `reading.CALLER_JOBS`.
 JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
+    # Four shapes by two loads, each a 60 s burn plus checkout and the
+    # telemetry actions; dispatch only.
+    ("calibrate-ci-telemetry.yml", "calibrate"): "assertion",
     ("ci.yml", "python-tests"): "suite",
     ("ci.yml", "python-tests-windows"): "suite",
     ("ci.yml", "coverage"): "coverage",

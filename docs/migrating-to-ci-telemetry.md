@@ -36,6 +36,22 @@ steps:
   delete its script once nothing else calls it.
 - Read the record from the job log (`DF12_CI_TELEMETRY`) or the step summary.
 
+## Adding sccache statistics
+
+In a job that uses `setup-rust`, pass its status to finish:
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/ci-telemetry-finish@<sha>
+  if: always()
+  with:
+    sccache-status: ${{ steps.setup-rust.outputs.sccache-status }}
+```
+
+Finish reads the file `sccache-report` wrote (`sccache-stats.json` by default,
+change it with `sccache-stats-file`), and runs `sccache --show-stats` itself
+only when that file is absent. Without `setup-rust` the status is inferred from
+the `sccache` binary, `RUSTC_WRAPPER` and the server port.
+
 ## Rolling back
 
 Remove the two steps. Nothing outside the runner's temporary directory is

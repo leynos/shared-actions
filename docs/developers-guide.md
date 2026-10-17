@@ -642,6 +642,41 @@ reports CPU and memory; `container` and `unknown-environment` keep disk. Finish
 adds `not-started`, `state-invalid` and `error`. Each exists so a degraded job
 is visible in the record rather than shaped like a healthy one.
 
+### sccache statistics
+
+`sccache_stats.py` normalizes `sccache --show-stats --stats-format=json`. It
+reads only fields present unrenamed from 0.12 to 0.18: the integer statistics
+under `stats`, the per-language `cache_hits` and `cache_misses` maps (summed
+over `counts`), `version` and `cache_location`. Missing or wrongly typed fields
+raise `StatsError` and give `sccache_stats_source: unreadable`, since a shape
+change must surface rather than become a healthy-looking zero.
+
+The module keeps three layers apart. `normalize` and `decide_status` are pure.
+`read_stats_file`, `run_stats` and `server_reachable` touch the machine and
+return what happened (an `Outcome` of `ok`, `absent`, `unreadable`, `invalid`,
+`failed` or `timeout`, or a bool) instead of hiding failure as `None`; the
+socket probe is a loopback connection only, on `SCCACHE_SERVER_UDS` when set,
+else the TCP port in `SCCACHE_SERVER_PORT` (default 4226). `collect`
+orchestrates them over the injected `Probes`.
+
+The status decides whether counts exist. `started` and `fallback` come from
+`setup-rust`'s `sccache-status` when given, and nothing is probed then.
+Otherwise `gather_facts` asks for the binary and the server and `decide_status`
+returns `absent` (no binary), `started` (a server listening) or `fallback`.
+`RUSTC_WRAPPER` is not consulted, since sccache also serves C and C++ compilers
+as a launcher. Only `started` reads statistics: the `sccache-report` file, and
+sccache itself once, only when that file is absent. A file that exists but is
+unreadable or invalid is reported through `sccache_stats_problem`, not replaced
+by a rerun. `--show-stats` with no server prints empty defaults, so a fallback
+job carries null counts.
+
+The fixtures under `tests/fixtures/sccache/` are real output: probe-crate
+captures from the 0.12.0, 0.16.0, 0.17.0 and 0.18.0 release binaries, the
+0.17.0 output with no server, and two captures from whitaker's coverage jobs on
+GitHub's cache. `requests_not_cacheable` is recorded beside
+`non_cacheable_compilations` because the latter stayed 0 where 15 requests were
+not cacheable.
+
 ### Runtime requirements
 
 Standard-library Python 3.10 or later (`python3`, else `python`); no `uv`, no

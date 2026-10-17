@@ -22,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import sccache_stats
 import summarize
 
 STOP_WAIT_SECONDS = 15
@@ -189,8 +190,8 @@ def _read_samples(directory: Path) -> list[summarize.Sample]:
     return summarize.parse_samples(text)
 
 
-def finish(directory: Path, env: typ.Mapping[str, str]) -> dict[str, typ.Any]:
-    """Stop the sampler, sample once more and return the record.
+def _measurements(directory: Path, env: typ.Mapping[str, str]) -> dict[str, typ.Any]:
+    """Stop the sampler, sample once more and return the CPU, memory and disk record.
 
     Unreadable or invalid state gives a record whose ``sampler`` is
     ``state-invalid``, so the degraded job is visible rather than hidden.
@@ -216,6 +217,21 @@ def finish(directory: Path, env: typ.Mapping[str, str]) -> dict[str, typ.Any]:
         end_ns=time.monotonic_ns(),
     )
     return {**record, "_sampler_state": state}
+
+
+def finish(directory: Path, env: typ.Mapping[str, str]) -> dict[str, typ.Any]:
+    """Return the job's record: measurements plus the normalized sccache fields.
+
+    ``CT_SCCACHE_STATUS`` is setup-rust's ``sccache-status`` output and
+    ``CT_SCCACHE_STATS_FILE`` the file ``sccache-report`` wrote; the statistics
+    are read from that file when it exists, and from sccache itself otherwise.
+    """
+    sccache = sccache_stats.collect(
+        env,
+        env.get("CT_SCCACHE_STATUS", ""),
+        env.get("CT_SCCACHE_STATS_FILE", ""),
+    )
+    return {**_measurements(directory, env), **sccache}
 
 
 def degraded_record(env: typ.Mapping[str, str], exc: Exception) -> dict[str, typ.Any]:

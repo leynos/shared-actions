@@ -377,6 +377,13 @@ smallest free disk. Steal is time the job wanted and the hypervisor withheld;
 it is reported on its own and is not counted as busy. `nproc` is what the
 machine presented, never derived from a runner label.
 
+With sccache, pass `setup-rust`'s `sccache-status` output to finish through its
+`sccache-status` input. The record then carries the hit and miss counts, the
+hit and cacheable ratios, backend errors and the cache backend kind, read from
+the file `sccache-report` wrote (or from sccache itself when that file is
+absent). A job whose sccache server fell back to an uncached build carries null
+counts rather than zeros, so it never reads as a healthy idle cache.
+
 On Windows and macOS (`sampler: unsupported-os`) every measurement is null. In
 a container job (`container`) `/proc` shows the host, so CPU and memory are
 null and only disk is reported. Telemetry never fails a job: without Python it

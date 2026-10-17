@@ -642,6 +642,31 @@ reports CPU and memory; `container` and `unknown-environment` keep disk. Finish
 adds `not-started`, `state-invalid` and `error`. Each exists so a degraded job
 is visible in the record rather than shaped like a healthy one.
 
+### sccache statistics
+
+`sccache_stats.py` normalizes `sccache --show-stats --stats-format=json`. It
+reads only fields present unrenamed from 0.12 to 0.18: the integer statistics
+under `stats`, the per-language `cache_hits` and `cache_misses` maps (summed
+over `counts`), `version` and `cache_location`. Missing or wrongly typed fields
+raise `StatsError` and give `sccache_stats_source: unreadable`, since a shape
+change must surface rather than become a healthy-looking zero.
+
+The status decides whether counts exist. `started` and `fallback` come from
+`setup-rust`'s `sccache-status` when given; otherwise `infer_status` returns
+`absent` (no binary), `fallback` (empty `RUSTC_WRAPPER`, or nobody listening on
+`SCCACHE_SERVER_PORT`, default 4226) or `started`. Only `started` reads
+statistics, first from the `sccache-report` file and then, once, from sccache.
+`--show-stats` with no server prints empty defaults, so a fallback job carries
+null counts. `Probes` holds the four machine-facing calls (`which`, the port
+probe, the file read, the sccache run) so tests replace them.
+
+The fixtures under `tests/fixtures/sccache/` are real output: probe-crate
+captures from the 0.12.0, 0.16.0, 0.17.0 and 0.18.0 release binaries, the
+0.17.0 output with no server, and two captures from whitaker's coverage jobs on
+GitHub's cache. `requests_not_cacheable` is recorded beside
+`non_cacheable_compilations` because the latter stayed 0 where 15 requests were
+not cacheable.
+
 ### Runtime requirements
 
 Standard-library Python 3.10 or later (`python3`, else `python`); no `uv`, no

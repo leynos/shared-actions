@@ -670,6 +670,43 @@ know the job through `CALIBRATION_JOBS` and `UBICLOUD_CALIBRATION_LABELS` in
 `tests/workflows/_workflow_policy.py`: it must name exactly those four shapes,
 and its workflow must be dispatch-only.
 
+### Calibration results and the G3 verdict
+
+Two dispatches on 2026-10-17 (runs 39046677003 and 39047223210), each with one
+60 s burn per shape and load, sampled every 5 s (13 intervals). Busy cores are
+the average with steal excluded; steal is the fraction of all CPU time.
+
+| Shape                            | Load   | nproc | Run 1 busy | Run 1 steal | Run 2 busy | Run 2 steal |
+| -------------------------------- | ------ | ----: | ---------: | ----------: | ---------: | ----------: |
+| `ubicloud-standard-2`            | 1 core | 2     | 1.018      | 0.004       | 1.030      | 0.001       |
+| `ubicloud-standard-2`            | all    | 2     | 1.535      | 0.228       | 1.987      | 0.002       |
+| `ubicloud-standard-4`            | 1 core | 4     | 0.934      | 0.027       | 0.897      | 0.034       |
+| `ubicloud-standard-4`            | all    | 4     | 3.896      | 0.022       | 3.926      | 0.014       |
+| `ubicloud-standard-8`            | 1 core | 8     | 1.016      | 0.003       | 1.029      | 0.003       |
+| `ubicloud-standard-8`            | all    | 8     | 6.067      | 0.235       | 6.595      | 0.170       |
+| `ubuntu-latest` (public, 4 vCPU) | 1 core | 4     | 1.016      | 0.000       | 1.030      | 0.000       |
+| `ubuntu-latest` (public, 4 vCPU) | all    | 4     | 3.974      | 0.000       | 3.986      | 0.000       |
+
+What it shows:
+
+- `nproc` equalled the runner label's vCPU count on every leg of every shape.
+- Where steal was low, busy cores read k within 0.2 (the one near-miss,
+  `ubicloud-standard-4` at k = 1 in run 2, read 0.897, a 10.3% deviation with
+  3.4% steal).
+- Steal above 5% occurred on the full-load leg only: `ubicloud-standard-2` in
+  one of two runs, `ubicloud-standard-8` in both runs, and never on
+  `ubicloud-standard-4` or `ubuntu-latest`. On those legs busy plus steal was
+  99.3% to 99.6% of CPU time, so the arithmetic is consistent: the VM was
+  denied part of the CPU it asked for. Steal is an observed property of the
+  host at that moment, not an error in the measurement. It recurred on
+  standard-8 and appeared on standard-2 in one run only, so these two runs do
+  not show that it belongs to a shape; read it as host contention, which the
+  record reports as `cpu_steal_fraction`.
+
+Gate G3 is decided "Revise": efficiency is computed against `nproc`, the label
+is kept for cost, and steal is reported separately and never counted as busy.
+The formula needs no correction.
+
 ## `setup-rust` and the mold linker
 
 `install-mold` installs a pinned mold release on Linux runners so that the

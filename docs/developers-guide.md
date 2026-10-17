@@ -693,10 +693,10 @@ What it shows:
 - Where steal was low, busy cores read k within 0.2 (the one near-miss,
   `ubicloud-standard-4` at k = 1 in run 2, read 0.897, a 10.3% deviation with
   3.4% steal).
-- Steal above 5% occurred on the full-load leg only: `ubicloud-standard-2` once
-  of two runs, `ubicloud-standard-8` in both runs, and never on
+- Steal above 5% occurred on the full-load leg only: `ubicloud-standard-2` in
+  one of two runs, `ubicloud-standard-8` in both runs, and never on
   `ubicloud-standard-4` or `ubuntu-latest`. On those legs busy plus steal was
-  99.4% to 99.6% of CPU time, so the arithmetic is consistent: the VM was
+  99.3% to 99.6% of CPU time, so the arithmetic is consistent: the VM was
   denied part of the CPU it asked for. Steal is an observed property of the
   host at that moment, not an error in the measurement. It recurred on
   standard-8 and appeared on standard-2 in one run only, so these two runs do

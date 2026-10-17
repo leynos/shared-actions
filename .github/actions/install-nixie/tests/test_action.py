@@ -201,6 +201,16 @@ fi
     )
 
 
+def _isolated_path(stubs_dir: Path, bash: str) -> str:
+    """Build a minimal PATH with shell utilities but no host Rust toolchain."""
+    if os.name == "nt":
+        git_root = Path(bash).parent.parent
+        runtime_dirs = (git_root / "usr" / "bin", git_root / "bin")
+    else:
+        runtime_dirs = (Path("/usr/bin"), Path("/bin"))
+    return os.pathsep.join(str(path) for path in (stubs_dir, *runtime_dirs))
+
+
 def _run_probe(
     tmp_path: Path,
     *,
@@ -217,7 +227,7 @@ def _run_probe(
     stubs_dir.mkdir()
     calls_path = tmp_path / "probe-calls"
     github_output = tmp_path / "github-output"
-    bash_shebang = f"#!{bash}\n"
+    bash_shebang = "#!/usr/bin/env bash\n"
     if cargo_present:
         _write_executable(
             stubs_dir / "cargo",
@@ -226,6 +236,9 @@ def _run_probe(
 printf 'cargo <%s>\\n' "$*" >> "$CALLS_PATH"
 if [[ "${1:-}" != "binstall" ]]; then
   exit 64
+fi
+if [[ "$BINSTALL_PRESENT" != "true" ]]; then
+  exit 127
 fi
 shift
 exec cargo-binstall "$@"
@@ -243,9 +256,10 @@ exit "$BINSTALL_PROBE_STATUS"
 
     env = {
         "BINSTALL_PROBE_STATUS": str(binstall_exit_status),
+        "BINSTALL_PRESENT": str(binstall_present).lower(),
         "CALLS_PATH": calls_path.as_posix(),
         "GITHUB_OUTPUT": github_output.as_posix(),
-        "PATH": stubs_dir.as_posix(),
+        "PATH": (_isolated_path(stubs_dir, bash) if cargo_present else ""),
     }
     return subprocess.run(  # noqa: S603,TID251 - exercise the Bash fragment.
         [bash, "-c", _probe_script()],
@@ -267,6 +281,22 @@ def _run_install_script(
     if bash is None:
         pytest.skip("bash not found on PATH")
 
+    env = _install_environment(tmp_path, options, bash)
+    return subprocess.run(  # noqa: S603,TID251 - exercise the Bash fragment.
+        [bash, "-c", _install_script()],
+        check=False,
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+def _install_environment(
+    tmp_path: Path, options: _InstallOptions, bash: str
+) -> dict[str, str]:
+    """Prepare deterministic CLI stubs, cache contents and action variables."""
     stubs_dir = tmp_path / "stubs"
     stubs_dir.mkdir()
     _write_cargo_stubs(stubs_dir)
@@ -294,13 +324,8 @@ def _run_install_script(
             executable=options.cached_merman_executable,
         )
 
-    host_path = os.environ.get("PATH", "")
-    path = (
-        stubs_dir.as_posix()
-        if not options.include_uv
-        else os.pathsep.join((stubs_dir.as_posix(), host_path))
-    )
-    env = {
+    path = _isolated_path(stubs_dir, bash) if options.include_uv else str(stubs_dir)
+    return {
         **os.environ,
         "BINSTALL_CREATES_MERMAN": str(options.install_creates_merman).lower(),
         "BINSTALL_INSTALL_STATUS": str(options.merman_install_status),
@@ -327,15 +352,6 @@ def _run_install_script(
         "XDG_CACHE_HOME": cache_home.as_posix(),
         "MERMAN_WINDOWS_BIN_DIR": windows_merman_bin_dir,
     }
-    return subprocess.run(  # noqa: S603,TID251 - exercise the Bash fragment.
-        [bash, "-c", _install_script()],
-        check=False,
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
 
 
 def _calls(tmp_path: Path, *, probe: bool = False) -> list[str]:
@@ -540,6 +556,9 @@ def test_unusable_cached_executable_is_reinstalled(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="Windows does not preserve POSIX executable mode bits"
+)
 def test_non_executable_cached_merman_is_reinstalled(tmp_path: Path) -> None:
     """A cached file without executable permission must not bypass installation."""
     options = _InstallOptions(cached_merman_executable=False)
@@ -665,6 +684,10 @@ def test_install_failure_stops_nixie_and_does_not_export_path(tmp_path: Path) ->
             _InstallOptions(merman_cached=False, install_merman_executable=False),
             "cargo-binstall did not create a usable executable",
             id="non-executable-file",
+            marks=pytest.mark.skipif(
+                os.name == "nt",
+                reason="Windows does not preserve POSIX executable mode bits",
+            ),
         ),
         pytest.param(
             _InstallOptions(merman_cached=False, installed_merman_version="0.6.9"),

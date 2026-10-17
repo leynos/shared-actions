@@ -155,31 +155,31 @@ def cpu_figures(samples: list[Sample], nproc: int, clk_tck: int) -> Cpu | None:
     """Reduce consecutive sample pairs to the CPU figures, or None.
 
     Returns None when no interval advanced the counters (fewer than two
-    samples, or a frozen clock), since no utilisation can be stated then.
+    samples, or a frozen clock), since no utilization can be stated then.
     """
-    utilisation: list[float] = []
+    utilization: list[float] = []
     busy_sum = total_sum = steal_sum = valid_ns = 0
     for before, after in itertools.pairwise(samples):
         d_busy = after.busy - before.busy
         d_total = after.total - before.total
         if d_total <= 0 or d_busy < 0:
             continue
-        utilisation.append(d_busy / d_total)
+        utilization.append(d_busy / d_total)
         busy_sum += d_busy
         total_sum += d_total
         steal_sum += after.steal - before.steal
         valid_ns += after.t_ns - before.t_ns
-    if not utilisation:
+    if not utilization:
         return None
     wall = valid_ns / NS_PER_SECOND
     core_seconds = busy_sum / clk_tck
     return Cpu(
         core_seconds=core_seconds,
         avg=busy_sum / total_sum * nproc,
-        p95=nearest_rank(utilisation, P95) * nproc,
-        peak=max(utilisation) * nproc,
-        saturation=sum(1 for u in utilisation if u > SATURATION_THRESHOLD)
-        / len(utilisation),
+        p95=nearest_rank(utilization, P95) * nproc,
+        peak=max(utilization) * nproc,
+        saturation=sum(1 for u in utilization if u > SATURATION_THRESHOLD)
+        / len(utilization),
         steal=steal_sum / total_sum,
         efficiency=core_seconds / (wall * nproc),
     )
@@ -293,13 +293,14 @@ def build_record(
     -------
     dict
         The record. CPU fields are None unless ``sampler`` is ``proc-stat``;
-        memory and CPU are None in a container, where ``/proc`` shows the host.
+        memory and CPU are None in a container, or where the container probe
+        could not tell (``unknown-environment``), since ``/proc`` shows the host.
     """
     shape = _shape(meta)
     kind = shape["sampler"]
     measured = kind == "proc-stat"
     cpu = cpu_figures(samples, shape["nproc"], shape["clk_tck"]) if measured else None
-    on_disk = kind in {"proc-stat", "container"}
+    on_disk = kind in {"proc-stat", "container", "unknown-environment"}
     return {
         "schema": SCHEMA,
         "event": EVENT,

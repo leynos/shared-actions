@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 import pytest
-from ci_telemetry_support import FIXTURES, SCRIPTS, START_SCRIPT, finish
+from ci_telemetry_support import FIXTURES, SCRIPTS, START_SCRIPT, finish, load
 
 F = finish()
 MARKER = "DF12_" + "CI_TELEMETRY"
@@ -155,3 +155,148 @@ def test_finish_exits_zero_on_unreadable_state(tmp_path: Path) -> None:
     done = _run(SCRIPTS / "finish.py", tmp_path)
     assert done.returncode == 0
     assert done.stdout.count(MARKER) <= 1
+
+
+def _meta_file(tmp_path: Path, text: str) -> Path:
+    directory = tmp_path / "ci-telemetry"
+    directory.mkdir()
+    (directory / "meta.json").write_text(text, encoding="utf-8")
+    return directory
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="needs /proc")
+def test_finish_sample_parses_as_one_row_in_the_documented_columns(
+    tmp_path: Path,
+) -> None:
+    """The finish copy of the sample writer matches the start action's columns."""
+    summarize = load("ct_summarize_parity", SCRIPTS / "summarize.py")
+    rows = summarize.parse_samples(F.take_sample(str(tmp_path), now_ns=7))
+    assert [row.t_ns for row in rows] == [7]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["{not json", "[]", json.dumps({"sampler": "proc-stat"})],
+    ids=["not-json", "not-an-object", "missing-fields"],
+)
+def test_invalid_state_gives_a_visible_state_invalid_record(
+    tmp_path: Path, text: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Junk metadata is reported, not read as 'the start action never ran'."""
+    directory = _meta_file(tmp_path, text)
+    record = F.finish(directory, {})
+    assert record["sampler"] == "state-invalid"
+    assert "::warning title=ci-telemetry::meta.json" in capsys.readouterr().out
+
+
+def test_unreadable_state_is_not_read_as_absent(tmp_path: Path) -> None:
+    """A meta.json that cannot be read (here, a directory) is a state error."""
+    directory = tmp_path / "ci-telemetry"
+    (directory / "meta.json").mkdir(parents=True)
+    with pytest.raises(F.StateError, match="unreadable"):
+        F.read_meta(directory)
+
+
+def test_absent_state_is_not_an_error(tmp_path: Path) -> None:
+    """No meta.json means the start action never ran: None, not an error."""
+    assert F.read_meta(tmp_path) is None
+
+
+def test_unknown_environment_keeps_disk_and_nulls_cpu_and_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the container probe failed, the host's counters are not reported."""
+    directory = _state(tmp_path, pid=None)
+    meta = {**META, "sampler": "unknown-environment"}
+    (directory / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    monkeypatch.setattr(F, "take_sample", lambda _disk: FINAL_SAMPLE)
+    record = F.finish(directory, {})
+    assert record["sampler"] == "unknown-environment"
+    assert record["cpu_busy_cores_avg"] is None
+    assert record["peak_memory_mib"] is None
+    assert record["min_free_disk_mib"] == 20000
+
+
+def test_a_process_that_cannot_be_inspected_is_reported_as_such(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A permission error reading /proc is not 'already exited'."""
+    directory = _state(tmp_path, pid="4242")
+
+    def deny(_self: Path) -> bytes:
+        raise PermissionError
+
+    monkeypatch.setattr(F.Path, "read_bytes", deny)
+    assert F.stop_sampler(directory) == "inspection-failed"
+
+
+def test_a_sampler_that_ignores_sigterm_is_killed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SIGTERM first; SIGKILL only once the wait runs out."""
+    directory = _state(tmp_path, pid="4242")
+    signals: list[int] = []
+    monkeypatch.setattr(F, "_sampler_alive", lambda _pid: True)
+    monkeypatch.setattr(F, "_wait_for_exit", lambda _pid: False)
+    monkeypatch.setattr(F.os, "kill", lambda _pid, sig: signals.append(sig))
+    assert F.stop_sampler(directory) == "killed"
+    assert signals == [F.signal.SIGTERM, F.signal.SIGKILL]
+
+
+def test_a_failure_inside_finish_still_prints_one_degraded_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An unexpected error gives an explicit error record, and still exits 0."""
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setenv("GITHUB_RUN_ID", "9")
+
+    def boom(_directory: Path, _env: object) -> dict[str, object]:
+        message = "boom"
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(F, "finish", boom)
+    assert F.main() == 0
+    out = capsys.readouterr().out
+    assert out.count(MARKER) == 1
+    record = json.loads(
+        next(ln for ln in out.splitlines() if ln.startswith(MARKER))[len(MARKER) :]
+    )
+    assert record["sampler"] == "error"
+    assert record["error"] == "RuntimeError"
+    assert record["run_id"] == 9
+
+
+def test_an_unwritable_output_does_not_stop_the_rest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Each output step reports its own failure; the marker is printed once."""
+    record = {"sampler": "proc-stat", "schema": 1}
+    env = {
+        "GITHUB_OUTPUT": str(tmp_path / "missing" / "output"),
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md"),
+    }
+    F.emit(record, tmp_path / "state", env)
+    out = capsys.readouterr().out
+    assert out.count(MARKER) == 1
+    assert "outputs not written" in out
+    assert (tmp_path / "summary.md").read_text().startswith("### CI telemetry")
+    assert (tmp_path / "state" / "record.json").exists()
+
+
+def test_outputs_and_summary_are_skipped_when_unset(tmp_path: Path) -> None:
+    """Without the GitHub variables nothing is written beside the record."""
+    F.write_outputs({"sampler": "x"}, tmp_path / "r.json", {})
+    F.write_job_summary({"sampler": "x"}, {})
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_outputs_name_the_record_path_and_sampler(tmp_path: Path) -> None:
+    """The two declared outputs are written as name=value lines."""
+    target = tmp_path / "out"
+    F.write_outputs(
+        {"sampler": "proc-stat"}, tmp_path / "r.json", {"GITHUB_OUTPUT": str(target)}
+    )
+    assert target.read_text().splitlines() == [
+        f"record-path={tmp_path / 'r.json'}",
+        "sampler=proc-stat",
+    ]

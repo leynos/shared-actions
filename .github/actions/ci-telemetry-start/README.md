@@ -7,11 +7,12 @@ telemetry record when the job ends. It generalizes axinite's
 
 ## Usage
 
-Call it first in a job, then call `ci-telemetry-finish` last under
-`if: always()`; see the [finish action](../ci-telemetry-finish) for the full
-example.
+Call it early in a job, after `actions/checkout`, then call
+`ci-telemetry-finish` last under `if: always()`; see the
+[finish action](../ci-telemetry-finish) for the full example.
 
 ```yaml
+- uses: actions/checkout@<sha>
 - uses: leynos/shared-actions/.github/actions/ci-telemetry-start@<sha>
   with:
     interval-seconds: '10'
@@ -23,6 +24,10 @@ example.
 | ---------------- | ------ | --------- | --------------------------------------------------------------- | ------- |
 | interval-seconds | string | no        | Seconds between samples; values below 1 are raised to 1.        | `10`    |
 | disk-path        | string | no        | A directory on the volume whose minimum free space is recorded. | `.`     |
+
+## Outputs
+
+None.
 
 ## Behaviour
 
@@ -40,3 +45,7 @@ example.
 - The sampler wakes every interval and reads three small files, which is
   negligible for a compile job and unacceptable for one whose output is a
   timing. Do not run it on a benchmark job.
+
+## Release history
+
+See [CHANGELOG.md](CHANGELOG.md).

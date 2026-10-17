@@ -30,9 +30,9 @@ def load(name: str, path: Path) -> ModuleType:
     return module
 
 
-def summarise() -> ModuleType:
-    """Return the ``summarise`` module."""
-    return load("ct_summarise", SCRIPTS / "summarise.py")
+def summarize() -> ModuleType:
+    """Return the ``summarize`` module."""
+    return load("ct_summarize", SCRIPTS / "summarize.py")
 
 
 def finish() -> ModuleType:

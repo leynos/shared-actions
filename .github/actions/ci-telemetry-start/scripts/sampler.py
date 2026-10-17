@@ -52,6 +52,7 @@ DEFAULT_INTERVAL = 10
 SAMPLER = "proc-stat"
 UNSUPPORTED_OS = "unsupported-os"
 CONTAINER = "container"
+UNKNOWN = "unknown-environment"
 CONTAINER_MARKERS = ("docker", "containerd", "kubepods", "lxc", "podman")
 
 
@@ -73,13 +74,14 @@ def in_container(root: Path = Path("/")) -> bool:
     bool
         True when ``/.dockerenv`` exists or the init cgroup names a container
         runtime. A container job reads the host's ``/proc/stat``, which is not
-        the job's own CPU.
+        the job's own CPU. A missing cgroup file means no container; any other
+        failure to read it propagates, so the caller can say it does not know.
     """
     if (root / ".dockerenv").exists():
         return True
     try:
         cgroup = (root / "proc/1/cgroup").read_text(encoding="utf-8")
-    except OSError:
+    except FileNotFoundError:
         return False
     return any(marker in cgroup for marker in CONTAINER_MARKERS)
 
@@ -97,11 +99,17 @@ def classify(system: str, root: Path = Path("/")) -> str:
     Returns
     -------
     str
-        ``proc-stat``, ``unsupported-os`` or ``container``.
+        ``proc-stat``, ``unsupported-os``, ``container`` or
+        ``unknown-environment`` when the container probe could not read its
+        files (so the host's counters are not passed off as the job's).
     """
     if system != "Linux":
         return UNSUPPORTED_OS
-    return CONTAINER if in_container(root) else SAMPLER
+    try:
+        return CONTAINER if in_container(root) else SAMPLER
+    except OSError as exc:
+        print(f"::warning title=ci-telemetry::container probe failed: {exc}")
+        return UNKNOWN
 
 
 def parse_cpu_line(text: str) -> list[int]:
@@ -196,6 +204,45 @@ def clk_tck() -> int:
         return 100
 
 
+def _write_meta(directory: Path, kind: str, interval: int, disk_path: str) -> None:
+    """Record the machine's shape for the finish action."""
+    meta = {
+        "format": FORMAT,
+        "sampler": kind,
+        "nproc": nproc(),
+        "clk_tck": clk_tck(),
+        "interval_seconds": interval,
+        "disk_path": disk_path,
+        "started_ns": time.monotonic_ns(),
+        "runner_os": platform.system(),
+    }
+    (directory / "meta.json").write_text(json.dumps(meta) + "\n", encoding="utf-8")
+
+
+def _first_sample(directory: Path, disk_path: str) -> None:
+    """Take the first sample; a failure is a warning, not the end of sampling."""
+    try:
+        append_line(directory / "samples.tsv", take_sample(disk_path))
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"::warning title=ci-telemetry::first sample failed: {exc}")
+
+
+def _spawn_loop(interval: int) -> subprocess.Popen[bytes] | None:
+    """Detach the sampling loop, or return None after a warning."""
+    try:
+        return subprocess.Popen(  # noqa: S603 - our own interpreter and script
+            [sys.executable, str(Path(__file__).resolve()), "run"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            env={**os.environ, "CT_INTERVAL_SECONDS": str(interval)},
+        )
+    except OSError as exc:
+        print(f"::warning title=ci-telemetry::sampler did not start: {exc}")
+        return None
+
+
 def start(interval: int, disk_path: str) -> int:
     """Record the machine's shape, sample once and detach the sampling loop.
 
@@ -209,32 +256,13 @@ def start(interval: int, disk_path: str) -> int:
     for name in ("samples.tsv", "sampler.pid", "record.json"):
         (directory / name).unlink(missing_ok=True)
     kind = classify(platform.system())
-    meta = {
-        "format": FORMAT,
-        "sampler": kind,
-        "nproc": nproc(),
-        "clk_tck": clk_tck(),
-        "interval_seconds": interval,
-        "disk_path": disk_path,
-        "started_ns": time.monotonic_ns(),
-        "runner_os": platform.system(),
-    }
-    (directory / "meta.json").write_text(json.dumps(meta) + "\n", encoding="utf-8")
+    _write_meta(directory, kind, interval, disk_path)
     if kind == UNSUPPORTED_OS:
         print(f"ci-telemetry: {platform.system()} has no /proc; no samples taken")
         return 0
-    try:
-        append_line(directory / "samples.tsv", take_sample(disk_path))
-        child = subprocess.Popen(  # noqa: S603 - our own interpreter and script
-            [sys.executable, str(Path(__file__).resolve()), "run"],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            env={**os.environ, "CT_INTERVAL_SECONDS": str(interval)},
-        )
-    except (OSError, ValueError, KeyError) as exc:
-        print(f"::warning title=ci-telemetry::sampler did not start: {exc}")
+    _first_sample(directory, disk_path)
+    child = _spawn_loop(interval)
+    if child is None:
         return 0
     (directory / "sampler.pid").write_text(f"{child.pid}\n", encoding="utf-8")
     print(

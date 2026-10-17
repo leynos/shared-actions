@@ -18,6 +18,9 @@ from pathlib import Path
 TOLERANCE_CORES = 0.2
 TOLERANCE_RATIO = 0.10
 STEAL_LIMIT = 0.05
+#: Records round to four places, so a reading exactly on a tolerance can differ
+#: from it by float noise; the tolerances are inclusive.
+EPSILON = 1e-9
 
 
 def judge(record: dict[str, object], label_cores: int, load: str) -> dict[str, object]:
@@ -37,8 +40,8 @@ def judge(record: dict[str, object], label_cores: int, load: str) -> dict[str, o
         "steal": steal,
         "samples": record["sample_count"],
         "nproc_matches_label": nproc == label_cores,
-        "busy_within_0_2": measured and abs(avg - k) <= TOLERANCE_CORES,
-        "busy_within_10pct": measured and abs(avg - k) <= TOLERANCE_RATIO * k,
+        "busy_within_0_2": measured and abs(avg - k) <= TOLERANCE_CORES + EPSILON,
+        "busy_within_10pct": measured and abs(avg - k) <= TOLERANCE_RATIO * k + EPSILON,
         "steal_under_5pct": isinstance(steal, (int, float)) and steal < STEAL_LIMIT,
     }
 

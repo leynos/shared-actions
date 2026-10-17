@@ -10,8 +10,9 @@ outputs:
     value: ${{ steps.finish.outputs.record-path }}
   sampler:
     description: >-
-      `proc-stat`, `unsupported-os`, `container` or `not-started`. CPU fields
-      in the record are null unless this is `proc-stat`.
+      `proc-stat`, `unsupported-os`, `container`, `unknown-environment`,
+      `not-started`, `state-invalid` or `error`. CPU fields in the record are
+      null unless this is `proc-stat`.
     value: ${{ steps.finish.outputs.sampler }}
 
 runs:

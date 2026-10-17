@@ -12,8 +12,8 @@ jobs:
   build:
     runs-on: ubicloud-standard-4
     steps:
-      - uses: leynos/shared-actions/.github/actions/ci-telemetry-start@<sha>
       - uses: actions/checkout@<sha>
+      - uses: leynos/shared-actions/.github/actions/ci-telemetry-start@<sha>
       - run: make test
       - uses: leynos/shared-actions/.github/actions/ci-telemetry-finish@<sha>
         if: always()
@@ -23,12 +23,16 @@ Call finish last and under `if: always()`: a failed or cancelled job is the one
 whose resource use you most want to know. Only a time-out or a lost runner
 leaves no record.
 
+## Inputs
+
+None.
+
 ## Outputs
 
-| Name        | Description                                                                                                |
-| ----------- | ---------------------------------------------------------------------------------------------------------- |
-| record-path | Path of the record's JSON, without the marker.                                                             |
-| sampler     | `proc-stat`, `unsupported-os`, `container` or `not-started`. CPU fields are null unless it is `proc-stat`. |
+| Name        | Description                                                                                                                                                 |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| record-path | Path of the record's JSON, without the marker.                                                                                                              |
+| sampler     | `proc-stat`, `unsupported-os`, `container`, `unknown-environment`, `not-started`, `state-invalid` or `error`. CPU fields are null unless it is `proc-stat`. |
 
 ## The record
 
@@ -37,19 +41,19 @@ Jobs API metadata (runner label, timings, conclusion) and prices it. Nothing is
 derived from a runner label here: the record carries the `nproc` the machine
 actually presented.
 
-| Field                                                                  | Meaning                                                                                                             |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `schema`, `event`                                                      | `1` and `ci_runner_telemetry`.                                                                                      |
-| `sampler`                                                              | `proc-stat`, `unsupported-os` (Windows, macOS), `container` or `not-started`.                                       |
-| `repository`, `workflow`, `job`, `run_id`, `attempt`, `sha`            | From the `GITHUB_*` variables. `job` is the job id; matrix legs share it.                                           |
-| `runner_name`, `runner_os`, `runner_arch`                              | From `RUNNER_*`. `runner_name` is unique per runner, so the collector can join matrix legs.                         |
-| `nproc`, `clk_tck`, `interval_seconds`, `sample_count`, `wall_seconds` | The machine's shape and the sampling span (first to last sample).                                                   |
-| `cpu_busy_cores_avg`, `_p95`, `_max`                                   | Busy cores: utilization of an interval times `nproc`. Average is time-weighted; p95 is nearest-rank over intervals. |
-| `cpu_core_seconds`                                                     | Busy jiffies divided by `clk_tck`.                                                                                  |
-| `cpu_efficiency`                                                       | `cpu_core_seconds / (wall_seconds * nproc)`.                                                                        |
-| `cpu_saturation_fraction`                                              | Fraction of intervals with utilization above 90%.                                                                   |
-| `cpu_steal_fraction`                                                   | Steal as a fraction of all CPU time: time the job wanted and the hypervisor withheld.                               |
-| `peak_memory_mib`, `mem_total_mib`, `min_free_disk_mib`                | Peak (total minus available) memory, and the minimum free space on the watched volume.                              |
+| Field                                                                  | Meaning                                                                                                                        |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `schema`, `event`                                                      | `1` and `ci_runner_telemetry`.                                                                                                 |
+| `sampler`                                                              | `proc-stat`, `unsupported-os` (Windows, macOS), `container`, `unknown-environment`, `not-started`, `state-invalid` or `error`. |
+| `repository`, `workflow`, `job`, `run_id`, `attempt`, `sha`            | From the `GITHUB_*` variables. `job` is the job id; matrix legs share it.                                                      |
+| `runner_name`, `runner_os`, `runner_arch`                              | From `RUNNER_*`. `runner_name` is unique per runner, so the collector can join matrix legs.                                    |
+| `nproc`, `clk_tck`, `interval_seconds`, `sample_count`, `wall_seconds` | The machine's shape and the sampling span (first to last sample).                                                              |
+| `cpu_busy_cores_avg`, `_p95`, `_max`                                   | Busy cores: utilization of an interval times `nproc`. Average is time-weighted; p95 is nearest-rank over intervals.            |
+| `cpu_core_seconds`                                                     | Busy jiffies divided by `clk_tck`.                                                                                             |
+| `cpu_efficiency`                                                       | `cpu_core_seconds / (wall_seconds * nproc)`.                                                                                   |
+| `cpu_saturation_fraction`                                              | Fraction of intervals with utilization above 90%.                                                                              |
+| `cpu_steal_fraction`                                                   | Steal as a fraction of all CPU time: time the job wanted and the hypervisor withheld.                                          |
+| `peak_memory_mib`, `mem_total_mib`, `min_free_disk_mib`                | Peak (total minus available) memory, and the minimum free space on the watched volume.                                         |
 
 How CPU time is counted, from `/proc/stat` deltas between samples:
 
@@ -60,6 +64,13 @@ How CPU time is counted, from `/proc/stat` deltas between samples:
 - total is busy plus `idle`, `iowait` and `steal`.
 
 An interval whose counters did not advance, or went backwards, is skipped.
+
+The degraded states are visible in `sampler` rather than hidden:
+`unknown-environment` (the start action could not read the files that tell a
+container from a VM, so it does not claim the host's counters; disk is
+reported), `not-started` (no start action ran), `state-invalid` (its state
+exists but cannot be read) and `error` (finish itself failed; the line carries
+only identity and the error's type name).
 
 On Windows and macOS (`unsupported-os`) every measurement is null. In a
 container job (`container`) `/proc` shows the host, so CPU and memory are null
@@ -79,3 +90,7 @@ and only `min_free_disk_mib` is reported.
 - The action never fails a job. If Python is missing it warns and exits 0.
 - A job that never ran the start action prints a record with `sampler`
   `not-started` and a warning.
+
+## Release history
+
+See [CHANGELOG.md](CHANGELOG.md).

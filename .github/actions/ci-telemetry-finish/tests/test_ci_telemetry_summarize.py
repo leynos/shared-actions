@@ -12,11 +12,11 @@ import json
 import typing as typ
 
 import pytest
-from ci_telemetry_support import FIXTURES, summarise
+from ci_telemetry_support import FIXTURES, summarize
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-S = summarise()
+S = summarize()
 META = {
     "format": 1,
     "sampler": "proc-stat",
@@ -112,7 +112,7 @@ CASES: dict[str, tuple[int, float, dict[str, typ.Any]]] = {
     "guest-counted": (5, 40.0, {**_cpu(1.0, 1.0, 40.0, 0.25), **_memdisk()}),
     # 1000 busy, 1000 iowait, 2000 idle: iowait is total but not busy.
     "iowait": (5, 40.0, {**_cpu(1.0, 1.0, 40.0, 0.25), **_memdisk()}),
-    # Utilisation of exactly 0.90 does not saturate; 0.901 does. Two intervals
+    # Utilization of exactly 0.90 does not saturate; 0.901 does. Two intervals
     # of 3600 and two of 3604 busy: sum 14408 jiffies = 144.08 core-seconds;
     # average 14408 / 16000 * 4 = 3.602; p95 and maximum are the 3604 interval,
     # 3.604; half the intervals saturate; 144.08 / (40 s * 4) = 0.9005.
@@ -181,7 +181,7 @@ def test_efficiency_uses_the_recorded_nproc_not_a_label() -> None:
         env=ENV,
         end_ns=0,
     )
-    # Utilisation 1000 / 4000 = 0.25 of 8 processors = 2.0 busy cores.
+    # Utilization 1000 / 4000 = 0.25 of 8 processors = 2.0 busy cores.
     assert record["nproc"] == 8
     assert record["cpu_busy_cores_avg"] == 2.0
     assert record["cpu_efficiency"] == 0.125

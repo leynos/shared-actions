@@ -32,6 +32,8 @@ documents how to use the `install-nixie` action.
 - [Scoping the `cv005-contracts` lane-upload rule](./migrating-cv005-contracts-lane-upload-scope.md)
   – which `upload-artifact` steps `coverage.lane-hardening` judges, and the
   0.2.0 upgrade notes.
+- [Adding CI telemetry to a job](./migrating-to-ci-telemetry.md) – the
+  `ci-telemetry-start` and `ci-telemetry-finish` pair.
 - [Migrating to `install-clang-lld`](./migrating-to-setup-rust-clang-lld.md)
   – replacing a handwritten `apt-get install clang lld` step with
   `setup-rust`'s input.
@@ -344,6 +346,44 @@ jobs:
         with:
           install-clang-lld: 'true'
 ```
+
+## CI telemetry
+
+`ci-telemetry-start` and `ci-telemetry-finish` measure how much of its runner a
+job used and print one record for the central CI observability collector, so
+that runner size is a dashboard query rather than a spot check. Use them in a
+job whose runner you may want to right-size.
+
+```yaml
+steps:
+  - uses: actions/checkout@<sha>
+  - uses: leynos/shared-actions/.github/actions/ci-telemetry-start@<sha>
+  - run: make test
+  - uses: leynos/shared-actions/.github/actions/ci-telemetry-finish@<sha>
+    if: always()
+```
+
+Start goes after checkout and samples CPU, memory and free disk every 10
+seconds. Finish goes last and must carry `if: always()`: a failed or cancelled
+job is the one you most want to see. It prints exactly one
+`DF12_CI_TELEMETRY {json}` line and a summary table. Start takes
+`interval-seconds` (default `10`) and `disk-path` (default `.`); finish takes
+no inputs and has two outputs, `record-path` and `sampler`.
+
+The record has the average, 95th-percentile and maximum busy cores, core
+seconds, efficiency (core-seconds over wall time times `nproc`), the fraction
+of samples above 90% utilization, the steal fraction, peak memory and the
+smallest free disk. Steal is time the job wanted and the hypervisor withheld;
+it is reported on its own and is not counted as busy. `nproc` is what the
+machine presented, never derived from a runner label.
+
+On Windows and macOS (`sampler: unsupported-os`) every measurement is null. In
+a container job (`container`) `/proc` shows the host, so CPU and memory are
+null and only disk is reported. Telemetry never fails a job: without Python it
+warns and exits 0, and a job that never ran start prints a record with
+`sampler: not-started`. See the
+[finish README](../.github/actions/ci-telemetry-finish/README.md) for every
+field and the degraded states.
 
 ## Rust cache ownership
 

@@ -17,15 +17,14 @@ import os
 import socket
 import stat
 import sys
+import tempfile
 import typing as typ
+from pathlib import Path
 
 import pytest
 from ci_telemetry_support import ACTION_DIR, FIXTURES, finish, sccache_stats
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
 
 LANGUAGES = ["Rust", "C/C++", "Assembler"]
 S = sccache_stats()
@@ -410,9 +409,11 @@ def test_server_reachable_sees_a_listening_socket() -> None:
 
 
 @pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="needs Unix sockets")
-def test_server_reachable_sees_a_unix_socket(tmp_path: Path) -> None:
+def test_server_reachable_sees_a_unix_socket() -> None:
     """SCCACHE_SERVER_UDS is probed instead of the TCP port when set."""
-    path = tmp_path / "s"
+    # A Unix socket path is limited to about 100 bytes, which a CI temporary
+    # directory can exceed, so use a short directory of our own.
+    path = Path(tempfile.mkdtemp(prefix="ct")) / "s"
     env = {"SCCACHE_SERVER_UDS": str(path), "SCCACHE_SERVER_PORT": "1"}
     assert S.server_reachable(env) is False
     with socket.socket(socket.AF_UNIX) as server:

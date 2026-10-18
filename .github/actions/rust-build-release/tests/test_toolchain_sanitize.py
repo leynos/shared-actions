@@ -31,13 +31,33 @@ if sys.platform == "win32":
     pytest.skip("cross build not supported on Windows runners", allow_module_level=True)
 
 
-def run_script(script: Path, *args: str, cwd: Path | None = None) -> RunResult:
-    """Execute *script* in *cwd* and return the run result."""
+def run_script(
+    script: Path, *args: str, target_root: Path | None, cwd: Path | None = None
+) -> RunResult:
+    """Execute *script* with the fixture root only in its child environment.
+
+    ```python
+    result = run_script(script, target, target_root=Path("/build/shared"), cwd=project)
+    # Only the child receives the target-root override; result retains stderr.
+    ```
+    """
+    if target_root is None:
+        message = "integration project target root was not frozen"
+        raise ValueError(message)
     command = local[str(script)]
     if args:
         command = command[list(args)]
     try:
-        return run_plumbum_command(command, method="run", cwd=cwd)
+        return run_plumbum_command(
+            command,
+            method="run",
+            cwd=cwd,
+            env={
+                **{key: str(value) for key, value in local.env.items()},
+                **{key: str(value) for key, value in os.environ.items()},
+                "CARGO_TARGET_DIR": str(target_root),
+            },
+        )
     except (  # pragma: no cover - defensive path
         OSError,
         ProcessExecutionError,
@@ -120,12 +140,13 @@ def test_accepts_toolchain_with_triple(
         target_triple,
         "--toolchain",
         toolchain_spec,
+        target_root=packaging_project_paths.target_root,
         cwd=project_dir,
     )
-    assert res.returncode == 0
-    binary = project_dir / f"target/{target_triple}/release/rust-toy-app"
+    assert res.returncode == 0, res.stderr
+    target_root = packaging_project_paths.target_root
+    assert target_root is not None
+    binary = target_root / f"{target_triple}/release/rust-toy-app"
     assert binary.exists()
-    manpage = (
-        project_dir / f"target/generated-man/{target_triple}/release/rust-toy-app.1"
-    )
+    manpage = target_root / f"generated-man/{target_triple}/release/rust-toy-app.1"
     assert manpage.exists()

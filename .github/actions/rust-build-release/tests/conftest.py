@@ -527,9 +527,10 @@ def packaging_target() -> str:
 def packaging_project_paths(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> _PackagingProject:
-    """Resolve the filesystem layout for packaging integration tests."""
+    """Route build subprocesses and assertions through one fixture target root."""
     base_project = _packaging_project()
     clone_root = Path(tmp_path_factory.mktemp("packaging-project"))
+    # Build helpers pass this descriptor root only in the child environment.
     return _clone_packaging_project(clone_root, base_project)
 
 

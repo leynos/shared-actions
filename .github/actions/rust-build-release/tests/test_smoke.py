@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import os
 import shutil
 import sys
 import typing as typ
@@ -77,20 +78,65 @@ WINDOWS_KNOWN_FAILURE = pytest.mark.xfail(
 
 HOST_TARGET = runtime_module.DEFAULT_HOST_TARGET
 
-_targets: list[str] = [HOST_TARGET]
 
-if HOST_TARGET.endswith("-unknown-linux-gnu") and (
-    runtime_available("docker", cwd=BASE_PROJECT.project_dir)
-    or runtime_available("podman", cwd=BASE_PROJECT.project_dir)
-):
-    _targets.append("aarch64-unknown-linux-gnu")
+def _has_container_runtime() -> bool:
+    """Probe Docker before trying Podman as a fallback.
 
-if sys.platform == "win32":
+    ```python
+    # When Docker is available, Podman is not probed:
+    _has_container_runtime()  # True
+    ```
+    """
+    return runtime_available(
+        "docker", cwd=BASE_PROJECT.project_dir
+    ) or runtime_available("podman", cwd=BASE_PROJECT.project_dir)
+
+
+def _supports_linux_cross() -> bool:
+    """Require a GNU/Linux host before probing container support.
+
+    ```python
+    # For a non-GNU/Linux HOST_TARGET, no runtime probe runs:
+    _supports_linux_cross()  # False
+    ```
+    """
+    return HOST_TARGET.endswith("-unknown-linux-gnu") and _has_container_runtime()
+
+
+def _windows_cross_targets() -> list[str]:
+    """List supported Windows targets after probing shared Zig support once.
+
+    ```python
+    # With Zig installed, both targets are selected in this order:
+    _windows_cross_targets()  # ["x86_64-pc-windows-gnu", "aarch64-pc-windows-gnu"]
+    ```
+    """
+    targets: list[str] = []
     zig_path = shutil.which("zig")
     if shutil.which("x86_64-w64-mingw32-gcc") or zig_path:
-        _targets.append("x86_64-pc-windows-gnu")
+        targets.append("x86_64-pc-windows-gnu")
     if shutil.which("aarch64-w64-mingw32-gcc") or zig_path:
-        _targets.append("aarch64-pc-windows-gnu")
+        targets.append("aarch64-pc-windows-gnu")
+    return targets
+
+
+def _available_targets() -> list[str]:
+    """Query installed build support while retaining host-first target order.
+
+    ```python
+    # On a GNU/Linux host with neither Docker nor Podman available:
+    _available_targets()  # [HOST_TARGET], with no cross target appended
+    ```
+    """
+    targets = [HOST_TARGET]
+    if _supports_linux_cross():
+        targets.append("aarch64-unknown-linux-gnu")
+    if sys.platform == "win32":
+        targets.extend(_windows_cross_targets())
+    return targets
+
+
+_targets = _available_targets()
 
 
 def _param_for_target(target: str) -> object:
@@ -114,8 +160,19 @@ else:
     RunResult = import_cmd_utils().RunResult
 
 
-def run_script(script: Path, *args: str, cwd: Path | None = None) -> RunResult:
-    """Execute *script* in *cwd* and return the completed process."""
+def run_script(
+    script: Path, *args: str, target_root: Path | None, cwd: Path | None = None
+) -> RunResult:
+    """Execute *script* with the fixture root only in its child environment.
+
+    ```python
+    result = run_script(script, target, target_root=Path("/build/shared"), cwd=project)
+    # The child receives CARGO_TARGET_DIR=/build/shared; the parent is unchanged.
+    ```
+    """
+    if target_root is None:
+        message = "integration project target root was not frozen"
+        raise ValueError(message)
     python_exe = sys.executable or shutil.which("python") or "python"
     uv_path = shutil.which("uv")
     if uv_path is not None:
@@ -124,7 +181,16 @@ def run_script(script: Path, *args: str, cwd: Path | None = None) -> RunResult:
         command = local[python_exe][str(script)]
     if args:
         command = command[list(args)]
-    return run_plumbum_command(command, method="run", cwd=cwd)
+    return run_plumbum_command(
+        command,
+        method="run",
+        cwd=cwd,
+        env=_packaging_utils._build_child_environment(
+            target_root,
+            local.env,
+            os.environ,
+        ),
+    )
 
 
 @pytest.mark.parametrize("target", TARGET_PARAMS)
@@ -159,14 +225,17 @@ def test_action_builds_release_binary_and_manpage(
     ):
         pytest.skip("container runtime required for cross build")
     ensure_toolchain_ready(TOOLCHAIN_VERSION, HOST_TARGET)
-    res = run_script(script, target, cwd=project_dir)
-    assert res.returncode == 0
-    binary = project_dir / (
-        f"target/{target}/release/rust-toy-app"
-        + (".exe" if "windows" in target else "")
+    res = run_script(
+        script, target, target_root=packaging_project_paths.target_root, cwd=project_dir
+    )
+    assert res.returncode == 0, res.stderr
+    target_root = packaging_project_paths.target_root
+    assert target_root is not None
+    binary = target_root / (
+        f"{target}/release/rust-toy-app" + (".exe" if "windows" in target else "")
     )
     assert binary.exists()
-    manpage = project_dir / f"target/generated-man/{target}/release/rust-toy-app.1"
+    manpage = target_root / f"generated-man/{target}/release/rust-toy-app.1"
     assert manpage.exists()
 
 
@@ -176,7 +245,9 @@ def test_fails_without_target(packaging_project_paths: _PackagingProject) -> Non
     project_dir = packaging_project_paths.project_dir
     if shutil.which("rustup") is None:
         pytest.skip("rustup not installed")
-    res = run_script(script, cwd=project_dir)
+    res = run_script(
+        script, target_root=packaging_project_paths.target_root, cwd=project_dir
+    )
     assert res.returncode != 0
     assert "RBR_TARGET=<unset>" in res.stderr
 
@@ -194,6 +265,7 @@ def test_fails_for_invalid_toolchain(
         HOST_TARGET,
         "--toolchain",
         "bogus",
+        target_root=packaging_project_paths.target_root,
         cwd=project_dir,
     )
     assert res.returncode != 0
@@ -216,6 +288,7 @@ def test_fails_for_unsupported_target(
         bogus_target,
         "--toolchain",
         TOOLCHAIN_VERSION,
+        target_root=packaging_project_paths.target_root,
         cwd=project_dir,
     )
     assert res.returncode != 0
@@ -238,6 +311,7 @@ def test_accepts_full_toolchain_spec(
         HOST_TARGET,
         "--toolchain",
         full_toolchain,
+        target_root=packaging_project_paths.target_root,
         cwd=project_dir,
     )
     if res.returncode != 0:
@@ -252,3 +326,100 @@ def test_accepts_full_toolchain_spec(
         f"stdout:\n{res.stdout or ''}\n"
         f"stderr:\n{res.stderr or ''}"
     )
+
+
+@pytest.mark.parametrize(
+    "relative", [False, True], ids=["absolute", "cargo-cwd-relative"]
+)
+def test_target_root_preserves_inherited_cargo_path(*, relative: bool) -> None:
+    """Artifact checks resolve the same environment path as Cargo's cwd."""
+    project = Path(__file__).resolve().parents[4] / "target" / "fixture-project"
+    inherited = "shared-build" if relative else str(project / "absolute-build")
+    expected = project / "shared-build" if relative else Path(inherited)
+    assert _packaging_utils._effective_target_root(project, inherited) == expected
+
+
+def test_missing_target_root_allocates_unique_repository_directory() -> None:
+    """Absent Cargo routing gets independent ignored roots outside temporary storage."""
+    project = Path(__file__).resolve().parents[4] / "rust-toy-app"
+    first = _packaging_utils._effective_target_root(project, None)
+    second = _packaging_utils._effective_target_root(project, None)
+    assert first != second
+    assert first.is_relative_to(project.parent / "target" / "pytest-integration")
+    assert second.is_relative_to(project.parent / "target" / "pytest-integration")
+    assert not first.resolve().is_relative_to(
+        Path("/tmp").resolve(),  # noqa: S108 - independent rejection-boundary assertion.
+    )
+    assert not second.resolve().is_relative_to(
+        Path("/tmp").resolve(),  # noqa: S108 - independent rejection-boundary assertion.
+    )
+
+
+@pytest.mark.parametrize("inherited", ["", None], ids=["empty", "absent"])
+def test_target_root_default_is_unique(inherited: str | None) -> None:
+    """Both Cargo-default forms receive isolated repository-owned fixture roots."""
+    project = Path(__file__).resolve().parents[4] / "rust-toy-app"
+    root = _packaging_utils._effective_target_root(project, inherited)
+    assert root.is_relative_to(project.parent / "target" / "pytest-integration")
+    assert root.is_dir()
+
+
+def test_temporary_target_root_is_rejected() -> None:
+    """An inherited temporary build route fails before launching a compiler."""
+    project = Path(__file__).resolve().parents[4] / "rust-toy-app"
+    with pytest.raises(
+        ValueError, match="integration Cargo target must be outside /tmp"
+    ):
+        _packaging_utils._effective_target_root(
+            project,
+            "/tmp/forbidden-cargo-target",  # noqa: S108 - negative input; never allocated.
+        )
+
+
+@pytest.mark.parametrize("target", ["D:build", "C:", "z:relative/path"])
+def test_packaging_drive_relative_target_is_rejected(target: str) -> None:
+    """The packaging resolver fails before compiling with ambiguous drive paths."""
+    project = Path(__file__).resolve().parents[4] / "rust-toy-app"
+    with pytest.raises(ValueError, match="drive-relative Cargo target is ambiguous"):
+        _packaging_utils._effective_target_root(project, target)
+
+
+@pytest.mark.parametrize("target", ["build", "../build", "D:/build", "/build"])
+def test_packaging_ordinary_target_shapes_are_preserved(target: str) -> None:
+    """Pure Windows shape validation accepts ordinary relative and absolute roots."""
+    _packaging_utils._reject_drive_relative_target(target)
+
+
+@pytest.mark.parametrize("manager", [None, "/managed/build-limits-rustc"])
+@pytest.mark.parametrize("engine", [None, "podman"])
+def test_package_build_child_environment_preserves_admission(
+    manager: str | None, engine: str | None
+) -> None:
+    """Preserve parent controls while routing the child target and Podman."""
+    inherited = {
+        "RUSTDOC": "/managed/build-limits-rustdoc",
+        "CARGO_HOME": "/shared/cargo",
+        "RUSTC_WORKSPACE_WRAPPER": "/managed/workspace-wrapper",
+        "CARGO_TARGET_DIR": "old-target",
+        "CROSS_CONTAINER_ENGINE": "docker",
+    }
+    if manager is not None:
+        inherited["RUSTC_WRAPPER"] = manager
+    plumbum_environment = {"PLUMBUM_ONLY": "retained", "RUSTDOC": "stale-plumbum-value"}
+    before_plumbum = plumbum_environment.copy()
+    before = inherited.copy()
+    target_root = Path(__file__).resolve().parents[4] / "target" / "contract-only"
+    child = _packaging_utils._build_child_environment(
+        target_root,
+        plumbum_environment,
+        inherited,
+        container_engine=engine,
+    )
+    assert child == {
+        **before_plumbum,
+        **before,
+        "CARGO_TARGET_DIR": str(target_root),
+        "CROSS_CONTAINER_ENGINE": "podman" if engine is not None else "docker",
+    }
+    assert inherited == before
+    assert plumbum_environment == before_plumbum

@@ -30,6 +30,16 @@ runs:
       with:
         enable-cache: false
 
+    - name: Prune restored uv cache
+      # This action saves no cache, but a calling workflow's own setup-uv may
+      # have restored one into the directory this step inherits. The script
+      # runs through `uv run`, so an `environments-v2` entry bound to another
+      # runner's interpreter must go before the first invocation.
+      shell: bash
+      run: |
+        set -euo pipefail
+        uv cache prune
+
     - name: Determine release modes
       id: determine
       shell: bash

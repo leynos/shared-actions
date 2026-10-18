@@ -144,10 +144,21 @@ jobs:
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
         with:
           python-version: '3.13'
+          # The auto-merge script runs through `uv run --script`, and a
+          # restored `environments-v2` entry is bound to the interpreter that
+          # built it. Pruning stops one being saved and moves the key lineage
+          # away from archives written before this input existed.
+          prune-cache: true
           cache-dependency-glob: |
             **/pyproject.toml
             **/uv.lock
             **/workflow_scripts/*.py
+
+      - name: Prune restored uv cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv cache prune
 
       - name: Run Dependabot auto-merge
         shell: bash

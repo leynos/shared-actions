@@ -53,6 +53,16 @@ jobs:
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
         with:
           python-version: '3.13'
+          # The proof script runs through `uv run --script`. An
+          # `environments-v2` entry restored from another runner is bound to
+          # the interpreter that built it. Pruning stops one being saved and
+          # moves the key lineage away from archives that already carry one.
+          prune-cache: true
+      - name: Prune restored uv cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv cache prune
       - name: Prove the cargo watchdog
         shell: bash
         run: >-

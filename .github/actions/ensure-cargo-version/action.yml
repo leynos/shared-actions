@@ -21,10 +21,22 @@ runs:
     - name: Install uv
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
       with:
+        # The verification script runs through `uv run`, so an archived
+        # `environments-v2` entry would arrive bound to whichever interpreter
+        # built it. Pruning stops one being saved and moves the key lineage
+        # away from archives written before this input existed.
+        prune-cache: true
         cache-dependency-glob: |
           **/pyproject.toml
           **/uv.lock
           **/scripts/*.py
+    - name: Prune restored uv cache
+      # A cache restored by the calling workflow shares this directory, so
+      # prune before the first `uv run`.
+      shell: bash
+      run: |
+        set -euo pipefail
+        uv cache prune
     - name: Provision Python 3.13
       shell: bash
       run: uv python install 3.13

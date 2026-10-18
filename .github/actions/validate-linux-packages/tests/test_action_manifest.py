@@ -28,13 +28,18 @@ def test_manifest_configures_composite_action() -> None:
     steps = manifest["runs"]["steps"]
     assert steps[0]["uses"].startswith("astral-sh/setup-uv@")
 
-    install_step = steps[1]
+    # The prune step sits between setup and the first `uv run`, so it is
+    # skipped rather than shifting the indexes of the steps asserted below.
+    prune_step = steps[1]
+    assert prune_step["name"] == "Prune restored uv cache"
+
+    install_step = steps[2]
     assert install_step["shell"] == "bash"
     install_run = install_step["run"]
     assert "sudo apt update -y" in install_run
     assert "sudo apt install -y podman bubblewrap proot mmdebstrap" in install_run
 
-    validate_step = steps[2]
+    validate_step = steps[3]
     assert validate_step["shell"] == "bash"
     assert 'uv run "${GITHUB_ACTION_PATH}/scripts/validate.py"' in validate_step["run"]
 
@@ -64,7 +69,7 @@ def test_action_run_step_invokes_validate_script(
 ) -> None:
     """The composite action run script should invoke uv with validate.py."""
     manifest = yaml.safe_load(ACTION_PATH.read_text())
-    run_script = manifest["runs"]["steps"][2]["run"]
+    run_script = manifest["runs"]["steps"][3]["run"]
     action_dir = ACTION_PATH.parent
     validate_script = action_dir / "scripts" / "validate.py"
 

@@ -53,6 +53,18 @@ runs:
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
       with:
         version: latest-known
+        # The packaging scripts run through `uv run`, so an archived
+        # `environments-v2` entry would arrive bound to whichever interpreter
+        # built it. Pruning stops one being saved and moves the key lineage
+        # away from archives written before this input existed.
+        prune-cache: true
+    - name: Prune restored uv cache
+      # A cache restored by the calling workflow shares this directory, so
+      # prune before the first `uv run`.
+      shell: bash
+      run: |
+        set -euo pipefail
+        uv cache prune
     - name: Ensure macOS runner
       shell: bash
       run: uv run "${{ github.action_path }}/scripts/check_platform.py"

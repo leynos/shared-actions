@@ -44,6 +44,17 @@ jobs:
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
         with:
           python-version: ${{ matrix.python }}
+          # `uv run --with` (the type-check target) records an
+          # interpreter-bound `environments-v2` entry even though the plain
+          # `uv run` targets use the project's own `.venv`. Pruning stops one
+          # being saved and moves the key lineage away from archives that
+          # already carry one.
+          prune-cache: true
+      - name: Prune restored uv cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv cache prune
       - name: Check formatting
         run: make check-fmt PYTHON=${{ matrix.python }}
       - name: Lint

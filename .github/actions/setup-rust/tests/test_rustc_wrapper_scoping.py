@@ -61,12 +61,22 @@ def _build(project: Path, script: str, *, inherited: Path) -> int:
     """Run `script` as a job step would, with `inherited` as the job wrapper.
 
     Returns how many times the wrapper was called.
+
+    `CARGO_BUILD_RUSTC_WRAPPER` is emptied because a test host may configure a
+    compiler wrapper in `~/.cargo/config.toml`, as this machine does for
+    compile admission. Without the override a pattern that declines
+    `RUSTC_WRAPPER` still inherits the configured wrapper and the build waits
+    for an admission slot, which turns a check of documented shell syntax into
+    a machine-dependent timeout. Cargo ranks an explicit `RUSTC_WRAPPER`
+    above the config environment, so the wrapper under test is still the one
+    used wherever it is not declined.
     """
     log = project.parent / "wrapper.log"
     log.write_text("", encoding="utf-8")
     environment = {
         **os.environ,
         "RUSTC_WRAPPER": str(inherited),
+        "CARGO_BUILD_RUSTC_WRAPPER": "",
         "WRAPPER_LOG": str(log),
         "CARGO_TARGET_DIR": str(project.parent / "target"),
     }
@@ -135,6 +145,9 @@ class TestDecliningAnInheritedWrapper:
         log.write_text("", encoding="utf-8")
         environment = {
             **os.environ,
+            # The unscoped build must run with no wrapper at all, including
+            # one configured on the test host; see `_build`.
+            "CARGO_BUILD_RUSTC_WRAPPER": "",
             "WRAPPER_LOG": str(log),
             "CARGO_TARGET_DIR": str(project.parent / "target"),
         }

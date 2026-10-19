@@ -31,6 +31,7 @@ import base64
 import csv
 import hashlib
 import io
+import os
 import shutil
 import typing as typ
 import zipfile
@@ -44,6 +45,9 @@ from .workflow_yaml import load_workflow
 
 REPOSITORY_ROOT: typ.Final[Path] = Path(__file__).resolve().parents[2]
 ACTIONS_DIRECTORY: typ.Final[Path] = REPOSITORY_ROOT / ".github" / "actions"
+PRUNE_SCRIPT: typ.Final[Path] = (
+    REPOSITORY_ROOT / ".github" / "scripts" / "prune_uv_cache.sh"
+)
 
 #: The pinned setup-uv revision every caching step uses.
 SETUP_UV_PREFIX: typ.Final[str] = "astral-sh/setup-uv@"
@@ -125,11 +129,14 @@ def _is_setup_uv(step: dict[str, typ.Any]) -> bool:
 
 
 def _prunes(step: dict[str, typ.Any]) -> bool:
-    """Return whether *step* runs `uv cache prune`."""
+    """Return whether *step* invokes the shared uv cache prune script."""
     run = step.get("run")
     if not isinstance(run, str):
         return False
-    return any(line.strip() == "uv cache prune" for line in run.splitlines())
+    return any(
+        line.strip().startswith("bash ") and "prune_uv_cache.sh" in line
+        for line in run.splitlines()
+    )
 
 
 def _runs_uv(steps: list[dict[str, typ.Any]]) -> bool:
@@ -318,6 +325,23 @@ def _run_uv(
     return command.run(retcode=None)
 
 
+def _run_prune_script(
+    cache: Path,
+    cwd: Path,
+    summary: Path,
+    path: str | None = None,
+) -> tuple[int, str, str]:
+    """Run the shared prune script with an isolated cache and summary file."""
+    environment = {
+        "UV_CACHE_DIR": str(cache),
+        "GITHUB_STEP_SUMMARY": str(summary),
+    }
+    if path is not None:
+        environment["PATH"] = path
+    command = local["bash"][str(PRUNE_SCRIPT)].with_cwd(cwd).with_env(**environment)
+    return command.run(retcode=None)
+
+
 def test_action_manifest_discovery_rejects_a_missing_directory(tmp_path: Path) -> None:
     """Fail with the path when the action directory cannot be listed."""
     missing = tmp_path / "missing-actions"
@@ -372,10 +396,37 @@ def test_uv_cache_prune_removes_a_script_environment(tmp_path: Path) -> None:
     assert environments.is_dir()
     assert list(environments.iterdir())
 
-    prune_code, _, prune_stderr = _run_uv(executable, cache, tmp_path, "cache", "prune")
+    summary = tmp_path / "success-summary.md"
+    prune_code, prune_stdout, prune_stderr = _run_prune_script(cache, tmp_path, summary)
     assert prune_code == 0, prune_stderr
+    assert "metric uv-cache-prune.outcome=success" in prune_stdout
+    assert "metric uv-cache-prune.outcome=success" in summary.read_text(
+        encoding="utf-8"
+    )
     remaining = list(environments.iterdir()) if environments.exists() else []
     assert not remaining, f"uv cache prune left environment entries: {remaining}"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX uv command stub")
+def test_prune_script_reports_failure_and_preserves_uv_status(tmp_path: Path) -> None:
+    """Emit a bounded failure metric and return uv's original error status."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_uv = fake_bin / "uv"
+    fake_uv.write_text("#!/usr/bin/env bash\nexit 37\n", encoding="utf-8")
+    fake_uv.chmod(0o755)
+    summary = tmp_path / "failure-summary.md"
+    path = os.pathsep.join((str(fake_bin), os.environ["PATH"]))
+
+    exit_code, stdout, stderr = _run_prune_script(
+        tmp_path / "uv-cache", tmp_path, summary, path
+    )
+
+    assert exit_code == 37, stderr
+    assert "metric uv-cache-prune.outcome=failure" in stdout
+    assert "metric uv-cache-prune.outcome=failure" in summary.read_text(
+        encoding="utf-8"
+    )
 
 
 class TestCachingSetupUvStepsPrune:
@@ -476,11 +527,8 @@ class TestActionsPruneAtRestore:
         manifest = REPOSITORY_ROOT / ".github" / "actions" / action_id / "action.yml"
         steps = _steps(load_workflow(manifest))
         setup_indexes = _setup_uv_indexes(steps)
-        if not setup_indexes:
-            return
-        # The prune step runs `uv cache prune`, so it matches the probe
-        # above; excluding it is what makes the comparison about the first
-        # invocation that could consume a restored environment.
+        # Excluding the shared prune script makes the comparison about the
+        # first uv invocation that could consume a restored environment.
         uv_run_indexes = _non_prune_uv_run_indexes(steps)
         if not uv_run_indexes:
             return
@@ -489,8 +537,13 @@ class TestActionsPruneAtRestore:
         prune_indexes = _prune_indexes(steps)
 
         assert prune_indexes, f"{action_id}: no {PRUNE_STEP!r} step"
-        assert max(setup_indexes) < min(prune_indexes) < first_uv_run, (
-            f"{action_id}: {PRUNE_STEP!r} must follow the last setup-uv step "
-            f"and precede the first `uv` run at step {first_uv_run}, found "
-            f"setup at {max(setup_indexes)} and prune at {min(prune_indexes)}"
+        assert min(prune_indexes) < first_uv_run, (
+            f"{action_id}: {PRUNE_STEP!r} must precede the first `uv` run "
+            f"at step {first_uv_run}, found prune at {min(prune_indexes)}"
         )
+        if setup_indexes:
+            assert max(setup_indexes) < min(prune_indexes), (
+                f"{action_id}: {PRUNE_STEP!r} must follow the last setup-uv "
+                f"step at {max(setup_indexes)}, found prune at "
+                f"{min(prune_indexes)}"
+            )

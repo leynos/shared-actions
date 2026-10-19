@@ -222,9 +222,7 @@ runs:
       # this action's cache directory, and pruning before the first
       # `uv run --script` is what keeps its environments from being used.
       shell: bash
-      run: |
-        set -euo pipefail
-        uv cache prune
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
     - id: detect
       run: uv run --script "${{ github.action_path }}/scripts/detect.py"
       env:

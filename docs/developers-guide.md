@@ -877,17 +877,22 @@ any other caller-owned cache setup, continue to use `cache-provider: external`.
 The coverage action deliberately leaves ratchet-baseline paths under their
 separate GitHub cache because external mode does not mount them.
 
+### Interpreter-bound uv script environments
+
 The shared uv cache also contains `environments-v2` virtual environments for
 script runs. Those environments are bound to the exact Python interpreter that
 created them, so do not reuse them across runners with different Python patch
 versions. Cache-writing `setup-uv` steps in uv-consuming lanes set
 `prune-cache: true`; this moves the key lineage and prunes before saving. Since
 that input governs cache saving, a composite action that consumes a cache
-restored earlier by its caller also runs `uv cache prune` after setup-uv and
-before its first uv command. A direct workflow invocation uses an explicit
-prune step or calls a composite action that prunes first. The repository
-contract is enforced by
-[`test_uv_cache_prune.py`](../tests/workflows/test_uv_cache_prune.py).
+restored earlier by its caller also runs
+[`prune_uv_cache.sh`](../.github/scripts/prune_uv_cache.sh) after setup-uv and
+before its first uv command. Direct workflow lanes use the same script. It
+emits one bounded `uv-cache-prune.outcome=success|failure` metric to the job
+log and summary; a prune failure keeps uv's exit status. The repository
+contract and the script's success and failure behaviour are covered by
+[`test_uv_cache_prune.py`](../tests/workflows/test_uv_cache_prune.py). See
+[ADR 0009](adr/0009-prune-uv-script-environments.md) for the cache policy.
 
 The compiler cache is a separate boundary. `cache-provider` governs the Cargo
 and uv archives only; which service sccache writes to is selected by runner, as

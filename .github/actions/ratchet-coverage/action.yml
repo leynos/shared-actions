@@ -60,9 +60,7 @@ runs:
       # A cache restored by the calling workflow shares this directory, so
       # prune before the first `uv run --script` regardless of who restored.
       shell: bash
-      run: |
-        set -euo pipefail
-        uv cache prune
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
     - name: Restore baseline
       id: restore-baseline
       # The restore sub-action, not the full `actions/cache` action: the full

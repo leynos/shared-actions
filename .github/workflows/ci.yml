@@ -59,9 +59,7 @@ jobs:
             **/scripts/*.py
       - name: Prune restored uv cache
         shell: bash
-        run: |
-          set -euo pipefail
-          uv cache prune
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/prune_uv_cache.sh"
       - name: Install nfpm
         if: runner.os == 'Linux'
         uses: ./.github/actions/install-nfpm
@@ -316,9 +314,7 @@ jobs:
             **/scripts/*.py
       - name: Prune restored uv cache
         shell: bash
-        run: |
-          set -euo pipefail
-          uv cache prune
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/prune_uv_cache.sh"
       # Pinned and digest-verified like every other tool here. It also fixes
       # the version the lane runs on: without it the suite would take whatever
       # `act` a runner happened to have, and the Makefile's own resolution
@@ -382,9 +378,7 @@ jobs:
             **/scripts/*.py
       - name: Prune restored uv cache
         shell: bash
-        run: |
-          set -euo pipefail
-          uv cache prune
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/prune_uv_cache.sh"
       - name: Install GNU Make
         run: choco install make --no-progress --yes
         shell: bash

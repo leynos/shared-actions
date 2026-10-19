@@ -351,9 +351,7 @@ runs:
       # restored the same cache directory under its own setup-uv step;
       # pruning covers that too, because the directory is shared.
       shell: bash
-      run: |
-        set -euo pipefail
-        uv cache prune
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
     # The script owns every decision (release, digest, tool-cache reuse,
     # PATH); the step only binds the runner's values. It sets no linker flag:
     # the consumer's .cargo/config.toml selects mold.

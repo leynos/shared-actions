@@ -165,9 +165,7 @@ jobs:
 
       - name: Prune restored uv cache
         shell: bash
-        run: |
-          set -euo pipefail
-          uv cache prune
+        run: bash "${{ steps.workflow-source.outputs.workflow_dir }}/.github/scripts/prune_uv_cache.sh"
 
       - name: Relocate workflow source
         # Move the workflow checkout out of the caller's workspace so
@@ -319,9 +317,7 @@ jobs:
 
       - name: Prune restored uv cache
         shell: bash
-        run: |
-          set -euo pipefail
-          uv cache prune
+        run: bash "${{ steps.workflow-source.outputs.workflow_dir }}/.github/scripts/prune_uv_cache.sh"
 
       - name: Relocate workflow source
         # Move the workflow checkout out of the caller's workspace so
@@ -487,9 +483,7 @@ jobs:
 
       - name: Prune restored uv cache
         shell: bash
-        run: |
-          set -euo pipefail
-          uv cache prune
+        run: bash "${{ steps.workflow-source.outputs.workflow_dir }}/.github/scripts/prune_uv_cache.sh"
 
       - name: Relocate workflow source
         # This job checks out no caller code, but the relocation keeps

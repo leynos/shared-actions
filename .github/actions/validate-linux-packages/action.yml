@@ -82,9 +82,7 @@ runs:
       # A cache restored by the calling workflow shares this directory, so
       # prune before the first `uv run`.
       shell: bash
-      run: |
-        set -euo pipefail
-        uv cache prune
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
     - name: Install sandbox dependencies
       shell: bash
       run: |

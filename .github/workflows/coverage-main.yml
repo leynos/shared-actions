@@ -55,9 +55,7 @@ jobs:
             **/scripts/*.py
       - name: Prune restored uv cache
         shell: bash
-        run: |
-          set -euo pipefail
-          uv cache prune
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/prune_uv_cache.sh"
       # Mirror ci.yml's coverage job exactly so the ratchet baseline written
       # here is comparable to what pull requests compute.
       - name: Install nfpm

@@ -60,9 +60,7 @@ jobs:
           prune-cache: true
       - name: Prune restored uv cache
         shell: bash
-        run: |
-          set -euo pipefail
-          uv cache prune
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/prune_uv_cache.sh"
       - name: Prove the cargo watchdog
         shell: bash
         run: >-

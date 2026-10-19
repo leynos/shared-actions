@@ -77,9 +77,7 @@ jobs:
         # The composite action below prunes again before its own scripts, but
         # this lane runs one before it, so the restore must be cleaned here.
         shell: bash
-        run: |
-          set -euo pipefail
-          uv cache prune
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/prune_uv_cache.sh"
       - name: Extract crate version
         id: crate-version
         shell: bash

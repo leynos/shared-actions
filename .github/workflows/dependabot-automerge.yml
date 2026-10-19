@@ -156,9 +156,7 @@ jobs:
 
       - name: Prune restored uv cache
         shell: bash
-        run: |
-          set -euo pipefail
-          uv cache prune
+        run: bash "${{ steps.workflow-source.outputs.workflow_dir }}/.github/scripts/prune_uv_cache.sh"
 
       - name: Run Dependabot auto-merge
         shell: bash

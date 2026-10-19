@@ -9,6 +9,9 @@ outputs: {}
 runs:
   using: composite
   steps:
+    - name: Prune restored uv cache
+      shell: bash
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
     - name: Install yamllint, actionlint and shellcheck
       shell: bash
       run: |

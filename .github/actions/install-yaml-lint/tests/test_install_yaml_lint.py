@@ -31,8 +31,12 @@ _LINUX_X64_DIGESTS = {
 def _script() -> str:
     """Return the action's single installation shell fragment."""
     steps = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))["runs"]["steps"]
-    assert len(steps) == 1, "install-yaml-lint should have one atomic install step"
-    run_script = steps[0].get("run")
+    install_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Install yamllint, actionlint and shellcheck"
+    )
+    run_script = install_step.get("run")
     assert isinstance(run_script, str), "install step must define a shell script"
     return run_script
 
@@ -141,12 +145,16 @@ def _sandbox(tmp_path: Path, *, pin_fixtures: bool) -> tuple[_Sandbox, str]:
     return _Sandbox(tmp_path, curl_log, tmp_path / "github_path", uv_log), script
 
 
-def test_action_declares_no_inputs_and_one_bash_step() -> None:
+def test_action_declares_no_inputs_and_prunes_before_its_bash_step() -> None:
     """The action is pinned inside, so callers have nothing to override."""
     action = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
+    steps = action["runs"]["steps"]
     assert action["inputs"] == {}, "versions are pinned in the action, not passed"
     assert action["runs"]["using"] == "composite"
-    assert action["runs"]["steps"][0]["shell"] == "bash"
+    assert steps[0]["name"] == "Prune restored uv cache"
+    assert "prune_uv_cache.sh" in steps[0]["run"]
+    assert steps[1]["name"] == "Install yamllint, actionlint and shellcheck"
+    assert steps[1]["shell"] == "bash"
 
 
 def test_every_platform_digest_is_a_full_sha256() -> None:

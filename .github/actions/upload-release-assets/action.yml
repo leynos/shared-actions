@@ -46,9 +46,7 @@ runs:
       # script runs through `uv run`, so an `environments-v2` entry bound to
       # another runner's interpreter must go before the first invocation.
       shell: bash
-      run: |
-        set -euo pipefail
-        uv cache prune
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
 
     - name: Upload release assets
       id: invoke

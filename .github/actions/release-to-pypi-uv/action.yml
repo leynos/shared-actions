@@ -69,9 +69,7 @@ runs:
       # A cache restored by an earlier step of the calling workflow shares
       # this directory, so prune before the first `uv run --script`.
       shell: bash
-      run: |
-        set -euo pipefail
-        uv cache prune
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
     - name: Install Python
       run: uv python install "${{ inputs.python-version }}"
       shell: bash

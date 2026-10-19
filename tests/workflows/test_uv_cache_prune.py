@@ -262,6 +262,31 @@ def _non_prune_uv_run_indexes(steps: list[dict[str, typ.Any]]) -> list[int]:
     ]
 
 
+def _validate_action_prune_order(
+    action_id: str, steps: list[dict[str, typ.Any]]
+) -> None:
+    """Require pruning after local setup-uv and before the first uv run."""
+    uv_run_indexes = _non_prune_uv_run_indexes(steps)
+    if not uv_run_indexes:
+        return
+
+    first_uv_run = min(uv_run_indexes)
+    prune_indexes = _prune_indexes(steps)
+    assert prune_indexes, f"{action_id}: no {PRUNE_STEP!r} step"
+    first_prune = min(prune_indexes)
+    assert first_prune < first_uv_run, (
+        f"{action_id}: {PRUNE_STEP!r} must precede the first `uv` run "
+        f"at step {first_uv_run}, found prune at {first_prune}"
+    )
+
+    setup_indexes = _setup_uv_indexes(steps)
+    if setup_indexes:
+        assert max(setup_indexes) < first_prune, (
+            f"{action_id}: {PRUNE_STEP!r} must follow the last setup-uv "
+            f"step at {max(setup_indexes)}, found prune at {first_prune}"
+        )
+
+
 def _local_action_indexes(
     steps: list[dict[str, typ.Any]], actions: frozenset[str]
 ) -> list[int]:
@@ -526,24 +551,43 @@ class TestActionsPruneAtRestore:
         """
         manifest = REPOSITORY_ROOT / ".github" / "actions" / action_id / "action.yml"
         steps = _steps(load_workflow(manifest))
-        setup_indexes = _setup_uv_indexes(steps)
-        # Excluding the shared prune script makes the comparison about the
-        # first uv invocation that could consume a restored environment.
-        uv_run_indexes = _non_prune_uv_run_indexes(steps)
-        if not uv_run_indexes:
-            return
+        _validate_action_prune_order(action_id, steps)
 
-        first_uv_run = min(uv_run_indexes)
-        prune_indexes = _prune_indexes(steps)
+    def test_pruning_before_setup_uv_is_rejected(self) -> None:
+        """Reject a restored-cache prune placed before setup-uv."""
+        steps = [
+            {
+                "name": PRUNE_STEP,
+                "run": "bash .github/scripts/prune_uv_cache.sh",
+            },
+            {"uses": "astral-sh/setup-uv@v6"},
+            {"run": "uv run --script check.py"},
+        ]
 
-        assert prune_indexes, f"{action_id}: no {PRUNE_STEP!r} step"
-        assert min(prune_indexes) < first_uv_run, (
-            f"{action_id}: {PRUNE_STEP!r} must precede the first `uv` run "
-            f"at step {first_uv_run}, found prune at {min(prune_indexes)}"
-        )
-        if setup_indexes:
-            assert max(setup_indexes) < min(prune_indexes), (
-                f"{action_id}: {PRUNE_STEP!r} must follow the last setup-uv "
-                f"step at {max(setup_indexes)}, found prune at "
-                f"{min(prune_indexes)}"
-            )
+        with pytest.raises(AssertionError, match="must follow the last setup-uv"):
+            _validate_action_prune_order("prune-before-setup", steps)
+
+    def test_pruning_after_setup_uv_is_accepted(self) -> None:
+        """Accept the required setup-uv, prune, then uv-use sequence."""
+        steps = [
+            {"uses": "astral-sh/setup-uv@v6"},
+            {
+                "name": PRUNE_STEP,
+                "run": "bash .github/scripts/prune_uv_cache.sh",
+            },
+            {"run": "uv run --script check.py"},
+        ]
+
+        _validate_action_prune_order("valid-order", steps)
+
+    def test_pruning_is_required_when_setup_uv_is_inherited(self) -> None:
+        """Keep the prune-before-use contract for actions without setup-uv."""
+        steps = [
+            {
+                "name": PRUNE_STEP,
+                "run": "bash .github/scripts/prune_uv_cache.sh",
+            },
+            {"run": "uv run --script check.py"},
+        ]
+
+        _validate_action_prune_order("inherits-setup-uv", steps)

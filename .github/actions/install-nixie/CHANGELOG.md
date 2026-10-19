@@ -15,3 +15,5 @@
 - Reuse Merman only from its version-scoped cache path after revalidating the
   installed executable digest.
 - Expose the verified Merman and Nixie executable directories to later steps.
+- Fail before installing anything when `uv` or Cargo is absent, naming the
+  missing prerequisite.

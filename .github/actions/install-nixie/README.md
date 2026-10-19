@@ -99,7 +99,8 @@ To override the Nixie and Python pins:
 - **Failure behaviour**: Missing prerequisites, an unsupported target, an
   invalid version, a missing prebuilt release, or a failed or
   version-mismatched installation stop the action immediately without exporting
-  a successful PATH result.
+  a successful PATH result. `uv` and Cargo are checked up front, so an absent
+  `uv` or `cargo` fails before any installation is attempted.
 
 ## Release history
 

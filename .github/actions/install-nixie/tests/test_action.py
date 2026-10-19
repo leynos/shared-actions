@@ -53,6 +53,7 @@ class _InstallOptions:
     nixie_version: str = "1.1.0"
     python_version: str = "3.14"
     include_uv: bool = True
+    include_cargo: bool = True
     runner_arch: str = "X64"
     runner_os: str = "Linux"
     uv_bin_dir_output: str | None = None
@@ -299,7 +300,8 @@ def _install_environment(
     """Prepare deterministic CLI stubs, cache contents and action variables."""
     stubs_dir = tmp_path / "stubs"
     stubs_dir.mkdir()
-    _write_cargo_stubs(stubs_dir)
+    if options.include_cargo:
+        _write_cargo_stubs(stubs_dir)
     _write_cygpath_stub(stubs_dir)
     if options.include_uv:
         _write_uv_stub(stubs_dir)
@@ -815,5 +817,20 @@ def test_install_script_reports_missing_uv_before_merman_install(
 
     assert result.returncode == 1
     assert "uv is required to install nixie-cli" in result.stderr
+    assert _calls(tmp_path) == []
+    _assert_github_path_empty(tmp_path)
+
+
+def test_install_script_reports_missing_cargo_before_merman_install(
+    tmp_path: Path,
+) -> None:
+    """Stop before invoking cargo-binstall when Cargo is unavailable."""
+    result = _run_install_script(
+        tmp_path,
+        _InstallOptions(include_cargo=False, merman_cached=False),
+    )
+
+    assert result.returncode == 1
+    assert "cargo is required to run cargo-binstall for merman-cli" in result.stderr
     assert _calls(tmp_path) == []
     _assert_github_path_empty(tmp_path)

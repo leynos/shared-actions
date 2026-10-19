@@ -285,6 +285,11 @@ def test_pinned_revision_prunes_before_its_first_script() -> None:
 
     setup_uv_index = names.index("Install uv")
     prune_index = names.index(UV_PRUNE_STEP)
+    prune_script = steps[prune_index].get("run")
+    assert isinstance(prune_script, str)
+    assert any(
+        line.strip() == "uv cache prune" for line in prune_script.splitlines()
+    ), f"pinned prune step does not run `uv cache prune`: {prune_script!r}"
     first_script = next(
         index
         for index, step in enumerate(steps)

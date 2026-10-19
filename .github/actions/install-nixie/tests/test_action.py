@@ -806,31 +806,30 @@ def test_install_script_stops_after_nixie_install_failure(tmp_path: Path) -> Non
     _assert_github_path_empty(tmp_path)
 
 
-def test_install_script_reports_missing_uv_before_merman_install(
+@pytest.mark.parametrize(
+    ("options", "expected_error"),
+    [
+        pytest.param(
+            _InstallOptions(include_uv=False, merman_cached=False),
+            "uv is required to install nixie-cli",
+            id="missing-uv",
+        ),
+        pytest.param(
+            _InstallOptions(include_cargo=False, merman_cached=False),
+            "cargo is required to run cargo-binstall for merman-cli",
+            id="missing-cargo",
+        ),
+    ],
+)
+def test_install_script_reports_a_missing_prerequisite_before_install(
     tmp_path: Path,
+    options: _InstallOptions,
+    expected_error: str,
 ) -> None:
-    """Stop before cargo-binstall when uv is unavailable."""
-    result = _run_install_script(
-        tmp_path,
-        _InstallOptions(include_uv=False, merman_cached=False),
-    )
+    """Stop before installing anything when a prerequisite is unavailable."""
+    result = _run_install_script(tmp_path, options)
 
     assert result.returncode == 1
-    assert "uv is required to install nixie-cli" in result.stderr
-    assert _calls(tmp_path) == []
-    _assert_github_path_empty(tmp_path)
-
-
-def test_install_script_reports_missing_cargo_before_merman_install(
-    tmp_path: Path,
-) -> None:
-    """Stop before invoking cargo-binstall when Cargo is unavailable."""
-    result = _run_install_script(
-        tmp_path,
-        _InstallOptions(include_cargo=False, merman_cached=False),
-    )
-
-    assert result.returncode == 1
-    assert "cargo is required to run cargo-binstall for merman-cli" in result.stderr
+    assert expected_error in result.stderr
     assert _calls(tmp_path) == []
     _assert_github_path_empty(tmp_path)

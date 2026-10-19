@@ -396,7 +396,6 @@ def _run_prune_script(
 def _run_manifest_prune_step(
     action_id: str,
     cache: Path,
-    cwd: Path,
     summary: Path,
     path: str | None = None,
 ) -> tuple[int, str, str]:
@@ -428,7 +427,7 @@ def _run_manifest_prune_step(
         environment["PATH"] = path
     command = (
         local[shell]["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", run]
-        .with_cwd(cwd)
+        .with_cwd(summary.parent)
         .with_env(**environment)
     )
     return command.run(retcode=None)
@@ -496,7 +495,7 @@ def test_uv_cache_prune_removes_a_script_environment(tmp_path: Path) -> None:
 
     summary = tmp_path / "success-summary.md"
     prune_code, prune_stdout, prune_stderr = _run_manifest_prune_step(
-        "install-yaml-lint", cache, tmp_path, summary
+        "install-yaml-lint", cache, summary
     )
     assert prune_code == 0, (
         f"uv cache prune exited {prune_code}, expected 0: {prune_stderr!r}"
@@ -548,7 +547,7 @@ def test_action_prune_step_reports_failure_and_preserves_uv_status(
     path = os.pathsep.join((str(fake_bin), os.environ["PATH"]))
 
     exit_code, stdout, stderr = _run_manifest_prune_step(
-        "install-yaml-lint", tmp_path / "uv-cache", tmp_path, summary, path
+        "install-yaml-lint", tmp_path / "uv-cache", summary, path
     )
 
     assert exit_code == 37, (
@@ -724,6 +723,43 @@ class TestActionsPruneAtRestore:
 
         _validate_action_prune_order("inherits-setup-uv", steps)
 
+    @staticmethod
+    def _generated_steps(step_kinds: list[str]) -> list[dict[str, str]]:
+        """Translate generated step names into manifest-shaped steps."""
+        steps_by_kind = {
+            "setup": {"uses": f"{SETUP_UV_PREFIX}v6"},
+            "prune": {
+                "name": PRUNE_STEP,
+                "run": "bash .github/scripts/prune_uv_cache.sh",
+            },
+            "uv": {"run": "uv run --script check.py"},
+            "other": {"run": "echo ready"},
+        }
+        return [steps_by_kind[kind].copy() for kind in step_kinds]
+
+    @staticmethod
+    def _generated_sequence_is_valid(step_kinds: list[str]) -> bool:
+        """Return the ordering oracle's result for one generated sequence."""
+        uv_indexes = [index for index, kind in enumerate(step_kinds) if kind == "uv"]
+        if not uv_indexes:
+            return True
+
+        prune_indexes = [
+            index for index, kind in enumerate(step_kinds) if kind == "prune"
+        ]
+        if not prune_indexes:
+            return False
+
+        first_prune = min(prune_indexes)
+        if first_prune >= min(uv_indexes):
+            return False
+
+        last_setup = max(
+            (index for index, kind in enumerate(step_kinds) if kind == "setup"),
+            default=-1,
+        )
+        return last_setup < first_prune
+
     @given(
         step_kinds=st.lists(
             st.sampled_from(("setup", "prune", "uv", "other")),
@@ -736,28 +772,8 @@ class TestActionsPruneAtRestore:
         self, step_kinds: list[str]
     ) -> None:
         """Match the ordering contract across bounded generated step lists."""
-        steps_by_kind = {
-            "setup": {"uses": f"{SETUP_UV_PREFIX}v6"},
-            "prune": {
-                "name": PRUNE_STEP,
-                "run": "bash .github/scripts/prune_uv_cache.sh",
-            },
-            "uv": {"run": "uv run --script check.py"},
-            "other": {"run": "echo ready"},
-        }
-        steps = [steps_by_kind[kind].copy() for kind in step_kinds]
-        uv_indexes = [index for index, kind in enumerate(step_kinds) if kind == "uv"]
-        prune_indexes = [
-            index for index, kind in enumerate(step_kinds) if kind == "prune"
-        ]
-        setup_indexes = [
-            index for index, kind in enumerate(step_kinds) if kind == "setup"
-        ]
-        expected_valid = not uv_indexes or (
-            bool(prune_indexes)
-            and min(prune_indexes) < min(uv_indexes)
-            and (not setup_indexes or max(setup_indexes) < min(prune_indexes))
-        )
+        steps = self._generated_steps(step_kinds)
+        expected_valid = self._generated_sequence_is_valid(step_kinds)
 
         if expected_valid:
             _validate_action_prune_order("generated-order", steps)

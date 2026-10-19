@@ -66,6 +66,7 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ("coverage-main.yml", "coverage-upload"): "coverage",
     ("rust-toy-app.yml", "build-release"): "build",
     ("test-determine-release-modes.yml", "test-determine-modes"): "assertion",
+    ("test-msrv-check.yml", "checks-the-fixture-crate-on-its-msrv"): "install",
     ("test-export-cargo-metadata.yml", "test-export-metadata"): "assertion",
     (
         "test-export-cargo-metadata.yml",

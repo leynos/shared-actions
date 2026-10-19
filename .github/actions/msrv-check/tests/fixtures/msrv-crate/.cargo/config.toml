@@ -1,0 +1,4 @@
+# A development config the MSRV check must not trip on: a codegen backend is
+# a nightly-only key, so a stable cargo rejects the whole profile.
+[profile.dev]
+codegen-backend = "cranelift"

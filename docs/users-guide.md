@@ -614,6 +614,59 @@ their own archive caches in the workflow log and job summary. Coverage ratchet
 baseline files remain separate GitHub caches when external mode does not mount
 their paths.
 
+## `msrv-check` action
+
+A crate that declares `rust-version` promises its users a compiler floor.
+`msrv-check` exercises it with one job, so the version is written once, in the
+manifest, and never repeated in a workflow:
+
+```yaml
+msrv:
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+  steps:
+    - uses: actions/checkout@<sha>
+      with:
+        persist-credentials: false
+    - uses: leynos/shared-actions/.github/actions/msrv-check@<sha>
+```
+
+The action reads `rust-version` from `Cargo.toml`, installs that toolchain with
+`rustup`, and runs `cargo +<version> check --lib --locked --all-features`. That
+is one compile of the library on the locked dependencies, not a second test
+run, so it adds a small job beside the main one and no wall-clock time.
+
+### Choosing what to check
+
+- `manifest-path` names the manifest that declares `rust-version`, inside the
+  checkout. A workspace member inherits the workspace value only when it writes
+  `rust-version.workspace = true`, as Cargo does.
+- `cargo-args` replaces the default `--lib --locked --all-features`. Quote a
+  value that contains a space: `--features "a b" --locked`. For a workspace,
+  name the package: `-p core --lib --locked`.
+- The step's `msrv` output carries the version the check ran on.
+
+### Why it drops the cargo config
+
+A development repository's `.cargo/config.toml` usually suits its pinned
+toolchain, not the MSRV: it may name nightly-only keys, such as a codegen
+backend, that a stable Cargo rejects outright, or a linker such as mold that
+the job does not install. By default the action removes `.cargo/config.toml`
+(and the legacy `.cargo/config`) from the **runner's checkout**, from the
+manifest's directory up to `GITHUB_WORKSPACE`, because Cargo reads every
+parent's config, and it clears `RUSTFLAGS` and `CARGO_ENCODED_RUSTFLAGS`.
+Nothing is committed. Set `keep-cargo-config: true` for a repository whose
+config is valid on the MSRV. Each removed file is logged as a notice.
+
+### Failures
+
+A missing `rust-version`, an inherited value the workspace lacks, an unreadable
+manifest, malformed `cargo-args` and a manifest outside the checkout fail the
+job with a named error annotation before anything is installed. A failing
+`rustup` or `cargo` fails the job with that command's exit status, annotated
+with the phase that failed.
+
 ## `export-ubicloud-cache-credentials` action
 
 Use this action on **Ubicloud runners only**, to make Ubicloud's cache proxy

@@ -1,0 +1,47 @@
+name: msrv-check
+description: >-
+  Check a crate on its declared minimum supported Rust version (rust-version):
+  read it from Cargo.toml, install that toolchain, and run one cargo check.
+author: leynos
+inputs:
+  manifest-path:
+    description: >-
+      Path to the Cargo.toml that declares rust-version, relative to
+      working-directory. A member that inherits the workspace value
+      (`rust-version.workspace = true`) resolves it from the enclosing workspace
+      manifest.
+    default: Cargo.toml
+  working-directory:
+    description: Directory the check runs in, usually the repository root.
+    default: "."
+  cargo-args:
+    description: >-
+      Arguments for `cargo check`. The default checks the library alone on the
+      locked dependencies, which is one compile and not a second test run.
+    default: --lib --locked --all-features
+  keep-cargo-config:
+    description: >-
+      Whether to keep the repository's `.cargo/config.toml`. By default the
+      runner's checkout drops it for this job (nothing is committed), because a
+      development config usually names nightly-only keys, a codegen backend or
+      a linker the MSRV job does not install, and an empty RUSTFLAGS replaces
+      the config's rustflags. Accepted truthy values: "true", "1", "yes", "on".
+    default: "false"
+outputs:
+  msrv:
+    description: The rust-version the check ran on.
+    value: ${{ steps.check.outputs.msrv }}
+runs:
+  using: composite
+  steps:
+    - id: check
+      name: Check the crate on its minimum supported Rust version
+      shell: bash
+      env:
+        INPUT_MANIFEST_PATH: ${{ inputs.manifest-path }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        INPUT_CARGO_ARGS: ${{ inputs.cargo-args }}
+        INPUT_KEEP_CARGO_CONFIG: ${{ inputs.keep-cargo-config }}
+      run: |
+        set -euo pipefail
+        python3 "${GITHUB_ACTION_PATH}/scripts/msrv_check.py"

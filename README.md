@@ -22,6 +22,7 @@ GitHub Actions
 | Install YAML lint tools           | `.github/actions/install-yaml-lint`                                                | unreleased   |
 | Linux packages                    | `.github/actions/linux-packages`                                                   | v1           |
 | macOS package                     | `.github/actions/macos-package`                                                    | v1           |
+| MSRV check                        | `.github/actions/msrv-check`                                                       | unreleased   |
 | Ratchet coverage                  | `.github/actions/ratchet-coverage`                                                 | v1           |
 | Release to PyPI (uv)              | `.github/actions/release-to-pypi-uv`                                               | v1           |
 | Rust build release                | `.github/actions/rust-build-release`                                               | v1           |
@@ -38,6 +39,26 @@ GitHub Actions
 
 See the [Install Nixie guide](docs/users-guide.md#install-nixie) for usage,
 version inputs, and failure behaviour.
+
+## Checking a minimum supported Rust version
+
+A crate that declares `rust-version` promises its users a compiler floor, and
+the estate's `rust-toolchain-policy` rule (RT-026) asks that CI exercises it.
+The `msrv-check` action does so with one job: it reads `rust-version` from the
+manifest (so the workflow never repeats the version), installs that toolchain,
+drops the runner checkout's development `.cargo/config.toml`, and runs one
+`cargo check --lib --locked --all-features`. See
+`.github/actions/msrv-check/README.md` for the inputs and the behaviour.
+
+```yaml
+msrv:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@<sha>
+      with:
+        persist-credentials: false
+    - uses: leynos/shared-actions/.github/actions/msrv-check@<sha>
+```
 
 ## Vendored helpers
 

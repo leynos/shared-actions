@@ -249,7 +249,7 @@ jobs:
 
       - name: Install mdtablefix
         if: ${{ inputs.install-mdtablefix == 'true' }}
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@aea9c14c24b73042e99f0be8245a4f171b67c31a
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@81374b6f183e59f0570ad36217ded90d3240fda6
         with:
           version: ${{ inputs.mdtablefix-version }}
           sha256: ${{ inputs.mdtablefix-sha256 }}

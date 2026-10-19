@@ -420,6 +420,15 @@ and disabled on self-hosted runners. Those Cargo caches archive the registry,
 the Git index, and (for coverage) the installed Cargo binaries. The `target`
 tree is deliberately uncached in both modes: sccache owns compiler output.
 
+The uv cache still keeps reusable downloads, but these actions do not save
+interpreter-bound script environments. A `uv run --script` environment is tied
+to the exact Python interpreter that created it, so a restored environment from
+a runner with a different patch version may not start. Cache-writing `setup-uv`
+steps set `prune-cache: true`; actions that do not write caches disable that
+save and still prune a caller-restored cache before their first uv command.
+This may recreate a script environment on the runner; callers do not need to
+change their workflow configuration.
+
 Use `external` when the calling workflow mounts the same Cargo or uv paths
 through another service such as a Namespace cache volume. The action then skips
 its overlapping GitHub archive caches; it does not mount or report the external

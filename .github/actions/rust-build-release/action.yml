@@ -64,6 +64,24 @@ runs:
   steps:
     - name: Setup uv
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+      with:
+        # Never archive a restored environment. Each `environments-v2` entry
+        # is bound to the interpreter that built it, and this action runs
+        # PEP 723 scripts through `uv run`. Without pruning, the saved cache
+        # carries those entries to a later runner whose patch version of
+        # Python differs, and the Windows launcher exits 103 with "did not
+        # find executable" before the first script runs. `prune-cache` also
+        # moves the key lineage, so an archive saved before this input
+        # existed is not restored at all.
+        prune-cache: true
+    - name: Prune restored uv cache
+      # `prune-cache` governs the save. A cache restored by an earlier step
+      # in the same job, such as the calling workflow's own setup-uv, still
+      # lands in the cache directory this action shares and can carry an
+      # environment for an interpreter this runner does not have. Pruning
+      # here, before the first `uv run`, is what makes the restore safe.
+      shell: bash
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
     - name: Validate target
       shell: bash
       run: |

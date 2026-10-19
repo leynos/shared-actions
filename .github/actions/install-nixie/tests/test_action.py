@@ -53,8 +53,10 @@ def _load_action() -> dict[str, typ.Any]:
 def _install_script() -> str:
     """Return the action's installation shell fragment."""
     steps = _load_action()["runs"]["steps"]
-    assert len(steps) == 1, "install-nixie should have one atomic install step"
-    run_script = steps[0].get("run")
+    install_step = next(
+        step for step in steps if step.get("name") == "Install Nixie and Merman CLI"
+    )
+    run_script = install_step.get("run")
     assert isinstance(run_script, str), "install step must define a shell script"
     return run_script
 
@@ -314,6 +316,21 @@ def test_manifest_exposes_pinned_version_inputs_and_verified_assets() -> None:
     assert "--retry 3" in script
     assert "c73a9f676b2f9ec5b81ec805253f39f160b1d76a503c80408bea72fa017fb8f1" in script
     assert "5c61d806c9cdb1b16062797955fb51849d5df7789e0dc8ea4c54e22d61b865ae" in script
+
+
+def test_action_prunes_the_callers_restored_cache_before_uv_install() -> None:
+    """Remove restored script environments before the atomic uv installer."""
+    steps = _load_action()["runs"]["steps"]
+    names = [step.get("name") for step in steps]
+    prune_index = names.index("Prune restored uv cache")
+    install_index = names.index("Install Nixie and Merman CLI")
+
+    assert prune_index < install_index, (
+        f"prune step at {prune_index} must precede install step at {install_index}"
+    )
+    assert "prune_uv_cache.sh" in steps[prune_index]["run"], (
+        "prune step must run the shared prune_uv_cache.sh script"
+    )
 
 
 def test_install_script_uses_cached_merman_and_normal_nixie_reconciliation(

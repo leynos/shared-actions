@@ -77,7 +77,9 @@ To override the Nixie and Python pins:
 - **Nixie installation**: The action reconciles the requested Nixie package
   with `uv tool install`. It uses `--force` only when the expected `nixie`
   executable shim is absent after normal reconciliation. It does not invoke
-  `nixie --version`, which is not a supported probe.
+  `nixie --version`, which is not a supported probe. Before invoking uv, it
+  prunes interpreter-bound script environments restored by the caller while
+  keeping reusable package downloads.
 - **PATH export**: After both executable checks succeed, the action appends the
   Merman and Nixie binary directories to `GITHUB_PATH` for later steps.
 - **Failure behaviour**: Missing prerequisites, an unverified archive, an

@@ -47,6 +47,12 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+        with:
+          # This lane runs `uv tool install`, which writes no `environments-v2`
+          # entry of its own, so it needs no restore-time prune. It must still
+          # not save one: the key is shared with every lane on this runner
+          # image, and a poisoned archive written here is restored elsewhere.
+          prune-cache: true
 
       - name: Install the YAML lint tools
         uses: ./.github/actions/install-yaml-lint

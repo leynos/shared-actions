@@ -2,6 +2,8 @@
 
 ## v1.0.0 (Unreleased)
 
+- Prune interpreter-bound script environments restored by the calling workflow
+  before the installer invokes uv.
 - Add pinned installation of yamllint 1.38.0, actionlint 1.7.12 and
   shellcheck 0.11.0.
 - Install actionlint and shellcheck only from official release archives

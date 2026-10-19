@@ -72,6 +72,17 @@ runs:
   steps:
     - name: Setup uv
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+      with:
+        # The validation script runs through `uv run`, so an archived
+        # `environments-v2` entry would arrive bound to whichever interpreter
+        # built it. Pruning stops one being saved and moves the key lineage
+        # away from archives written before this input existed.
+        prune-cache: true
+    - name: Prune restored uv cache
+      # A cache restored by the calling workflow shares this directory, so
+      # prune before the first `uv run`.
+      shell: bash
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
     - name: Install sandbox dependencies
       shell: bash
       run: |

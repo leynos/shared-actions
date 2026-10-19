@@ -334,10 +334,24 @@ runs:
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
       with:
         enable-cache: ${{ inputs.cache-provider == 'github' && runner.environment == 'github-hosted' }}
+        # A restored `environments-v2` entry is bound to the interpreter that
+        # built it. `uv run --script` then fails on a runner whose Python
+        # patch version differs, as the Windows venv launcher did with exit
+        # 103. Pruning stops the action ever saving one, and moves the key
+        # lineage so archives written before this input existed are not
+        # restored.
+        prune-cache: true
         cache-dependency-glob: |
           **/pyproject.toml
           **/uv.lock
           **/scripts/*.py
+    - name: Prune restored uv cache
+      # Runs after install so a cache restored here has already landed, and
+      # before the first `uv run --script`. A calling workflow may have
+      # restored the same cache directory under its own setup-uv step;
+      # pruning covers that too, because the directory is shared.
+      shell: bash
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
     # The script owns every decision (release, digest, tool-cache reuse,
     # PATH); the step only binds the runner's values. It sets no linker flag:
     # the consumer's .cargo/config.toml selects mold.

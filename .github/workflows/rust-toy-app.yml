@@ -66,6 +66,18 @@ jobs:
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
         with:
           python-version: '3.13'
+          # The next step runs a PEP 723 script through `uv run`. An
+          # `environments-v2` entry restored from another runner is bound to
+          # the interpreter that built it, and the Windows launcher exits 103
+          # when that interpreter is absent. Pruning stops one being saved
+          # and moves the key lineage away from archives that already carry
+          # one.
+          prune-cache: true
+      - name: Prune restored uv cache
+        # The composite action below prunes again before its own scripts, but
+        # this lane runs one before it, so the restore must be cleaned here.
+        shell: bash
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/prune_uv_cache.sh"
       - name: Extract crate version
         id: crate-version
         shell: bash

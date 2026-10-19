@@ -40,6 +40,14 @@ runs:
       with:
         enable-cache: false
 
+    - name: Prune restored uv cache
+      # This action saves no cache, but a calling workflow's own setup-uv may
+      # have restored one into the directory this step inherits. The upload
+      # script runs through `uv run`, so an `environments-v2` entry bound to
+      # another runner's interpreter must go before the first invocation.
+      shell: bash
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
+
     - name: Upload release assets
       id: invoke
       shell: bash

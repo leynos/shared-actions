@@ -47,10 +47,20 @@ runs:
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
       with:
         uv-version: ">=0.7.19,<0.8.0"
+        # The ratchet scripts run through `uv run --script`. Saving their
+        # interpreter-bound environments carries them to a runner whose
+        # Python differs, where they cannot start. Pruning also moves the
+        # key lineage away from archives written before this input existed.
+        prune-cache: true
         cache-dependency-glob: |
           **/pyproject.toml
           **/uv.lock
           **/scripts/*.py
+    - name: Prune restored uv cache
+      # A cache restored by the calling workflow shares this directory, so
+      # prune before the first `uv run --script` regardless of who restored.
+      shell: bash
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
     - name: Restore baseline
       id: restore-baseline
       # The restore sub-action, not the full `actions/cache` action: the full

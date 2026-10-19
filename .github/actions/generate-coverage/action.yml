@@ -207,10 +207,22 @@ runs:
         # Dependabot does not bump this value; change it deliberately.
         version: '0.12.19'
         enable-cache: ${{ inputs.cache-provider == 'github' && runner.environment == 'github-hosted' }}
+        # Never save an interpreter-bound script environment. The action's
+        # scripts run through `uv run --script`, and a restored
+        # `environments-v2` entry built on another runner's Python fails to
+        # start. Pruning also moves the key lineage, so archives saved
+        # before this input existed are not restored.
+        prune-cache: true
         cache-dependency-glob: |
           **/pyproject.toml
           **/uv.lock
         cache-suffix: action-${{ github.action_ref || github.sha }}
+    - name: Prune restored uv cache
+      # A cache restored by an earlier step of the calling workflow shares
+      # this action's cache directory, and pruning before the first
+      # `uv run --script` is what keeps its environments from being used.
+      shell: bash
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
     - id: detect
       run: uv run --script "${{ github.action_path }}/scripts/detect.py"
       env:

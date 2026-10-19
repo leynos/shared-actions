@@ -2,6 +2,8 @@
 
 ## v1.0.0 (Unreleased)
 
+- Prune interpreter-bound script environments restored by the calling workflow
+  before installing Nixie through uv.
 - Add pinned Nixie and Merman command-line interface (CLI) installation.
 - Install Merman 0.7.0 only from official release archives verified with pinned
   Secure Hash Algorithm 256-bit (SHA-256) checksums; unsupported versions and

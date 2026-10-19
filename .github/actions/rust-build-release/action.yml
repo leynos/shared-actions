@@ -171,9 +171,16 @@ runs:
       # and prefer the tagged commit (verify compatibility and run CI).
       # This revision also stopped archiving the target tree, so a caller that
       # owns its own build directory no longer pays for a duplicate upload.
-      # tests/test_setup_rust_reference.py pins the expected SHA; update it in
-      # the same change.
-      uses: leynos/shared-actions/.github/actions/setup-rust@14eb66098248084fe8072da519dda6fec2745df2
+      # It also carries the uv cache lifecycle: its setup-uv step declares
+      # `prune-cache: true` and a `Prune restored uv cache` step runs before
+      # its first `uv run --script`. When this action runs after a caller's
+      # own `Setup uv`, setup-uv here can miss its key and inherit the
+      # caller's restored cache directory; without that prune the mold and
+      # OpenBSD scripts would consume an interpreter-bound environment this
+      # runner cannot execute, which is the Windows exit 103 failure.
+      # tests/test_setup_rust_reference.py pins the expected SHA and asserts
+      # both controls; update it in the same change.
+      uses: leynos/shared-actions/.github/actions/setup-rust@ee46b3d78ac426fe1d29d8ed3cf053b9e90cd8c5
       with:
         toolchain: ${{ env.RBR_TOOLCHAIN }}
         cache-provider: ${{ inputs.cache-provider }}

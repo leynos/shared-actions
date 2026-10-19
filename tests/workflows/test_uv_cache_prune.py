@@ -15,9 +15,10 @@ window open:
 - every caching `astral-sh/setup-uv` step in a lane that runs `uv` is given
   `prune-cache: true`, so no interpreter-bound environment is ever saved, and
   the key lineage moves away from archives that already contain one;
-- every composite action that runs `uv` prunes once after `setup-uv` and
-  before its first invocation, so an environment restored by an earlier step
-  of the calling job is removed before it can be used.
+- every direct workflow lane and composite action that runs `uv` prunes once
+  after the relevant `setup-uv` and before its first invocation, so an
+  environment restored by an earlier step of the calling job is removed
+  before it can be used.
 
 The second matters on its own because `prune-cache` only governs the save.
 A one-time restore of an old archive, or a caller that restores the cache
@@ -26,10 +27,17 @@ itself, is otherwise untouched.
 
 from __future__ import annotations
 
+import base64
+import csv
+import hashlib
+import io
+import shutil
 import typing as typ
+import zipfile
 from pathlib import Path
 
 import pytest
+from plumbum import local
 
 from . import _workflow_reading as reading
 from .workflow_yaml import load_workflow
@@ -54,7 +62,7 @@ PRUNE_STEP: typ.Final[str] = "Prune restored uv cache"
 
 
 def _steps(document: object) -> list[dict[str, typ.Any]]:
-    """Return one workflow job's steps, or one action's composite steps."""
+    """Return validated steps from a workflow job or composite action."""
     if not isinstance(document, dict):
         message = f"manifest is not a mapping: {document!r}"
         raise TypeError(message)
@@ -62,6 +70,10 @@ def _steps(document: object) -> list[dict[str, typ.Any]]:
     if not isinstance(steps, list):
         message = f"manifest has no step list: {steps!r}"
         raise TypeError(message)
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            message = f"manifest step {index} is not a mapping: {step!r}"
+            raise TypeError(message)
     return typ.cast("list[dict[str, typ.Any]]", steps)
 
 
@@ -131,9 +143,40 @@ def _is_uv_run(step: dict[str, typ.Any]) -> bool:
     return isinstance(run, str) and "uv " in run
 
 
-def _action_paths() -> list[Path]:
-    """Return every composite action manifest, sorted."""
-    return sorted(ACTIONS_DIRECTORY.glob("*/action.yml"))
+def _action_manifest(entry: Path) -> Path | None:
+    """Return a validated action manifest, or `None` for a support entry."""
+    if not entry.is_dir() or entry.name == "tests":
+        return None
+
+    manifest = entry / "action.yml"
+    if not manifest.is_file():
+        message = f"action directory {entry} is missing action.yml"
+        raise ValueError(message)
+    return manifest
+
+
+def _action_paths(directory: Path = ACTIONS_DIRECTORY) -> list[Path]:
+    """Return every composite action manifest, sorted and validated.
+
+    The repository's `tests` directory is a support folder rather than an
+    action. Every other directory directly under `.github/actions` is an
+    action and must contain its manifest.
+    """
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError as error:
+        message = f"cannot list actions in {directory}: {error}"
+        raise ValueError(message) from error
+
+    action_paths = [
+        manifest
+        for entry in entries
+        if (manifest := _action_manifest(entry)) is not None
+    ]
+    if not action_paths:
+        message = f"no action manifests found in {directory}"
+        raise ValueError(message)
+    return action_paths
 
 
 def _action_ids() -> list[str]:
@@ -147,6 +190,15 @@ def _local_actions_running_uv() -> frozenset[str]:
         f"./.github/actions/{path.parent.name}"
         for path in _action_paths()
         if _runs_uv(_steps(load_workflow(path)))
+    )
+
+
+def _local_actions_pruning_cache() -> frozenset[str]:
+    """Return local actions with an explicit restore-time prune step."""
+    return frozenset(
+        f"./.github/actions/{path.parent.name}"
+        for path in _action_paths()
+        if _prune_indexes(_steps(load_workflow(path)))
     )
 
 
@@ -203,6 +255,129 @@ def _non_prune_uv_run_indexes(steps: list[dict[str, typ.Any]]) -> list[int]:
     ]
 
 
+def _local_action_indexes(
+    steps: list[dict[str, typ.Any]], actions: frozenset[str]
+) -> list[int]:
+    """Return positions of local actions in *actions*."""
+    return [
+        index
+        for index, step in enumerate(steps)
+        if isinstance(step.get("uses"), str) and step["uses"] in actions
+    ]
+
+
+def _probe_wheel_files() -> dict[str, bytes]:
+    """Return a minimal local wheel that can seed uv's ephemeral environment."""
+    return {
+        "uv_cache_prune_probe/__init__.py": b"VALUE = 'cache-prune-probe'\n",
+        "uv_cache_prune_probe-1.0.dist-info/METADATA": (
+            b"Metadata-Version: 2.1\nName: uv-cache-prune-probe\nVersion: 1.0\n\n"
+        ),
+        "uv_cache_prune_probe-1.0.dist-info/WHEEL": (
+            b"Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\n"
+            b"Tag: py3-none-any\n\n"
+        ),
+    }
+
+
+def _wheel_record(files: dict[str, bytes], record_name: str) -> bytes:
+    """Return the CSV RECORD for a small pure-Python wheel."""
+    record = io.StringIO()
+    writer = csv.writer(record, lineterminator="\n")
+    for name, content in files.items():
+        digest = base64.urlsafe_b64encode(hashlib.sha256(content).digest())
+        writer.writerow((name, f"sha256={digest.rstrip(b'=').decode()}", len(content)))
+    writer.writerow((record_name, "", ""))
+    return record.getvalue().encode()
+
+
+def _write_probe_wheel(path: Path) -> Path:
+    """Write a local wheel without invoking a build backend or the network."""
+    files = _probe_wheel_files()
+    record_name = "uv_cache_prune_probe-1.0.dist-info/RECORD"
+    files[record_name] = _wheel_record(files, record_name)
+    with zipfile.ZipFile(path, "w") as wheel:
+        for name, contents in files.items():
+            wheel.writestr(name, contents)
+    return path
+
+
+def _run_uv(
+    executable: str, cache: Path, cwd: Path, *arguments: str
+) -> tuple[int, str, str]:
+    """Run uv with an isolated cache and no interpreter downloads."""
+    command = (
+        local[executable][list(arguments)]
+        .with_cwd(cwd)
+        .with_env(
+            UV_CACHE_DIR=str(cache),
+            UV_PYTHON_DOWNLOADS="never",
+            UV_NO_PROGRESS="1",
+        )
+    )
+    return command.run(retcode=None)
+
+
+def test_action_manifest_discovery_rejects_a_missing_directory(tmp_path: Path) -> None:
+    """Fail with the path when the action directory cannot be listed."""
+    missing = tmp_path / "missing-actions"
+    with pytest.raises(ValueError, match="cannot list actions"):
+        _action_paths(missing)
+
+
+def test_action_manifest_discovery_rejects_a_missing_manifest(
+    tmp_path: Path,
+) -> None:
+    """Fail collection when an action directory has no manifest."""
+    (tmp_path / "broken-action").mkdir()
+    with pytest.raises(ValueError, match=r"missing action\.yml"):
+        _action_paths(tmp_path)
+
+
+def test_steps_rejects_non_mapping_entries() -> None:
+    """Report malformed step entries at the manifest boundary."""
+    document = {"runs": {"using": "composite", "steps": [None]}}
+    with pytest.raises(TypeError, match="step 0 is not a mapping"):
+        _steps(document)
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
+def test_uv_cache_prune_removes_a_script_environment(tmp_path: Path) -> None:
+    """Remove an isolated ephemeral environment before another script uses it."""
+    executable = shutil.which("uv")
+    assert executable is not None
+
+    cache = tmp_path / "uv-cache"
+    wheel = _write_probe_wheel(tmp_path / "uv_cache_prune_probe-1.0-py3-none-any.whl")
+    script = tmp_path / "run_probe.py"
+    script.write_text(
+        "from uv_cache_prune_probe import VALUE\nprint(VALUE)\n",
+        encoding="utf-8",
+    )
+    run = _run_uv(
+        executable,
+        cache,
+        tmp_path,
+        "run",
+        "--no-project",
+        "--with",
+        str(wheel),
+        str(script),
+    )
+    run_code, stdout, stderr = run
+    assert run_code == 0, stderr
+    assert stdout.strip() == "cache-prune-probe"
+
+    environments = cache / "environments-v2"
+    assert environments.is_dir()
+    assert list(environments.iterdir())
+
+    prune_code, _, prune_stderr = _run_uv(executable, cache, tmp_path, "cache", "prune")
+    assert prune_code == 0, prune_stderr
+    remaining = list(environments.iterdir()) if environments.exists() else []
+    assert not remaining, f"uv cache prune left environment entries: {remaining}"
+
+
 class TestCachingSetupUvStepsPrune:
     """A `setup-uv` that may write a cache must never archive environments."""
 
@@ -242,6 +417,48 @@ class TestCachingSetupUvStepsPrune:
                 f"{name}:{job_id}: {step.get('name')!r} may save a uv cache "
                 f"without prune-cache: true, got {given!r}"
             )
+
+
+class TestWorkflowsPruneAtRestore:
+    """A workflow must clean a restored cache before its direct uv use."""
+
+    @pytest.mark.parametrize(("name", "job_id", "steps"), _workflow_uv_jobs())
+    def test_workflow_prunes_before_its_first_uv_run(
+        self, name: str, job_id: str, steps: list[dict[str, typ.Any]]
+    ) -> None:
+        """A lane-level or earlier local-action prune must precede direct use."""
+        direct_uv_indexes = _non_prune_uv_run_indexes(steps)
+        if not direct_uv_indexes:
+            return
+
+        first_uv_run = min(direct_uv_indexes)
+        caching_setup_indexes = [
+            index
+            for index, step in enumerate(steps)
+            if _is_setup_uv(step) and _caches_by_default(step)
+        ]
+        if not caching_setup_indexes:
+            return
+
+        prior_setup_indexes = [
+            index for index in caching_setup_indexes if index < first_uv_run
+        ]
+        if not prior_setup_indexes:
+            return
+
+        restore_prune_indexes = _prune_indexes(steps)
+        restore_prune_indexes.extend(
+            _local_action_indexes(steps, _local_actions_pruning_cache())
+        )
+        latest_setup = max(prior_setup_indexes)
+        has_prior_prune = any(
+            latest_setup < index < first_uv_run for index in restore_prune_indexes
+        )
+        assert has_prior_prune, (
+            f"{name}:{job_id}: no restore-time prune follows the cache-writing "
+            f"setup-uv at step {latest_setup} and precedes the first direct uv "
+            f"run at step {first_uv_run}"
+        )
 
 
 class TestActionsPruneAtRestore:

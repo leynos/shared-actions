@@ -151,10 +151,12 @@ def test_action_declares_no_inputs_and_prunes_before_its_bash_step() -> None:
     steps = action["runs"]["steps"]
     assert action["inputs"] == {}, "versions are pinned in the action, not passed"
     assert action["runs"]["using"] == "composite"
-    assert steps[0]["name"] == "Prune restored uv cache"
-    assert "prune_uv_cache.sh" in steps[0]["run"]
-    assert steps[1]["name"] == "Install yamllint, actionlint and shellcheck"
-    assert steps[1]["shell"] == "bash"
+    assert steps[0]["name"] == "Prune restored uv cache", "first step must prune"
+    assert "prune_uv_cache.sh" in steps[0]["run"], "prune must use the shared script"
+    assert steps[1]["name"] == "Install yamllint, actionlint and shellcheck", (
+        "install must follow the prune step"
+    )
+    assert steps[1]["shell"] == "bash", "install step must run under Bash"
 
 
 def test_every_platform_digest_is_a_full_sha256() -> None:

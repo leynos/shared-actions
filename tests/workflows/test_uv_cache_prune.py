@@ -32,6 +32,7 @@ import csv
 import hashlib
 import io
 import os
+import re
 import shutil
 import typing as typ
 import zipfile
@@ -54,6 +55,7 @@ SETUP_UV_PREFIX: typ.Final[str] = "astral-sh/setup-uv@"
 
 #: The step name of the restore-time prune.
 PRUNE_STEP: typ.Final[str] = "Prune restored uv cache"
+_UV_COMMAND: typ.Final[re.Pattern[str]] = re.compile(r"(?<![\w./-])uvx?(?![\w.-])")
 
 #: No lane is exempt. Measured against uv 0.12.19, `uv run --script` and an
 #: ephemeral `uv run --with` both write an `environments-v2` entry, while a
@@ -147,7 +149,28 @@ def _runs_uv(steps: list[dict[str, typ.Any]]) -> bool:
 def _is_uv_run(step: dict[str, typ.Any]) -> bool:
     """Return whether a step's run command invokes `uv`."""
     run = step.get("run")
-    return isinstance(run, str) and "uv " in run
+    return isinstance(run, str) and _UV_COMMAND.search(run) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "uv run --script check.py",
+        "uv tool run actionlint",
+        "uvx --from yamllint yamllint .",
+    ],
+)
+def test_is_uv_run_recognizes_uv_and_uvx_commands(command: str) -> None:
+    """Recognize uv and uvx tokens, including the existing tool-run form."""
+    assert _is_uv_run({"run": command}), f"did not recognize uv command: {command!r}"
+
+
+@pytest.mark.parametrize("command", ["notuv run check.py", "uvx-wrapper check.py"])
+def test_is_uv_run_rejects_unrelated_command_names(command: str) -> None:
+    """Do not treat longer command names containing uv as uv invocations."""
+    assert not _is_uv_run({"run": command}), (
+        f"incorrectly recognized unrelated command: {command!r}"
+    )
 
 
 def _action_manifest(entry: Path) -> Path | None:
@@ -394,7 +417,7 @@ def test_steps_rejects_non_mapping_entries() -> None:
 def test_uv_cache_prune_removes_a_script_environment(tmp_path: Path) -> None:
     """Remove an isolated ephemeral environment before another script uses it."""
     executable = shutil.which("uv")
-    assert executable is not None
+    assert executable is not None, "uv executable is required for this test"
 
     cache = tmp_path / "uv-cache"
     wheel = _write_probe_wheel(tmp_path / "uv_cache_prune_probe-1.0-py3-none-any.whl")
@@ -414,19 +437,28 @@ def test_uv_cache_prune_removes_a_script_environment(tmp_path: Path) -> None:
         str(script),
     )
     run_code, stdout, stderr = run
-    assert run_code == 0, stderr
-    assert stdout.strip() == "cache-prune-probe"
+    assert run_code == 0, f"uv --with exited {run_code}, expected 0: {stderr!r}"
+    assert stdout.strip() == "cache-prune-probe", (
+        f"uv --with printed unexpected output: {stdout!r}"
+    )
 
     environments = cache / "environments-v2"
-    assert environments.is_dir()
-    assert list(environments.iterdir())
+    assert environments.is_dir(), f"uv --with did not create {environments}"
+    entries = list(environments.iterdir())
+    assert entries, f"uv --with created no entries under {environments}"
 
     summary = tmp_path / "success-summary.md"
     prune_code, prune_stdout, prune_stderr = _run_prune_script(cache, tmp_path, summary)
-    assert prune_code == 0, prune_stderr
-    assert "metric uv-cache-prune.outcome=success" in prune_stdout
-    assert "metric uv-cache-prune.outcome=success" in summary.read_text(
-        encoding="utf-8"
+    assert prune_code == 0, (
+        f"uv cache prune exited {prune_code}, expected 0: {prune_stderr!r}"
+    )
+    success_metric = "metric uv-cache-prune.outcome=success"
+    assert success_metric in prune_stdout, (
+        f"success metric missing from stdout: {prune_stdout!r}"
+    )
+    summary_text = summary.read_text(encoding="utf-8")
+    assert success_metric in summary_text, (
+        f"success metric missing from step summary: {summary_text!r}"
     )
     remaining = list(environments.iterdir()) if environments.exists() else []
     assert not remaining, f"uv cache prune left environment entries: {remaining}"
@@ -447,10 +479,38 @@ def test_prune_script_reports_failure_and_preserves_uv_status(tmp_path: Path) ->
         tmp_path / "uv-cache", tmp_path, summary, path
     )
 
-    assert exit_code == 37, stderr
-    assert "metric uv-cache-prune.outcome=failure" in stdout
-    assert "metric uv-cache-prune.outcome=failure" in summary.read_text(
-        encoding="utf-8"
+    assert exit_code == 37, (
+        f"uv cache prune exited {exit_code}, expected uv status 37: {stderr!r}"
+    )
+    failure_metric = "metric uv-cache-prune.outcome=failure"
+    assert failure_metric in stdout, f"failure metric missing from stdout: {stdout!r}"
+    summary_text = summary.read_text(encoding="utf-8")
+    assert failure_metric in summary_text, (
+        f"failure metric missing from step summary: {summary_text!r}"
+    )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX uv command stub")
+def test_prune_success_survives_an_unwritable_step_summary(tmp_path: Path) -> None:
+    """A summary-write error must not fail an otherwise successful prune."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_uv = fake_bin / "uv"
+    fake_uv.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    fake_uv.chmod(0o755)
+    summary = tmp_path / "summary-directory"
+    summary.mkdir()
+    path = os.pathsep.join((str(fake_bin), os.environ["PATH"]))
+
+    exit_code, stdout, stderr = _run_prune_script(
+        tmp_path / "uv-cache", tmp_path, summary, path
+    )
+
+    assert exit_code == 0, f"successful uv cache prune returned {exit_code}: {stderr!r}"
+    success_metric = "metric uv-cache-prune.outcome=success"
+    assert success_metric in stdout, f"success metric missing from stdout: {stdout!r}"
+    assert "Could not write the uv cache prune success metric." in stderr, (
+        f"expected a summary-write warning in stderr: {stderr!r}"
     )
 
 

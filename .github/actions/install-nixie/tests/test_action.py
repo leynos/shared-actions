@@ -325,8 +325,12 @@ def test_action_prunes_the_callers_restored_cache_before_uv_install() -> None:
     prune_index = names.index("Prune restored uv cache")
     install_index = names.index("Install Nixie and Merman CLI")
 
-    assert prune_index < install_index
-    assert "prune_uv_cache.sh" in steps[prune_index]["run"]
+    assert prune_index < install_index, (
+        f"prune step at {prune_index} must precede install step at {install_index}"
+    )
+    assert "prune_uv_cache.sh" in steps[prune_index]["run"], (
+        "prune step must run the shared prune_uv_cache.sh script"
+    )
 
 
 def test_install_script_uses_cached_merman_and_normal_nixie_reconciliation(

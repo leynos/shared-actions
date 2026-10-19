@@ -13,7 +13,9 @@ emit_metric() {
 }
 
 if uv cache prune; then
-  emit_metric success
+  if ! emit_metric success; then
+    printf '%s\n' 'Could not write the uv cache prune success metric.' >&2
+  fi
 else
   uv_status=$?
   if ! emit_metric failure; then

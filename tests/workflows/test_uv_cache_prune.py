@@ -39,6 +39,8 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from plumbum import local
 
 from . import _workflow_reading as reading
@@ -267,13 +269,14 @@ def _setup_uv_indexes(steps: list[dict[str, typ.Any]]) -> list[int]:
     return [index for index, step in enumerate(steps) if _is_setup_uv(step)]
 
 
+def _is_named_prune(step: dict[str, typ.Any]) -> bool:
+    """Return whether *step* is the named cache-prune command."""
+    return step.get("name") == PRUNE_STEP and _prunes(step)
+
+
 def _prune_indexes(steps: list[dict[str, typ.Any]]) -> list[int]:
     """Return positions of named uv cache prune steps."""
-    return [
-        index
-        for index, step in enumerate(steps)
-        if step.get("name") == PRUNE_STEP and _prunes(step)
-    ]
+    return [index for index, step in enumerate(steps) if _is_named_prune(step)]
 
 
 def _non_prune_uv_run_indexes(steps: list[dict[str, typ.Any]]) -> list[int]:
@@ -390,6 +393,47 @@ def _run_prune_script(
     return command.run(retcode=None)
 
 
+def _run_manifest_prune_step(
+    action_id: str,
+    cache: Path,
+    cwd: Path,
+    summary: Path,
+    path: str | None = None,
+) -> tuple[int, str, str]:
+    """Run an action manifest's real prune step with isolated cache inputs."""
+    manifest = ACTIONS_DIRECTORY / action_id / "action.yml"
+    steps = _steps(load_workflow(manifest))
+    prune_steps = [step for step in steps if _is_named_prune(step)]
+    assert len(prune_steps) == 1, (
+        f"{action_id}: expected one {PRUNE_STEP!r} step, found {len(prune_steps)}"
+    )
+    step = prune_steps[0]
+    shell = step.get("shell")
+    run = step.get("run")
+    assert isinstance(shell, str), f"{action_id}: prune step has no shell"
+    assert isinstance(run, str), f"{action_id}: prune step has no run command"
+    action_path = manifest.parent.as_posix()
+    run = run.replace("${{ github.action_path }}", action_path)
+    assert "${{ github.action_path }}" not in run, (
+        f"{action_id}: unresolved github.action_path in prune command"
+    )
+
+    environment = {
+        "GITHUB_STEP_SUMMARY": str(summary),
+        "UV_CACHE_DIR": str(cache),
+        "UV_NO_PROGRESS": "1",
+        "UV_PYTHON_DOWNLOADS": "never",
+    }
+    if path is not None:
+        environment["PATH"] = path
+    command = (
+        local[shell]["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", run]
+        .with_cwd(cwd)
+        .with_env(**environment)
+    )
+    return command.run(retcode=None)
+
+
 def test_action_manifest_discovery_rejects_a_missing_directory(tmp_path: Path) -> None:
     """Fail with the path when the action directory cannot be listed."""
     missing = tmp_path / "missing-actions"
@@ -413,9 +457,12 @@ def test_steps_rejects_non_mapping_entries() -> None:
         _steps(document)
 
 
-@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
+@pytest.mark.skipif(
+    shutil.which("uv") is None or shutil.which("bash") is None,
+    reason="uv and bash are required for the action boundary test",
+)
 def test_uv_cache_prune_removes_a_script_environment(tmp_path: Path) -> None:
-    """Remove an isolated ephemeral environment before another script uses it."""
+    """Prune through the action step before a later uv command uses the cache."""
     executable = shutil.which("uv")
     assert executable is not None, "uv executable is required for this test"
 
@@ -448,7 +495,9 @@ def test_uv_cache_prune_removes_a_script_environment(tmp_path: Path) -> None:
     assert entries, f"uv --with created no entries under {environments}"
 
     summary = tmp_path / "success-summary.md"
-    prune_code, prune_stdout, prune_stderr = _run_prune_script(cache, tmp_path, summary)
+    prune_code, prune_stdout, prune_stderr = _run_manifest_prune_step(
+        "install-yaml-lint", cache, tmp_path, summary
+    )
     assert prune_code == 0, (
         f"uv cache prune exited {prune_code}, expected 0: {prune_stderr!r}"
     )
@@ -463,10 +512,33 @@ def test_uv_cache_prune_removes_a_script_environment(tmp_path: Path) -> None:
     remaining = list(environments.iterdir()) if environments.exists() else []
     assert not remaining, f"uv cache prune left environment entries: {remaining}"
 
+    later_run = _run_uv(
+        executable,
+        cache,
+        tmp_path,
+        "run",
+        "--no-project",
+        "--with",
+        str(wheel),
+        str(script),
+    )
+    later_code, later_stdout, later_stderr = later_run
+    assert later_code == 0, (
+        f"later uv command exited {later_code}, expected 0: {later_stderr!r}"
+    )
+    assert later_stdout.strip() == "cache-prune-probe", (
+        f"later uv command printed unexpected output: {later_stdout!r}"
+    )
 
-@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX uv command stub")
-def test_prune_script_reports_failure_and_preserves_uv_status(tmp_path: Path) -> None:
-    """Emit a bounded failure metric and return uv's original error status."""
+
+@pytest.mark.skipif(
+    os.name == "nt" or shutil.which("bash") is None,
+    reason="uses a POSIX uv command stub through the action shell",
+)
+def test_action_prune_step_reports_failure_and_preserves_uv_status(
+    tmp_path: Path,
+) -> None:
+    """Fail the manifest boundary with uv's status and a bounded metric."""
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     fake_uv = fake_bin / "uv"
@@ -475,8 +547,8 @@ def test_prune_script_reports_failure_and_preserves_uv_status(tmp_path: Path) ->
     summary = tmp_path / "failure-summary.md"
     path = os.pathsep.join((str(fake_bin), os.environ["PATH"]))
 
-    exit_code, stdout, stderr = _run_prune_script(
-        tmp_path / "uv-cache", tmp_path, summary, path
+    exit_code, stdout, stderr = _run_manifest_prune_step(
+        "install-yaml-lint", tmp_path / "uv-cache", tmp_path, summary, path
     )
 
     assert exit_code == 37, (
@@ -651,3 +723,44 @@ class TestActionsPruneAtRestore:
         ]
 
         _validate_action_prune_order("inherits-setup-uv", steps)
+
+    @given(
+        step_kinds=st.lists(
+            st.sampled_from(("setup", "prune", "uv", "other")),
+            min_size=0,
+            max_size=12,
+        )
+    )
+    @settings(max_examples=200, deadline=None)
+    def test_prune_order_matches_generated_step_sequences(
+        self, step_kinds: list[str]
+    ) -> None:
+        """Match the ordering contract across bounded generated step lists."""
+        steps_by_kind = {
+            "setup": {"uses": f"{SETUP_UV_PREFIX}v6"},
+            "prune": {
+                "name": PRUNE_STEP,
+                "run": "bash .github/scripts/prune_uv_cache.sh",
+            },
+            "uv": {"run": "uv run --script check.py"},
+            "other": {"run": "echo ready"},
+        }
+        steps = [steps_by_kind[kind].copy() for kind in step_kinds]
+        uv_indexes = [index for index, kind in enumerate(step_kinds) if kind == "uv"]
+        prune_indexes = [
+            index for index, kind in enumerate(step_kinds) if kind == "prune"
+        ]
+        setup_indexes = [
+            index for index, kind in enumerate(step_kinds) if kind == "setup"
+        ]
+        expected_valid = not uv_indexes or (
+            bool(prune_indexes)
+            and min(prune_indexes) < min(uv_indexes)
+            and (not setup_indexes or max(setup_indexes) < min(prune_indexes))
+        )
+
+        if expected_valid:
+            _validate_action_prune_order("generated-order", steps)
+        else:
+            with pytest.raises(AssertionError):
+                _validate_action_prune_order("generated-order", steps)

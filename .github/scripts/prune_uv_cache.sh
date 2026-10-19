@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 
+# Prune interpreter-bound script environments from the uv cache restored by
+# the caller's setup-uv step while retaining reusable package downloads. The
+# affected workflows and composite actions call this after cache setup and
+# before their first uv command. Emit a bounded outcome metric and preserve
+# uv's failure status so a stale environment cannot be used after a failed
+# prune.
+
 set -euo pipefail
 
 emit_metric() {

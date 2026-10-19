@@ -78,6 +78,13 @@ To override the Nixie and Python pins:
   exact requested version token. A mismatched or unusable cache entry is
   removed and reconciled through cargo-binstall. Cache callers should persist
   `~/.cache/merman`.
+- **Release lookup authentication**: cargo-binstall resolves the release
+  through the GitHub API, so the action passes `${{ github.token }}` to that
+  one command. That lifts cold installs from the address-shared anonymous rate
+  limit to the repository's authenticated budget. The token is mapped under
+  `MERMAN_GITHUB_TOKEN`, captured, and unset before any other command runs, so
+  the cached or freshly installed Merman binary, and Nixie, never inherit it. A
+  job with no token falls back to unauthenticated requests.
 - **Merman trust and verification**: the action trusts cargo-binstall `1.22.0`,
   crates.io package metadata and checksums, and the binary sources selected by
   cargo-binstall (the crate's release metadata and/or its quick-install binary

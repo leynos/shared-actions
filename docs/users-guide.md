@@ -1575,11 +1575,11 @@ Pass an extra flag required by the source tree:
 
 ## Install Nixie
 
-The `install-nixie` action installs pinned Nixie and a checksum-verified Merman
-command-line interface (CLI) release for Mermaid validation. The runner must
-already provide `uv` and `curl` on `PATH`. Linux and macOS runners must also
-provide `shasum` and `tar`; Windows runners must provide Git Bash's `cygpath`
-and `powershell.exe`.
+The `install-nixie` action installs pinned Nixie and a version-checked Merman
+command-line interface (CLI) binary for Mermaid validation. The runner must
+already provide `uv` and Cargo on `PATH`; an absent `uv` or `cargo` fails
+before anything is installed. Windows runners must also provide Git Bash's
+`cygpath`.
 
 To use the action from this repository, check out the repository before calling
 the local action:
@@ -1604,7 +1604,7 @@ The action accepts three optional version inputs:
 | Input            | Default | Purpose                            |
 | ---------------- | ------- | ---------------------------------- |
 | `nixie-version`  | `1.1.0` | Nixie CLI release                  |
-| `merman-version` | `0.7.0` | Verified Merman CLI release        |
+| `merman-version` | `0.7.0` | Merman CLI version to install      |
 | `python-version` | `3.14`  | Python used by uv to install Nixie |
 
 Override the Nixie and Python pins when validating another supported toolchain
@@ -1618,14 +1618,29 @@ combination:
     python-version: "3.13"
 ```
 
-Merman version `0.7.0` is the only supported `merman-version`: each supported
-runner pair (`Linux/X64`, `macOS/X64`, `macOS/ARM64`, and `Windows/X64`) has a
-named official release archive and a checksum embedded in the action. Other
-Merman versions and platforms fail closed before download. The action stores
-Merman in `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/0.7.0/bin` (`.exe` on
-Windows), verifies its executable digest before every reuse, and verifies the
-official archive on a cache miss. Callers that persist tool caches must include
-`~/.cache/merman`. The action never invokes Cargo or builds Merman from source.
+Any `merman-version` with the numeric `major.minor.patch` form is accepted. The
+action recognizes the runner pairs `Linux/X64`, `macOS/X64`, `macOS/ARM64`, and
+`Windows/X64` and asks `cargo-binstall` for the matching target triple, with
+source compilation disabled. A version that publishes no compatible prebuilt
+binary fails closed rather than building from source, and any other platform
+fails before installing. The action stores Merman in
+`${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin` (`.exe` on Windows)
+and reuses that entry only when it runs and reports the exact requested
+version; otherwise it removes the entry and reinstalls it. Callers that persist
+tool caches must include `~/.cache/merman`.
+
+`cargo-binstall` resolves the release through the GitHub API. The action passes
+the job token to that one command, so cold installs get the repository's
+authenticated rate limit instead of the address-shared anonymous one. Nothing
+else started by the step inherits the token: the cached and freshly installed
+Merman binaries and Nixie run without it. A job with no token falls back to
+unauthenticated requests.
+
+Merman's trust comes from crates.io metadata and checksums and from the binary
+sources `cargo-binstall` selects; signatures are verified when the release
+supplies them, and unsigned binaries are accepted. The action's own check is
+that the installed command runs and reports the requested version, which does
+not authenticate the binary's publisher or contents.
 
 Nixie uses ordinary `uv tool install` reconciliation. The action requests
 `--force` only when the expected executable shim is absent afterwards, and does

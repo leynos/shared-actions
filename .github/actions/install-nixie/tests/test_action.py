@@ -54,6 +54,7 @@ class _InstallOptions:
     python_version: str = "3.14"
     include_uv: bool = True
     include_cargo: bool = True
+    github_token: str | None = None
     runner_arch: str = "X64"
     runner_os: str = "Linux"
     uv_bin_dir_output: str | None = None
@@ -98,10 +99,16 @@ def _write_executable(path: Path, content: str, *, executable: bool = True) -> N
 
 
 def _merman_stub(version: str, exit_status: int) -> str:
-    """Return a Merman command stub that reports a fixed version."""
+    """Return a Merman command stub that reports a fixed version.
+
+    It also records the credential it inherited, because the action is
+    expected to probe an unsigned executable with no token in its
+    environment.
+    """
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
+        'printf \'merman token=<%s>\\n\' "${GITHUB_TOKEN-unset}" >> "$TOKEN_LOG"\n'
         'if [[ "${1:-}" == "--version" ]]; then\n'
         f"  printf '%s\\n' 'merman-cli {version}'\n"
         f"  exit {exit_status}\n"
@@ -128,6 +135,7 @@ exec cargo-binstall "$@"
         """#!/usr/bin/env bash
 set -euo pipefail
 printf 'cargo binstall <%s>\\n' "$*" >> "$CALLS_PATH"
+printf 'binstall token=<%s>\\n' "${GITHUB_TOKEN-unset}" >> "$TOKEN_LOG"
 if [[ "$BINSTALL_INSTALL_STATUS" != "0" ]]; then
   exit "$BINSTALL_INSTALL_STATUS"
 fi
@@ -308,6 +316,7 @@ def _install_environment(
 
     calls_path = tmp_path / "calls"
     github_path = tmp_path / "github-path"
+    token_log = tmp_path / "token-log"
     cache_home = tmp_path / "cache-home"
     uv_bin_dir = tmp_path / "uv-bin"
     uv_bin_dir_output = options.uv_bin_dir_output or uv_bin_dir.as_posix()
@@ -327,8 +336,15 @@ def _install_environment(
         )
 
     path = _isolated_path(stubs_dir, bash) if options.include_uv else str(stubs_dir)
+    action_env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"GITHUB_TOKEN", "GH_TOKEN", "MERMAN_GITHUB_TOKEN"}
+    }
+    if options.github_token is not None:
+        action_env["MERMAN_GITHUB_TOKEN"] = options.github_token
     return {
-        **os.environ,
+        **action_env,
         "BINSTALL_CREATES_MERMAN": str(options.install_creates_merman).lower(),
         "BINSTALL_INSTALL_STATUS": str(options.merman_install_status),
         "BINSTALL_MERMAN_EXECUTABLE": str(options.install_merman_executable).lower(),
@@ -338,6 +354,7 @@ def _install_environment(
         ),
         "CALLS_PATH": calls_path.as_posix(),
         "GITHUB_PATH": github_path.as_posix(),
+        "TOKEN_LOG": token_log.as_posix(),
         "MERMAN_EXECUTABLE": merman_executable,
         "MERMAN_VERSION": options.merman_version,
         "NIXIE_SHIM_AFTER_FORCE": str(options.nixie_shim_after_force).lower(),
@@ -377,6 +394,62 @@ def _expected_binstall_call(bin_dir: Path, version: str, target: str) -> str:
         f"--targets {target} --install-path {bin_dir.as_posix()} "
         f"--version ={version} merman-cli>"
     )
+
+
+def _token_observations(tmp_path: Path) -> list[str]:
+    """Return the credentials each Merman binary saw, in invocation order."""
+    return (tmp_path / "token-log").read_text(encoding="utf-8").splitlines()
+
+
+def test_caller_token_reaches_cargo_binstall_and_nothing_else(
+    tmp_path: Path,
+) -> None:
+    """Authenticate the release lookup without handing out the credential."""
+    options = _InstallOptions(
+        merman_cached=False,
+        github_token="caller-job-token",  # noqa: S106 - a stand-in, not a credential
+    )
+    result = _run_install_script(tmp_path, options)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(tmp_path)[0] == _expected_binstall_call(
+        tmp_path / "cache-home" / "merman" / "0.7.0" / "bin",
+        "0.7.0",
+        SUPPORTED_TARGETS[("Linux", "X64")],
+    )
+    # The freshly installed executable is probed for its version. That probe
+    # must not see the token, and neither may the stub cargo-binstall itself
+    # once it has recorded what its own invocation received.
+    assert _token_observations(tmp_path) == [
+        "binstall token=<caller-job-token>",
+        "merman token=<unset>",
+    ]
+
+
+def test_a_job_without_a_token_leaves_the_lookup_unauthenticated(
+    tmp_path: Path,
+) -> None:
+    """An absent job token must not become an empty credential."""
+    options = _InstallOptions(merman_cached=False, github_token=None)
+    result = _run_install_script(tmp_path, options)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(tmp_path)[0] == _expected_binstall_call(
+        tmp_path / "cache-home" / "merman" / "0.7.0" / "bin",
+        "0.7.0",
+        SUPPORTED_TARGETS[("Linux", "X64")],
+    )
+    assert "binstall token=<>" not in _token_observations(tmp_path)
+    assert _token_observations(tmp_path)[0] == "binstall token=<unset>"
+
+
+def test_install_step_maps_the_job_token_under_its_restricted_name() -> None:
+    """The token enters the step under a name no other child reads."""
+    env = _step_with_id(INSTALL_STEP_ID)["env"]
+
+    assert env["MERMAN_GITHUB_TOKEN"] == "${{ github.token }}"  # noqa: S105 - an expression, not a secret.
+    assert "GITHUB_TOKEN" not in env
+    assert "GH_TOKEN" not in env
 
 
 def test_manifest_preserves_input_defaults_and_selects_binary_only_merman() -> None:

@@ -40,8 +40,38 @@ runs:
         NIXIE_VERSION: ${{ inputs.nixie-version }}
         MERMAN_VERSION: ${{ inputs.merman-version }}
         PYTHON_VERSION: ${{ inputs.python-version }}
+        # Resolving the Merman release asset costs one `api.github.com` call,
+        # and unauthenticated calls are rate-limited per source address. The
+        # hosted macOS runners share addresses widely enough to receive
+        # `403 Forbidden`, after which cargo-binstall retries until it times
+        # out. The job token lifts the limit to a per-repository budget, and a
+        # job without one falls back to unauthenticated requests as before.
+        # It is kept under its own name because the variable is assigned on
+        # the `cargo binstall` command rather than exported from this step:
+        # the Merman version probe runs the unsigned executable, which must
+        # not inherit a credential. The fragment captures this value, unsets
+        # it, and re-supplies it only for the one `cargo binstall` call.
+        MERMAN_GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
+
+        # Not named `GITHUB_TOKEN` in the step environment: the cached and
+        # freshly installed Merman binary and Nixie are all started from this
+        # fragment, and none of them should inherit a credential. The value
+        # is captured, removed from the shell, and re-supplied for the one
+        # command that needs it.
+        github_token="${MERMAN_GITHUB_TOKEN:-}"
+        unset MERMAN_GITHUB_TOKEN
+        binstall_with_token() {
+          # The release lookup may present the job token when the caller
+          # supplies one. The assignment prefix scopes the value to this one
+          # command, so the Merman version probe and Nixie never see it.
+          if [[ -n "$github_token" ]]; then
+            GITHUB_TOKEN="$github_token" cargo binstall "$@"
+          else
+            cargo binstall "$@"
+          fi
+        }
 
         input_error() {
           echo "::error title=Install Nixie input::$1" >&2
@@ -108,7 +138,7 @@ runs:
             rm -f -- "$merman_path"
           fi
           mkdir -p -- "$merman_bin_dir"
-          if cargo binstall \
+          if binstall_with_token \
             --no-confirm \
             --disable-strategies=compile \
             --targets "$merman_target" \

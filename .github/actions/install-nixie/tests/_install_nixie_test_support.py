@@ -339,13 +339,13 @@ def _seed_merman_cache(
     )
 
 
+def _runner_executable(options: _InstallOptions, *, tool: str) -> str:
+    """Return a tool's executable name for the scenario's runner."""
+    return f"{tool}.exe" if options.runner_os == "Windows" else tool
+
+
 def _action_environment(
-    tmp_path: Path,
-    options: _InstallOptions,
-    *,
-    path: str,
-    merman_executable: str,
-    nixie_executable: str,
+    tmp_path: Path, options: _InstallOptions, *, path: str
 ) -> dict[str, str]:
     """Return the process environment the installation fragment receives."""
     action_env = {
@@ -368,7 +368,7 @@ def _action_environment(
         "CALLS_PATH": (tmp_path / "calls").as_posix(),
         "GITHUB_PATH": (tmp_path / "github-path").as_posix(),
         "TOKEN_LOG": (tmp_path / "token-log").as_posix(),
-        "MERMAN_EXECUTABLE": merman_executable,
+        "MERMAN_EXECUTABLE": _runner_executable(options, tool="merman-cli"),
         "MERMAN_VERSION": options.merman_version,
         "MERMAN_WINDOWS_BIN_DIR": (
             rf"C:\runner\cache\merman\{options.merman_version}\bin"
@@ -382,7 +382,7 @@ def _action_environment(
         "RUNNER_OS": options.runner_os,
         "UV_BIN_DIR": uv_bin_dir.as_posix(),
         "UV_BIN_DIR_OUTPUT": options.uv_bin_dir_output or uv_bin_dir.as_posix(),
-        "UV_EXECUTABLE": nixie_executable,
+        "UV_EXECUTABLE": _runner_executable(options, tool="nixie"),
         "UV_INSTALL_STATUS": str(options.uv_install_status),
         "XDG_CACHE_HOME": (tmp_path / "cache-home").as_posix(),
     }
@@ -394,18 +394,11 @@ def _install_environment(
     """Prepare deterministic CLI stubs, cache contents and action variables."""
     stubs_dir = tmp_path / "stubs"
     _write_stub_set(stubs_dir, options)
-    is_windows_runner = options.runner_os == "Windows"
-    merman_executable = "merman-cli.exe" if is_windows_runner else "merman-cli"
-    nixie_executable = "nixie.exe" if is_windows_runner else "nixie"
-    _seed_merman_cache(tmp_path, options, merman_executable)
-    path = _isolated_path(stubs_dir, bash) if options.include_uv else str(stubs_dir)
-    return _action_environment(
-        tmp_path,
-        options,
-        path=path,
-        merman_executable=merman_executable,
-        nixie_executable=nixie_executable,
+    _seed_merman_cache(
+        tmp_path, options, _runner_executable(options, tool="merman-cli")
     )
+    path = _isolated_path(stubs_dir, bash) if options.include_uv else str(stubs_dir)
+    return _action_environment(tmp_path, options, path=path)
 
 
 def _calls(tmp_path: Path, *, probe: bool = False) -> list[str]:

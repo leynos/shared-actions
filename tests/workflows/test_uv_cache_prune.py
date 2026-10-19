@@ -58,18 +58,22 @@ def _steps(document: object) -> list[dict[str, typ.Any]]:
     if not isinstance(document, dict):
         message = f"manifest is not a mapping: {document!r}"
         raise TypeError(message)
-    if "runs" in document:
-        runs = document["runs"]
-        if not isinstance(runs, dict):
-            message = f"'runs' is not a mapping: {runs!r}"
-            raise TypeError(message)
-        steps = runs.get("steps")
-    else:
-        steps = document.get("steps")
+    steps = _manifest_steps(document)
     if not isinstance(steps, list):
         message = f"manifest has no step list: {steps!r}"
         raise TypeError(message)
     return typ.cast("list[dict[str, typ.Any]]", steps)
+
+
+def _manifest_steps(document: dict[str, typ.Any]) -> object:
+    """Return a workflow's steps or a composite action's steps."""
+    if "runs" not in document:
+        return document.get("steps")
+    runs = document["runs"]
+    if not isinstance(runs, dict):
+        message = f"'runs' is not a mapping: {runs!r}"
+        raise TypeError(message)
+    return runs.get("steps")
 
 
 def _is_true(value: object) -> bool:
@@ -118,7 +122,13 @@ def _prunes(step: dict[str, typ.Any]) -> bool:
 
 def _runs_uv(steps: list[dict[str, typ.Any]]) -> bool:
     """Return whether any step in the list invokes `uv`."""
-    return any("uv " in str(step.get("run", "")) for step in steps)
+    return any(_is_uv_run(step) for step in steps)
+
+
+def _is_uv_run(step: dict[str, typ.Any]) -> bool:
+    """Return whether a step's run command invokes `uv`."""
+    run = step.get("run")
+    return isinstance(run, str) and "uv " in run
 
 
 def _action_paths() -> list[Path]:
@@ -131,17 +141,66 @@ def _action_ids() -> list[str]:
     return [path.parent.name for path in _action_paths()]
 
 
+def _local_actions_running_uv() -> frozenset[str]:
+    """Return local composite-action paths whose steps invoke `uv`."""
+    return frozenset(
+        f"./.github/actions/{path.parent.name}"
+        for path in _action_paths()
+        if _runs_uv(_steps(load_workflow(path)))
+    )
+
+
+def _uses_local_uv_action(
+    steps: list[dict[str, typ.Any]], local_uv_actions: frozenset[str]
+) -> bool:
+    """Return whether workflow steps invoke a local action that runs `uv`."""
+    return any(
+        isinstance(step.get("uses"), str) and step["uses"] in local_uv_actions
+        for step in steps
+    )
+
+
 def _workflow_uv_jobs() -> list[tuple[str, str, list[dict[str, typ.Any]]]]:
-    """Return each (workflow, job id, steps) whose steps run `uv`."""
+    """Return workflow jobs that run `uv` directly or through a local action."""
     found: list[tuple[str, str, list[dict[str, typ.Any]]]] = []
+    local_uv_actions = _local_actions_running_uv()
     for name in reading.workflow_names():
         document = reading.load_workflow(name)
         jobs = typ.cast("dict[str, typ.Any]", document)["jobs"]
         for job_id, body in jobs.items():
             steps = body.get("steps") or []
-            if _runs_uv(steps):
+            if _runs_uv(steps) or _uses_local_uv_action(steps, local_uv_actions):
                 found.append((name, job_id, steps))
     return found
+
+
+def test_workflow_uv_jobs_includes_local_uv_actions() -> None:
+    """Include the YAML lint lane, whose local action is its only uv caller."""
+    workflow_jobs = {(name, job_id) for name, job_id, _ in _workflow_uv_jobs()}
+    assert ("test-install-yaml-lint.yml", "install-yaml-lint") in workflow_jobs
+
+
+def _setup_uv_indexes(steps: list[dict[str, typ.Any]]) -> list[int]:
+    """Return positions of setup-uv steps."""
+    return [index for index, step in enumerate(steps) if _is_setup_uv(step)]
+
+
+def _prune_indexes(steps: list[dict[str, typ.Any]]) -> list[int]:
+    """Return positions of named uv cache prune steps."""
+    return [
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == PRUNE_STEP and _prunes(step)
+    ]
+
+
+def _non_prune_uv_run_indexes(steps: list[dict[str, typ.Any]]) -> list[int]:
+    """Return positions of uv runs other than the cache prune itself."""
+    return [
+        index
+        for index, step in enumerate(steps)
+        if _is_uv_run(step) and not _prunes(step)
+    ]
 
 
 class TestCachingSetupUvStepsPrune:
@@ -199,33 +258,22 @@ class TestActionsPruneAtRestore:
         """
         manifest = REPOSITORY_ROOT / ".github" / "actions" / action_id / "action.yml"
         steps = _steps(load_workflow(manifest))
-        setup_indexes = [
-            index for index, step in enumerate(steps) if _is_setup_uv(step)
-        ]
+        setup_indexes = _setup_uv_indexes(steps)
         if not setup_indexes:
             return
         # The prune step runs `uv cache prune`, so it matches the probe
         # above; excluding it is what makes the comparison about the first
         # invocation that could consume a restored environment.
-        uv_run_indexes = [
-            index
-            for index, step in enumerate(steps)
-            if isinstance(step.get("run"), str)
-            and "uv " in step["run"]
-            and not _prunes(step)
-        ]
+        uv_run_indexes = _non_prune_uv_run_indexes(steps)
         if not uv_run_indexes:
             return
 
         first_uv_run = min(uv_run_indexes)
-        prune_indexes = [
-            index
-            for index, step in enumerate(steps)
-            if step.get("name") == PRUNE_STEP and _prunes(step)
-        ]
+        prune_indexes = _prune_indexes(steps)
 
         assert prune_indexes, f"{action_id}: no {PRUNE_STEP!r} step"
-        assert min(prune_indexes) < first_uv_run, (
-            f"{action_id}: {PRUNE_STEP!r} must precede the first `uv` run at "
-            f"step {first_uv_run}, found it at {min(prune_indexes)}"
+        assert max(setup_indexes) < min(prune_indexes) < first_uv_run, (
+            f"{action_id}: {PRUNE_STEP!r} must follow the last setup-uv step "
+            f"and precede the first `uv` run at step {first_uv_run}, found "
+            f"setup at {max(setup_indexes)} and prune at {min(prune_indexes)}"
         )

@@ -10,11 +10,10 @@ this file.
   interpreter that built it. A cache restored on a runner whose Python patch
   version differs then fails before the first script runs: the Windows venv
   launcher exits 103 with "did not find executable", which stopped every Windows
-  `build-release` lane on PR #412. `Setup uv` now sets `prune-cache: true`, so
-  no environment is saved and the cache key moves off archives that already
-  contain one, and a `Prune restored uv cache` step removes anything a calling
-  workflow's own `Setup uv` restored into the shared cache directory before
-  this action invokes `uv`.
+  `build-release` lane on PR #412. `Setup uv` sets `enable-cache: false`; a
+  separate `Prune restored uv cache` step runs `uv cache prune` before this
+  action invokes `uv`, removing anything the calling workflow's own `Setup uv`
+  restored into the shared cache directory.
 
 ## v1.0.0 (Unreleased)
 

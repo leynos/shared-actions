@@ -24,9 +24,30 @@ from _install_nixie_test_support import (
     _step_with_id,
     _token_observations,
 )
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
+
+
+_VERSION_COMPONENT = st.integers(min_value=0, max_value=10_000)
+_NUMERIC_MERMAN_VERSION = st.tuples(
+    _VERSION_COMPONENT, _VERSION_COMPONENT, _VERSION_COMPONENT
+).map(lambda components: ".".join(str(component) for component in components))
+_INVALID_MERMAN_VERSION = st.one_of(
+    st.tuples(_VERSION_COMPONENT, _VERSION_COMPONENT, _VERSION_COMPONENT).map(
+        lambda components: f"0{components[0]}.{components[1]}.{components[2]}"
+    ),
+    _NUMERIC_MERMAN_VERSION.map(lambda version: f"v{version}"),
+    _NUMERIC_MERMAN_VERSION.map(lambda version: f"{version}-rc.1"),
+    st.tuples(_VERSION_COMPONENT, _VERSION_COMPONENT).map(
+        lambda components: f"{components[0]}.{components[1]}"
+    ),
+    st.tuples(_VERSION_COMPONENT, _VERSION_COMPONENT, _VERSION_COMPONENT).map(
+        lambda components: f"{components[0]}_{components[1]}_{components[2]}"
+    ),
+)
 
 
 def test_caller_token_reaches_cargo_binstall_and_nothing_else(
@@ -36,6 +57,8 @@ def test_caller_token_reaches_cargo_binstall_and_nothing_else(
     options = _InstallOptions(
         merman_cached=False,
         github_token="caller-job-token",  # noqa: S106 - a stand-in, not a credential
+        inherited_github_token="caller-environment-token",  # noqa: S106 - a stand-in.
+        inherited_gh_token="caller-cli-token",  # noqa: S106 - a stand-in.
     )
     result = _run_install_script(tmp_path, options)
 
@@ -47,12 +70,16 @@ def test_caller_token_reaches_cargo_binstall_and_nothing_else(
     )
     # The freshly installed executable is probed for its version. That probe
     # must not see the token, and neither may the stub cargo-binstall itself
-    # once it has recorded what its own invocation received.
+    # inherit caller credentials. Only the action's scoped token reaches
+    # cargo-binstall.
     assert _token_observations(tmp_path) == [
-        "binstall token=<caller-job-token>",
-        "merman token=<unset>",
-        "uv token=<unset>",
-        "uv token=<unset>",
+        (
+            "binstall GITHUB_TOKEN=<caller-job-token> GH_TOKEN=<unset> "
+            "MERMAN_GITHUB_TOKEN=<unset>"
+        ),
+        "merman GITHUB_TOKEN=<unset> GH_TOKEN=<unset> MERMAN_GITHUB_TOKEN=<unset>",
+        "uv GITHUB_TOKEN=<unset> GH_TOKEN=<unset> MERMAN_GITHUB_TOKEN=<unset>",
+        "uv GITHUB_TOKEN=<unset> GH_TOKEN=<unset> MERMAN_GITHUB_TOKEN=<unset>",
     ]
 
 
@@ -60,7 +87,12 @@ def test_a_job_without_a_token_leaves_the_lookup_unauthenticated(
     tmp_path: Path,
 ) -> None:
     """An absent job token must not become an empty credential."""
-    options = _InstallOptions(merman_cached=False, github_token=None)
+    options = _InstallOptions(
+        merman_cached=False,
+        github_token=None,
+        inherited_github_token="caller-environment-token",  # noqa: S106 - a stand-in.
+        inherited_gh_token="caller-cli-token",  # noqa: S106 - a stand-in.
+    )
     result = _run_install_script(tmp_path, options)
 
     assert result.returncode == 0, result.stderr
@@ -69,17 +101,23 @@ def test_a_job_without_a_token_leaves_the_lookup_unauthenticated(
         "0.7.0",
         SUPPORTED_TARGETS[("Linux", "X64")],
     )
-    assert "binstall token=<>" not in _token_observations(tmp_path)
-    assert _token_observations(tmp_path)[0] == "binstall token=<unset>"
+    assert _token_observations(tmp_path) == [
+        "binstall GITHUB_TOKEN=<unset> GH_TOKEN=<unset> MERMAN_GITHUB_TOKEN=<unset>",
+        "merman GITHUB_TOKEN=<unset> GH_TOKEN=<unset> MERMAN_GITHUB_TOKEN=<unset>",
+        "uv GITHUB_TOKEN=<unset> GH_TOKEN=<unset> MERMAN_GITHUB_TOKEN=<unset>",
+        "uv GITHUB_TOKEN=<unset> GH_TOKEN=<unset> MERMAN_GITHUB_TOKEN=<unset>",
+    ]
 
 
 def test_install_step_maps_the_job_token_under_its_restricted_name() -> None:
     """The token enters the step under a name no other child reads."""
     env = _step_with_id(INSTALL_STEP_ID)["env"]
+    script = _install_script()
 
     assert env["MERMAN_GITHUB_TOKEN"] == "${{ github.token }}"  # noqa: S105 - an expression, not a secret.
     assert "GITHUB_TOKEN" not in env
     assert "GH_TOKEN" not in env
+    assert "unset MERMAN_GITHUB_TOKEN GITHUB_TOKEN GH_TOKEN" in script
 
 
 def test_manifest_preserves_input_defaults_and_selects_binary_only_merman() -> None:
@@ -261,6 +299,22 @@ def test_unusable_cached_executable_is_reinstalled(tmp_path: Path) -> None:
     )
 
 
+def test_directory_at_cached_merman_path_is_removed_before_reinstalling(
+    tmp_path: Path,
+) -> None:
+    """Replace a directory occupying the cached executable path."""
+    options = _InstallOptions(cached_merman_directory=True)
+    result = _run_install_script(tmp_path, options)
+    merman_path = tmp_path / "cache-home" / "merman" / "0.7.0" / "bin" / "merman-cli"
+
+    assert result.returncode == 0, result.stderr
+    assert "Merman cache refresh" in result.stdout
+    assert _calls(tmp_path)[0] == _expected_binstall_call(
+        merman_path.parent, "0.7.0", SUPPORTED_TARGETS[("Linux", "X64")]
+    )
+    assert merman_path.is_file()
+
+
 @pytest.mark.skipif(
     os.name == "nt", reason="Windows does not preserve POSIX executable mode bits"
 )
@@ -299,6 +353,41 @@ def test_install_script_forwards_the_exact_requested_version(
         "uv <tool dir --bin>",
     ]
     assert (merman_bin_dir / "merman-cli").is_file()
+
+
+@settings(max_examples=20, deadline=None)
+@given(merman_version=_NUMERIC_MERMAN_VERSION)
+def test_generated_numeric_merman_versions_are_forwarded_unchanged(
+    tmp_path_factory: pytest.TempPathFactory, merman_version: str
+) -> None:
+    """Accept and forward generated three-component numeric versions."""
+    tmp_path = tmp_path_factory.mktemp("numeric-merman-version")
+    options = _InstallOptions(merman_cached=False, merman_version=merman_version)
+    result = _run_install_script(tmp_path, options)
+    merman_bin_dir = tmp_path / "cache-home" / "merman" / merman_version / "bin"
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(tmp_path)[0] == _expected_binstall_call(
+        merman_bin_dir, merman_version, SUPPORTED_TARGETS[("Linux", "X64")]
+    )
+
+
+@settings(max_examples=20, deadline=None)
+@given(merman_version=_INVALID_MERMAN_VERSION)
+def test_generated_malformed_merman_versions_fail_before_installation(
+    tmp_path_factory: pytest.TempPathFactory, merman_version: str
+) -> None:
+    """Reject generated non-numeric formats before install or PATH export."""
+    tmp_path = tmp_path_factory.mktemp("invalid-merman-version")
+    result = _run_install_script(
+        tmp_path,
+        _InstallOptions(merman_cached=False, merman_version=merman_version),
+    )
+
+    assert result.returncode == 1
+    assert "merman-version must use three numeric components" in result.stderr
+    assert _calls(tmp_path) == []
+    _assert_github_path_empty(tmp_path)
 
 
 @pytest.mark.parametrize(

@@ -49,6 +49,7 @@ class _InstallOptions:
     cached_merman_version: str | None = None
     cached_merman_exit_status: int = 0
     cached_merman_executable: bool = True
+    cached_merman_directory: bool = False
     merman_version: str = "0.7.0"
     installed_merman_version: str | None = None
     installed_merman_exit_status: int = 0
@@ -62,6 +63,8 @@ class _InstallOptions:
     include_uv: bool = True
     include_cargo: bool = True
     github_token: str | None = None
+    inherited_github_token: str | None = None
+    inherited_gh_token: str | None = None
     runner_arch: str = "X64"
     runner_os: str = "Linux"
     uv_bin_dir_output: str | None = None
@@ -115,7 +118,9 @@ def _merman_stub(version: str, exit_status: int) -> str:
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
-        'printf \'merman token=<%s>\\n\' "${GITHUB_TOKEN-unset}" >> "$TOKEN_LOG"\n'
+        "printf 'merman GITHUB_TOKEN=<%s> GH_TOKEN=<%s> MERMAN_GITHUB_TOKEN=<%s>\\n' "
+        '"${GITHUB_TOKEN-unset}" "${GH_TOKEN-unset}" "${MERMAN_GITHUB_TOKEN-unset}" '
+        '>> "$TOKEN_LOG"\n'
         'if [[ "${1:-}" == "--version" ]]; then\n'
         f"  printf '%s\\n' 'merman-cli {version}'\n"
         f"  exit {exit_status}\n"
@@ -142,7 +147,9 @@ exec cargo-binstall "$@"
         """#!/usr/bin/env bash
 set -euo pipefail
 printf 'cargo binstall <%s>\\n' "$*" >> "$CALLS_PATH"
-printf 'binstall token=<%s>\\n' "${GITHUB_TOKEN-unset}" >> "$TOKEN_LOG"
+printf 'binstall GITHUB_TOKEN=<%s> GH_TOKEN=<%s> MERMAN_GITHUB_TOKEN=<%s>\\n' \\
+  "${GITHUB_TOKEN-unset}" "${GH_TOKEN-unset}" \\
+  "${MERMAN_GITHUB_TOKEN-unset}" >> "$TOKEN_LOG"
 if [[ "$BINSTALL_INSTALL_STATUS" != "0" ]]; then
   exit "$BINSTALL_INSTALL_STATUS"
 fi
@@ -189,7 +196,9 @@ def _write_uv_stub(stubs_dir: Path) -> None:
         """#!/usr/bin/env bash
 set -euo pipefail
 printf 'uv <%s>\\n' "$*" >> "$CALLS_PATH"
-printf 'uv token=<%s>\\n' "${GITHUB_TOKEN-unset}" >> "$TOKEN_LOG"
+printf 'uv GITHUB_TOKEN=<%s> GH_TOKEN=<%s> MERMAN_GITHUB_TOKEN=<%s>\\n' \\
+  "${GITHUB_TOKEN-unset}" "${GH_TOKEN-unset}" \\
+  "${MERMAN_GITHUB_TOKEN-unset}" >> "$TOKEN_LOG"
 if [[ "${1:-}" == "tool" && "${2:-}" == "dir" && "${3:-}" == "--bin" ]]; then
   printf '%s\\n' "$UV_BIN_DIR_OUTPUT"
   exit 0
@@ -330,6 +339,9 @@ def _seed_merman_cache(
         tmp_path / "cache-home" / "merman" / options.merman_version / "bin" / executable
     )
     merman_path.parent.mkdir(parents=True)
+    if options.cached_merman_directory:
+        merman_path.mkdir()
+        return
     _write_executable(
         merman_path,
         _merman_stub(
@@ -354,6 +366,10 @@ def _action_environment(
         for key, value in os.environ.items()
         if key not in {"GITHUB_TOKEN", "GH_TOKEN", "MERMAN_GITHUB_TOKEN"}
     }
+    if options.inherited_github_token is not None:
+        action_env["GITHUB_TOKEN"] = options.inherited_github_token
+    if options.inherited_gh_token is not None:
+        action_env["GH_TOKEN"] = options.inherited_gh_token
     if options.github_token is not None:
         action_env["MERMAN_GITHUB_TOKEN"] = options.github_token
     uv_bin_dir = tmp_path / "uv-bin"

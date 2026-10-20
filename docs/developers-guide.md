@@ -34,6 +34,8 @@ repository-specific entries to the overlay instead.
 - [ADR 0006: install-whitaker installs binaries only](adr/0006-binary-only-whitaker-install.md)
 - [ADR 0007: Four-tier Python linting architecture](adr/0007-python-linting-architecture.md)
 - [ADR 0008: CI telemetry is a start action, a finish action and a file](adr/0008-ci-telemetry-start-and-finish.md)
+- [ADR 0009: Do not reuse interpreter-bound uv script environments](adr/0009-prune-uv-script-environments.md)
+- [ADR 0010: Install Merman from upstream prebuilt binaries](adr/0010-merman-binary-installation-trust.md)
 
 ## Python Coverage Venv Architecture
 
@@ -3016,14 +3018,14 @@ must include `${XDG_CACHE_HOME:-${HOME}/.cache}/merman`.
 
 The release lookup is authenticated with the job token, which the step maps
 under `MERMAN_GITHUB_TOKEN` rather than `GITHUB_TOKEN`. The fragment captures
-it, unsets it, and re-supplies it with an assignment prefix on the single
-`cargo binstall` command. That split is deliberate: the cache probe runs an
-unsigned downloaded executable, and no child other than `cargo binstall` may
-inherit a credential. Keep the token out of the rest of the step environment,
-and keep a job with no token on the unauthenticated path rather than passing an
-empty string. Adding a runner pair requires focused tests and synchronized
-user-facing documentation; fail closed for a target that has no prebuilt
-release.
+it, clears it and any inherited `GITHUB_TOKEN` or `GH_TOKEN`, and re-supplies
+it with an assignment prefix on the single `cargo binstall` command. That split
+is deliberate: the cache probe runs an unsigned downloaded executable, and no
+other child may inherit a credential. Keep the token out of the rest of the
+step environment, and keep a job with no token on the unauthenticated path
+rather than passing an empty string. Adding a runner pair requires focused
+tests and synchronized user-facing documentation; fail closed for a target that
+has no prebuilt release.
 
 Trust in Merman comes from crates.io package metadata and checksums and from
 the binary sources `cargo-binstall` selects. Signatures are checked when the
@@ -3032,6 +3034,7 @@ verification is that the installed command runs and reports the requested
 version; the action does not embed release-specific SHA-256 digests. That is a
 deliberate change of trust model, not an omission, and user-facing
 documentation must not describe the action as checksum-verifying its download.
+ADR 0010 records the decision and its verification limits.
 
 Nixie reconciles its exact package version with ordinary `uv tool install`.
 After obtaining the `uv tool dir --bin` directory, the action checks for the

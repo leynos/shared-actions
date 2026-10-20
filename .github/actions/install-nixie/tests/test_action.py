@@ -51,6 +51,8 @@ def test_caller_token_reaches_cargo_binstall_and_nothing_else(
     assert _token_observations(tmp_path) == [
         "binstall token=<caller-job-token>",
         "merman token=<unset>",
+        "uv token=<unset>",
+        "uv token=<unset>",
     ]
 
 

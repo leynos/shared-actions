@@ -189,6 +189,7 @@ def _write_uv_stub(stubs_dir: Path) -> None:
         """#!/usr/bin/env bash
 set -euo pipefail
 printf 'uv <%s>\\n' "$*" >> "$CALLS_PATH"
+printf 'uv token=<%s>\\n' "${GITHUB_TOKEN-unset}" >> "$TOKEN_LOG"
 if [[ "${1:-}" == "tool" && "${2:-}" == "dir" && "${3:-}" == "--bin" ]]; then
   printf '%s\\n' "$UV_BIN_DIR_OUTPUT"
   exit 0

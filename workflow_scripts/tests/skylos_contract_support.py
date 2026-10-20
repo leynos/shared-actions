@@ -80,7 +80,14 @@ _SKYLOS_WHITELIST_LOCK_TOKENS: typ.Final = (".skylos-whitelist.lock",)
 _UV_SHELL_TOKENS: typ.Final = ("$(subst", ",/,$(UV))")
 _WINDOWS_LOCK_NONBLOCKING: typ.Final = 1
 _WINDOWS_LOCK_UNLOCK: typ.Final = 2
-_TYPECHECK_COMMAND_PREFIX: typ.Final = ("$(UV)", "run", "ty", "check")
+_TYPECHECK_COMMAND_PREFIX: typ.Final = (
+    "$(UV)",
+    "run",
+    "ty",
+    "check",
+    "--python",
+    ".venv",
+)
 _TYPECHECK_FIRST_EXTRA_PATHS: typ.Final = (
     ".",
     ".github/actions/generate-coverage/scripts",

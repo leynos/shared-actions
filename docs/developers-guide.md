@@ -34,6 +34,8 @@ repository-specific entries to the overlay instead.
 - [ADR 0006: install-whitaker installs binaries only](adr/0006-binary-only-whitaker-install.md)
 - [ADR 0007: Four-tier Python linting architecture](adr/0007-python-linting-architecture.md)
 - [ADR 0008: CI telemetry is a start action, a finish action and a file](adr/0008-ci-telemetry-start-and-finish.md)
+- [ADR 0009: Do not reuse interpreter-bound uv script environments](adr/0009-prune-uv-script-environments.md)
+- [ADR 0010: Install Merman from upstream prebuilt binaries](adr/0010-merman-binary-installation-trust.md)
 
 ## Python Coverage Venv Architecture
 
@@ -2994,25 +2996,45 @@ which would run the whole test suite.
 ## `install-nixie` Action Maintenance
 
 The composite action boundary is `.github/actions/install-nixie/action.yml`. It
-requires `uv`, `curl`, and runner-provided archive and checksum tools, and
-exposes three pins: `nixie-version` defaults to `1.1.0`, `merman-version`
-defaults to `0.7.0`, and `python-version` defaults to `3.14`. Keep those public
-inputs and their defaults synchronized with the action README and users' guide.
+requires `uv` and Cargo on `PATH`. It first probes `cargo binstall -V` and
+conditionally bootstraps cargo-binstall 1.22.0 through the pinned upstream
+action. The later CLI installation step checks for `uv` and Cargo, and fails
+before installing Merman or Nixie if either is absent. The action exposes three
+pins: `nixie-version` defaults to `1.1.0`, `merman-version` defaults to
+`0.7.0`, and `python-version` defaults to `3.14`. Keep those public inputs and
+their defaults synchronized with the action README and users' guide.
 
-Merman is a release-asset policy, not a package-manager policy. The action
-supports only Merman 0.7.0 and maps `Linux/X64`, `macOS/X64`, `macOS/ARM64`, and
-`Windows/X64` to an official `Latias94/merman` archive and literal Secure Hash
-Algorithm 256-bit (SHA-256) archive and executable digests. The Windows archive
-is verified with PowerShell's `Get-FileHash` and extracted by `Expand-Archive`
-through Git Bash's path conversion. The action stores Merman at
-`${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin` (`.exe` on Windows)
-and revalidates its pinned executable digest before every cache reuse. Callers
-that persist the action's cache must include `~/.cache/merman`. On a cache miss
-it downloads, checksums, extracts, and installs the release asset. Do not add
-Cargo, `cargo binstall`, or a source-build fallback. Adding a new Merman
-release or runner pair requires an official release asset, an independently
-reviewed digest, focused tests, and synchronized user-facing documentation;
-fail closed until all four exist.
+Merman is installed through `cargo-binstall`, with the strategy that compiles
+from source disabled. The action accepts any numeric `major.minor.patch`
+`merman-version`, maps `Linux/X64`, `macOS/X64`, `macOS/ARM64`, and
+`Windows/X64` to the matching target triple, and passes an exact `=` version
+requirement. A version with no compatible prebuilt release fails closed rather
+than compiling; do not add a source-build or `cargo install` fallback. The
+action stores Merman at `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin`
+(`.exe` on Windows) and reuses an entry only when it runs and reports the
+exact requested version; a mismatched or unusable entry is removed and
+reconciled through `cargo-binstall`. Callers that persist the action's cache
+must include `${XDG_CACHE_HOME:-${HOME}/.cache}/merman`.
+
+The release lookup is authenticated with the job token, which the step maps
+under `MERMAN_GITHUB_TOKEN` rather than `GITHUB_TOKEN`. The fragment captures
+it, clears it and any inherited `GITHUB_TOKEN` or `GH_TOKEN`, and re-supplies
+it with an assignment prefix on the single `cargo binstall` command. That split
+is deliberate: the cache probe runs an unsigned downloaded executable, and no
+other child may inherit a credential. Keep the token out of the rest of the
+step environment, and keep a job with no token on the unauthenticated path
+rather than passing an empty string. Adding a runner pair requires focused
+tests and synchronized user-facing documentation; fail closed for a target that
+has no prebuilt release.
+
+Trust in Merman comes from crates.io package metadata and checksums and from
+the binary sources `cargo-binstall` selects. Signatures are checked when the
+release supplies them, and unsigned binaries are accepted. The action's own
+verification is that the installed command runs and reports the requested
+version; the action does not embed release-specific SHA-256 digests. That is a
+deliberate change of trust model, not an omission, and user-facing
+documentation must not describe the action as checksum-verifying its download.
+ADR 0010 records the decision and its verification limits.
 
 Nixie reconciles its exact package version with ordinary `uv tool install`.
 After obtaining the `uv tool dir --bin` directory, the action checks for the
@@ -3023,9 +3045,12 @@ Nixie executable checks must succeed before their directories are written to
 for executable checks, while retaining the native directory for `GITHUB_PATH`.
 
 `.github/actions/install-nixie/tests/test_action.py` is the behavioural test
-boundary. Changes must retain coverage for a warm Merman cache, the official
-download/checksum path, checksum and unsupported-version failures, normal and
-forced Nixie reconciliation, Nixie installer failure, and the no-PATH-export
+boundary. Changes must retain coverage for a warm Merman cache, a cold
+`cargo-binstall` install on every supported target, a wrong-version or unusable
+cache entry being reinstalled, malformed and unsupported-version failures, an
+install that exits zero without leaving a usable executable, normal and forced
+Nixie reconciliation, Nixie installer failure, the missing-prerequisite
+boundary, the token reaching only `cargo binstall`, and the no-PATH-export
 failure boundary.
 
 ## `install-yaml-lint` Action Maintenance
@@ -3129,10 +3154,9 @@ on a runner. A Bash 3.2 guard rejects `${var,,}`, `mapfile`, `readarray`, and
 associative arrays in any fragment, because macOS runners ship Bash 3.2.
 
 The action reports each failure by checking an exit status rather than from an
-`ERR` trap, which is what `install-whitaker` and `install-nixie` use. Both work
-on a runner. A checked status is additionally invariant to how the fragment is
-invoked, which is worth having but is not a reason to change the sibling
-actions.
+`ERR` trap, which is what `install-whitaker` uses. Both work on a runner. A
+checked status is additionally invariant to how the fragment is invoked, which
+is worth having but is not a reason to change `install-whitaker`.
 
 The property tests state the grammar from the documentation rather than from
 the fragment, so a fragment that drifts from what is documented fails them.
@@ -3258,6 +3282,15 @@ revision still declares them, update `EXPECTED_SETUP_RUST_SHA` in
 [`test_setup_rust_reference.py`](../.github/actions/rust-build-release/tests/test_setup_rust_reference.py)
 in the same change, and prefer the tagged commit once `setup-rust-v1` moves
 past the current pin.
+
+The current `rust-build-release` pin also carries two uv-cache prune controls:
+its `setup-uv` step sets `prune-cache: true`, and it runs restore-time
+`uv cache prune` after its Setup uv step (and the caller's earlier Install uv)
+but before the first uv script. The nested action owns its setup and save
+lifecycle, but can inherit the caller's restored cache directory; pruning that
+restore prevents reuse of interpreter-bound environments created by a different
+Python patch version. Without these controls, a cached Windows launcher can
+exit 103 because it did not find its executable.
 
 ### RUSTFLAGS Export
 

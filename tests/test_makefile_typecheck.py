@@ -25,6 +25,8 @@ _TYPECHECK_FIRST_EXTRA_PATHS = (
     ".github/actions/install-mdtablefix/tests",
     ".github/actions/install-makeutil/scripts",
     ".github/actions/install-makeutil/tests",
+    "uv_gate",
+    "uv_gate/tests",
 )
 _TYPECHECK_FIRST_SOURCE_PATHS = (
     "cmd_utils.py",
@@ -37,6 +39,7 @@ _TYPECHECK_FIRST_SOURCE_PATHS = (
     ".github/actions/install-mdtablefix/tests",
     ".github/actions/install-makeutil/scripts",
     ".github/actions/install-makeutil/tests",
+    "uv_gate",
     ".github/actions/windows-package/scripts",
 )
 _TYPECHECK_SECOND_EXTRA_PATHS = (
@@ -44,7 +47,7 @@ _TYPECHECK_SECOND_EXTRA_PATHS = (
     ".github/actions/macos-package/scripts",
 )
 _TYPECHECK_SECOND_SOURCE_PATHS = (".github/actions/macos-package/scripts",)
-_UV_TYPECHECK_PREFIX = ("run", "ty", "check")
+_UV_TYPECHECK_PREFIX = ("run", "ty", "check", "--python", ".venv")
 
 
 def _extra_search_arguments(paths: tuple[str, ...]) -> tuple[str, ...]:
@@ -82,17 +85,18 @@ def test_typecheck_target_runs_both_ty_commands_through_uv(tmp_path: Path) -> No
     assert len(invocations) == 2, (
         "typecheck must invoke UV exactly twice, once for each configured source set"
     )
-    assert invocations[0][:3] == list(_UV_TYPECHECK_PREFIX), (
-        "the primary typecheck command must be uv run ty check"
+    prefix_length = len(_UV_TYPECHECK_PREFIX)
+    assert invocations[0][:prefix_length] == list(_UV_TYPECHECK_PREFIX), (
+        "the primary typecheck command must use uv run ty check --python .venv"
     )
-    assert invocations[0][3:] == [
+    assert invocations[0][prefix_length:] == [
         *_extra_search_arguments(_TYPECHECK_FIRST_EXTRA_PATHS),
         *_TYPECHECK_FIRST_SOURCE_PATHS,
     ], "the primary typecheck command must preserve all search and source paths"
-    assert invocations[1][:3] == list(_UV_TYPECHECK_PREFIX), (
-        "the macOS typecheck command must be uv run ty check"
+    assert invocations[1][:prefix_length] == list(_UV_TYPECHECK_PREFIX), (
+        "the macOS typecheck command must use uv run ty check --python .venv"
     )
-    assert invocations[1][3:] == [
+    assert invocations[1][prefix_length:] == [
         *_extra_search_arguments(_TYPECHECK_SECOND_EXTRA_PATHS),
         *_TYPECHECK_SECOND_SOURCE_PATHS,
     ], "the macOS typecheck command must preserve its search and source paths"

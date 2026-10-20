@@ -23,7 +23,9 @@ SETUP_RUST_MANIFEST = ".github/actions/setup-rust/action.yml"
 
 #: Revision of this repository that the nested setup-rust step must reference.
 #: Keep in sync with the ``uses`` value in ``action.yml``; both change together.
-EXPECTED_SETUP_RUST_SHA = "14eb66098248084fe8072da519dda6fec2745df2"
+#: This revision carries the uv cache lifecycle: `prune-cache: true` on its
+#: setup-uv step and a restore-time prune before its first `uv run --script`.
+EXPECTED_SETUP_RUST_SHA = "ee46b3d78ac426fe1d29d8ed3cf053b9e90cd8c5"
 
 #: Inputs rust-build-release forwards, mapped to the default it declares for
 #: each. The referenced setup-rust revision must declare every name.
@@ -242,3 +244,62 @@ def test_revision_without_the_scanner_fix_is_refused() -> None:
     )
 
     assert MULTILINE_STRING_GUARD not in script
+
+
+#: The step name of setup-rust's restore-time uv cache prune.
+UV_PRUNE_STEP = "Prune restored uv cache"
+
+
+def _pinned_steps() -> list[dict[str, object]]:
+    """Return the pinned revision's composite steps."""
+    manifest = _setup_rust_manifest_at(EXPECTED_SETUP_RUST_SHA)
+    return manifest["runs"]["steps"]
+
+
+def test_pinned_revision_never_saves_a_script_environment() -> None:
+    """The pinned setup-uv must declare `prune-cache: true`.
+
+    `uv run --script` builds an `environments-v2` entry bound to the
+    interpreter that built it. Saving one and restoring it on a runner with a
+    different Python patch version is what exits 103 through the Windows
+    launcher, so the revision this action calls must not be able to save one.
+    """
+    setup_uv = find_step(_pinned_steps(), "Install uv")
+    given = setup_uv.get("with", {}).get("prune-cache")
+
+    assert str(given).strip().lower() == "true", (
+        f"pinned setup-rust may save a script environment; prune-cache is {given!r}"
+    )
+
+
+def test_pinned_revision_prunes_before_its_first_script() -> None:
+    """The pinned revision must prune after setup-uv and before `uv run`.
+
+    This is the later-restore boundary: when the calling workflow restored a
+    cache under its own setup-uv, the nested setup-uv can miss its key and
+    inherit that directory. A prune placed after the first script, or one
+    before setup-uv, would leave the mold and OpenBSD scripts exposed.
+    """
+    steps = _pinned_steps()
+    names = [step.get("name") for step in steps]
+
+    setup_uv_index = names.index("Install uv")
+    prune_index = names.index(UV_PRUNE_STEP)
+    prune_script = steps[prune_index].get("run")
+    assert isinstance(prune_script, str)
+    assert any(
+        line.strip() == "uv cache prune" for line in prune_script.splitlines()
+    ), f"pinned prune step does not run `uv cache prune`: {prune_script!r}"
+    first_script = next(
+        index
+        for index, step in enumerate(steps)
+        if isinstance(step.get("run"), str)
+        and "uv run" in step["run"]
+        and index != prune_index
+    )
+
+    assert setup_uv_index < prune_index < first_script, (
+        f"pinned setup-rust order is setup-uv={setup_uv_index}, "
+        f"prune={prune_index}, first script={first_script}; the prune must "
+        f"sit between them"
+    )

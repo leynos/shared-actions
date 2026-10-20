@@ -20,5 +20,5 @@
 - Authenticate `cargo-binstall`'s release lookup with the job token, scoped to
   that one command so no other child process inherits it.
 - Expose the Merman and Nixie executable directories to later steps.
-- Fail before installing anything when `uv` or Cargo is absent, naming the
-  missing prerequisite.
+- Fail before installing Merman or Nixie when `uv` or Cargo is absent, naming
+  the missing prerequisite.

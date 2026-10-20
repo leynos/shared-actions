@@ -3002,7 +3002,7 @@ inputs and their defaults synchronized with the action README and users' guide.
 Merman is installed through `cargo-binstall`, with the strategy that compiles
 from source disabled. The action accepts any numeric `major.minor.patch`
 `merman-version`, maps `Linux/X64`, `macOS/X64`, `macOS/ARM64`, and
-`Windows/X64` to the matching target triangle, and passes an exact `=` version
+`Windows/X64` to the matching target triple, and passes an exact `=` version
 requirement. A version with no compatible prebuilt release fails closed rather
 than compiling; do not add a source-build or `cargo install` fallback. The
 action stores Merman at `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin`

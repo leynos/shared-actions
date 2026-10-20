@@ -397,7 +397,8 @@ def _install_environment(
     _seed_merman_cache(
         tmp_path, options, _runner_executable(options, tool="merman-cli")
     )
-    path = _isolated_path(stubs_dir, bash) if options.include_uv else str(stubs_dir)
+    prerequisites_present = options.include_uv and options.include_cargo
+    path = _isolated_path(stubs_dir, bash) if prerequisites_present else str(stubs_dir)
     return _action_environment(tmp_path, options, path=path)
 
 

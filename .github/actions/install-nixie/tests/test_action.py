@@ -67,6 +67,7 @@ def test_caller_token_reaches_cargo_binstall_and_nothing_else(
         tmp_path / "cache-home" / "merman" / "0.7.0" / "bin",
         "0.7.0",
         SUPPORTED_TARGETS[("Linux", "X64")],
+        disable_token_discovery=False,
     )
     # The freshly installed executable is probed for its version. That probe
     # must not see the token, and neither may the stub cargo-binstall itself
@@ -83,13 +84,14 @@ def test_caller_token_reaches_cargo_binstall_and_nothing_else(
     ]
 
 
-def test_a_job_without_a_token_leaves_the_lookup_unauthenticated(
+def test_a_job_without_a_token_disables_runner_credential_discovery(
     tmp_path: Path,
 ) -> None:
-    """An absent job token must not become an empty credential."""
+    """Stored runner credentials must not authenticate a token-free lookup."""
     options = _InstallOptions(
         merman_cached=False,
         github_token=None,
+        stored_github_credentials=True,
         inherited_github_token="caller-environment-token",  # noqa: S106 - a stand-in.
         inherited_gh_token="caller-cli-token",  # noqa: S106 - a stand-in.
     )
@@ -101,6 +103,8 @@ def test_a_job_without_a_token_leaves_the_lookup_unauthenticated(
         "0.7.0",
         SUPPORTED_TARGETS[("Linux", "X64")],
     )
+    assert (tmp_path / "home" / ".git-credentials").is_file()
+    assert (tmp_path / "home" / ".config" / "gh" / "hosts.yml").is_file()
     assert _token_observations(tmp_path) == [
         "binstall GITHUB_TOKEN=<unset> GH_TOKEN=<unset> MERMAN_GITHUB_TOKEN=<unset>",
         "merman GITHUB_TOKEN=<unset> GH_TOKEN=<unset> MERMAN_GITHUB_TOKEN=<unset>",

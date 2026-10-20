@@ -70,7 +70,9 @@ runs:
           if [[ -n "$github_token" ]]; then
             GITHUB_TOKEN="$github_token" cargo binstall "$@"
           else
-            cargo binstall "$@"
+            # Do not let cargo-binstall recover credentials from runner-local
+            # Git or GitHub CLI configuration when this action has no token.
+            cargo binstall --no-discover-github-token "$@"
           fi
         }
 

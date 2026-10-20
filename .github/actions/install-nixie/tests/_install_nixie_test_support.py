@@ -63,6 +63,7 @@ class _InstallOptions:
     include_uv: bool = True
     include_cargo: bool = True
     github_token: str | None = None
+    stored_github_credentials: bool = False
     inherited_github_token: str | None = None
     inherited_gh_token: str | None = None
     runner_arch: str = "X64"
@@ -308,6 +309,16 @@ def _run_install_script(
         pytest.skip("bash not found on PATH")
 
     env = _install_environment(tmp_path, options, bash)
+    if options.stored_github_credentials:
+        home = Path(env["HOME"])
+        (home / ".git-credentials").write_text(
+            "https://fixture-token@github.com\n", encoding="utf-8"
+        )
+        github_cli_config = home / ".config" / "gh"
+        github_cli_config.mkdir(parents=True)
+        (github_cli_config / "hosts.yml").write_text(
+            "github.com:\n  oauth_token: fixture-token\n", encoding="utf-8"
+        )
     return subprocess.run(  # noqa: S603,TID251 - exercise the Bash fragment.
         [bash, "-c", _install_script()],
         check=False,
@@ -373,6 +384,8 @@ def _action_environment(
     if options.github_token is not None:
         action_env["MERMAN_GITHUB_TOKEN"] = options.github_token
     uv_bin_dir = tmp_path / "uv-bin"
+    home_dir = tmp_path / "home"
+    home_dir.mkdir(exist_ok=True)
     return {
         **action_env,
         "BINSTALL_CREATES_MERMAN": str(options.install_creates_merman).lower(),
@@ -384,6 +397,7 @@ def _action_environment(
         ),
         "CALLS_PATH": (tmp_path / "calls").as_posix(),
         "GITHUB_PATH": (tmp_path / "github-path").as_posix(),
+        "HOME": home_dir.as_posix(),
         "TOKEN_LOG": (tmp_path / "token-log").as_posix(),
         "MERMAN_EXECUTABLE": _runner_executable(options, tool="merman-cli"),
         "MERMAN_VERSION": options.merman_version,
@@ -433,10 +447,20 @@ def _assert_github_path_empty(tmp_path: Path) -> None:
     assert not github_path.exists() or github_path.read_text(encoding="utf-8") == ""
 
 
-def _expected_binstall_call(bin_dir: Path, version: str, target: str) -> str:
+def _expected_binstall_call(
+    bin_dir: Path,
+    version: str,
+    target: str,
+    *,
+    disable_token_discovery: bool = True,
+) -> str:
     """Return the exact logged cargo-binstall invocation."""
+    token_discovery_option = (
+        "--no-discover-github-token " if disable_token_discovery else ""
+    )
     return (
-        "cargo binstall <--no-confirm --disable-strategies=compile "
+        f"cargo binstall <{token_discovery_option}--no-confirm "
+        "--disable-strategies=compile "
         f"--targets {target} --install-path {bin_dir.as_posix()} "
         f"--version ={version} merman-cli>"
     )

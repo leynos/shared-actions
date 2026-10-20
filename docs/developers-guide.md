@@ -3277,6 +3277,15 @@ revision still declares them, update `EXPECTED_SETUP_RUST_SHA` in
 in the same change, and prefer the tagged commit once `setup-rust-v1` moves
 past the current pin.
 
+The current `rust-build-release` pin also carries two uv-cache prune controls:
+its `setup-uv` step sets `prune-cache: true`, and it runs restore-time
+`uv cache prune` after its Setup uv step (and the caller's earlier Install uv)
+but before the first uv script. The nested action owns its setup and save
+lifecycle, but can inherit the caller's restored cache directory; pruning that
+restore prevents reuse of interpreter-bound environments created by a different
+Python patch version. Without these controls, a cached Windows launcher can
+exit 103 because it did not find its executable.
+
 ### RUSTFLAGS Export
 
 Both `setup-rust` and `rust-build-release` expose a `rustflags` input, but they

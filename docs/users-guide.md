@@ -1577,9 +1577,14 @@ Pass an extra flag required by the source tree:
 
 The `install-nixie` action installs pinned Nixie and a version-checked Merman
 command-line interface (CLI) binary for Mermaid validation. The runner must
-already provide `uv` and Cargo on `PATH`; an absent `uv` or `cargo` fails
-before anything is installed. Windows runners must also provide Git Bash's
-`cygpath`.
+provide `uv` and Cargo on `PATH`; Windows runners must also provide Git Bash's
+`cygpath`. Before installation, the action runs `cargo binstall -V` as its
+availability probe. Only if that command fails does it bootstrap
+`cargo-binstall` 1.22.0 through the upstream
+[`cargo-bins/cargo-binstall`](https://github.com/cargo-bins/cargo-binstall)
+action, pinned to a full commit SHA in the manifest. If `uv` or Cargo is
+absent, the step can therefore bootstrap cargo-binstall first, but fails before
+installing Merman or Nixie.
 
 To use the action from this repository, check out the repository before calling
 the local action:
@@ -1619,11 +1624,13 @@ combination:
 ```
 
 Any `merman-version` with the numeric `major.minor.patch` form is accepted. The
-action recognizes the runner pairs `Linux/X64`, `macOS/X64`, `macOS/ARM64`, and
-`Windows/X64` and asks `cargo-binstall` for the matching target triple, with
-source compilation disabled. A version that publishes no compatible prebuilt
-binary fails closed rather than building from source, and any other platform
-fails before installing. The action stores Merman in
+action requires three numeric components without leading zeroes. A malformed
+version, an unsupported runner, or a version without a compatible prebuilt
+binary fails with an error; source compilation is disabled. The action
+recognizes `Linux/X64`, `macOS/X64`, `macOS/ARM64`, and `Windows/X64`, and asks
+`cargo-binstall` for the matching target triple. An installation error, missing
+or unusable executable, or executable that reports a different version also
+fails the step. The action stores Merman in
 `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin` (`.exe` on Windows)
 and reuses that entry only when it runs and reports the exact requested
 version; otherwise it removes the entry and reinstalls it. Callers that persist
@@ -1642,11 +1649,15 @@ supplies them, and unsigned binaries are accepted. The action's own check is
 that the installed command runs and reports the requested version, which does
 not authenticate the binary's publisher or contents.
 
-Nixie uses ordinary `uv tool install` reconciliation. The action requests
-`--force` only when the expected executable shim is absent afterwards, and does
-not use `nixie --version` as a probe. After both executable checks succeed, the
-action appends the Merman and Nixie binary directories to `GITHUB_PATH`. Later
-workflow steps can therefore invoke `nixie` and `merman-cli` directly.
+Nixie remains installed through ordinary `uv tool install` reconciliation and
+forwards `python-version` to uv. The action requests `--force` only when the
+expected executable shim is absent afterwards, and does not use
+`nixie --version` as a probe. After both executable checks succeed, the action
+appends the Merman and Nixie binary directories to `GITHUB_PATH`; an
+installation failure does not publish either path. On Windows, the Merman path
+is written in Windows format, while the uv tool directory is converted with
+`cygpath` to check and repair the Nixie shim. Later workflow steps can
+therefore invoke `nixie` and `merman-cli` directly.
 
 ## Install YAML lint tools
 

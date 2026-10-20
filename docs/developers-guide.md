@@ -3012,7 +3012,7 @@ action stores Merman at `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin`
 (`.exe` on Windows) and reuses an entry only when it runs and reports the
 exact requested version; a mismatched or unusable entry is removed and
 reconciled through `cargo-binstall`. Callers that persist the action's cache
-must include `~/.cache/merman`.
+must include `${XDG_CACHE_HOME:-${HOME}/.cache}/merman`.
 
 The release lookup is authenticated with the job token, which the step maps
 under `MERMAN_GITHUB_TOKEN` rather than `GITHUB_TOKEN`. The fragment captures

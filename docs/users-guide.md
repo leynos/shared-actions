@@ -1639,7 +1639,7 @@ fails the step. The action stores Merman in
 `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin` (`.exe` on Windows)
 and reuses that entry only when it runs and reports the exact requested
 version; otherwise it removes the entry and reinstalls it. Callers that persist
-tool caches must include `~/.cache/merman`.
+tool caches must include `${XDG_CACHE_HOME:-${HOME}/.cache}/merman`.
 
 `cargo-binstall` resolves the release through the GitHub API. The action passes
 the job token to that one command, so cold installs get the repository's

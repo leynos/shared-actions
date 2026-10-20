@@ -83,7 +83,7 @@ To override the Nixie and Python pins:
   Cache reuse requires an executable whose `--version` output contains the
   exact requested version token. A mismatched or unusable cache entry is
   removed and reconciled through cargo-binstall. Cache callers should persist
-  `~/.cache/merman`.
+  `${XDG_CACHE_HOME:-${HOME}/.cache}/merman`.
 - **Release lookup authentication**: cargo-binstall resolves the release
   through the GitHub API, so the action passes `${{ github.token }}` to that
   one command. That lifts cold installs from the address-shared anonymous rate

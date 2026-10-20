@@ -63,7 +63,13 @@ To override the Nixie and Python pins:
 
 - **Prerequisites**: `uv` and Cargo must be available. The action probes
   `cargo binstall -V`; if that command fails, it installs cargo-binstall
-  `1.22.0` through the upstream action pinned to a full commit SHA.
+  `1.22.0` through the upstream action pinned to a full commit SHA. The later
+  installation step checks for `uv` and Cargo; if either is absent, the
+  bootstrap may already have run, but Merman and Nixie are not installed.
+- **Version inputs**: `nixie-version` must contain three numeric components
+  (`major.minor.patch`), and `python-version` must contain two or three numeric
+  components (`major.minor` or `major.minor.patch`). Neither accepts leading
+  zeroes except for a component equal to zero.
 - **Merman installation**: `merman-version` must have the numeric
   `major.minor.patch` form, with no leading zeroes except for a zero component.
   The action recognizes `Linux/X64`, `macOS/X64`, `macOS/ARM64`, and
@@ -99,15 +105,16 @@ To override the Nixie and Python pins:
   executable shim is absent after normal reconciliation. It does not invoke
   `nixie --version`, which is not a supported probe. Before invoking uv, it
   prunes interpreter-bound script environments restored by the caller while
-  keeping reusable package downloads.
+  keeping reusable package downloads. If the shim is still missing or is not
+  executable after repair, installation fails.
 - **PATH export**: After both executable checks succeed, the action appends the
   Merman and Nixie binary directories to `GITHUB_PATH` for later steps, using a
   Windows-format path for Merman on Windows runners.
 - **Failure behaviour**: Missing prerequisites, an unsupported target, an
   invalid version, a missing prebuilt release, or a failed or
-  version-mismatched installation stop the action immediately without exporting
-  a successful PATH result. `uv` and Cargo are checked up front, so an absent
-  `uv` or `cargo` fails before any installation is attempted.
+  version-mismatched installation stop the action immediately. A missing or
+  non-executable Nixie shim after repair also fails. Installation failures do
+  not append the Merman or Nixie directories to `GITHUB_PATH`.
 
 ## Release history
 

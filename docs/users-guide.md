@@ -1582,9 +1582,9 @@ provide `uv` and Cargo on `PATH`; Windows runners must also provide Git Bash's
 availability probe. Only if that command fails does it bootstrap
 `cargo-binstall` 1.22.0 through the upstream
 [`cargo-bins/cargo-binstall`](https://github.com/cargo-bins/cargo-binstall)
-action, pinned to a full commit SHA in the manifest. If `uv` or Cargo is
-absent, the step can therefore bootstrap cargo-binstall first, but fails before
-installing Merman or Nixie.
+action, pinned to a full commit SHA in the manifest. The later installation
+step checks for `uv` and Cargo; if either is absent, the bootstrap may already
+have run, but the action fails before installing Merman or Nixie.
 
 To use the action from this repository, check out the repository before calling
 the local action:
@@ -1611,6 +1611,11 @@ The action accepts three optional version inputs:
 | `nixie-version`  | `1.1.0` | Nixie CLI release                  |
 | `merman-version` | `0.7.0` | Merman CLI version to install      |
 | `python-version` | `3.14`  | Python used by uv to install Nixie |
+
+`nixie-version` must use three numeric components (`major.minor.patch`), while
+`python-version` accepts two or three numeric components (`major.minor` or
+`major.minor.patch`). Neither accepts leading zeroes except for a component
+equal to zero.
 
 Override the Nixie and Python pins when validating another supported toolchain
 combination:
@@ -1653,11 +1658,12 @@ Nixie remains installed through ordinary `uv tool install` reconciliation and
 forwards `python-version` to uv. The action requests `--force` only when the
 expected executable shim is absent afterwards, and does not use
 `nixie --version` as a probe. After both executable checks succeed, the action
-appends the Merman and Nixie binary directories to `GITHUB_PATH`; an
-installation failure does not publish either path. On Windows, the Merman path
-is written in Windows format, while the uv tool directory is converted with
-`cygpath` to check and repair the Nixie shim. Later workflow steps can
-therefore invoke `nixie` and `merman-cli` directly.
+appends the Merman and Nixie binary directories to `GITHUB_PATH`; a missing or
+non-executable Nixie shim after repair causes the action to fail without
+publishing either path. On Windows, the Merman path is written in Windows
+format, while the uv tool directory is converted with `cygpath` to check and
+repair the Nixie shim. Later workflow steps can therefore invoke `nixie` and
+`merman-cli` directly.
 
 ## Install YAML lint tools
 

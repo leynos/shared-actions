@@ -2994,10 +2994,13 @@ which would run the whole test suite.
 ## `install-nixie` Action Maintenance
 
 The composite action boundary is `.github/actions/install-nixie/action.yml`. It
-requires `uv` and Cargo on `PATH`, checks both before installing anything, and
-exposes three pins: `nixie-version` defaults to `1.1.0`, `merman-version`
-defaults to `0.7.0`, and `python-version` defaults to `3.14`. Keep those public
-inputs and their defaults synchronized with the action README and users' guide.
+requires `uv` and Cargo on `PATH`. It first probes `cargo binstall -V` and
+conditionally bootstraps cargo-binstall 1.22.0 through the pinned upstream
+action. The later CLI installation step checks for `uv` and Cargo, and fails
+before installing Merman or Nixie if either is absent. The action exposes three
+pins: `nixie-version` defaults to `1.1.0`, `merman-version` defaults to
+`0.7.0`, and `python-version` defaults to `3.14`. Keep those public inputs and
+their defaults synchronized with the action README and users' guide.
 
 Merman is installed through `cargo-binstall`, with the strategy that compiles
 from source disabled. The action accepts any numeric `major.minor.patch`

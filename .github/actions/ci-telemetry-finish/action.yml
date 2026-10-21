@@ -19,6 +19,42 @@ inputs:
       otherwise finish asks sccache for its statistics once.
     required: false
     default: sccache-stats.json
+  sccache-build-stats-file:
+    description: >-
+      The JSON file a second `sccache-report` call wrote after the build
+      (`stats-file: sccache-stats-build.json`). When it exists, the test
+      phase's hits, misses and hit ratio are the final statistics minus this
+      snapshot. When it is absent the `sccache_test_*` fields are null.
+    required: false
+    default: sccache-stats-build.json
+  test-hit-ratio-min:
+    description: >-
+      Warn when the test phase's sccache hit ratio is below this fraction.
+      Judged only on a push to the default branch, which is warm by
+      construction, and only when the phase made at least
+      `test-min-compile-requests` compile requests.
+    required: false
+    default: '0.80'
+  test-min-compile-requests:
+    description: >-
+      The fewest test-phase compile requests worth judging; a smaller phase is
+      noise, not a cold cache.
+    required: false
+    default: '20'
+  min-free-disk-mib:
+    description: >-
+      Warn when the job's least free disk (`min_free_disk_mib`) falls below
+      this many MiB. Judged where `thresholds` applies.
+    required: false
+    default: '3072'
+  thresholds:
+    description: >-
+      Where the thresholds apply: `main-push` (a push to the default branch,
+      the default), `always`, or `never`. A breach is a `::warning::`
+      annotation and the record's `threshold_breaches` field. It never fails
+      the job.
+    required: false
+    default: main-push
 
 outputs:
   record-path:
@@ -41,6 +77,12 @@ runs:
         CT_FINISH: ${{ github.action_path }}/scripts/finish.py
         CT_SCCACHE_STATUS: ${{ inputs.sccache-status }}
         CT_SCCACHE_STATS_FILE: ${{ inputs.sccache-stats-file }}
+        CT_SCCACHE_BUILD_STATS_FILE: ${{ inputs.sccache-build-stats-file }}
+        CT_TEST_HIT_RATIO_MIN: ${{ inputs.test-hit-ratio-min }}
+        CT_TEST_MIN_COMPILE_REQUESTS: ${{ inputs.test-min-compile-requests }}
+        CT_MIN_FREE_DISK_MIB: ${{ inputs.min-free-disk-mib }}
+        CT_THRESHOLDS_MODE: ${{ inputs.thresholds }}
+        CT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
         set -euo pipefail
         py="$(command -v python3 || command -v python || true)"

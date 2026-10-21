@@ -11,3 +11,6 @@ file.
   `fallback` or sccache is not on `PATH`. A consumer's health check conditions
   on `reported` instead of repeating the guard that keeps an uncached job from
   publishing a table of zeros.
+- Document the post-build snapshot call (own `stats-file` and `text-file`,
+  `summary: 'false'`) that `ci-telemetry-finish` uses to measure the test
+  phase. No behaviour change.

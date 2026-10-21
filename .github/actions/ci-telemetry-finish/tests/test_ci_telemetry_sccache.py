@@ -511,7 +511,7 @@ def test_finish_reads_the_report_file_named_by_its_inputs(tmp_path: Path) -> Non
 
 
 def test_the_manifest_declares_and_forwards_the_sccache_inputs() -> None:
-    """Both inputs are optional, with setup-rust's and sccache-report's defaults."""
+    """Every input is optional, with the defaults of its source action."""
     import yaml
 
     manifest = yaml.safe_load(FINISH_ACTION.read_text(encoding="utf-8"))
@@ -519,7 +519,20 @@ def test_the_manifest_declares_and_forwards_the_sccache_inputs() -> None:
     assert {k: (v["required"], v["default"]) for k, v in inputs.items()} == {
         "sccache-status": (False, ""),
         "sccache-stats-file": (False, "sccache-stats.json"),
+        "sccache-build-stats-file": (False, "sccache-stats-build.json"),
+        "test-hit-ratio-min": (False, "0.80"),
+        "test-min-compile-requests": (False, "20"),
+        "min-free-disk-mib": (False, "3072"),
+        "thresholds": (False, "main-push"),
     }
     (step,) = manifest["runs"]["steps"]
     assert step["env"]["CT_SCCACHE_STATUS"] == "${{ inputs.sccache-status }}"
     assert step["env"]["CT_SCCACHE_STATS_FILE"] == "${{ inputs.sccache-stats-file }}"
+    assert step["env"]["CT_SCCACHE_BUILD_STATS_FILE"] == (
+        "${{ inputs.sccache-build-stats-file }}"
+    )
+    assert step["env"]["CT_THRESHOLDS_MODE"] == "${{ inputs.thresholds }}"
+    assert (
+        step["env"]["CT_DEFAULT_BRANCH"]
+        == "${{ github.event.repository.default_branch }}"
+    )

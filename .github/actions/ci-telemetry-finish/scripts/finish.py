@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import sccache_stats
 import summarize
+import test_phase
 
 STOP_WAIT_SECONDS = 15
 CPU_FIELDS = 10
@@ -231,7 +232,10 @@ def finish(directory: Path, env: typ.Mapping[str, str]) -> dict[str, typ.Any]:
         env.get("CT_SCCACHE_STATUS", ""),
         env.get("CT_SCCACHE_STATS_FILE", ""),
     )
-    return {**_measurements(directory, env), **sccache}
+    record = {**_measurements(directory, env), **sccache}
+    record.update(test_phase.collect(env, sccache))
+    record.update(test_phase.judge(record, env))
+    return record
 
 
 def degraded_record(env: typ.Mapping[str, str], exc: Exception) -> dict[str, typ.Any]:
@@ -254,6 +258,8 @@ def print_marker(record: typ.Mapping[str, typ.Any]) -> None:
             "this job; the record carries no measurements"
         )
     print(summarize.marker_line(record))
+    for line in test_phase.annotations(record, os.environ):
+        print(line)
 
 
 def print_summary(record: typ.Mapping[str, typ.Any]) -> None:

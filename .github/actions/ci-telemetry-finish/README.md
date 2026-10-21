@@ -36,16 +36,36 @@ With sccache, wire the two `setup-rust` and `sccache-report` outputs in:
     sccache-status: ${{ steps.setup-rust.outputs.sccache-status }}
 ```
 
+To also measure the test phase, call `sccache-report` a second time right after
+the build step, writing to different files, and leave the final call after the
+tests as above:
+
+```yaml
+- run: cargo build --workspace --tests
+- uses: leynos/shared-actions/.github/actions/sccache-report@<sha>
+  with:
+    status: ${{ steps.setup-rust.outputs.sccache-status }}
+    stats-file: sccache-stats-build.json
+    text-file: sccache-stats-build.txt
+    summary: 'false'
+- run: cargo nextest run --workspace
+```
+
 Call finish last and under `if: always()`: a failed or cancelled job is the one
 whose resource use you most want to know. Only a time-out or a lost runner
 leaves no record.
 
 ## Inputs
 
-| Name               | Type   | Required? | Description                                                                                               | Default              |
-| ------------------ | ------ | --------- | --------------------------------------------------------------------------------------------------------- | -------------------- |
-| sccache-status     | string | no        | The `sccache-status` output of `setup-rust` (`started` or `fallback`). When empty the status is inferred. | `''`                 |
-| sccache-stats-file | string | no        | The JSON file `sccache-report` wrote. Read when it exists; otherwise finish asks sccache once.            | `sccache-stats.json` |
+| Name                      | Type   | Required? | Description                                                                                                                                | Default                    |
+| ------------------------- | ------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
+| sccache-status            | string | no        | The `sccache-status` output of `setup-rust` (`started` or `fallback`). When empty the status is inferred.                                  | `''`                       |
+| sccache-stats-file        | string | no        | The JSON file `sccache-report` wrote. Read when it exists; otherwise finish asks sccache once.                                             | `sccache-stats.json`       |
+| sccache-build-stats-file  | string | no        | The JSON file the post-build `sccache-report` call wrote. Read when it exists; the test phase is the final statistics minus this snapshot. | `sccache-stats-build.json` |
+| test-hit-ratio-min        | string | no        | Warn when the test phase's hit ratio is below this fraction.                                                                               | `0.80`                     |
+| test-min-compile-requests | string | no        | The fewest test-phase compile requests worth judging.                                                                                      | `20`                       |
+| min-free-disk-mib         | string | no        | Warn when `min_free_disk_mib` is below this many MiB.                                                                                      | `3072`                     |
+| thresholds                | string | no        | Where thresholds apply: `main-push` (a push to the default branch), `always` or `never`.                                                   | `main-push`                |
 
 ## Outputs
 
@@ -103,6 +123,24 @@ zeros. Finish asks sccache only when the report file is absent; one that exists
 but cannot be read or parsed is a problem to report, not a reason to ask again.
 Statistics that lack a field sccache has printed since 0.12, or give it the
 wrong type, are `unreadable`, not zero.
+
+### Test-phase and threshold fields
+
+Additive to schema 1, always present, and null whenever they cannot be
+established, so an existing reader sees no change.
+
+| Field                                                                       | Meaning                                                                                                                                                               |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sccache_test_hits`, `sccache_test_misses`, `sccache_test_compile_requests` | The final counters minus the post-build snapshot's. Null without a `started` server or without the snapshot file.                                                     |
+| `sccache_test_hit_ratio`                                                    | Test-phase hits over hits plus misses; null with no attempts.                                                                                                         |
+| `sccache_test_problem`                                                      | Null, or why the snapshot could not be used: `counter-reset` (the server restarted between the calls), `snapshot-invalid`, `snapshot-unreadable` or `snapshot-shape`. |
+| `threshold_breaches`                                                        | Null when thresholds did not apply. Otherwise `none`, or a comma-separated subset of `test_hit_ratio` and `min_free_disk`.                                            |
+
+A breach prints a `::warning title=ci-telemetry-threshold::` annotation. It
+never fails the job. The defaults come from measured records: warm Linux jobs on
+`main` show whole-job hit ratios of 0.998 to 1.0 and a smallest healthy free
+disk of about 5.4 GiB, while the failure that motivated the disk threshold left
+about 2 GiB.
 
 How CPU time is counted, from `/proc/stat` deltas between samples:
 

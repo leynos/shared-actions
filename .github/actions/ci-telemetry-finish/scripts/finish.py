@@ -233,7 +233,10 @@ def finish(directory: Path, env: typ.Mapping[str, str]) -> dict[str, typ.Any]:
         env.get("CT_SCCACHE_STATS_FILE", ""),
     )
     record = {**_measurements(directory, env), **sccache}
-    record.update(test_phase.collect(env, sccache))
+    build_file = env.get("CT_SCCACHE_BUILD_STATS_FILE", "")
+    record.update(
+        test_phase.collect(sccache, lambda: sccache_stats.read_stats_file(build_file))
+    )
     record.update(test_phase.judge(record, env))
     return record
 
@@ -250,7 +253,7 @@ def degraded_record(env: typ.Mapping[str, str], exc: Exception) -> dict[str, typ
     }
 
 
-def print_marker(record: typ.Mapping[str, typ.Any]) -> None:
+def print_marker(record: typ.Mapping[str, typ.Any], env: typ.Mapping[str, str]) -> None:
     """Print the one marker line."""
     if record["sampler"] == "not-started":
         print(
@@ -258,7 +261,7 @@ def print_marker(record: typ.Mapping[str, typ.Any]) -> None:
             "this job; the record carries no measurements"
         )
     print(summarize.marker_line(record))
-    for line in test_phase.annotations(record, os.environ):
+    for line in test_phase.annotations(record, env):
         print(line)
 
 
@@ -311,7 +314,7 @@ def emit(
     The marker goes first and cannot fail; each later step reports its own
     failure and the rest still run.
     """
-    print_marker(record)
+    print_marker(record, env)
     print_summary(record)
     path = directory / "record.json"
     for label, step in (

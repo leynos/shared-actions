@@ -30,9 +30,9 @@ inputs:
   test-hit-ratio-min:
     description: >-
       Warn when the test phase's sccache hit ratio is below this fraction.
-      Judged only on a push to the default branch, which is warm by
-      construction, and only when the phase made at least
-      `test-min-compile-requests` compile requests.
+      Judged wherever the `thresholds` input applies (by default a push to the
+      default branch, which is warm by construction), and only when the phase
+      made at least `test-min-compile-requests` compile requests.
     required: false
     default: '0.80'
   test-min-compile-requests:

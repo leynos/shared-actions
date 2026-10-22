@@ -532,6 +532,11 @@ def test_the_manifest_declares_and_forwards_the_sccache_inputs() -> None:
         "${{ inputs.sccache-build-stats-file }}"
     )
     assert step["env"]["CT_THRESHOLDS_MODE"] == "${{ inputs.thresholds }}"
+    assert step["env"]["CT_TEST_HIT_RATIO_MIN"] == "${{ inputs.test-hit-ratio-min }}"
+    assert step["env"]["CT_TEST_MIN_COMPILE_REQUESTS"] == (
+        "${{ inputs.test-min-compile-requests }}"
+    )
+    assert step["env"]["CT_MIN_FREE_DISK_MIB"] == "${{ inputs.min-free-disk-mib }}"
     assert (
         step["env"]["CT_DEFAULT_BRANCH"]
         == "${{ github.event.repository.default_branch }}"

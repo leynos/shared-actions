@@ -47,7 +47,7 @@ first snapshot from the last to report the test phase's hit rate.
 
 ```yaml
 - run: cargo build --workspace --tests
-- uses: leynos/shared-actions/.github/actions/sccache-report@<sha>
+- uses: leynos/shared-actions/.github/actions/sccache-report@d26e53630893c942af44eb3db7efd4fcbe0c8093
   with:
     status: ${{ steps.setup-rust.outputs.sccache-status }}
     stats-file: sccache-stats-build.json

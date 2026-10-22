@@ -13,6 +13,8 @@ import typing as typ
 
 import pytest
 from ci_telemetry_support import FIXTURES, SCRIPTS, finish, load
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -26,6 +28,39 @@ MAIN_PUSH = {
     "GITHUB_EVENT_NAME": "push",
     "GITHUB_REF": "refs/heads/main",
 }
+
+
+AMBIENT = (
+    "GITHUB_STEP_SUMMARY",
+    "GITHUB_OUTPUT",
+    "GITHUB_JOB",
+    "GITHUB_REPOSITORY",
+    "GITHUB_WORKFLOW",
+    "GITHUB_RUN_ID",
+    "GITHUB_RUN_ATTEMPT",
+    "GITHUB_SHA",
+    "CT_TEST_HIT_RATIO_MIN",
+    "CT_TEST_MIN_COMPILE_REQUESTS",
+    "CT_MIN_FREE_DISK_MIB",
+    "CT_SCCACHE_BUILD_STATS_FILE",
+    "CT_THRESHOLDS_MODE",
+)
+META = {
+    "format": 1,
+    "sampler": "proc-stat",
+    "nproc": 4,
+    "clk_tck": 100,
+    "interval_seconds": 10,
+    "disk_path": ".",
+    "started_ns": 1_000_000_000_000,
+}
+
+
+def sample(stamp: int, free_kib: int) -> str:
+    """Return one sampler line: stamp, ten CPU counters, memory and free disk."""
+    cpu = ["5004500", "1000", "2000500", "90015000", "40000", "500", "30000"]
+    fields = [str(stamp), *cpu, "7000", "0", "0", "16384000", "12288000", str(free_kib)]
+    return "\t".join(fields)
 
 
 def snapshot(hits: int, misses: int, requests: int) -> dict[str, typ.Any]:
@@ -208,6 +243,8 @@ def test_a_breach_prints_a_warning_and_the_job_does_not_fail(
 ) -> None:
     """The marker is followed by `::warning::` lines and main() still returns 0."""
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    for ambient in AMBIENT:
+        monkeypatch.delenv(ambient, raising=False)
     for key, value in {
         **MAIN_PUSH,
         "CT_SCCACHE_STATUS": "started",
@@ -231,3 +268,217 @@ def test_no_snapshot_on_a_main_push_still_judges_only_disk(tmp_path: Path) -> No
         record[name] is None for name in T.FIELDS if name != "threshold_breaches"
     )
     assert record["threshold_breaches"] == "none"
+
+
+def low_disk_state(tmp_path: Path, free_mib: int) -> None:
+    """Write sampler state whose least free disk is *free_mib* MiB."""
+    directory = tmp_path / "ci-telemetry"
+    directory.mkdir()
+    (directory / "meta.json").write_text(json.dumps(META), encoding="utf-8")
+    lines = [sample(1_000_000_000_000 + i * 10**10, free_mib * 1024) for i in range(3)]
+    (directory / "samples.tsv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def run_main(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    env: dict[str, str],
+    capsys: pytest.CaptureFixture[str],
+) -> list[str]:
+    """Run ``finish.main`` under *env* alone and return its warning lines."""
+    for ambient in AMBIENT:
+        monkeypatch.delenv(ambient, raising=False)
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(F, "take_sample", lambda _disk: sample(2 * 10**12, 10**9))
+    assert F.main() == 0
+    out = capsys.readouterr().out
+    assert out.count("DF12_CI_TELEMETRY") == 1
+    return [line for line in out.splitlines() if "ci-telemetry-threshold" in line]
+
+
+def test_a_low_disk_breaches_end_to_end(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """1 GiB free on a main push warns about disk, exactly once, and exits 0."""
+    low_disk_state(tmp_path, 1024)
+    warnings = run_main(tmp_path, monkeypatch, {**MAIN_PUSH}, capsys)
+    assert warnings == [
+        (
+            "::warning title=ci-telemetry-threshold::least free disk 1024 MiB is "
+            "below 3072 MiB"
+        )
+    ]
+
+
+def test_both_breaches_warn_in_a_fixed_order(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hit-ratio warning precedes the disk warning, and the job still passes."""
+    low_disk_state(tmp_path, 1024)
+    env = {
+        **MAIN_PUSH,
+        "CT_SCCACHE_STATUS": "started",
+        "CT_SCCACHE_STATS_FILE": write(tmp_path, "final.json", snapshot(5, 95, 100)),
+        "CT_SCCACHE_BUILD_STATS_FILE": write(tmp_path, "b.json", snapshot(0, 0, 0)),
+    }
+    warnings = run_main(tmp_path, monkeypatch, env, capsys)
+    assert [w.split("::")[2].split(" ")[0] for w in warnings] == ["test-phase", "least"]
+
+
+def test_an_unreadable_snapshot_is_named(tmp_path: Path) -> None:
+    """A snapshot path that is a directory cannot be read: `snapshot-unreadable`."""
+    record = run(tmp_path, None, snapshot(10, 2, 20))
+    assert record["sccache_test_problem"] is None
+    env = {
+        "CT_SCCACHE_STATUS": "started",
+        "CT_SCCACHE_STATS_FILE": write(tmp_path, "final.json", snapshot(10, 2, 20)),
+        "CT_SCCACHE_BUILD_STATS_FILE": str(tmp_path),
+        "RUNNER_TEMP": str(tmp_path),
+    }
+    record = F.finish(tmp_path / "state", env)
+    assert record["sccache_test_problem"] == "snapshot-unreadable"
+    assert record["sccache_test_hit_ratio"] is None
+
+
+def test_an_unknown_mode_warns_and_judges_nothing() -> None:
+    """A typo in `thresholds` is reported instead of silently disabling the check."""
+    env = {**MAIN_PUSH, "CT_THRESHOLDS_MODE": "mian-push"}
+    assert T.judge({"min_free_disk_mib": 1}, env) == {"threshold_breaches": None}
+    (line,) = T.annotations({"min_free_disk_mib": 1}, env)
+    assert "unknown thresholds mode 'mian-push'" in line
+
+
+def test_never_stays_silent() -> None:
+    """`never` is a valid mode and draws no configuration warning."""
+    env = {**MAIN_PUSH, "CT_THRESHOLDS_MODE": "never"}
+    assert T.annotations({"min_free_disk_mib": 1}, env) == []
+
+
+@pytest.mark.parametrize("bad", ["nan", "inf", "-inf"])
+def test_non_finite_numbers_fall_back_to_the_default(bad: str) -> None:
+    """NaN would suppress the comparison; it reads as the default instead."""
+    env = {**MAIN_PUSH, "CT_TEST_HIT_RATIO_MIN": bad}
+    record = {
+        "sccache_test_hits": 5,
+        "sccache_test_misses": 95,
+        "sccache_test_compile_requests": 100,
+    }
+    assert T.breaches(record, env) == ["test_hit_ratio"]
+
+
+def test_the_exact_ratio_is_judged_not_the_rounded_one() -> None:
+    """19,999 hits and 5,001 misses is 0.79996: recorded as 0.8, still below 0.80."""
+    fields = T.delta(
+        {
+            "sccache_hits": 19999,
+            "sccache_misses": 5001,
+            "sccache_compile_requests": 25000,
+        },
+        {"sccache_hits": 0, "sccache_misses": 0, "sccache_compile_requests": 0},
+    )
+    assert fields["sccache_test_hit_ratio"] == 0.8
+    assert T.breaches(fields, MAIN_PUSH) == ["test_hit_ratio"]
+
+
+def test_the_warning_uses_the_env_it_was_given(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller's mapping decides both the breach and the floor the warning names."""
+    monkeypatch.setenv("CT_TEST_HIT_RATIO_MIN", "0.10")
+    record = {
+        "sampler": "proc-stat",
+        "threshold_breaches": "test_hit_ratio",
+        "sccache_test_hit_ratio": 0.5,
+        "sccache_test_compile_requests": 100,
+    }
+    F.print_marker(record, {"CT_TEST_HIT_RATIO_MIN": "0.99"})
+    assert "is below 0.99" in capsys.readouterr().out
+
+
+counter = st.integers(min_value=0, max_value=10**9)
+
+
+@settings(max_examples=100)
+@given(
+    build=st.tuples(counter, counter, counter),
+    gain=st.tuples(counter, counter, counter),
+)
+def test_delta_is_the_exact_difference(
+    build: tuple[int, int, int], gain: tuple[int, int, int]
+) -> None:
+    """Non-decreasing counters give exact deltas and a rounded ratio or None."""
+    keys = ("sccache_hits", "sccache_misses", "sccache_compile_requests")
+    before = dict(zip(keys, build, strict=True))
+    after = {k: b + g for (k, b), g in zip(before.items(), gain, strict=True)}
+    fields = T.delta(after, before)
+    assert (
+        fields["sccache_test_hits"],
+        fields["sccache_test_misses"],
+        fields["sccache_test_compile_requests"],
+    ) == gain
+    attempts = gain[0] + gain[1]
+    expected = round(gain[0] / attempts, 4) if attempts else None
+    assert fields["sccache_test_hit_ratio"] == expected
+    assert fields["sccache_test_problem"] is None
+
+
+@settings(max_examples=100)
+@given(
+    build=st.tuples(counter, counter, counter),
+    drop=st.integers(min_value=0, max_value=2),
+    by=st.integers(min_value=1, max_value=10**6),
+)
+def test_a_lower_final_counter_is_a_reset(
+    build: tuple[int, int, int], drop: int, by: int
+) -> None:
+    """Any final counter below its snapshot reports `counter-reset`."""
+    keys = ("sccache_hits", "sccache_misses", "sccache_compile_requests")
+    before = dict(zip(keys, build, strict=True))
+    after = dict(before)
+    after[keys[drop]] = before[keys[drop]] - by
+    fields = T.delta(after, before)
+    assert fields["sccache_test_problem"] == "counter-reset"
+    assert fields["sccache_test_hit_ratio"] is None
+
+
+BREACH_RECORDS = {
+    "none": {
+        "min_free_disk_mib": 9000,
+        "sccache_test_hits": 99,
+        "sccache_test_misses": 1,
+        "sccache_test_compile_requests": 100,
+    },
+    "test_hit_ratio": {
+        "min_free_disk_mib": 9000,
+        "sccache_test_hits": 5,
+        "sccache_test_misses": 95,
+        "sccache_test_compile_requests": 100,
+        "sccache_test_hit_ratio": 0.05,
+    },
+    "min_free_disk": {
+        "min_free_disk_mib": 1024,
+        "sccache_test_hits": 99,
+        "sccache_test_misses": 1,
+        "sccache_test_compile_requests": 100,
+    },
+    "both": {
+        "min_free_disk_mib": 1024,
+        "sccache_test_hits": 5,
+        "sccache_test_misses": 95,
+        "sccache_test_compile_requests": 100,
+        "sccache_test_hit_ratio": 0.05,
+    },
+}
+
+
+@pytest.mark.parametrize("name", list(BREACH_RECORDS))
+def test_breach_states_and_warnings_are_pinned(name: str, snapshot) -> None:  # noqa: ANN001 - syrupy fixture
+    """The breach field and the exact warning lines for each state are snapshotted."""
+    record = dict(BREACH_RECORDS[name])
+    record.update(T.judge(record, MAIN_PUSH))
+    assert {
+        "threshold_breaches": record["threshold_breaches"],
+        "warnings": T.annotations(record, MAIN_PUSH),
+    } == snapshot

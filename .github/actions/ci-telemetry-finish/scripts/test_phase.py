@@ -15,6 +15,7 @@ applying), so a consumer that has never heard of them reads nothing different.
 
 from __future__ import annotations
 
+import math
 import typing as typ
 
 import sccache_stats
@@ -66,12 +67,14 @@ def delta(
 
 
 def collect(
-    env: typ.Mapping[str, str], sccache: typ.Mapping[str, typ.Any]
+    sccache: typ.Mapping[str, typ.Any],
+    read_snapshot: typ.Callable[[], sccache_stats.Outcome],
 ) -> dict[str, typ.Any]:
-    """Return the test-phase fields; never raises.
+    """Return the test-phase fields; never raises and touches no file itself.
 
-    Null unless the job's sccache is ``started`` with counts and the build
-    snapshot file (``CT_SCCACHE_BUILD_STATS_FILE``) exists. A snapshot that
+    *read_snapshot* is the finish boundary's reader for the post-build file
+    (``CT_SCCACHE_BUILD_STATS_FILE``). The fields are null unless the job's
+    sccache is ``started`` with counts and the snapshot exists. A snapshot that
     exists but cannot be used names its problem instead of falling back.
     """
     if (
@@ -79,7 +82,7 @@ def collect(
         or sccache.get("sccache_hits") is None
     ):
         return null_fields()
-    outcome = sccache_stats.read_stats_file(env.get("CT_SCCACHE_BUILD_STATS_FILE", ""))
+    outcome = read_snapshot()
     if outcome.kind == sccache_stats.ABSENT:
         return null_fields()
     if outcome.kind != sccache_stats.OK:
@@ -99,9 +102,10 @@ def _number(
 ) -> float:
     """Return a numeric setting, or the default when it is unset or not a number."""
     try:
-        return cast(env.get(key, ""))
+        value = cast(env.get(key, ""))
     except ValueError:
         return default
+    return value if math.isfinite(value) else default
 
 
 def _on_default_branch(env: typ.Mapping[str, str]) -> bool:
@@ -131,13 +135,18 @@ def _ratio_breached(
     record: typ.Mapping[str, typ.Any], env: typ.Mapping[str, str]
 ) -> bool:
     """Report a test-phase hit ratio below the minimum, over enough requests."""
-    ratio = record.get("sccache_test_hit_ratio")
+    hits = record.get("sccache_test_hits")
+    misses = record.get("sccache_test_misses")
     requests = record.get("sccache_test_compile_requests")
     floor = _number(
         env, "CT_TEST_MIN_COMPILE_REQUESTS", DEFAULT_MIN_COMPILE_REQUESTS, int
     )
-    judged = ratio is not None and requests is not None and requests >= floor
-    return bool(judged and ratio < _ratio_min(env))
+    counted = None not in (hits, misses, requests)
+    if not counted or hits + misses == 0 or requests < floor:
+        return False
+    # Judge the exact quotient: the recorded ratio is rounded to four places and
+    # 0.79996 would otherwise read as 0.8.
+    return hits / (hits + misses) < _ratio_min(env)
 
 
 def _disk_breached(
@@ -182,7 +191,15 @@ def annotations(
     """Return one ``::warning::`` line per breach recorded in *record*."""
     names = (record.get("threshold_breaches") or "").split(",")
     warnings = ((BREACH_HIT_RATIO, _ratio_warning), (BREACH_DISK, _disk_warning))
-    return [warn(record, env) for name, warn in warnings if name in names]
+    found = [warn(record, env) for name, warn in warnings if name in names]
+    mode = env.get("CT_THRESHOLDS_MODE") or "main-push"
+    if mode not in MODES:
+        found.append(
+            "::warning title=ci-telemetry-threshold::unknown thresholds mode "
+            f"{mode!r}; expected main-push, always or never, so no threshold "
+            "is judged"
+        )
+    return found
 
 
 def judge(

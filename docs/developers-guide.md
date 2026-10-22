@@ -685,6 +685,40 @@ Standard-library Python 3.10 or later (`python3`, else `python`); no `uv`, no
 packages. Without Python each action warns and exits 0. Every script exits 0
 whatever happens.
 
+### Test-phase figures and thresholds
+
+`scripts/test_phase.py` owns the test-phase fields and the threshold judgement
+for `ci-telemetry-finish`; `finish.finish` is the only caller and the only
+place that touches a file for it. The contract:
+
+- **Snapshot.** A second `sccache-report` call after the build writes
+  `CT_SCCACHE_BUILD_STATS_FILE` (input `sccache-build-stats-file`, default
+  `sccache-stats-build.json`). `finish` hands `test_phase.collect` a reader for
+  it, so `collect`, `delta`, `breaches` and `annotations` stay pure over their
+  arguments. The fields are the final counters minus the snapshot's; a counter
+  that went down is `counter-reset`.
+- **Nullability.** All six fields (`sccache_test_hits`, `_misses`,
+  `_compile_requests`, `_hit_ratio`, `_problem`, `threshold_breaches`) are
+  always present in the record and null when they cannot be established: no
+  snapshot, no `started` server, or thresholds not applying. Schema 1 and the
+  existing fields do not change; the grafana reader validates only its named
+  fields, so additions are invisible to it.
+- **Thresholds.** Inputs map to `CT_TEST_HIT_RATIO_MIN`,
+  `CT_TEST_MIN_COMPILE_REQUESTS`, `CT_MIN_FREE_DISK_MIB` and
+  `CT_THRESHOLDS_MODE`; `CT_DEFAULT_BRANCH` comes from the event payload. A
+  non-numeric or non-finite number falls back to its default; an unknown mode
+  warns and judges nothing. The hit ratio is judged on the exact quotient, not
+  the rounded field. A breach is a `::warning::` and a field, never a failure.
+- **Env.** `print_marker` and `emit` take the environment explicitly, so the
+  breach decision and the warning text read the same mapping.
+
+The tests (`tests/test_ci_telemetry_test_phase.py`) pin the manifest mapping
+for every input, run `finish.main` end to end for a disk breach and for both
+breaches, snapshot the breach states and warning text with Syrupy, and check
+`delta` with Hypothesis. Update the snapshots deliberately
+(`--snapshot-update`) when the warning text changes, and keep the pilot
+workflow's thresholds (deliberately low) out of any merged workflow.
+
 ### Telemetry tests
 
 The summarize tests run recorded sample files (`tests/fixtures/*.tsv`) and

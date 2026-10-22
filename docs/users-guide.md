@@ -402,6 +402,38 @@ wrote (or from sccache itself when that file is absent). A job whose sccache
 server fell back to an uncached build carries null counts rather than zeros, so
 it never reads as a healthy idle cache.
 
+To measure the test phase on its own, call `sccache-report` a second time right
+after the build, writing to its own files, and keep the final call after the
+tests. sccache's counters are cumulative from the server's start, so finish
+subtracts the post-build snapshot from the final statistics:
+
+```yaml
+- run: cargo build --workspace --tests
+- uses: leynos/shared-actions/.github/actions/sccache-report@d26e53630893c942af44eb3db7efd4fcbe0c8093
+  with:
+    status: ${{ steps.setup-rust.outputs.sccache-status }}
+    stats-file: sccache-stats-build.json
+    text-file: sccache-stats-build.txt
+    summary: 'false'
+- run: cargo nextest run --workspace
+```
+
+The record then also carries `sccache_test_hits`, `sccache_test_misses`,
+`sccache_test_compile_requests` and `sccache_test_hit_ratio` (all null without
+the snapshot, a started server or counters that did not reset) and
+`sccache_test_problem` (`counter-reset`, `snapshot-invalid`,
+`snapshot-unreadable` or `snapshot-shape`). The fields are additive to schema 1.
+
+Finish also judges the record against thresholds and warns; it never fails the
+job. The `thresholds` input says where they apply: `main-push` (the default: a
+push to the default branch, which is warm by construction), `always` or
+`never`; any other value draws a configuration warning and judges nothing.
+Defaults: `test-hit-ratio-min` 0.80 (judged over at least
+`test-min-compile-requests`, default 20), and `min-free-disk-mib` 3072. A
+breach prints a `::warning title=ci-telemetry-threshold::` annotation and is
+named in the record's `threshold_breaches` (`none`, `test_hit_ratio`,
+`min_free_disk`, or both comma-separated; null when thresholds did not apply).
+
 On Windows and macOS (`sampler: unsupported-os`) every measurement is null. In
 a container job (`container`) `/proc` shows the host, so CPU and memory are
 null and only disk is reported. Telemetry never fails a job: without Python it

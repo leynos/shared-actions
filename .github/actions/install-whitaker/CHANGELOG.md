@@ -6,10 +6,10 @@ file.
 ## v1.0.0 (Unreleased)
 
 - Default `installer-version` to 0.2.10 and pin its five release archive
-  digests, computed from an independent download and cross-checked against
-  the release sidecars. 0.2.10 updates the installer's managed checkout with
-  a fetch and hard reset rather than `git pull`, which aborted on stale
-  cached checkouts. 0.2.9 stays pinned and remains the floor.
+  digests, computed from an independent download and cross-checked against the
+  release sidecars. 0.2.10 updates the installer's managed checkout with a
+  fetch and hard reset rather than `git pull`, which aborted on stale cached
+  checkouts. 0.2.9 stays pinned and remains the floor.
 
 - Enforce the estate's Whitaker install rule. The installer always receives
   `--no-source-fallback`, whatever `ci-mode` says, so a missing published lint

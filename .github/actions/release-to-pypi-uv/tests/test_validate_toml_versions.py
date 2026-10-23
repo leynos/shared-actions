@@ -438,7 +438,10 @@ def test_iter_files_discovers_paths_in_deterministic_order(
     module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ensure TOML discovery yields paths in a stable, sorted order."""
+    """Sort relative glob results beneath an ignored-name ancestor."""
+    project_root = project_root / ".cache" / "project"
+    project_root.mkdir(parents=True)
+    monkeypatch.chdir(project_root)
     _write_pyproject(
         project_root / "pkg_b",
         """
@@ -456,13 +459,14 @@ version = "1.0.0"
 """,
     )
 
-    first = project_root / "pkg_a" / "pyproject.toml"
-    second = project_root / "pkg_b" / "pyproject.toml"
+    first = (project_root / "pkg_a" / "pyproject.toml").relative_to(project_root)
+    second = (project_root / "pkg_b" / "pyproject.toml").relative_to(project_root)
 
     def fake_glob(
         self: Path,
         pattern: str,
     ) -> typ.Iterator[Path]:
+        """Return reversed relative paths to exercise discovery sorting."""
         _ = self
         assert pattern == "**/pyproject.toml"
         return iter((second, first))

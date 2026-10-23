@@ -83,7 +83,7 @@ home would otherwise keep serving an installer built for an older version.
 | Name                | Type   | Description                                              | Required | Default        |
 | ------------------- | ------ | -------------------------------------------------------- | -------- | -------------- |
 | `cargo-home`        | string | Cargo home holding the cached installer binary           | no       | `~/.cargo`     |
-| `installer-version` | string | Version of `whitaker-installer`, 0.2.9 or later          | no       | `0.2.9`        |
+| `installer-version` | string | Version of `whitaker-installer`, 0.2.9 or later          | no       | `0.2.10`       |
 | `installer-sha256`  | string | Digest for an asset the manifest does not pin            | no       | `""`           |
 | `suite-version`     | string | Refused: any non-empty value fails the step              | no       | `""`           |
 | `cache-provider`    | string | Built-in `github` or caller-owned `external`             | no       | `github`       |

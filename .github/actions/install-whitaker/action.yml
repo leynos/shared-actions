@@ -12,7 +12,7 @@ inputs:
       action pins, and must be 0.2.9 or later: that is the first release with
       --no-source-fallback, which the action always passes.
     required: false
-    default: "0.2.9"
+    default: "0.2.10"
   installer-sha256:
     description: >-
       SHA-256 digest of the whitaker-installer release archive for this

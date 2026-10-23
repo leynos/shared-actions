@@ -1,24 +1,28 @@
-"""The test phase's sccache figures and the job's threshold breaches.
+"""The test phase's sccache figures and the job's threshold breaches (pure policy).
 
 A job that calls ``sccache-report`` twice (once after the build, once at the
 end) gets the test phase's hit rate as the difference between the two
 snapshots: sccache's counters are cumulative from the server's start, so the
 build's work is subtracted rather than guessed. The module also judges the
 record against thresholds and names the ones breached. Both outputs are
-advisory: a breach is a ``::warning::`` annotation and a record field, never a
-failed job.
+advisory: a breach is a warning and a record field, never a failed job.
 
-All six fields are additive to schema 1 and null whenever they cannot be
-established (no snapshot, no started server, a counter reset, thresholds not
-applying), so a consumer that has never heard of them reads nothing different.
+Everything here takes values: counters, a typed ``Thresholds`` and a typed
+``JobContext``. Reading the environment, parsing sccache's files and writing
+GitHub workflow commands belong to the ``threshold_settings`` adapter and to
+``finish``, so the policy is tested with constructed values alone.
+
+All six fields are additive to schema 1. The test-phase measurements and
+``sccache_test_problem`` are null whenever the phase cannot be measured (no
+snapshot, no started server); ``threshold_breaches`` is null whenever the
+thresholds do not apply, whatever the measurements say. A consumer that has
+never heard of the fields reads nothing different.
 """
 
 from __future__ import annotations
 
-import math
+import dataclasses as dc
 import typing as typ
-
-import sccache_stats
 
 FIELDS = (
     "sccache_test_hits",
@@ -36,9 +40,33 @@ COUNTED = (
 DEFAULT_HIT_RATIO_MIN = 0.80
 DEFAULT_MIN_COMPILE_REQUESTS = 20
 DEFAULT_MIN_FREE_DISK_MIB = 3072
+DEFAULT_MODE = "main-push"
 MODES = frozenset({"main-push", "always", "never"})
 BREACH_HIT_RATIO = "test_hit_ratio"
 BREACH_DISK = "min_free_disk"
+
+#: A post-build snapshot as the policy sees it: the cumulative counters, a
+#: problem name (``snapshot-unreadable`` and the like), or None when none exists.
+type Snapshot = typ.Mapping[str, int] | str | None
+
+
+@dc.dataclass(frozen=True)
+class Thresholds:
+    """The tunable limits and where they apply."""
+
+    hit_ratio_min: float = DEFAULT_HIT_RATIO_MIN
+    min_requests: int = DEFAULT_MIN_COMPILE_REQUESTS
+    min_free_disk_mib: int = DEFAULT_MIN_FREE_DISK_MIB
+    mode: str = DEFAULT_MODE
+
+
+@dc.dataclass(frozen=True)
+class JobContext:
+    """What the policy needs to know about the job: its event and branch."""
+
+    event: str = ""
+    ref: str = ""
+    default_branch: str = ""
 
 
 def null_fields() -> dict[str, typ.Any]:
@@ -57,6 +85,11 @@ def delta(
 
     A counter that went down means the server restarted between the snapshots,
     so the difference means nothing and the fields say ``counter-reset``.
+
+    Returns
+    -------
+    dict[str, Any]
+        The test-phase fields.
     """
     values = {name: final[key] - build[key] for name, key in COUNTED}
     if any(value < 0 for value in values.values()):
@@ -66,147 +99,160 @@ def delta(
     return {**null_fields(), **values, "sccache_test_hit_ratio": ratio}
 
 
+def _has_counts(sccache: typ.Mapping[str, typ.Any]) -> bool:
+    """Report a started server whose counters were read."""
+    started = sccache.get("sccache_status") == "started"
+    return started and sccache.get("sccache_hits") is not None
+
+
 def collect(
-    sccache: typ.Mapping[str, typ.Any],
-    read_snapshot: typ.Callable[[], sccache_stats.Outcome],
+    sccache: typ.Mapping[str, typ.Any], snapshot: Snapshot
 ) -> dict[str, typ.Any]:
-    """Return the test-phase fields; never raises and touches no file itself.
+    """Return the test-phase fields from the final figures and a snapshot.
 
-    *read_snapshot* is the finish boundary's reader for the post-build file
-    (``CT_SCCACHE_BUILD_STATS_FILE``). The fields are null unless the job's
-    sccache is ``started`` with counts and the snapshot exists. A snapshot that
-    exists but cannot be used names its problem instead of falling back.
+    Null unless the job's sccache is ``started`` with counts and a snapshot
+    exists. A snapshot that exists but cannot be used arrives as a problem name
+    and is reported instead of falling back.
+
+    Returns
+    -------
+    dict[str, Any]
+        The test-phase fields.
     """
-    if (
-        sccache.get("sccache_status") != "started"
-        or sccache.get("sccache_hits") is None
-    ):
+    if not _has_counts(sccache) or snapshot is None:
         return null_fields()
-    outcome = read_snapshot()
-    if outcome.kind == sccache_stats.ABSENT:
-        return null_fields()
-    if outcome.kind != sccache_stats.OK:
-        return _problem(f"snapshot-{outcome.kind}")
-    try:
-        build = sccache_stats.normalize(outcome.document)
-    except sccache_stats.StatsError:
-        return _problem("snapshot-shape")
-    return delta(sccache, build)
+    if isinstance(snapshot, str):
+        return _problem(snapshot)
+    return delta(sccache, snapshot)
 
 
-def _number(
-    env: typ.Mapping[str, str],
-    key: str,
-    default: float,
-    cast: typ.Callable[[str], float],
-) -> float:
-    """Return a numeric setting, or the default when it is unset or not a number."""
-    try:
-        value = cast(env.get(key, ""))
-    except ValueError:
-        return default
-    return value if math.isfinite(value) else default
-
-
-def _on_default_branch(env: typ.Mapping[str, str]) -> bool:
+def _is_default_branch_push(job: JobContext) -> bool:
     """Report whether the job is a push to the repository's default branch."""
-    branch = env.get("CT_DEFAULT_BRANCH", "")
-    on_branch = env.get("GITHUB_REF") == f"refs/heads/{branch}"
-    return bool(branch) and env.get("GITHUB_EVENT_NAME") == "push" and on_branch
+    on_branch = (
+        job.default_branch != "" and job.ref == f"refs/heads/{job.default_branch}"
+    )
+    return job.event == "push" and on_branch
 
 
-def applies(env: typ.Mapping[str, str]) -> bool:
-    """Report whether thresholds apply: a push to the default branch, by default."""
-    mode = env.get("CT_THRESHOLDS_MODE") or "main-push"
-    if mode == "always":
+def applies(thresholds: Thresholds, job: JobContext) -> bool:
+    """Report whether thresholds apply: a push to the default branch, by default.
+
+    Returns
+    -------
+    bool
+        True when the mode is ``always``, or ``main-push`` on such a push.
+    """
+    if thresholds.mode == "always":
         return True
-    return mode == "main-push" and _on_default_branch(env)
+    return thresholds.mode == "main-push" and _is_default_branch_push(job)
 
 
-def _ratio_min(env: typ.Mapping[str, str]) -> float:
-    return _number(env, "CT_TEST_HIT_RATIO_MIN", DEFAULT_HIT_RATIO_MIN, float)
-
-
-def _disk_min(env: typ.Mapping[str, str]) -> int:
-    return int(_number(env, "CT_MIN_FREE_DISK_MIB", DEFAULT_MIN_FREE_DISK_MIB, int))
-
-
-def _ratio_breached(
-    record: typ.Mapping[str, typ.Any], env: typ.Mapping[str, str]
-) -> bool:
-    """Report a test-phase hit ratio below the minimum, over enough requests."""
+def _attempts(record: typ.Mapping[str, typ.Any]) -> tuple[int, int] | None:
+    """Return ``(hits, attempts)`` for a measured phase with attempts, else None."""
     hits = record.get("sccache_test_hits")
     misses = record.get("sccache_test_misses")
+    if None in (hits, misses):
+        return None
+    attempts = hits + misses
+    return (hits, attempts) if attempts else None
+
+
+def _enough_requests(record: typ.Mapping[str, typ.Any], thresholds: Thresholds) -> bool:
+    """Report a phase with at least the minimum number of compile requests."""
     requests = record.get("sccache_test_compile_requests")
-    floor = _number(
-        env, "CT_TEST_MIN_COMPILE_REQUESTS", DEFAULT_MIN_COMPILE_REQUESTS, int
-    )
-    counted = None not in (hits, misses, requests)
-    if not counted or hits + misses == 0 or requests < floor:
+    return requests is not None and requests >= thresholds.min_requests
+
+
+def _ratio_breached(record: typ.Mapping[str, typ.Any], thresholds: Thresholds) -> bool:
+    """Report a test-phase hit ratio below the minimum, over enough requests.
+
+    The exact quotient is judged, not the recorded four-place rounding:
+    19,999 hits in 25,000 attempts records 0.8 and is still below 0.80.
+    """
+    counted = _attempts(record)
+    if counted is None or not _enough_requests(record, thresholds):
         return False
-    # Judge the exact quotient: the recorded ratio is rounded to four places and
-    # 0.79996 would otherwise read as 0.8.
-    return hits / (hits + misses) < _ratio_min(env)
+    hits, attempts = counted
+    return hits / attempts < thresholds.hit_ratio_min
 
 
-def _disk_breached(
-    record: typ.Mapping[str, typ.Any], env: typ.Mapping[str, str]
-) -> bool:
+def _disk_breached(record: typ.Mapping[str, typ.Any], thresholds: Thresholds) -> bool:
     """Report a least-free-disk figure below the minimum."""
     free = record.get("min_free_disk_mib")
-    return free is not None and free < _disk_min(env)
+    return free is not None and free < thresholds.min_free_disk_mib
 
 
 def breaches(
-    record: typ.Mapping[str, typ.Any], env: typ.Mapping[str, str]
+    record: typ.Mapping[str, typ.Any], thresholds: Thresholds, job: JobContext
 ) -> list[str] | None:
-    """Return the breached thresholds, or None when thresholds do not apply."""
-    if not applies(env):
+    """Return the breached thresholds, or None when thresholds do not apply.
+
+    Returns
+    -------
+    list[str] | None
+        Breach names in a fixed order, or None.
+    """
+    if not applies(thresholds, job):
         return None
     checks = ((BREACH_HIT_RATIO, _ratio_breached), (BREACH_DISK, _disk_breached))
-    return [name for name, breached in checks if breached(record, env)]
-
-
-def _ratio_warning(
-    record: typ.Mapping[str, typ.Any], env: typ.Mapping[str, str]
-) -> str:
-    return (
-        "::warning title=ci-telemetry-threshold::test-phase sccache hit ratio "
-        f"{record.get('sccache_test_hit_ratio')} over "
-        f"{record.get('sccache_test_compile_requests')} compile requests is "
-        f"below {_ratio_min(env)}"
-    )
-
-
-def _disk_warning(record: typ.Mapping[str, typ.Any], env: typ.Mapping[str, str]) -> str:
-    return (
-        "::warning title=ci-telemetry-threshold::least free disk "
-        f"{record.get('min_free_disk_mib')} MiB is below {_disk_min(env)} MiB"
-    )
-
-
-def annotations(
-    record: typ.Mapping[str, typ.Any], env: typ.Mapping[str, str]
-) -> list[str]:
-    """Return one ``::warning::`` line per breach recorded in *record*."""
-    names = (record.get("threshold_breaches") or "").split(",")
-    warnings = ((BREACH_HIT_RATIO, _ratio_warning), (BREACH_DISK, _disk_warning))
-    found = [warn(record, env) for name, warn in warnings if name in names]
-    mode = env.get("CT_THRESHOLDS_MODE") or "main-push"
-    if mode not in MODES:
-        found.append(
-            "::warning title=ci-telemetry-threshold::unknown thresholds mode "
-            f"{mode!r}; expected main-push, always or never, so no threshold "
-            "is judged"
-        )
-    return found
+    return [name for name, breached in checks if breached(record, thresholds)]
 
 
 def judge(
-    record: typ.Mapping[str, typ.Any], env: typ.Mapping[str, str]
+    record: typ.Mapping[str, typ.Any], thresholds: Thresholds, job: JobContext
 ) -> dict[str, typ.Any]:
-    """Return ``threshold_breaches``: null if not judged, else names or ``none``."""
-    found = breaches(record, env)
+    """Return ``threshold_breaches``: null if not judged, else names or ``none``.
+
+    Returns
+    -------
+    dict[str, Any]
+        A one-key mapping for the record.
+    """
+    found = breaches(record, thresholds, job)
     if found is None:
         return {"threshold_breaches": None}
     return {"threshold_breaches": ",".join(found) or "none"}
+
+
+def _ratio_message(record: typ.Mapping[str, typ.Any], thresholds: Thresholds) -> str:
+    counted = _attempts(record)
+    seen = (
+        f"{counted[0] / counted[1]:.5f} ({counted[0]} hits in {counted[1]} attempts"
+        if counted
+        else f"{record.get('sccache_test_hit_ratio')} (ratio recorded"
+    )
+    return (
+        f"test-phase sccache hit ratio {seen}, "
+        f"{record.get('sccache_test_compile_requests')} compile requests) is "
+        f"below {thresholds.hit_ratio_min}"
+    )
+
+
+def _disk_message(record: typ.Mapping[str, typ.Any], thresholds: Thresholds) -> str:
+    return (
+        f"least free disk {record.get('min_free_disk_mib')} MiB is below "
+        f"{thresholds.min_free_disk_mib} MiB"
+    )
+
+
+def messages(record: typ.Mapping[str, typ.Any], thresholds: Thresholds) -> list[str]:
+    """Return one plain-text message per breach recorded in *record*.
+
+    An unknown ``mode`` adds one configuration message, since it would
+    otherwise disable the check without a word. The adapter turns each message
+    into a workflow command.
+
+    Returns
+    -------
+    list[str]
+        The messages, breaches first in their fixed order.
+    """
+    names = (record.get("threshold_breaches") or "").split(",")
+    texts = ((BREACH_HIT_RATIO, _ratio_message), (BREACH_DISK, _disk_message))
+    found = [text(record, thresholds) for name, text in texts if name in names]
+    if thresholds.mode not in MODES:
+        found.append(
+            f"unknown thresholds mode {thresholds.mode!r}; expected main-push, "
+            "always or never, so no threshold is judged"
+        )
+    return found

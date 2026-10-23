@@ -20,6 +20,7 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
 
 T = load("ct_test_phase", SCRIPTS / "test_phase.py")
+TS = load("ct_threshold_settings", SCRIPTS / "threshold_settings.py")
 F = finish()
 BASE = json.loads((FIXTURES / "sccache" / "real-0.17.0-local.json").read_text())
 MAIN_PUSH = {
@@ -28,6 +29,17 @@ MAIN_PUSH = {
     "GITHUB_EVENT_NAME": "push",
     "GITHUB_REF": "refs/heads/main",
 }
+
+
+def cfg(env: dict[str, str]) -> tuple[typ.Any, typ.Any]:
+    """Return the typed thresholds and job context an environment describes."""
+    return TS.thresholds_from_env(env), TS.job_from_env(env)
+
+
+def warnings_for(record: dict[str, typ.Any], env: dict[str, str]) -> list[str]:
+    """Return the workflow commands the adapter prints for a judged record."""
+    judged = {**record, **T.judge(record, *cfg(env))}
+    return TS.commands(T.messages(judged, TS.thresholds_from_env(env)))
 
 
 AMBIENT = (
@@ -197,22 +209,22 @@ def test_a_warm_phase_does_not_breach(tmp_path: Path) -> None:
 def test_a_small_phase_is_not_judged() -> None:
     """Below the minimum request count the ratio is noise and is not judged."""
     record = {"sccache_test_hit_ratio": 0.0, "sccache_test_compile_requests": 19}
-    assert T.breaches(record, MAIN_PUSH) == []
+    assert T.breaches(record, *cfg(MAIN_PUSH)) == []
 
 
 def test_low_free_disk_breaches() -> None:
     """2 GiB free is below the 3 GiB default."""
-    assert T.breaches({"min_free_disk_mib": 2048}, MAIN_PUSH) == ["min_free_disk"]
-    assert T.breaches({"min_free_disk_mib": 5474}, MAIN_PUSH) == []
-    assert T.breaches({"min_free_disk_mib": None}, MAIN_PUSH) == []
+    assert T.breaches({"min_free_disk_mib": 2048}, *cfg(MAIN_PUSH)) == ["min_free_disk"]
+    assert T.breaches({"min_free_disk_mib": 5474}, *cfg(MAIN_PUSH)) == []
+    assert T.breaches({"min_free_disk_mib": None}, *cfg(MAIN_PUSH)) == []
 
 
 def test_thresholds_are_inputs() -> None:
     """A caller's numbers replace the defaults; a bad number falls back."""
     env = {**MAIN_PUSH, "CT_MIN_FREE_DISK_MIB": "9000"}
-    assert T.breaches({"min_free_disk_mib": 5474}, env) == ["min_free_disk"]
+    assert T.breaches({"min_free_disk_mib": 5474}, *cfg(env)) == ["min_free_disk"]
     bad = {**MAIN_PUSH, "CT_MIN_FREE_DISK_MIB": "lots"}
-    assert T.breaches({"min_free_disk_mib": 2048}, bad) == ["min_free_disk"]
+    assert T.breaches({"min_free_disk_mib": 2048}, *cfg(bad)) == ["min_free_disk"]
 
 
 @pytest.mark.parametrize(
@@ -227,13 +239,13 @@ def test_thresholds_are_inputs() -> None:
 )
 def test_thresholds_do_not_apply_off_the_default_branch(env: dict[str, str]) -> None:
     """Only a push to the default branch is judged (mode main-push)."""
-    assert T.judge({"min_free_disk_mib": 1}, env) == {"threshold_breaches": None}
+    assert T.judge({"min_free_disk_mib": 1}, *cfg(env)) == {"threshold_breaches": None}
 
 
 def test_always_mode_judges_everywhere() -> None:
     """`always` ignores the event and the branch."""
     env = {"CT_THRESHOLDS_MODE": "always"}
-    assert T.judge({"min_free_disk_mib": 1}, env) == {
+    assert T.judge({"min_free_disk_mib": 1}, *cfg(env)) == {
         "threshold_breaches": "min_free_disk"
     }
 
@@ -255,7 +267,7 @@ def test_a_breach_prints_a_warning_and_the_job_does_not_fail(
     assert F.main() == 0
     out = capsys.readouterr().out
     assert (
-        "::warning title=ci-telemetry-threshold::test-phase sccache hit ratio 0.05"
+        "::warning title=ci-telemetry-threshold::test-phase sccache hit ratio 0.05000"
         in out
     )
     assert out.count("DF12_CI_TELEMETRY") == 1
@@ -345,15 +357,15 @@ def test_an_unreadable_snapshot_is_named(tmp_path: Path) -> None:
 def test_an_unknown_mode_warns_and_judges_nothing() -> None:
     """A typo in `thresholds` is reported instead of silently disabling the check."""
     env = {**MAIN_PUSH, "CT_THRESHOLDS_MODE": "mian-push"}
-    assert T.judge({"min_free_disk_mib": 1}, env) == {"threshold_breaches": None}
-    (line,) = T.annotations({"min_free_disk_mib": 1}, env)
+    assert T.judge({"min_free_disk_mib": 1}, *cfg(env)) == {"threshold_breaches": None}
+    (line,) = warnings_for({"min_free_disk_mib": 1}, env)
     assert "unknown thresholds mode 'mian-push'" in line
 
 
 def test_never_stays_silent() -> None:
     """`never` is a valid mode and draws no configuration warning."""
     env = {**MAIN_PUSH, "CT_THRESHOLDS_MODE": "never"}
-    assert T.annotations({"min_free_disk_mib": 1}, env) == []
+    assert warnings_for({"min_free_disk_mib": 1}, env) == []
 
 
 @pytest.mark.parametrize("bad", ["nan", "inf", "-inf"])
@@ -365,7 +377,7 @@ def test_non_finite_numbers_fall_back_to_the_default(bad: str) -> None:
         "sccache_test_misses": 95,
         "sccache_test_compile_requests": 100,
     }
-    assert T.breaches(record, env) == ["test_hit_ratio"]
+    assert T.breaches(record, *cfg(env)) == ["test_hit_ratio"]
 
 
 def test_the_exact_ratio_is_judged_not_the_rounded_one() -> None:
@@ -379,7 +391,7 @@ def test_the_exact_ratio_is_judged_not_the_rounded_one() -> None:
         {"sccache_hits": 0, "sccache_misses": 0, "sccache_compile_requests": 0},
     )
     assert fields["sccache_test_hit_ratio"] == 0.8
-    assert T.breaches(fields, MAIN_PUSH) == ["test_hit_ratio"]
+    assert T.breaches(fields, *cfg(MAIN_PUSH)) == ["test_hit_ratio"]
 
 
 def test_the_warning_uses_the_env_it_was_given(
@@ -477,8 +489,93 @@ BREACH_RECORDS = {
 def test_breach_states_and_warnings_are_pinned(name: str, snapshot) -> None:  # noqa: ANN001 - syrupy fixture
     """The breach field and the exact warning lines for each state are snapshotted."""
     record = dict(BREACH_RECORDS[name])
-    record.update(T.judge(record, MAIN_PUSH))
+    record.update(T.judge(record, *cfg(MAIN_PUSH)))
     assert {
         "threshold_breaches": record["threshold_breaches"],
-        "warnings": T.annotations(record, MAIN_PUSH),
+        "warnings": warnings_for(record, MAIN_PUSH),
     } == snapshot
+
+
+class Reader:
+    """A fake snapshot source: collect is handed values, never a file."""
+
+    FINAL: typ.ClassVar = {
+        "sccache_status": "started",
+        "sccache_hits": 10,
+        "sccache_misses": 2,
+        "sccache_compile_requests": 20,
+    }
+    BUILD: typ.ClassVar = {
+        "sccache_hits": 4,
+        "sccache_misses": 2,
+        "sccache_compile_requests": 8,
+    }
+
+
+def test_collect_subtracts_a_constructed_snapshot() -> None:
+    """With counters in hand, collect needs no file at all."""
+    fields = T.collect(Reader.FINAL, Reader.BUILD)
+    assert (fields["sccache_test_hits"], fields["sccache_test_hit_ratio"]) == (6, 1.0)
+
+
+def test_collect_reports_a_problem_name_from_the_adapter() -> None:
+    """A problem the adapter names is carried through unchanged."""
+    fields = T.collect(Reader.FINAL, "snapshot-unreadable")
+    assert fields["sccache_test_problem"] == "snapshot-unreadable"
+    assert fields["sccache_test_hits"] is None
+
+
+def test_collect_without_a_snapshot_is_null() -> None:
+    """No snapshot, all fields null."""
+    assert all(v is None for v in T.collect(Reader.FINAL, None).values())
+
+
+def test_collect_ignores_a_job_without_a_started_server() -> None:
+    """Without a started server there is nothing to subtract from."""
+    fallback = {**Reader.FINAL, "sccache_status": "fallback"}
+    assert all(v is None for v in T.collect(fallback, Reader.BUILD).values())
+
+
+@pytest.mark.parametrize(
+    ("outcome_kind", "document", "expected"),
+    [
+        ("absent", None, None),
+        ("unreadable", None, "snapshot-unreadable"),
+        ("invalid", None, "snapshot-invalid"),
+        ("ok", {"stats": 1}, "snapshot-shape"),
+    ],
+)
+def test_the_adapter_names_each_failed_reading(
+    outcome_kind: str, document: object, expected: str | None
+) -> None:
+    """Each way reading the build snapshot can fail becomes one policy value."""
+    outcome = load("ct_sccache_for_adapter", SCRIPTS / "sccache_stats.py").Outcome(
+        outcome_kind, document
+    )
+    assert TS.snapshot_from_outcome(outcome) == expected
+
+
+def test_a_custom_floor_decides_the_breach_through_finish(tmp_path: Path) -> None:
+    """A 0.90 phase breaches a 0.95 floor and passes a 0.80 one, via ``F.finish``."""
+    final, build = snapshot(90, 10, 100), snapshot(0, 0, 0)
+    strict = run(tmp_path, build, final, {**MAIN_PUSH, "CT_TEST_HIT_RATIO_MIN": "0.95"})
+    lenient = run(
+        tmp_path, build, final, {**MAIN_PUSH, "CT_TEST_HIT_RATIO_MIN": "0.80"}
+    )
+    assert strict["threshold_breaches"] == "test_hit_ratio"
+    assert lenient["threshold_breaches"] == "none"
+
+
+def test_a_custom_minimum_suppresses_a_small_phase_through_finish(
+    tmp_path: Path,
+) -> None:
+    """The same cold phase is judged at 20 requests and ignored at 500."""
+    final, build = snapshot(5, 95, 100), snapshot(0, 0, 0)
+    judged = run(
+        tmp_path, build, final, {**MAIN_PUSH, "CT_TEST_MIN_COMPILE_REQUESTS": "20"}
+    )
+    ignored = run(
+        tmp_path, build, final, {**MAIN_PUSH, "CT_TEST_MIN_COMPILE_REQUESTS": "500"}
+    )
+    assert judged["threshold_breaches"] == "test_hit_ratio"
+    assert ignored["threshold_breaches"] == "none"

@@ -416,7 +416,16 @@ subtracts the post-build snapshot from the final statistics:
     text-file: sccache-stats-build.txt
     summary: 'false'
 - run: cargo nextest run --workspace
+- uses: leynos/shared-actions/.github/actions/ci-telemetry-finish@d26e53630893c942af44eb3db7efd4fcbe0c8093
+  if: always()
+  with:
+    sccache-status: ${{ steps.setup-rust.outputs.sccache-status }}
+    sccache-build-stats-file: sccache-stats-build.json
 ```
+
+The `sccache-build-stats-file` input names the snapshot. It defaults to
+`sccache-stats-build.json`, so pass it only when the post-build call writes
+elsewhere. With no such file the test-phase fields stay null.
 
 The record then also carries `sccache_test_hits`, `sccache_test_misses`,
 `sccache_test_compile_requests` and `sccache_test_hit_ratio` (all null without

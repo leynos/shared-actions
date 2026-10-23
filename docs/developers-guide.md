@@ -687,37 +687,61 @@ whatever happens.
 
 ### Test-phase figures and thresholds
 
-`scripts/test_phase.py` owns the test-phase fields and the threshold judgement
-for `ci-telemetry-finish`; `finish.finish` is the only caller and the only
-place that touches a file for it. The contract:
+The policy lives in `scripts/test_phase.py` and takes values only: normalized
+counters, a `Thresholds` and a `JobContext`. Everything that touches the
+outside world sits in the adapter `scripts/threshold_settings.py` and in
+`finish.finish`/`print_marker`, so the policy is tested with constructed values.
 
-- **Snapshot.** A second `sccache-report` call after the build writes
-  `CT_SCCACHE_BUILD_STATS_FILE` (input `sccache-build-stats-file`, default
-  `sccache-stats-build.json`). `finish` hands `test_phase.collect` a reader for
-  it, so `collect`, `delta`, `breaches` and `annotations` stay pure over their
-  arguments. The fields are the final counters minus the snapshot's; a counter
-  that went down is `counter-reset`.
-- **Nullability.** All six fields (`sccache_test_hits`, `_misses`,
-  `_compile_requests`, `_hit_ratio`, `_problem`, `threshold_breaches`) are
-  always present in the record and null when they cannot be established: no
-  snapshot, no `started` server, or thresholds not applying. Schema 1 and the
-  existing fields do not change; the grafana reader validates only its named
-  fields, so additions are invisible to it.
-- **Thresholds.** Inputs map to `CT_TEST_HIT_RATIO_MIN`,
-  `CT_TEST_MIN_COMPILE_REQUESTS`, `CT_MIN_FREE_DISK_MIB` and
-  `CT_THRESHOLDS_MODE`; `CT_DEFAULT_BRANCH` comes from the event payload. A
-  non-numeric or non-finite number falls back to its default; an unknown mode
-  warns and judges nothing. The hit ratio is judged on the exact quotient, not
-  the rounded field. A breach is a `::warning::` and a field, never a failure.
+- **Snapshot.** A second `sccache-report` call after the build writes the file
+  named by `sccache-build-stats-file` (default `sccache-stats-build.json`,
+  environment `CT_SCCACHE_BUILD_STATS_FILE`). `finish` reads it with
+  `sccache_stats.read_stats_file`; `threshold_settings.snapshot_from_outcome`
+  turns the outcome into a policy `Snapshot`: None for no file, a problem name
+  (`snapshot-unreadable`, `snapshot-invalid`, `snapshot-shape`) or the
+  normalized counters. `test_phase.collect` subtracts them from the final
+  figures; a counter that went down is `counter-reset`.
+- **Inputs and defaults.** Each action input maps to one environment variable
+  that the adapter parses into `Thresholds`:
+
+  | Input                       | Variable                       | Default     |
+  | --------------------------- | ------------------------------ | ----------- |
+  | `test-hit-ratio-min`        | `CT_TEST_HIT_RATIO_MIN`        | `0.80`      |
+  | `test-min-compile-requests` | `CT_TEST_MIN_COMPILE_REQUESTS` | `20`        |
+  | `min-free-disk-mib`         | `CT_MIN_FREE_DISK_MIB`         | `3072`      |
+  | `thresholds`                | `CT_THRESHOLDS_MODE`           | `main-push` |
+
+  A non-numeric or non-finite number falls back to its default. The job facts
+  (`GITHUB_EVENT_NAME`, `GITHUB_REF` and `CT_DEFAULT_BRANCH`, from the event
+  payload) become a `JobContext`.
+- **Applicability.** `main-push` judges only a push to the repository's default
+  branch (warm by construction); `always` judges every run; `never` judges
+  none. Any other value judges nothing and adds one configuration message.
+- **Nullability.** Schema 1 and the existing fields do not change. The six new
+  fields are always present. `sccache_test_hits`, `_misses`,
+  `_compile_requests` and `_hit_ratio` are null without a snapshot, a started
+  server or counters that did not reset, and `_hit_ratio` is also null for a
+  phase with no attempts. `sccache_test_problem` is null unless a snapshot
+  exists but cannot be used (or the counters reset). `threshold_breaches` is
+  null only when the thresholds do not apply; when they do it is `none` or the
+  breached names even with no snapshot, because the free-disk threshold needs
+  none. The grafana reader validates only its named fields, so additions are
+  invisible to it.
+- **Judgement.** The hit ratio is judged on the exact quotient of hits over
+  attempts, not the rounded field, and only when the phase made at least the
+  minimum number of compile requests. A breach is a message from
+  `test_phase.messages`; `finish` prints each as a `::warning::` command through
+  `threshold_settings.commands`. Nothing here ever fails the job.
 - **Env.** `print_marker` and `emit` take the environment explicitly, so the
   breach decision and the warning text read the same mapping.
 
 The tests (`tests/test_ci_telemetry_test_phase.py`) pin the manifest mapping
 for every input, run `finish.main` end to end for a disk breach and for both
-breaches, snapshot the breach states and warning text with Syrupy, and check
-`delta` with Hypothesis. Update the snapshots deliberately
-(`--snapshot-update`) when the warning text changes, and keep the pilot
-workflow's thresholds (deliberately low) out of any merged workflow.
+breaches, check `collect` with constructed snapshots and the adapter's reading
+of each failure, drive custom floors and minimums through `F.finish`, snapshot
+the breach states and warning text with Syrupy, and check `delta` with
+Hypothesis. Update the snapshots deliberately (`--snapshot-update`) when
+message text changes, and keep the pilot workflow's deliberately low thresholds
+out of any merged workflow.
 
 ### Telemetry tests
 

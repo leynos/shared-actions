@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sccache_stats
 import summarize
 import test_phase
+import threshold_settings
 
 STOP_WAIT_SECONDS = 15
 CPU_FIELDS = 10
@@ -233,11 +234,13 @@ def finish(directory: Path, env: typ.Mapping[str, str]) -> dict[str, typ.Any]:
         env.get("CT_SCCACHE_STATS_FILE", ""),
     )
     record = {**_measurements(directory, env), **sccache}
-    build_file = env.get("CT_SCCACHE_BUILD_STATS_FILE", "")
+    build = sccache_stats.read_stats_file(env.get("CT_SCCACHE_BUILD_STATS_FILE", ""))
     record.update(
-        test_phase.collect(sccache, lambda: sccache_stats.read_stats_file(build_file))
+        test_phase.collect(sccache, threshold_settings.snapshot_from_outcome(build))
     )
-    record.update(test_phase.judge(record, env))
+    thresholds = threshold_settings.thresholds_from_env(env)
+    job = threshold_settings.job_from_env(env)
+    record.update(test_phase.judge(record, thresholds, job))
     return record
 
 
@@ -261,7 +264,8 @@ def print_marker(record: typ.Mapping[str, typ.Any], env: typ.Mapping[str, str]) 
             "this job; the record carries no measurements"
         )
     print(summarize.marker_line(record))
-    for line in test_phase.annotations(record, env):
+    thresholds = threshold_settings.thresholds_from_env(env)
+    for line in threshold_settings.commands(test_phase.messages(record, thresholds)):
         print(line)
 
 

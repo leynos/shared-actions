@@ -45,3 +45,23 @@ from the job log.
   or cancelled job. A time-out or a lost runner still leaves no record.
 - Changing the sample columns is a breaking change to both actions and to the
   tests that pin them.
+
+## Addendum, 2026-10-22: test-phase figures and thresholds
+
+The record gained the test phase's sccache hit rate and advisory thresholds
+(DF12-109). Decisions, without changing the accepted text above:
+
+- The test phase is the final sccache statistics minus a snapshot taken by a
+  second `sccache-report` call after the build. sccache's counters are
+  cumulative, so subtraction is exact, and no change to `setup-rust` or
+  `sccache-report` code is needed.
+- The new fields are additive to schema 1 and null when they cannot be
+  established, so the central collector's reader, which validates only its
+  named fields, is unaffected.
+- Thresholds are inputs with defaults taken from measured records (warm Linux
+  jobs: whole-job hit ratios of 0.998 to 1.0; smallest healthy free disk about
+  5.4 GiB; the disk failure that motivated the threshold left about 2 GiB). A
+  breach warns and is recorded; it never fails a job, and by default applies
+  only to pushes to the default branch.
+- The hit ratio is judged on the exact quotient of the counters, not the rounded
+  figure recorded.

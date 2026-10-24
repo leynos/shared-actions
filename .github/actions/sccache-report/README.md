@@ -38,6 +38,23 @@ when `setup-rust` has long finished, and a composite action has no post step.
   run: python3 scripts/check_sccache_health.py "$STATS_FILE"
 ```
 
+### Measuring the test phase
+
+sccache's counters are cumulative from the server's start. Call the action
+twice to split a job: once right after the build, with its own files and no
+summary, and once at the end as above. `ci-telemetry-finish` subtracts the
+first snapshot from the last to report the test phase's hit rate.
+
+```yaml
+- run: cargo build --workspace --tests
+- uses: leynos/shared-actions/.github/actions/sccache-report@d26e53630893c942af44eb3db7efd4fcbe0c8093
+  with:
+    status: ${{ steps.setup-rust.outputs.sccache-status }}
+    stats-file: sccache-stats-build.json
+    text-file: sccache-stats-build.txt
+    summary: 'false'
+```
+
 ## Inputs
 
 All inputs are strings and all are optional.

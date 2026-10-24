@@ -16,3 +16,11 @@ this file.
   The statistics come from the `sccache-report` file when present, otherwise
   from `sccache --show-stats`. New inputs `sccache-status` and
   `sccache-stats-file`.
+- Add the test phase's sccache figures (`sccache_test_hits`, `_misses`,
+  `_compile_requests`, `_hit_ratio`, `_problem`) as the difference between a
+  post-build `sccache-report` snapshot and the final statistics, and
+  `threshold_breaches`. New inputs `sccache-build-stats-file`,
+  `test-hit-ratio-min`, `test-min-compile-requests`, `min-free-disk-mib` and
+  `thresholds`. A breach on a push to the default branch prints a `::warning::`
+  and never fails the job. The fields are additive to schema 1 and null when no
+  snapshot is supplied.

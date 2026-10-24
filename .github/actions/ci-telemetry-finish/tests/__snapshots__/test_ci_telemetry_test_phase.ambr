@@ -1,0 +1,33 @@
+# serializer version: 1
+# name: test_breach_states_and_warnings_are_pinned[both]
+  dict({
+    'threshold_breaches': 'test_hit_ratio,min_free_disk',
+    'warnings': list([
+      '::warning title=ci-telemetry-threshold::test-phase sccache hit ratio 0.05000 (5 hits in 100 attempts, 100 compile requests) is below 0.8',
+      '::warning title=ci-telemetry-threshold::least free disk 1024 MiB is below 3072 MiB',
+    ]),
+  })
+# ---
+# name: test_breach_states_and_warnings_are_pinned[min_free_disk]
+  dict({
+    'threshold_breaches': 'min_free_disk',
+    'warnings': list([
+      '::warning title=ci-telemetry-threshold::least free disk 1024 MiB is below 3072 MiB',
+    ]),
+  })
+# ---
+# name: test_breach_states_and_warnings_are_pinned[none]
+  dict({
+    'threshold_breaches': 'none',
+    'warnings': list([
+    ]),
+  })
+# ---
+# name: test_breach_states_and_warnings_are_pinned[test_hit_ratio]
+  dict({
+    'threshold_breaches': 'test_hit_ratio',
+    'warnings': list([
+      '::warning title=ci-telemetry-threshold::test-phase sccache hit ratio 0.05000 (5 hits in 100 attempts, 100 compile requests) is below 0.8',
+    ]),
+  })
+# ---

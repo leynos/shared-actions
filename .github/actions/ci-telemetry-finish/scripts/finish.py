@@ -24,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import sccache_stats
 import summarize
+import test_phase
+import threshold_settings
 
 STOP_WAIT_SECONDS = 15
 CPU_FIELDS = 10
@@ -231,7 +233,15 @@ def finish(directory: Path, env: typ.Mapping[str, str]) -> dict[str, typ.Any]:
         env.get("CT_SCCACHE_STATUS", ""),
         env.get("CT_SCCACHE_STATS_FILE", ""),
     )
-    return {**_measurements(directory, env), **sccache}
+    record = {**_measurements(directory, env), **sccache}
+    build = sccache_stats.read_stats_file(env.get("CT_SCCACHE_BUILD_STATS_FILE", ""))
+    record.update(
+        test_phase.collect(sccache, threshold_settings.snapshot_from_outcome(build))
+    )
+    thresholds = threshold_settings.thresholds_from_env(env)
+    job = threshold_settings.job_from_env(env)
+    record.update(test_phase.judge(record, thresholds, job))
+    return record
 
 
 def degraded_record(env: typ.Mapping[str, str], exc: Exception) -> dict[str, typ.Any]:
@@ -246,7 +256,7 @@ def degraded_record(env: typ.Mapping[str, str], exc: Exception) -> dict[str, typ
     }
 
 
-def print_marker(record: typ.Mapping[str, typ.Any]) -> None:
+def print_marker(record: typ.Mapping[str, typ.Any], env: typ.Mapping[str, str]) -> None:
     """Print the one marker line."""
     if record["sampler"] == "not-started":
         print(
@@ -254,6 +264,9 @@ def print_marker(record: typ.Mapping[str, typ.Any]) -> None:
             "this job; the record carries no measurements"
         )
     print(summarize.marker_line(record))
+    thresholds = threshold_settings.thresholds_from_env(env)
+    for line in threshold_settings.commands(test_phase.messages(record, thresholds)):
+        print(line)
 
 
 def print_summary(record: typ.Mapping[str, typ.Any]) -> None:
@@ -305,7 +318,7 @@ def emit(
     The marker goes first and cannot fail; each later step reports its own
     failure and the rest still run.
     """
-    print_marker(record)
+    print_marker(record, env)
     print_summary(record)
     path = directory / "record.json"
     for label, step in (

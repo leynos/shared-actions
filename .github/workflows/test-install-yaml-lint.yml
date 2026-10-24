@@ -34,7 +34,8 @@ jobs:
         include:
           - platform: linux
             runner: >-
-              ${{ github.event.pull_request.head.repo.fork
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
               && 'ubuntu-latest' || 'ubicloud-standard-2' }}
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
@@ -127,7 +128,13 @@ jobs:
     # embedded in the action, so an archive no runner here exercises cannot
     # carry a wrong digest or a wrong asset name unnoticed.
     name: Verify every configured release digest
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    # Dependabot pull requests run on the hosted pool too (free on a public
+    # repository). The author is tested, not the actor, which changes when
+    # someone else pushes to the branch.
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

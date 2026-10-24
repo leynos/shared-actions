@@ -40,8 +40,12 @@ jobs:
     # regardless, so a green run is not evidence that it parsed as one
     # line. The workflow contract reads the raw value and refuses one
     # carrying a break.
+    # Dependabot pull requests run on the hosted pool too (free on a public
+    # repository). The author is tested, not the actor, which changes when
+    # someone else pushes to the branch.
     runs-on: >-
-      ${{ github.event.pull_request.head.repo.fork
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
       && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     steps:
       - name: Checkout repository

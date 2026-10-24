@@ -34,7 +34,8 @@ jobs:
           # A tarball with the binary under one directory, GNU tar.
           - platform: linux
             runner: >-
-              ${{ github.event.pull_request.head.repo.fork
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
               && 'ubuntu-latest' || 'ubicloud-standard-2' }}
             tool: sccache
             version: 0.17.0
@@ -46,7 +47,8 @@ jobs:
           # repository depends on every pull request.
           - platform: linux
             runner: >-
-              ${{ github.event.pull_request.head.repo.fork
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
               && 'ubuntu-latest' || 'ubicloud-standard-2' }}
             tool: merman-cli
             version: 0.7.0
@@ -139,8 +141,12 @@ jobs:
   refuses-an-unpinned-version:
     # A version outside the manifest must fail closed rather than reach for
     # whatever is newest, which is the failure mode this action exists to end.
+    # Dependabot pull requests run on the hosted pool too (free on a public
+    # repository). The author is tested, not the actor, which changes when
+    # someone else pushes to the branch.
     runs-on: >-
-      ${{ github.event.pull_request.head.repo.fork
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
       && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     steps:

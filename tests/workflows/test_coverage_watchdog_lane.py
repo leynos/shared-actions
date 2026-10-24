@@ -341,7 +341,9 @@ TRIGGER_FILTERS: typ.Final[frozenset[str]] = frozenset(
 #: exactly: swapping `fork` for a sibling such as `private` changes which
 #: pull requests fall back and must not match here.
 _FORK_AWARE_RUNS_ON: typ.Final[re.Pattern[str]] = re.compile(
-    r"^\$\{\{\s*github\.event\.pull_request\.head\.repo\.fork"
+    r"^\$\{\{\s*\(\s*github\.event\.pull_request\.head\.repo\.fork"
+    r"\s*\|\|\s*github\.event\.pull_request\.user\.login"
+    r"\s*==\s*'dependabot\[bot\]'\s*\)"
     r"\s*&&\s*'(?P<fork_arm>[^']+)'"
     r"\s*\|\|\s*'(?P<base_arm>[^']+)'\s*\}\}$"
 )

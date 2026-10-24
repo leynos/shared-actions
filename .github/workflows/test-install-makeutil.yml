@@ -30,7 +30,8 @@ jobs:
         include:
           - platform: linux-x86_64
             runner: >-
-              ${{ github.event.pull_request.head.repo.fork
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
               && 'ubuntu-latest' || 'ubicloud-standard-2' }}
           - platform: linux-aarch64
             runner: ubuntu-24.04-arm
@@ -103,7 +104,8 @@ jobs:
         include:
           - platform: linux-x86_64
             runner: >-
-              ${{ github.event.pull_request.head.repo.fork
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
               && 'ubuntu-latest' || 'ubicloud-standard-2' }}
           - platform: linux-aarch64
             runner: ubuntu-24.04-arm
@@ -135,8 +137,12 @@ jobs:
     # replaces only what the download is checked against, not what is
     # fetched, so this proves the verification is not merely decorative.
     name: Fail closed on a tampered digest
+    # Dependabot pull requests run on the hosted pool too (free on a public
+    # repository). The author is tested, not the actor, which changes when
+    # someone else pushes to the branch.
     runs-on: >-
-      ${{ github.event.pull_request.head.repo.fork
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
       && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 15
     steps:
@@ -171,7 +177,8 @@ jobs:
     # an unpinned version is refused before anything is downloaded.
     name: Fail closed on an unpinned version
     runs-on: >-
-      ${{ github.event.pull_request.head.repo.fork
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
       && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     steps:

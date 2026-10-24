@@ -18,17 +18,20 @@ jobs:
         include:
           - platform: linux
             runner: >-
-              ${{ github.event.pull_request.head.repo.fork
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
               && 'ubuntu-latest' || 'ubicloud-standard-2' }}
             target: x86_64-unknown-linux-gnu
           - platform: linux
             runner: >-
-              ${{ github.event.pull_request.head.repo.fork
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
               && 'ubuntu-latest' || 'ubicloud-standard-2' }}
             target: aarch64-unknown-linux-gnu
           - platform: linux
             runner: >-
-              ${{ github.event.pull_request.head.repo.fork
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
               && 'ubuntu-latest' || 'ubicloud-standard-2' }}
             target: x86_64-unknown-illumos
           - platform: macos
@@ -39,7 +42,8 @@ jobs:
             target: aarch64-apple-darwin
           - platform: linux
             runner: >-
-              ${{ github.event.pull_request.head.repo.fork
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
               && 'ubuntu-latest' || 'ubicloud-standard-2' }}
             target: x86_64-unknown-freebsd
           # - platform: linux

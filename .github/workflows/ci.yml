@@ -37,7 +37,8 @@ jobs:
         include:
           - platform: linux
             os: >-
-              ${{ github.event.pull_request.head.repo.fork
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
               && 'ubuntu-latest' || 'ubicloud-standard-2' }}
           - platform: macos
             os: macos-15
@@ -172,8 +173,12 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    # Dependabot pull requests run on the hosted pool too (free on a public
+    # repository). The author is tested, not the actor, which changes when
+    # someone else pushes to the branch.
     runs-on: >-
-      ${{ github.event.pull_request.head.repo.fork
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
       && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     env:
       MAKEUTIL_REVISION: '7ab9b7b73a8f50ef1d3df548c7def7b94db35ba2'
@@ -288,7 +293,10 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     # Job-level because two steps read it: `install-tool` pins the archive to
     # this version, and the lane assertion below names it. A step-level `env:`
     # is visible only to the step that declares it.

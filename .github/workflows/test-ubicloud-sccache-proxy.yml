@@ -33,6 +33,8 @@ jobs:
     if: >-
       github.event_name != 'pull_request'
       || github.event.pull_request.head.repo.full_name == github.repository
+    # dependabot-runner: exempt. This job proves the Ubicloud cache proxy, which a
+    # GitHub-hosted runner cannot show, so Dependabot's pull requests stay here.
     runs-on: ubicloud-standard-2
     timeout-minutes: 10
     env:
@@ -154,6 +156,8 @@ jobs:
     if: >-
       github.event_name != 'pull_request'
       || github.event.pull_request.head.repo.full_name == github.repository
+    # dependabot-runner: exempt. This job proves the Ubicloud cache proxy, which a
+    # GitHub-hosted runner cannot show, so Dependabot's pull requests stay here.
     runs-on: ubicloud-standard-2
     timeout-minutes: 10
     steps:

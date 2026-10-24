@@ -32,7 +32,8 @@ jobs:
         include:
           - platform: linux
             runner: >-
-              ${{ github.event.pull_request.head.repo.fork
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
               && 'ubuntu-latest' || 'ubicloud-standard-2' }}
           - platform: macos
             runner: macos-15

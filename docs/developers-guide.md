@@ -2310,7 +2310,7 @@ each of which a plausible edit would otherwise break silently:
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The proof runs             | Some step's only command executes `workflow_scripts/prove_cargo_watchdog.py` unconditionally, directly or through `uv run`, with `--runner .github/actions/generate-coverage/scripts/run_rust.py`. |
 | The lane is unfiltered     | The `pull_request` trigger declares none of `paths`, `paths-ignore`, `branches`, `branches-ignore` or `types`.                                                                                     |
-| The runner is mapped       | Every job's `runs-on` sends a fork's pull request to `ubuntu-latest` and everything else to `ubicloud-standard-2`.                                                                                 |
+| The runner is mapped       | Every job's `runs-on` sends a fork's or Dependabot's pull request to `ubuntu-latest` and everything else to `ubicloud-standard-2`.                                                                 |
 | The expression is one line | Every job's `runs-on`, read as written, parses without a line break.                                                                                                                               |
 <!-- markdownlint-enable MD013 -->
 
@@ -3675,18 +3675,25 @@ queue, and the job ceiling does not end that wait: `timeout-minutes` limits a
 job's running time, not its time in the queue, and GitHub lets a job wait for a
 runner for up to 24 hours. An external contribution would lose its Linux CI and
 might not learn so for a day. A lane a fork's pull request can reach therefore
-selects its label from the head repository:
+selects its label from the head repository. A pull request Dependabot opened
+takes the same hosted arm: hosted minutes cost nothing on a public repository,
+and Dependabot opens many pull requests, which therefore run on the hosted pool
+without Ubicloud's cache store. The condition tests the pull request's author,
+not `github.actor`, because the actor is whoever triggered the run, so a person
+pushing to a Dependabot branch would flip the runner:
 
 ```yaml
 runs-on: >-
-  ${{ github.event.pull_request.head.repo.fork
+  ${{ (github.event.pull_request.head.repo.fork
+  || github.event.pull_request.user.login == 'dependabot[bot]')
   && 'ubuntu-latest' || 'ubicloud-standard-2' }}
 ```
 
-On every other event `github.event.pull_request` is absent, so the expression
-yields the Ubicloud label and a push, dispatch or tag lane is unaffected. A
-lane with no `pull_request` trigger names the label outright, because no fork
-can reach it and the expression would be decoration.
+On every other event `github.event.pull_request` is absent, so both properties
+are empty strings (falsy) and the expression yields the Ubicloud label and a
+push, dispatch or tag lane is unaffected. A lane with no `pull_request` trigger
+names the label outright, because no fork can reach it and the expression would
+be decoration.
 
 Falling back rather than skipping is the point. A guard that skips leaves a
 fork with no Linux CI at all, which is a worse answer to the same problem. The
@@ -3699,7 +3706,9 @@ through the repository's own action tree, which a fork's pull request cannot
 reach in the shape the proof needs. Its service-touching half,
 `test-codescene-parser-proof.yml`, is dispatch-only from main, so no fork
 reaches it and it names the Ubicloud label outright. Both skip a fork's pull
-request instead, and `FORK_FALLBACK_EXEMPTIONS` records why while
+request instead, and so stay on Ubicloud for Dependabot, whose pull requests
+are same-repository ones (each carries a `dependabot-runner: exempt` comment
+saying so), and `FORK_FALLBACK_EXEMPTIONS` records why while
 `test_a_fork_skipping_lane_really_skips_forks` checks the guard is actually
 there.
 

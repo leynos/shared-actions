@@ -47,7 +47,9 @@ from . import _workflow_reading as reading
 #: nothing here, which is the point: the rule is about forks, not about
 #: whichever boolean sits next to it.
 _FORK_AWARE_RUNS_ON: typ.Final[re.Pattern[str]] = re.compile(
-    r"^\$\{\{\s*github\.event\.pull_request\.head\.repo\.fork"
+    r"^\$\{\{\s*\(\s*github\.event\.pull_request\.head\.repo\.fork"
+    r"\s*\|\|\s*github\.event\.pull_request\.user\.login"
+    r"\s*==\s*'dependabot\[bot\]'\s*\)"
     r"\s*&&\s*'(?P<fork_arm>[^']+)'"
     r"\s*\|\|\s*'(?P<base_arm>[^']+)'\s*\}\}$"
 )

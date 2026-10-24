@@ -47,7 +47,9 @@ BREACH_DISK = "min_free_disk"
 
 #: A post-build snapshot as the policy sees it: the cumulative counters, a
 #: problem name (``snapshot-unreadable`` and the like), or None when none exists.
-type Snapshot = typ.Mapping[str, int] | str | None
+# The action runs on whichever python3 the runner has, 3.10 included, where the
+# `type` statement is a SyntaxError.
+Snapshot: typ.TypeAlias = typ.Mapping[str, int] | str | None  # noqa: UP040
 
 
 @dc.dataclass(frozen=True)

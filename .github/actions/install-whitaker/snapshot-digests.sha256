@@ -4,3 +4,4 @@
 # Each digest is computed from the bundle downloaded from the published
 # release and cross-checked against the release .sha256 sidecar. Regenerate
 # only from an independent download; never copy a digest from the sidecar alone.
+11e0d766aa12f78c06807d8f4203663279154844ffbfe4e89e8ce59195b2f91f  whitaker-clippy-snapshot-e4608a25c2e20116fbc1e97a51a73f094a1db7a1.bundle

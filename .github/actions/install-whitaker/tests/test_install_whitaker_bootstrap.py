@@ -51,10 +51,15 @@ class TestBootstrapContract:
     ) -> None:
         """One `rm -rf`, on the bootstrap root, after a logged reason."""
         script = _script("Verify Whitaker bootstrap cache")
-        removals = re.findall(r"rm -rf -- (\S+)", script)
+        removals = re.findall(r"rm -rf -- (.+)", script)
         assert removals == ['"$root"'], removals
         assert script.index("::warning") < script.index("rm -rf")
-        for check in ("bootstrap.json", "snapshot_commit", "dylint_version", "toolchain"):
+        for check in (
+            "bootstrap.json",
+            "snapshot_commit",
+            "dylint_version",
+            "toolchain",
+        ):
             assert check in script
 
     def test_the_snapshot_download_is_verified_twice_and_has_no_fallback(self) -> None:
@@ -62,6 +67,8 @@ class TestBootstrapContract:
         script = _script("Download Whitaker Clippy snapshot")
         assert "digest mismatch" in script
         assert "sidecar digest" in script
+        assert 'if [[ "$sidecar" != "$actual" ]]; then' in script
+        assert 'if [[ "$actual" != "$WHITAKER_EXPECTED_SHA" ]]; then' in script
         assert "https://github.com/leynos/whitaker/releases/download/" in script
         assert "rust-clippy" not in script, "the action must never name public Clippy"
 

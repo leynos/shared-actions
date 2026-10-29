@@ -15,9 +15,9 @@ import string
 import typing as typ
 
 from _action_manifest import (
-    DIGEST_MANIFEST_PATH,
     BOOTSTRAP_PREPARATION_STEP_NAMES,
     BOOTSTRAP_VERIFICATION_STEP_NAMES,
+    DIGEST_MANIFEST_PATH,
     LIFECYCLE_STEP_NAMES,
     RESOLVE_SCRIPT_PATH,
     default_input,

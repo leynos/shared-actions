@@ -125,6 +125,18 @@ class TestResolveSnapshot:
         assert record["status"] == "error", record
         assert record["error-kind"] == kind, record
 
+    def test_an_unpinned_digest_with_no_input_fails_closed(
+        self, tmp_path: Path
+    ) -> None:
+        """No pin and no supplied digest leaves nothing to verify against."""
+        empty = tmp_path / "empty.sha256"
+        empty.write_text("", encoding="utf-8")
+        record = _resolve(
+            tmp_path, "0.2.11", WHITAKER_SNAPSHOT_DIGEST_MANIFEST=str(empty)
+        )
+        assert record["status"] == "error", record
+        assert record["error-kind"] == "unpinned-digest", record
+
     def test_the_shipped_manifest_pins_every_table_row_or_the_action_refuses(
         self,
     ) -> None:

@@ -37,6 +37,19 @@ LIFECYCLE_STEP_NAMES = (
     "Run Whitaker installer",
 )
 
+#: The bootstrap steps that run between the installer's installation and the
+#: published-asset check, in order. "Cache Whitaker bootstrap" is a cache
+#: step, not a Bash fragment, so these are kept apart from the lifecycle.
+BOOTSTRAP_PREPARATION_STEP_NAMES = (
+    "Resolve Whitaker Clippy snapshot",
+    "Locate Whitaker bootstrap",
+    "Cache Whitaker bootstrap",
+    "Verify Whitaker bootstrap cache",
+    "Download Whitaker Clippy snapshot",
+)
+#: The step that proves the installed bootstrap after the installer has run.
+BOOTSTRAP_VERIFICATION_STEP_NAMES = ("Verify Whitaker bootstrap",)
+
 #: Every runner pair the action supports, with the release asset it selects.
 SUPPORTED_PLATFORMS = {
     "Linux:X64": ("x86_64-unknown-linux-gnu", "tgz", "whitaker-installer"),

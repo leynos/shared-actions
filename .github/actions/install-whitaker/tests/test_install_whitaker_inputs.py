@@ -121,6 +121,7 @@ class TestNormalisation:
             ),
             "installer-version": "1.2.3",
             "installer-sha256": "",
+            "snapshot-sha256": "",
         }
 
     def test_selects_the_windows_executable_suffix(self, tmp_path: Path) -> None:

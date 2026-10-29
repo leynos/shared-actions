@@ -1,0 +1,7 @@
+# Clippy snapshot each whitaker-installer release provisions, as
+# `<installer-version> <clippy-commit> <dylint-version> <toolchain>`.
+# Copied from the release tag's installer/clippy-snapshot.toml, never invented:
+# `commit`, `dylint_version` and `toolchain` are that file's fields.
+# The bundle digest lives in snapshot-digests.sha256, taken from the
+# published asset. An installer older than the first row has no bootstrap.
+0.2.11 e4608a25c2e20116fbc1e97a51a73f094a1db7a1 6.3.0 nightly-2026-05-28

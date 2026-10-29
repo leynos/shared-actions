@@ -105,6 +105,7 @@ def _run_step(tmp_path: Path, scenario: StepScenario | None = None) -> StepRun:
         "WHITAKER_INSTALLER_PATH": str(installer),
         "WHITAKER_INSTALLER_VERSION": "0.2.9",
         "WHITAKER_CRANELIFT": "false",
+        "WHITAKER_SNAPSHOT_BUNDLE": "",
         **scenario.extra_env,
     }
     script = step_by_name("Run Whitaker installer")["run"]

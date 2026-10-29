@@ -5,6 +5,28 @@ file.
 
 ## v1.0.0 (Unreleased)
 
+- Consume Whitaker's reproducible Dylint bootstrap (installer 0.2.11, issue
+  #650). Dylint 6.0.1 pinned Clippy to the mutable branch `master`, which Rust
+  renamed, so every cold driver build failed. `installer-version` now defaults
+  to 0.2.11 and the action provisions the Clippy snapshot bundle the release
+  publishes: it downloads `whitaker-clippy-snapshot-<commit>.bundle` and its
+  sidecar from the same release, verifies the bundle against the digest pinned
+  in `snapshot-digests.sha256` (or the new `clippy-snapshot-sha256` input for
+  an unpinned bundle) and against the sidecar, and hands it to the installer
+  with `--clippy-snapshot-bundle`. A missing, unpinned, conflicting or
+  mismatched snapshot fails the step; nothing falls back to public Clippy.
+  `clippy-snapshots.tsv` records each release's Clippy commit, Dylint release
+  and toolchain. A second cache holds the platform data root's
+  `whitaker-bootstrap/` (snapshot, `bootstrap.json` and the driver built on
+  first use), keyed by installer version, Dylint release, Clippy commit and
+  toolchain. A restored bootstrap is never trusted: if its metadata or snapshot
+  disagree with the pins, only that directory is wiped, with the reason logged,
+  and re-provisioned. The installed `whitaker` wrapper (not bare
+  `cargo dylint`) carries the bootstrap configuration to the driver build, and
+  the action writes nothing to `GITHUB_ENV`. New outputs: `clippy-snapshot`,
+  `driver-directory` and `bootstrap-cache-state`. The 0.2.9 and 0.2.10 digests
+  stay pinned; those installers have no bootstrap and run as before.
+
 - Default `installer-version` to 0.2.10 and pin its five release archive
   digests, computed from an independent download and cross-checked against the
   release sidecars. 0.2.10 updates the installer's managed checkout with a

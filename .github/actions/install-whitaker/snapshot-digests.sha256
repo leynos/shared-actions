@@ -1,0 +1,6 @@
+# Pinned SHA-256 digests for Whitaker Clippy snapshot bundles.
+# Format: sha256sum manifest (digest, two spaces, asset filename), the asset
+# being whitaker-clippy-snapshot-<commit>.bundle.
+# Each digest is computed from the bundle downloaded from the published
+# release and cross-checked against the release .sha256 sidecar. Regenerate
+# only from an independent download; never copy a digest from the sidecar alone.

@@ -1,0 +1,161 @@
+name: Test install-whitaker bootstrap
+
+# Fresh-runner proof of the reproducible Dylint bootstrap that install-whitaker
+# consumes from whitaker-installer 0.2.11: a verified Clippy snapshot, a driver
+# built from it on first use, and a cache of both. Each lane installs through
+# the action, then denies Clippy's git host, so a green run cannot have read
+# public Clippy. The action's own downloads happen before the denial.
+
+on:
+  pull_request:
+    paths:
+      - '.github/actions/install-whitaker/**'
+      - '.github/workflows/test-install-whitaker-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WHITAKER_TEST_INSTALLER_VERSION: 0.2.11
+  WHITAKER_TEST_DIAGNOSTIC: no_std_fs_operations
+
+jobs:
+  cold-driver:
+    # Dependabot pull requests run on the hosted pool too (free on a public
+    # repository). The author is tested, not the actor, which changes when
+    # someone else pushes to the branch.
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-4' }}
+    timeout-minutes: 45
+    outputs:
+      driver-sha256: ${{ steps.lint.outputs.driver-sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Whitaker
+        id: install
+        uses: ./.github/actions/install-whitaker
+        with:
+          cargo-home: ${{ runner.temp }}/whitaker-test-cargo
+          installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
+
+      - name: Assert the bootstrap cache was empty
+        shell: bash
+        env:
+          STATE: ${{ steps.install.outputs.bootstrap-cache-state }}
+        run: |
+          set -euo pipefail
+          test "$STATE" = empty || { echo "expected an empty bootstrap cache, got '${STATE}'" >&2; exit 1; }
+
+      - name: Deny Clippy's git host
+        shell: bash
+        run: bash .github/actions/install-whitaker/tests/fixtures/deny-clippy-host.sh
+
+      - name: Lint the fixture (cold driver)
+        id: lint
+        shell: bash
+        env:
+          DRIVER_DIRECTORY: ${{ steps.install.outputs.driver-directory }}
+          SNAPSHOT: ${{ steps.install.outputs.clippy-snapshot }}
+        run: bash .github/actions/install-whitaker/tests/fixtures/lint-fixture.sh cold
+
+  warm-driver:
+    needs: cold-driver
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-4' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Whitaker
+        id: install
+        uses: ./.github/actions/install-whitaker
+        with:
+          cargo-home: ${{ runner.temp }}/whitaker-test-cargo
+          installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
+
+      - name: Assert the bootstrap cache was restored
+        shell: bash
+        env:
+          STATE: ${{ steps.install.outputs.bootstrap-cache-state }}
+        run: |
+          set -euo pipefail
+          test "$STATE" = restored || { echo "expected a restored bootstrap cache, got '${STATE}'" >&2; exit 1; }
+
+      - name: Deny Clippy's git host
+        shell: bash
+        run: bash .github/actions/install-whitaker/tests/fixtures/deny-clippy-host.sh
+
+      - name: Lint the fixture (warm driver)
+        shell: bash
+        env:
+          DRIVER_DIRECTORY: ${{ steps.install.outputs.driver-directory }}
+          SNAPSHOT: ${{ steps.install.outputs.clippy-snapshot }}
+          COLD_DRIVER_SHA256: ${{ needs.cold-driver.outputs.driver-sha256 }}
+        run: bash .github/actions/install-whitaker/tests/fixtures/lint-fixture.sh warm
+
+  invalid-snapshot:
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install with a digest that contradicts the pinned snapshot
+        id: install
+        continue-on-error: true
+        uses: ./.github/actions/install-whitaker
+        with:
+          cargo-home: ${{ runner.temp }}/whitaker-test-cargo
+          installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
+          clippy-snapshot-sha256: ${{ format('{0}{0}{0}{0}', '0123456789abcdef') }}
+
+      - name: Assert the action refused and installed no bootstrap
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.install.outcome }}
+        run: |
+          set -euo pipefail
+          test "$OUTCOME" = failure || { echo "the action accepted a conflicting snapshot digest (${OUTCOME})" >&2; exit 1; }
+          if command -v whitaker >/dev/null 2>&1; then
+            echo "a whitaker wrapper exists although the snapshot was refused" >&2
+            exit 1
+          fi
+          test ! -e "${XDG_DATA_HOME:-$HOME/.local/share}/whitaker-bootstrap/bootstrap.json"
+
+  missing-snapshot:
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Whitaker
+        id: install
+        uses: ./.github/actions/install-whitaker
+        with:
+          cargo-home: ${{ runner.temp }}/whitaker-test-cargo
+          installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
+
+      - name: Delete the snapshot generation and lint
+        shell: bash
+        env:
+          SNAPSHOT: ${{ steps.install.outputs.clippy-snapshot }}
+        run: bash .github/actions/install-whitaker/tests/fixtures/lint-fixture.sh missing

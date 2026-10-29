@@ -12,13 +12,21 @@ inputs:
       action pins, and must be 0.2.9 or later: that is the first release with
       --no-source-fallback, which the action always passes.
     required: false
-    default: "0.2.10"
+    default: "0.2.11"
   installer-sha256:
     description: >-
       SHA-256 digest of the whitaker-installer release archive for this
       runner. The action's pinned digest manifest takes precedence; supply
       this only for an asset the manifest does not pin. A value that
       disagrees with a pinned digest is rejected.
+    required: false
+    default: ""
+  clippy-snapshot-sha256:
+    description: >-
+      SHA-256 digest of the Clippy snapshot bundle this installer release
+      publishes (installer 0.2.11 and later). The action's pinned digest
+      manifest takes precedence; supply this only for a bundle the manifest
+      does not pin. A value that disagrees with a pinned digest is rejected.
     required: false
     default: ""
   suite-version:
@@ -59,6 +67,19 @@ inputs:
     required: false
     default: ${{ github.token }}
 
+outputs:
+  clippy-snapshot:
+    description: Directory of the verified Clippy snapshot (empty before installer 0.2.11).
+    value: ${{ steps.bootstrap.outputs.clippy-snapshot }}
+  driver-directory:
+    description: Directory the Dylint driver is built into on first use (empty before installer 0.2.11).
+    value: ${{ steps.bootstrap.outputs.driver-directory }}
+  bootstrap-cache-state:
+    description: >-
+      State of the restored bootstrap: empty, restored or wiped (empty before
+      installer 0.2.11).
+    value: ${{ steps.bootstrap-cache.outputs.state }}
+
 runs:
   using: composite
   steps:
@@ -71,6 +92,7 @@ runs:
         CI_MODE_INPUT: ${{ inputs.ci-mode }}
         CRANELIFT_INPUT: ${{ inputs.cranelift }}
         INSTALLER_SHA256_INPUT: ${{ inputs.installer-sha256 }}
+        SNAPSHOT_SHA256_INPUT: ${{ inputs.clippy-snapshot-sha256 }}
         INSTALLER_VERSION_INPUT: ${{ inputs.installer-version }}
         SUITE_VERSION_INPUT: ${{ inputs.suite-version }}
       run: |
@@ -133,6 +155,13 @@ runs:
           fi
           installer_sha256="$(printf '%s' "$INSTALLER_SHA256_INPUT" | tr 'A-F' 'a-f')"
         fi
+        snapshot_sha256=
+        if [[ -n "$SNAPSHOT_SHA256_INPUT" ]]; then
+          if [[ ! "$SNAPSHOT_SHA256_INPUT" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            input_error "clippy-snapshot-sha256 must be 64 hexadecimal characters"
+          fi
+          snapshot_sha256="$(printf '%s' "$SNAPSHOT_SHA256_INPUT" | tr 'A-F' 'a-f')"
+        fi
         if [[ "$CARGO_HOME_INPUT" == "~" || "$CARGO_HOME_INPUT" == "~/"* ]]; then
           cargo_home="${HOME}${CARGO_HOME_INPUT:1}"
         elif [[ "$CARGO_HOME_INPUT" == /* ]]; then
@@ -164,6 +193,7 @@ runs:
         printf 'installer-version-path=%s\n' "${cargo_home}/bin/.whitaker-installer-version" >> "$GITHUB_OUTPUT"
         printf 'installer-version=%s\n' "$INSTALLER_VERSION_INPUT" >> "$GITHUB_OUTPUT"
         printf 'installer-sha256=%s\n' "$installer_sha256" >> "$GITHUB_OUTPUT"
+        printf 'snapshot-sha256=%s\n' "$snapshot_sha256" >> "$GITHUB_OUTPUT"
 
     - name: Cache Whitaker installer
       id: cache-whitaker-installer
@@ -573,6 +603,215 @@ runs:
         echo "::notice title=Whitaker installer::path=official-release version=${WHITAKER_INSTALLER_VERSION}"
         emit_metric "whitaker-installer.path=official-release"
 
+    - name: Resolve Whitaker Clippy snapshot
+      id: snapshot
+      shell: bash
+      env:
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+        WHITAKER_SNAPSHOT_DIGEST_MANIFEST: ${{ github.action_path }}/snapshot-digests.sha256
+        WHITAKER_SNAPSHOT_RESOLVE_SCRIPT: ${{ github.action_path }}/scripts/resolve-snapshot.sh
+        WHITAKER_SNAPSHOT_SHA256: ${{ steps.validate-inputs.outputs.snapshot-sha256 }}
+        WHITAKER_SNAPSHOT_TABLE: ${{ github.action_path }}/clippy-snapshots.tsv
+      run: |
+        # Publication of scripts/resolve-snapshot.sh, which only prints. An
+        # installer older than 0.2.11 has no bootstrap and takes no snapshot.
+        # Otherwise the snapshot must resolve to a pinned (or supplied) digest,
+        # or the step fails: the driver build has no other source for Clippy.
+        set -Eeuo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        record="$(bash "$WHITAKER_SNAPSHOT_RESOLVE_SCRIPT")"
+        field() {
+          printf '%s\n' "$record" | awk -v key="$1" -F= '$1 == key { sub(/^[^=]*=/, ""); print; exit }'
+        }
+        case "$(field status)" in
+          none)
+            echo "::notice title=Whitaker bootstrap::version=${WHITAKER_INSTALLER_VERSION} bootstrap=none (this installer predates the Clippy snapshot)"
+            emit_metric "whitaker-bootstrap.state=none"
+            printf 'status=none\n' >> "$GITHUB_OUTPUT"
+            ;;
+          install)
+            {
+              printf 'status=install\n'
+              for key in bundle-asset sidecar-asset commit dylint-version toolchain expected-sha trust-anchor; do
+                printf '%s=%s\n' "$key" "$(field "$key")"
+              done
+            } >> "$GITHUB_OUTPUT"
+            ;;
+          *)
+            echo "::error title=Whitaker bootstrap failed::$(field error-message)" >&2
+            emit_metric "whitaker-bootstrap.failure=$(field error-kind)"
+            exit 1
+            ;;
+        esac
+
+    - name: Locate Whitaker bootstrap
+      id: bootstrap-location
+      if: ${{ steps.snapshot.outputs.status == 'install' }}
+      shell: bash
+      env:
+        WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
+      run: |
+        # Ask the installer where the bootstrap lives rather than hard-coding a
+        # platform's data directory: `--dry-run` prints the labelled lines
+        # hosted checks read, and changes nothing.
+        set -Eeuo pipefail
+        plan="$("$WHITAKER_INSTALLER_PATH" --dry-run --skip-deps 2>&1 || true)"
+        label() { printf '%s\n' "$plan" | sed -n "s/^$1: //p" | head -n 1 | tr -d '\r'; }
+        generation="$(label 'Clippy snapshot')"
+        driver_dir="$(label 'Dylint driver directory')"
+        if [[ -z "$generation" || -z "$driver_dir" ]]; then
+          echo "::error title=Whitaker bootstrap failed::the installer's dry run did not name a Clippy snapshot and a Dylint driver directory; cannot locate the bootstrap" >&2
+          exit 1
+        fi
+        # <root>/clippy/<commit> is the generation; the root is two levels up.
+        root="${generation%[/\\]*}"
+        root="${root%[/\\]*}"
+        {
+          printf 'root=%s\n' "$root"
+          printf 'generation=%s\n' "$generation"
+          printf 'driver-directory=%s\n' "$driver_dir"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Cache Whitaker bootstrap
+      id: cache-whitaker-bootstrap
+      if: ${{ inputs.cache-provider == 'github' && steps.snapshot.outputs.status == 'install' }}
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.bootstrap-location.outputs.root }}
+        key: >-
+          whitaker-bootstrap-${{ runner.os }}-${{ runner.arch }}-${{ steps.validate-inputs.outputs.installer-version }}-dylint-${{ steps.snapshot.outputs.dylint-version }}-clippy-${{ steps.snapshot.outputs.commit }}-${{ steps.snapshot.outputs.toolchain }}
+
+    - name: Verify Whitaker bootstrap cache
+      id: bootstrap-cache
+      if: ${{ steps.snapshot.outputs.status == 'install' }}
+      shell: bash
+      env:
+        WHITAKER_BOOTSTRAP_ROOT: ${{ steps.bootstrap-location.outputs.root }}
+        WHITAKER_CACHE_HIT: ${{ steps.cache-whitaker-bootstrap.outputs.cache-hit }}
+        WHITAKER_COMMIT: ${{ steps.snapshot.outputs.commit }}
+        WHITAKER_DYLINT_VERSION: ${{ steps.snapshot.outputs.dylint-version }}
+        WHITAKER_TOOLCHAIN: ${{ steps.snapshot.outputs.toolchain }}
+      run: |
+        # A restored bootstrap is never trusted. Its metadata must name the
+        # pinned Clippy commit, Dylint release and toolchain, and its snapshot
+        # generation must exist. Anything else is wiped, with the reason, and
+        # provisioned afresh. Only the bootstrap directory is removed: the
+        # installer cache is a separate entry and is left alone.
+        set -Eeuo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        root="$WHITAKER_BOOTSTRAP_ROOT"
+        if command -v cygpath >/dev/null 2>&1; then
+          root="$(cygpath -u "$root")"
+        fi
+        reason=
+        if [[ ! -d "$root" ]]; then
+          state=empty
+        else
+          state=restored
+          if [[ ! -f "$root/bootstrap.json" ]]; then
+            reason="bootstrap.json is missing"
+          elif ! python3 - "$root/bootstrap.json" "$WHITAKER_COMMIT" "$WHITAKER_DYLINT_VERSION" "$WHITAKER_TOOLCHAIN" <<'PY'
+        import json, sys
+        path, commit, dylint, toolchain = sys.argv[1:5]
+        try:
+            record = json.load(open(path, encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            sys.exit(f"unreadable: {error}")
+        want = {"schema_version": 1, "snapshot_commit": commit,
+                "dylint_version": dylint, "toolchain": toolchain}
+        bad = [k for k, v in want.items() if record.get(k) != v]
+        sys.exit("disagrees on " + ", ".join(bad) if bad else 0)
+        PY
+          then
+            reason="bootstrap.json does not match the pinned snapshot"
+          elif [[ ! -d "$root/clippy/$WHITAKER_COMMIT" ]]; then
+            reason="the Clippy snapshot generation is missing"
+          fi
+          if [[ -n "$reason" ]]; then
+            echo "::warning title=Whitaker bootstrap cache::wiping ${root}: ${reason}"
+            rm -rf -- "$root"
+            state=wiped
+          fi
+        fi
+        echo "::notice title=Whitaker bootstrap cache::state=${state} hit=${WHITAKER_CACHE_HIT:-false}"
+        emit_metric "whitaker-bootstrap.cache=${state}"
+        printf 'state=%s\n' "$state" >> "$GITHUB_OUTPUT"
+        if [[ -d "$root/clippy/$WHITAKER_COMMIT" ]]; then
+          printf 'snapshot-installed=true\n' >> "$GITHUB_OUTPUT"
+        else
+          printf 'snapshot-installed=false\n' >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Download Whitaker Clippy snapshot
+      id: snapshot-download
+      if: ${{ steps.snapshot.outputs.status == 'install' && steps.bootstrap-cache.outputs.snapshot-installed != 'true' }}
+      shell: bash
+      env:
+        WHITAKER_BUNDLE: ${{ steps.snapshot.outputs.bundle-asset }}
+        WHITAKER_EXPECTED_SHA: ${{ steps.snapshot.outputs.expected-sha }}
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+        WHITAKER_SIDECAR: ${{ steps.snapshot.outputs.sidecar-asset }}
+        WHITAKER_SNAPSHOT_STAGING: ${{ runner.temp }}/whitaker-clippy-snapshot
+        WHITAKER_TRUST_ANCHOR: ${{ steps.snapshot.outputs.trust-anchor }}
+      run: |
+        # The bundle is Clippy's history; the driver build reads nothing else.
+        # It is fetched from the same release as the installer, checked against
+        # the pinned (or supplied) digest and against the release sidecar, and
+        # handed to the installer, which verifies it a third time. Any gap
+        # fails the step: there is no fallback to public Clippy.
+        set -Eeuo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        step_error() {
+          echo "::error title=Whitaker bootstrap failed::$1" >&2
+          emit_metric "whitaker-bootstrap.failure=snapshot"
+          exit 1
+        }
+        staging="$WHITAKER_SNAPSHOT_STAGING"
+        if command -v cygpath >/dev/null 2>&1; then
+          staging="$(cygpath -u "$staging")"
+        fi
+        rm -rf -- "$staging"
+        mkdir -p -- "$staging"
+        release_url="https://github.com/leynos/whitaker/releases/download/v${WHITAKER_INSTALLER_VERSION}"
+        for asset in "$WHITAKER_BUNDLE" "$WHITAKER_SIDECAR"; do
+          curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
+            --retry-all-errors --connect-timeout 20 --max-time 600 \
+            "${release_url}/${asset}" -o "${staging}/${asset}" ||
+            step_error "could not download ${asset} from release v${WHITAKER_INSTALLER_VERSION}; the release does not publish the Clippy snapshot its installer pins"
+        done
+        compute_sha256() {
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum < "$1" | awk '{print $1}'
+          else
+            shasum -a 256 < "$1" | awk '{print $1}'
+          fi
+        }
+        actual="$(compute_sha256 "${staging}/${WHITAKER_BUNDLE}")"
+        if [[ "$actual" != "$WHITAKER_EXPECTED_SHA" ]]; then
+          emit_metric "whitaker-bootstrap.digest=mismatch"
+          step_error "snapshot digest mismatch for ${WHITAKER_BUNDLE}: expected ${WHITAKER_EXPECTED_SHA} but computed ${actual}"
+        fi
+        sidecar="$(awk 'NR == 1 { sub(/^\\/, "", $1); print $1 }' "${staging}/${WHITAKER_SIDECAR}")"
+        if [[ "$sidecar" != "$actual" ]]; then
+          emit_metric "whitaker-bootstrap.digest=sidecar-mismatch"
+          step_error "release sidecar digest ${sidecar:-<empty>} disagrees with the verified snapshot digest ${actual} for ${WHITAKER_BUNDLE}"
+        fi
+        echo "::notice title=Whitaker Clippy snapshot::asset=${WHITAKER_BUNDLE} outcome=verified anchor=${WHITAKER_TRUST_ANCHOR}"
+        emit_metric "whitaker-bootstrap.digest=verified"
+        printf 'bundle=%s\n' "${staging}/${WHITAKER_BUNDLE}" >> "$GITHUB_OUTPUT"
+
     - name: Verify the published lint assets
       id: rolling-assets
       if: ${{ inputs.ci-mode == 'true' }}
@@ -618,6 +857,7 @@ runs:
         WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
         WHITAKER_CRANELIFT: ${{ inputs.cranelift }}
+        WHITAKER_SNAPSHOT_BUNDLE: ${{ steps.snapshot-download.outputs.bundle }}
       run: |
         set -Eeuo pipefail
         emit_metric() {
@@ -675,11 +915,18 @@ runs:
         # `||` holds back errexit and the ERR trap until stderr has been
         # replayed; `pipefail` makes the status the installer's, not tee's.
         installer_status=0
+        # Positional parameters rather than an array: macOS bash 3.2 treats an
+        # empty array expansion as unbound, and these are never empty.
+        set -- --no-source-fallback
         if [[ "$WHITAKER_CRANELIFT" == "true" ]]; then
-          "$WHITAKER_INSTALLER_PATH" --no-source-fallback --cranelift 2> "$installer_err" | tee "$installer_log" || installer_status=$?
-        else
-          "$WHITAKER_INSTALLER_PATH" --no-source-fallback 2> "$installer_err" | tee "$installer_log" || installer_status=$?
+          set -- "$@" --cranelift
         fi
+        # The verified snapshot bundle, with its sidecar beside it, is handed to
+        # the installer so it provisions exactly the bytes this action checked.
+        if [[ -n "$WHITAKER_SNAPSHOT_BUNDLE" ]]; then
+          set -- "$@" --clippy-snapshot-bundle "$WHITAKER_SNAPSHOT_BUNDLE"
+        fi
+        "$WHITAKER_INSTALLER_PATH" "$@" 2> "$installer_err" | tee "$installer_log" || installer_status=$?
         cat "$installer_err" >&2
         # Reported here rather than through the ERR trap: bash 3.2 on the
         # macOS runners does not run the trap for a failing subshell, so the
@@ -704,3 +951,56 @@ runs:
         fi
         echo "::notice title=Whitaker installer::status=complete version=${WHITAKER_INSTALLER_VERSION} suite=default-branch-tip suite-source=${suite_source}"
         emit_metric "whitaker-installer.result=success"
+
+    - name: Verify Whitaker bootstrap
+      id: bootstrap
+      if: ${{ steps.snapshot.outputs.status == 'install' }}
+      shell: bash
+      env:
+        WHITAKER_BOOTSTRAP_ROOT: ${{ steps.bootstrap-location.outputs.root }}
+        WHITAKER_COMMIT: ${{ steps.snapshot.outputs.commit }}
+        WHITAKER_DRIVER_DIRECTORY: ${{ steps.bootstrap-location.outputs.driver-directory }}
+        WHITAKER_DYLINT_VERSION: ${{ steps.snapshot.outputs.dylint-version }}
+        WHITAKER_GENERATION: ${{ steps.bootstrap-location.outputs.generation }}
+        WHITAKER_TOOLCHAIN: ${{ steps.snapshot.outputs.toolchain }}
+      run: |
+        # The installer reports success; this proves what it left behind is the
+        # pinned bootstrap, and that the `whitaker` wrapper that carries the
+        # bootstrap into the driver build is installed. The driver itself is
+        # built on first use, so it is not required here.
+        set -Eeuo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        step_error() {
+          echo "::error title=Whitaker bootstrap failed::$1" >&2
+          emit_metric "whitaker-bootstrap.failure=verify"
+          exit 1
+        }
+        root="$WHITAKER_BOOTSTRAP_ROOT"
+        generation="$WHITAKER_GENERATION"
+        if command -v cygpath >/dev/null 2>&1; then
+          root="$(cygpath -u "$root")"
+          generation="$(cygpath -u "$generation")"
+        fi
+        [[ -f "$root/bootstrap.json" ]] || step_error "the installer left no bootstrap.json at ${root}"
+        [[ -d "$generation" ]] || step_error "the installer left no Clippy snapshot at ${generation}"
+        python3 - "$root/bootstrap.json" "$WHITAKER_COMMIT" "$WHITAKER_DYLINT_VERSION" "$WHITAKER_TOOLCHAIN" <<'PY' ||
+        import json, sys
+        path, commit, dylint, toolchain = sys.argv[1:5]
+        record = json.load(open(path, encoding="utf-8"))
+        want = {"schema_version": 1, "snapshot_commit": commit,
+                "dylint_version": dylint, "toolchain": toolchain}
+        bad = [k for k, v in want.items() if record.get(k) != v]
+        sys.exit("disagrees on " + ", ".join(bad) if bad else 0)
+        PY
+          step_error "bootstrap.json does not match the pinned snapshot (commit ${WHITAKER_COMMIT}, Dylint ${WHITAKER_DYLINT_VERSION}, ${WHITAKER_TOOLCHAIN})"
+        command -v whitaker >/dev/null 2>&1 || step_error "the whitaker wrapper is not on PATH, so the driver build would not receive the bootstrap configuration"
+        emit_metric "whitaker-bootstrap.result=verified"
+        echo "::notice title=Whitaker bootstrap::commit=${WHITAKER_COMMIT} dylint=${WHITAKER_DYLINT_VERSION} toolchain=${WHITAKER_TOOLCHAIN}"
+        {
+          printf 'clippy-snapshot=%s\n' "$WHITAKER_GENERATION"
+          printf 'driver-directory=%s\n' "$WHITAKER_DRIVER_DIRECTORY"
+        } >> "$GITHUB_OUTPUT"

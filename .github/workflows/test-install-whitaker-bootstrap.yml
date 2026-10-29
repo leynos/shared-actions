@@ -43,6 +43,9 @@ jobs:
         with:
           cargo-home: ${{ runner.temp }}/whitaker-test-cargo
           installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
+          # Shared by the cold and warm lanes alone, so a rerun or an earlier
+          # push cannot leave the cold lane a bootstrap it did not build.
+          bootstrap-cache-salt: ${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Assert the bootstrap cache was empty
         shell: bash
@@ -82,6 +85,9 @@ jobs:
         with:
           cargo-home: ${{ runner.temp }}/whitaker-test-cargo
           installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
+          # Shared by the cold and warm lanes alone, so a rerun or an earlier
+          # push cannot leave the cold lane a bootstrap it did not build.
+          bootstrap-cache-salt: ${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Assert the bootstrap cache was restored
         shell: bash

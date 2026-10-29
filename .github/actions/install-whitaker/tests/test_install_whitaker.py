@@ -96,6 +96,17 @@ DOCUMENTED_INPUTS: dict[str, dict[str, object]] = {
         "required": False,
         "default": "",
     },
+    "bootstrap-cache-salt": {
+        "description": (
+            "Extra text mixed into the bootstrap cache key, for a caller "
+            "that needs two runs to share a cache without sharing it with "
+            "any other run (a test pairing a cold run with a warm one "
+            "passes the workflow run identity). Letters, digits, dot, "
+            "underscore and hyphen, at most 64 characters."
+        ),
+        "required": False,
+        "default": "",
+    },
     "suite-version": {
         "description": (
             "Refused. Whitaker's lint suite is a rolling release that every "
@@ -197,6 +208,7 @@ class TestValidationStep:
             "CRANELIFT_INPUT": "${{ inputs.cranelift }}",
             "INSTALLER_SHA256_INPUT": "${{ inputs.installer-sha256 }}",
             "INSTALLER_VERSION_INPUT": "${{ inputs.installer-version }}",
+            "CACHE_SALT_INPUT": "${{ inputs.bootstrap-cache-salt }}",
             "SNAPSHOT_SHA256_INPUT": "${{ inputs.clippy-snapshot-sha256 }}",
             "SUITE_VERSION_INPUT": "${{ inputs.suite-version }}",
         }

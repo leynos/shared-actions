@@ -36,6 +36,7 @@ class TestBootstrapContract:
             "steps.snapshot.outputs.dylint-version",
             "steps.snapshot.outputs.commit",
             "steps.snapshot.outputs.toolchain",
+            "steps.validate-inputs.outputs.cache-salt",
         ):
             assert part in key, f"the bootstrap cache key omits {part}"
 
@@ -61,6 +62,30 @@ class TestBootstrapContract:
             "toolchain",
         ):
             assert check in script
+
+    def test_the_wipe_is_refused_for_any_root_but_the_bootstrap_directory(
+        self,
+    ) -> None:
+        """A guard on the root's name precedes the removal."""
+        script = _script("Verify Whitaker bootstrap cache")
+        assert "whitaker-bootstrap) ;;" in script
+        assert "${root##*/}" in script
+        assert script.index("${root##*/}") < script.index("rm -rf")
+
+    def test_the_derived_paths_are_checked_against_the_installers_report(
+        self,
+    ) -> None:
+        """The final step compares generation and driver with the dry run."""
+        script = _script("Verify Whitaker bootstrap")
+        for compared in (
+            '== "$(normalise "$generation")" ]]',
+            "$(field driver-directory)",
+        ):
+            assert compared in script
+        assert "--dry-run --skip-deps" in script
+        assert "bootstrap-paths.sh" in "".join(
+            str(v) for v in step_by_name("Verify Whitaker bootstrap")["env"].values()
+        )
 
     def test_the_snapshot_download_is_verified_twice_and_has_no_fallback(self) -> None:
         """Pinned digest and release sidecar both gate the bundle."""

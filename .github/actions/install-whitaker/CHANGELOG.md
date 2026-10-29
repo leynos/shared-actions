@@ -24,8 +24,10 @@ file.
   and re-provisioned. The installed `whitaker` wrapper (not bare
   `cargo dylint`) carries the bootstrap configuration to the driver build, and
   the action writes nothing to `GITHUB_ENV`. New outputs: `clippy-snapshot`,
-  `driver-directory` and `bootstrap-cache-state`. The 0.2.9 and 0.2.10 digests
-  stay pinned; those installers have no bootstrap and run as before.
+  `driver-directory` and `bootstrap-cache-state`. `bootstrap-cache-salt`
+  mixes caller text into the cache key, for a test that pairs a cold run with
+  a warm one. The 0.2.9 and 0.2.10 digests stay pinned; those installers have
+  no bootstrap and run as before.
 
 - Default `installer-version` to 0.2.10 and pin its five release archive
   digests, computed from an independent download and cross-checked against the

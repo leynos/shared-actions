@@ -29,6 +29,14 @@ inputs:
       does not pin. A value that disagrees with a pinned digest is rejected.
     required: false
     default: ""
+  bootstrap-cache-salt:
+    description: >-
+      Extra text mixed into the bootstrap cache key, for a caller that needs
+      two runs to share a cache without sharing it with any other run (a test
+      pairing a cold run with a warm one passes the workflow run identity).
+      Letters, digits, dot, underscore and hyphen, at most 64 characters.
+    required: false
+    default: ""
   suite-version:
     description: >-
       Refused. Whitaker's lint suite is a rolling release that every consumer
@@ -93,6 +101,7 @@ runs:
         CRANELIFT_INPUT: ${{ inputs.cranelift }}
         INSTALLER_SHA256_INPUT: ${{ inputs.installer-sha256 }}
         SNAPSHOT_SHA256_INPUT: ${{ inputs.clippy-snapshot-sha256 }}
+        CACHE_SALT_INPUT: ${{ inputs.bootstrap-cache-salt }}
         INSTALLER_VERSION_INPUT: ${{ inputs.installer-version }}
         SUITE_VERSION_INPUT: ${{ inputs.suite-version }}
       run: |
@@ -155,6 +164,9 @@ runs:
           fi
           installer_sha256="$(printf '%s' "$INSTALLER_SHA256_INPUT" | tr 'A-F' 'a-f')"
         fi
+        if [[ ! "$CACHE_SALT_INPUT" =~ ^[A-Za-z0-9._-]{0,64}$ ]]; then
+          input_error "bootstrap-cache-salt must be at most 64 letters, digits, dots, underscores or hyphens"
+        fi
         snapshot_sha256=
         if [[ -n "$SNAPSHOT_SHA256_INPUT" ]]; then
           if [[ ! "$SNAPSHOT_SHA256_INPUT" =~ ^[0-9a-fA-F]{64}$ ]]; then
@@ -194,6 +206,7 @@ runs:
         printf 'installer-version=%s\n' "$INSTALLER_VERSION_INPUT" >> "$GITHUB_OUTPUT"
         printf 'installer-sha256=%s\n' "$installer_sha256" >> "$GITHUB_OUTPUT"
         printf 'snapshot-sha256=%s\n' "$snapshot_sha256" >> "$GITHUB_OUTPUT"
+        printf 'cache-salt=%s\n' "$CACHE_SALT_INPUT" >> "$GITHUB_OUTPUT"
 
     - name: Cache Whitaker installer
       id: cache-whitaker-installer
@@ -653,27 +666,24 @@ runs:
       if: ${{ steps.snapshot.outputs.status == 'install' }}
       shell: bash
       env:
-        WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
+        WHITAKER_COMMIT: ${{ steps.snapshot.outputs.commit }}
+        WHITAKER_DYLINT_VERSION: ${{ steps.snapshot.outputs.dylint-version }}
+        WHITAKER_PATHS_SCRIPT: ${{ github.action_path }}/scripts/bootstrap-paths.sh
       run: |
-        # Ask the installer where the bootstrap lives rather than hard-coding a
-        # platform's data directory: `--dry-run` prints the labelled lines
-        # hosted checks read, and changes nothing.
+        # The installer's `--dry-run` needs the managed clone, which does not
+        # exist yet, so the directory is derived from the platform convention
+        # the installer follows. The final step compares it with the
+        # installer's own report, so a wrong derivation fails loudly there.
         set -Eeuo pipefail
-        plan="$("$WHITAKER_INSTALLER_PATH" --dry-run --skip-deps 2>&1 || true)"
-        label() { printf '%s\n' "$plan" | sed -n "s/^$1: //p" | head -n 1 | tr -d '\r'; }
-        generation="$(label 'Clippy snapshot')"
-        driver_dir="$(label 'Dylint driver directory')"
-        if [[ -z "$generation" || -z "$driver_dir" ]]; then
-          echo "::error title=Whitaker bootstrap failed::the installer's dry run did not name a Clippy snapshot and a Dylint driver directory; cannot locate the bootstrap" >&2
-          exit 1
+        root="$(bash "$WHITAKER_PATHS_SCRIPT" root "${RUNNER_OS:?}")"
+        sep=/
+        if [[ "${RUNNER_OS}" == Windows ]]; then
+          sep='\'
         fi
-        # <root>/clippy/<commit> is the generation; the root is two levels up.
-        root="${generation%[/\\]*}"
-        root="${root%[/\\]*}"
         {
           printf 'root=%s\n' "$root"
-          printf 'generation=%s\n' "$generation"
-          printf 'driver-directory=%s\n' "$driver_dir"
+          printf 'generation=%s\n' "${root}${sep}clippy${sep}${WHITAKER_COMMIT}"
+          printf 'driver-directory=%s\n' "${root}${sep}drivers${sep}dylint-${WHITAKER_DYLINT_VERSION}${sep}clippy-${WHITAKER_COMMIT}"
         } >> "$GITHUB_OUTPUT"
 
     - name: Cache Whitaker bootstrap
@@ -683,7 +693,7 @@ runs:
       with:
         path: ${{ steps.bootstrap-location.outputs.root }}
         key: >-
-          whitaker-bootstrap-${{ runner.os }}-${{ runner.arch }}-${{ steps.validate-inputs.outputs.installer-version }}-dylint-${{ steps.snapshot.outputs.dylint-version }}-clippy-${{ steps.snapshot.outputs.commit }}-${{ steps.snapshot.outputs.toolchain }}
+          whitaker-bootstrap-${{ runner.os }}-${{ runner.arch }}-${{ steps.validate-inputs.outputs.installer-version }}-dylint-${{ steps.snapshot.outputs.dylint-version }}-clippy-${{ steps.snapshot.outputs.commit }}-${{ steps.snapshot.outputs.toolchain }}-${{ steps.validate-inputs.outputs.cache-salt }}
 
     - name: Verify Whitaker bootstrap cache
       id: bootstrap-cache
@@ -710,6 +720,20 @@ runs:
         root="$WHITAKER_BOOTSTRAP_ROOT"
         if command -v cygpath >/dev/null 2>&1; then
           root="$(cygpath -u "$root")"
+        fi
+        # The wipe below is only ever aimed at the dedicated directory. A root
+        # that is not named `whitaker-bootstrap` (an installer that moved its
+        # layout, or an empty value) is refused before anything is removed.
+        case "${root##*/}" in
+          whitaker-bootstrap) ;;
+          *)
+            echo "::error title=Whitaker bootstrap cache::refusing to manage '${root}': it is not a whitaker-bootstrap directory" >&2
+            exit 1
+            ;;
+        esac
+        if [[ -z "$root" || "$root" == / ]]; then
+          echo "::error title=Whitaker bootstrap cache::refusing to manage an empty or root directory" >&2
+          exit 1
         fi
         reason=
         if [[ ! -d "$root" ]]; then
@@ -962,6 +986,8 @@ runs:
         WHITAKER_DRIVER_DIRECTORY: ${{ steps.bootstrap-location.outputs.driver-directory }}
         WHITAKER_DYLINT_VERSION: ${{ steps.snapshot.outputs.dylint-version }}
         WHITAKER_GENERATION: ${{ steps.bootstrap-location.outputs.generation }}
+        WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
+        WHITAKER_PATHS_SCRIPT: ${{ github.action_path }}/scripts/bootstrap-paths.sh
         WHITAKER_TOOLCHAIN: ${{ steps.snapshot.outputs.toolchain }}
       run: |
         # The installer reports success; this proves what it left behind is the
@@ -985,6 +1011,20 @@ runs:
           root="$(cygpath -u "$root")"
           generation="$(cygpath -u "$generation")"
         fi
+        # The installer's own report, now that its clone exists, must agree
+        # with the directories derived before it ran; a disagreement means the
+        # cache was keyed on the wrong path.
+        report="$("$WHITAKER_INSTALLER_PATH" --dry-run --skip-deps 2>&1 || true)"
+        reported="$(printf '%s\n' "$report" | bash "$WHITAKER_PATHS_SCRIPT" parse)" ||
+          step_error "could not read the installer's dry-run report"
+        field() { printf '%s\n' "$reported" | sed -n "s/^$1=//p" | head -n 1; }
+        normalise() {
+          if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else printf '%s' "$1"; fi
+        }
+        [[ "$(normalise "$(field generation)")" == "$(normalise "$generation")" ]] ||
+          step_error "the installer reports its snapshot at $(field generation), not at the derived ${generation}"
+        [[ "$(normalise "$(field driver-directory)")" == "$(normalise "$WHITAKER_DRIVER_DIRECTORY")" ]] ||
+          step_error "the installer reports its driver directory at $(field driver-directory), not at the derived ${WHITAKER_DRIVER_DIRECTORY}"
         [[ -f "$root/bootstrap.json" ]] || step_error "the installer left no bootstrap.json at ${root}"
         [[ -d "$generation" ]] || step_error "the installer left no Clippy snapshot at ${generation}"
         python3 - "$root/bootstrap.json" "$WHITAKER_COMMIT" "$WHITAKER_DYLINT_VERSION" "$WHITAKER_TOOLCHAIN" <<'PY' ||

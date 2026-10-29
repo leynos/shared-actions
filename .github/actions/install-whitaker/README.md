@@ -80,17 +80,18 @@ home would otherwise keep serving an installer built for an older version.
 
 ## Inputs
 
-| Name                     | Type   | Description                                              | Required | Default        |
-| ------------------------ | ------ | -------------------------------------------------------- | -------- | -------------- |
-| `cargo-home`             | string | Cargo home holding the cached installer binary           | no       | `~/.cargo`     |
-| `installer-version`      | string | Version of `whitaker-installer`, 0.2.9 or later          | no       | `0.2.11`       |
-| `installer-sha256`       | string | Digest for an asset the manifest does not pin            | no       | `""`           |
-| `clippy-snapshot-sha256` | string | Digest for a snapshot bundle the manifest does not pin   | no       | `""`           |
-| `suite-version`          | string | Refused: any non-empty value fails the step              | no       | `""`           |
-| `cache-provider`         | string | Built-in `github` or caller-owned `external`             | no       | `github`       |
-| `ci-mode`                | string | Check the published assets before the installer          | no       | `true`         |
-| `cranelift`              | string | Also add rustc-codegen-cranelift for the suite toolchain | no       | `false`        |
-| `github-token`           | string | Read the rolling release without the anon limit          | no       | `github.token` |
+| Name                     | Type   | Description                                                     | Required | Default        |
+| ------------------------ | ------ | --------------------------------------------------------------- | -------- | -------------- |
+| `cargo-home`             | string | Cargo home holding the cached installer binary                  | no       | `~/.cargo`     |
+| `installer-version`      | string | Version of `whitaker-installer`, 0.2.9 or later                 | no       | `0.2.11`       |
+| `installer-sha256`       | string | Digest for an asset the manifest does not pin                   | no       | `""`           |
+| `bootstrap-cache-salt`   | string | Text mixed into the bootstrap cache key, for tests pairing runs | no       | `""`           |
+| `clippy-snapshot-sha256` | string | Digest for a snapshot bundle the manifest does not pin          | no       | `""`           |
+| `suite-version`          | string | Refused: any non-empty value fails the step                     | no       | `""`           |
+| `cache-provider`         | string | Built-in `github` or caller-owned `external`                    | no       | `github`       |
+| `ci-mode`                | string | Check the published assets before the installer                 | no       | `true`         |
+| `cranelift`              | string | Also add rustc-codegen-cranelift for the suite toolchain        | no       | `false`        |
+| `github-token`           | string | Read the rolling release without the anon limit                 | no       | `github.token` |
 
 ## The Dylint bootstrap (installer 0.2.11 and later)
 
@@ -177,9 +178,11 @@ to the compiler that produced the libraries. Each run also records
 
 ## Outputs
 
-| Name | Description                     |
-| ---- | ------------------------------- |
-| None | This action exposes no outputs. |
+| Name                    | Type   | Description                                                                           |
+| ----------------------- | ------ | ------------------------------------------------------------------------------------- |
+| `clippy-snapshot`       | string | Directory of the verified Clippy snapshot; empty before installer 0.2.11              |
+| `driver-directory`      | string | Directory the Dylint driver is built into on first use; empty before installer 0.2.11 |
+| `bootstrap-cache-state` | string | `empty`, `restored` or `wiped` for the bootstrap cache; empty before installer 0.2.11 |
 
 ## Usage
 

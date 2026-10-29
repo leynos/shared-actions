@@ -42,6 +42,8 @@ class ValidationInputs:
     ci_mode: str = "true"
     cranelift: str = "false"
     suite_version: str = ""
+    snapshot_sha256: str = ""
+    cache_salt: str = ""
 
 
 @dc.dataclass(frozen=True)
@@ -75,6 +77,8 @@ def run_validation(tmp_path: Path, inputs: ValidationInputs) -> ValidationRun:
             "cranelift": inputs.cranelift,
             "installer-sha256": inputs.installer_sha256,
             "installer-version": inputs.installer_version,
+            "clippy-snapshot-sha256": inputs.snapshot_sha256,
+            "bootstrap-cache-salt": inputs.cache_salt,
             "suite-version": inputs.suite_version,
         },
         runner_os=inputs.runner_os,
@@ -122,6 +126,7 @@ class TestNormalisation:
             "installer-version": "1.2.3",
             "installer-sha256": "",
             "snapshot-sha256": "",
+            "cache-salt": "",
         }
 
     def test_selects_the_windows_executable_suffix(self, tmp_path: Path) -> None:
@@ -147,6 +152,54 @@ class TestNormalisation:
 
         assert run.returncode == 0, run.stderr
         assert run.outputs["installer-sha256"] == _PAYLOAD_SHA256
+
+
+class TestBootstrapInputs:
+    """Cover the two bootstrap inputs the validation fragment judges."""
+
+    def test_normalises_an_uppercase_snapshot_digest(self, tmp_path: Path) -> None:
+        """An uppercase snapshot digest is published lowercase."""
+        run = run_validation(
+            tmp_path,
+            ValidationInputs(
+                "~/.cargo", "1.2.3", snapshot_sha256=_PAYLOAD_SHA256.upper()
+            ),
+        )
+        assert run.returncode == 0, run.stderr
+        assert run.outputs["snapshot-sha256"] == _PAYLOAD_SHA256
+
+    @pytest.mark.parametrize(
+        "digest", ["", "abc", "z" * 64, "a" * 63, "a" * 65, " " + "a" * 63]
+    )
+    def test_rejects_a_malformed_snapshot_digest(
+        self, tmp_path: Path, digest: str
+    ) -> None:
+        """Only 64 hexadecimal characters pass; the empty input means unset."""
+        run = run_validation(
+            tmp_path, ValidationInputs("~/.cargo", "1.2.3", snapshot_sha256=digest)
+        )
+        if digest == "":
+            assert run.returncode == 0, run.stderr
+            return
+        assert run.returncode != 0
+        assert "clippy-snapshot-sha256 must be 64 hexadecimal characters" in run.stderr
+
+    def test_publishes_a_valid_cache_salt(self, tmp_path: Path) -> None:
+        """A run identity such as `123-2` is carried to the cache key."""
+        run = run_validation(
+            tmp_path, ValidationInputs("~/.cargo", "1.2.3", cache_salt="123-2")
+        )
+        assert run.returncode == 0, run.stderr
+        assert run.outputs["cache-salt"] == "123-2"
+
+    @pytest.mark.parametrize("salt", ["a b", "a/b", "x" * 65, "a$b"])
+    def test_rejects_an_unsafe_cache_salt(self, tmp_path: Path, salt: str) -> None:
+        """A salt reaches a cache key, so only a safe alphabet and length pass."""
+        run = run_validation(
+            tmp_path, ValidationInputs("~/.cargo", "1.2.3", cache_salt=salt)
+        )
+        assert run.returncode != 0
+        assert "bootstrap-cache-salt must be at most 64" in run.stderr
 
 
 class TestRejections:

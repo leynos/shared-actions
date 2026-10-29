@@ -28,7 +28,7 @@ jobs:
       # 0.2.9 is the floor: it is the first installer with
       # --no-source-fallback, which install-whitaker always passes.
       # tests/workflows/test_whitaker_installer_floor.py holds the rule.
-      WHITAKER_INSTALLER_VERSION: '0.2.9'
+      WHITAKER_INSTALLER_VERSION: '0.2.11'
       MAKEUTIL_REVISION: '7ab9b7b73a8f50ef1d3df548c7def7b94db35ba2'
       MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     strategy:

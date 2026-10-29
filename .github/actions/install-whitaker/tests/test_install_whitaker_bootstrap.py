@@ -87,6 +87,16 @@ class TestBootstrapContract:
             str(v) for v in step_by_name("Verify Whitaker bootstrap")["env"].values()
         )
 
+    def test_the_installer_directory_reaches_later_steps_for_the_wrapper(
+        self,
+    ) -> None:
+        """A custom cargo-home must not hide the installer from the wrapper."""
+        script = _script("Verify Whitaker bootstrap")
+        assert 'dirname -- "$WHITAKER_INSTALLER_PATH"' in script
+        assert '>> "$GITHUB_PATH"' in script
+        assert "whitaker.ps1" in script, "the Windows wrapper is a .ps1 script"
+        assert "command -v whitaker " not in script
+
     def test_the_snapshot_download_is_verified_twice_and_has_no_fallback(self) -> None:
         """Pinned digest and release sidecar both gate the bundle."""
         script = _script("Download Whitaker Clippy snapshot")

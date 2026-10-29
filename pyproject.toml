@@ -31,7 +31,10 @@ classifiers = [
 [dependency-groups]
 dev = [
     "lxml-stubs>=0.5.1",
-    "pytest>=8.0,<10.0",
+    # pytest 9.2.0 (2026-10-27) removed FixtureManager._arg2fixturedefs, which
+    # pytest-bdd 9.0.0 (the latest release) still reads; every scenario fails.
+    # Lift the cap when pytest-bdd supports 9.2.
+    "pytest>=8.0,<9.2",
     "pyyaml>=6.0,<7.0",
     "ty>=0.0.1a20",
     "uuid6>=2025.0.1",

@@ -1037,7 +1037,26 @@ runs:
         sys.exit("disagrees on " + ", ".join(bad) if bad else 0)
         PY
           step_error "bootstrap.json does not match the pinned snapshot (commit ${WHITAKER_COMMIT}, Dylint ${WHITAKER_DYLINT_VERSION}, ${WHITAKER_TOOLCHAIN})"
-        command -v whitaker >/dev/null 2>&1 || step_error "the whitaker wrapper is not on PATH, so the driver build would not receive the bootstrap configuration"
+        # The wrapper hands the bootstrap configuration to the driver build,
+        # and finds the installer beside itself or on PATH. A caller's custom
+        # cargo-home puts the installer in neither, so its directory joins
+        # PATH for the later steps. The Windows wrapper is a `.ps1` script,
+        # which `command -v` does not resolve, so the file is what is checked.
+        installer_dir="$(dirname -- "$WHITAKER_INSTALLER_PATH")"
+        if [[ -n "${GITHUB_PATH:-}" ]]; then
+          if command -v cygpath >/dev/null 2>&1; then
+            cygpath -w "$installer_dir" >> "$GITHUB_PATH"
+          else
+            printf '%s\n' "$installer_dir" >> "$GITHUB_PATH"
+          fi
+        fi
+        wrapper_dir="${XDG_BIN_HOME:-${HOME}/.local/bin}"
+        if [[ "${RUNNER_OS:-}" == Windows && -n "${USERPROFILE:-}" ]] &&
+          command -v cygpath >/dev/null 2>&1; then
+          wrapper_dir="$(cygpath -u "$USERPROFILE")/.local/bin"
+        fi
+        [[ -f "${wrapper_dir}/whitaker" || -f "${wrapper_dir}/whitaker.ps1" ]] ||
+          step_error "the whitaker wrapper is not in ${wrapper_dir}, so the driver build would not receive the bootstrap configuration"
         emit_metric "whitaker-bootstrap.result=verified"
         echo "::notice title=Whitaker bootstrap::commit=${WHITAKER_COMMIT} dylint=${WHITAKER_DYLINT_VERSION} toolchain=${WHITAKER_TOOLCHAIN}"
         {

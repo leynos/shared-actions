@@ -68,7 +68,15 @@ never builds `cs-coverage` from source.
 
 ### Default version
 
-The default `installer-version` is `0.2.9`, the first installer release with
+The default `installer-version` is now `0.2.11`, the first installer release
+with the verified Clippy snapshot bootstrap. Dylint 6.0.1, built by earlier
+installers, clones Clippy `master`, a branch Rust has renamed, so a cold driver
+build fails there. At 0.2.11 the action downloads and verifies the snapshot
+bundle and the installed `whitaker` wrapper builds the driver from it; run
+lints through that wrapper, not bare `cargo dylint`. Callers that pin 0.2.9 or
+0.2.10 keep working but build the driver from public Clippy.
+
+The floor stays `0.2.9`, the first installer release with
 `--no-source-fallback`. The action refuses any older version, because it passes
 that flag on every run and an older installer rejects it. A caller that pins
 `installer-version: "0.2.6"`, `"0.2.7"` or `"0.2.8"` now fails validation.

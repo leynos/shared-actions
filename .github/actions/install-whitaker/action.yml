@@ -809,12 +809,45 @@ runs:
         rm -rf -- "$staging"
         mkdir -p -- "$staging"
         release_url="https://github.com/leynos/whitaker/releases/download/v${WHITAKER_INSTALLER_VERSION}"
-        for asset in "$WHITAKER_BUNDLE" "$WHITAKER_SIDECAR"; do
-          curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
+        # curl reports the transfer itself; `num_retries` needs curl 8.9.0, so
+        # the attempt count is reported as unknown on an older runner.
+        write_out='%{http_code} %{size_download} %{time_total}'
+        attempts_reported=false
+        curl_version="$(curl --version 2>/dev/null | awk 'NR == 1 { print $2 }')"
+        if [[ -n "$curl_version" ]] &&
+          [[ "$(printf '%s\n%s\n' 8.9.0 "$curl_version" | sort -V | head -n 1)" == 8.9.0 ]]; then
+          write_out="${write_out} %{num_retries}"
+          attempts_reported=true
+        fi
+        fetch() {
+          local asset="$1" label="$2"
+          local stats status http_code bytes seconds attempts outcome
+          set +e
+          stats="$(curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
             --retry-all-errors --connect-timeout 20 --max-time 600 \
-            "${release_url}/${asset}" -o "${staging}/${asset}" ||
-            step_error "could not download ${asset} from release v${WHITAKER_INSTALLER_VERSION}; the release does not publish the Clippy snapshot its installer pins"
-        done
+            --write-out "$write_out" \
+            "${release_url}/${asset}" -o "${staging}/${asset}")"
+          status=$?
+          set -e
+          http_code="$(printf '%s' "$stats" | awk '{ print ($1 == "" ? "none" : $1) }')"
+          bytes="$(printf '%s' "$stats" | awk '{ print ($2 == "" ? "0" : $2) }')"
+          seconds="$(printf '%s' "$stats" | awk '{ print ($3 == "" ? "0" : $3) }')"
+          attempts=unknown
+          if [[ "$attempts_reported" == true ]]; then
+            attempts="$(printf '%s' "$stats" | awk '{ print ($4 == "" ? "0" : $4 + 1) }')"
+          fi
+          outcome=ok
+          if (( status != 0 )); then
+            outcome=failed
+          fi
+          echo "::notice title=Whitaker Clippy snapshot transfer::part=${label} outcome=${outcome} http=${http_code} bytes=${bytes} seconds=${seconds} attempts=${attempts}"
+          emit_metric "whitaker-bootstrap.transfer.${label}=${outcome} http=${http_code} bytes=${bytes} seconds=${seconds} attempts=${attempts}"
+          return "$status"
+        }
+        fetch "$WHITAKER_BUNDLE" bundle ||
+          step_error "could not download ${WHITAKER_BUNDLE} from release v${WHITAKER_INSTALLER_VERSION}; the release does not publish the Clippy snapshot its installer pins"
+        fetch "$WHITAKER_SIDECAR" sidecar ||
+          step_error "could not download ${WHITAKER_SIDECAR} from release v${WHITAKER_INSTALLER_VERSION}; the release does not publish the Clippy snapshot its installer pins"
         compute_sha256() {
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum < "$1" | awk '{print $1}'
@@ -1014,7 +1047,8 @@ runs:
         # The installer's own report, now that its clone exists, must agree
         # with the directories derived before it ran; a disagreement means the
         # cache was keyed on the wrong path.
-        report="$("$WHITAKER_INSTALLER_PATH" --dry-run --skip-deps 2>&1 || true)"
+        report="$("$WHITAKER_INSTALLER_PATH" --dry-run --skip-deps 2>&1)" ||
+          step_error "the installer's dry run failed, so its bootstrap paths cannot be read: ${report##*$'\n'}"
         reported="$(printf '%s\n' "$report" | bash "$WHITAKER_PATHS_SCRIPT" parse)" ||
           step_error "could not read the installer's dry-run report"
         field() { printf '%s\n' "$reported" | sed -n "s/^$1=//p" | head -n 1; }

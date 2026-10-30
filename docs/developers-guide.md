@@ -1331,6 +1331,43 @@ credentials this action already exported by the cleared
 private-address check must stay identical to this one, and a contract in the
 `setup-rust` tests fails when they drift.
 
+### The Dylint bootstrap
+
+From installer 0.2.11 the action provisions Whitaker's Clippy snapshot, because
+Dylint 6.0.1 cloned Clippy `master`. `scripts/resolve-snapshot.sh` is pure: it
+reads `clippy-snapshots.tsv` (installer version, Clippy commit, Dylint version
+and toolchain) and `snapshot-digests.sha256` (the pinned bundle digest) and
+prints either `status=none` for an older installer, `status=install` with the
+bundle, sidecar, commit, expected digest and trust anchor, or `status=error`
+with a kind (`table-unreadable`, `unlisted-version`, `table-invalid`,
+`manifest-unreadable`, `digest-conflict` or `unpinned-digest`). A failed read
+is an error, never an empty answer. A pinned digest wins over the
+`clippy-snapshot-sha256` input; a conflict fails.
+
+The bootstrap steps run in this order: resolve, locate, cache, verify the
+cache, download, then (after the installer) verify the result.
+`scripts/bootstrap-paths.sh` derives the bootstrap root from the installer's
+project directories before the installer runs, and parses its `--dry-run`
+report afterwards; the final step compares the two, so a wrong derivation fails
+loudly. Its parser is tested against a capture of the published 0.2.11 binary
+(`tests/fixtures/dry-run-0.2.11-installed.txt`, `bootstrap-0.2.11.json`).
+
+The bootstrap directory is its own cache entry, keyed by runner, installer
+version, Dylint version, Clippy commit, toolchain and `bootstrap-cache-salt`. A
+restored bootstrap is verified and only the directory named
+`whitaker-bootstrap` is ever wiped. The download is checked against the pin and
+the release sidecar, handed to the installer with `--clippy-snapshot-bundle`,
+and reports transfer telemetry. Nothing is written to `GITHUB_ENV`: the
+`whitaker` wrapper alone carries the driver configuration. The final step puts
+the installer's directory on `GITHUB_PATH` for the wrapper, and checks the
+wrapper file rather than resolving the command, because the Windows wrapper is a
+`.ps1` script. Whitaker marks a driver ready by its file identity, which a
+cache restore cannot preserve, so a restored bootstrap saves the download but
+not the driver build; the cold lane proves in-place reuse instead. Executable
+fragment tests are in `test_install_whitaker_bootstrap_runtime.py`, and the
+fresh-runner lanes are in
+`.github/workflows/test-install-whitaker-bootstrap.yml`.
+
 ## `install-whitaker` action contract
 
 The composite action's built-in cache restores
@@ -1352,9 +1389,9 @@ The `cargo-home` input defaults to `~/.cargo` and controls the cached installer
 location. The step expands a leading `~` against `HOME`, validates the path,
 adds the Windows executable suffix when required, and records the installer
 path for the cache and later execution. The `installer-version` input defaults
-to `0.2.9`, the floor described under
-[The installer floor](#the-installer-floor), and validation refuses anything
-older.
+to `0.2.11`; validation refuses anything older than the floor, `0.2.9`,
+described under [The installer floor](#the-installer-floor), and validation
+refuses anything older.
 
 On a miss, a `Resolve Whitaker release` step selects the runner's supported
 release target and resolves the expected digest, then dedicated

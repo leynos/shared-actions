@@ -40,7 +40,10 @@ resolve_snapshot() {
     error table-unreadable "could not read the Clippy snapshot table at ${table}"
     return 0
   fi
-  row="$(awk -v v="$version" '$1 == v { print; exit }' "$table")" || true
+  if ! row="$(awk -v v="$version" '$1 == v { print; exit }' "$table")"; then
+    error table-unreadable "could not read the Clippy snapshot table at ${table}"
+    return 0
+  fi
   if [[ -z "$row" ]]; then
     error unlisted-version "no Clippy snapshot is recorded for whitaker-installer ${version}; it cannot be installed with a verified bootstrap"
     return 0
@@ -55,7 +58,10 @@ resolve_snapshot() {
     error manifest-unreadable "could not read the snapshot digest manifest at ${WHITAKER_SNAPSHOT_DIGEST_MANIFEST:-}"
     return 0
   fi
-  pinned="$(awk -v a="$bundle" '$2 == a { print $1; exit }' "$WHITAKER_SNAPSHOT_DIGEST_MANIFEST")" || true
+  if ! pinned="$(awk -v a="$bundle" '$2 == a { print $1; exit }' "$WHITAKER_SNAPSHOT_DIGEST_MANIFEST")"; then
+    error manifest-unreadable "could not read the snapshot digest manifest at ${WHITAKER_SNAPSHOT_DIGEST_MANIFEST}"
+    return 0
+  fi
   supplied="${WHITAKER_SNAPSHOT_SHA256:-}"
   if [[ -n "$pinned" && -n "$supplied" && "$pinned" != "$supplied" ]]; then
     error digest-conflict "clippy-snapshot-sha256 ${supplied} conflicts with the digest pinned for ${bundle} (${pinned}); remove the input or correct it"

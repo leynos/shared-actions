@@ -9,6 +9,7 @@ closed, because the driver build has no other source for Clippy.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import typing as typ
 
@@ -136,6 +137,39 @@ class TestResolveSnapshot:
         )
         assert record["status"] == "error", record
         assert record["error-kind"] == "unpinned-digest", record
+
+    @pytest.mark.parametrize(
+        ("failing", "kind"),
+        [("table", "table-unreadable"), ("manifest", "manifest-unreadable")],
+    )
+    def test_a_failed_read_is_an_error_not_an_empty_answer(
+        self, tmp_path: Path, failing: str, kind: str
+    ) -> None:
+        """An `awk` that fails reading the table or manifest is not a miss.
+
+        Folding the failure into "no such row" or "no pinned digest" would turn
+        an I/O fault into `unlisted-version`, or into acceptance of whatever
+        digest the caller supplied.
+        """
+        stubs = tmp_path / "stubs"
+        stubs.mkdir()
+        marker = "snapshot-digests" if failing == "manifest" else "clippy-snapshots"
+        awk = stubs / "awk"
+        awk.write_text(
+            "#!/usr/bin/env bash\n"
+            f'for arg in "$@"; do case "$arg" in *{marker}*) exit 2;; esac; done\n'
+            'exec /usr/bin/awk "$@"\n',
+            encoding="utf-8",
+        )
+        awk.chmod(0o755)
+        record = _resolve(
+            tmp_path,
+            "0.2.11",
+            PATH=f"{stubs}:{os.environ['PATH']}",
+            WHITAKER_SNAPSHOT_SHA256=SUPPLIED,
+        )
+        assert record["status"] == "error", record
+        assert record["error-kind"] == kind, record
 
     def test_the_shipped_manifest_pins_every_table_row_or_the_action_refuses(
         self,

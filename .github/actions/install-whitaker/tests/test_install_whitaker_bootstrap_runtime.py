@@ -302,31 +302,22 @@ class TestSnapshotDownload:
             f"/whitaker-clippy-snapshot/{BUNDLE}"
         ), "expected: outcome.outputs['bundle'].endswith(f'/whitaker-clippy-sna..."
 
-    def test_a_corrupted_bundle_fails_the_pinned_digest(self, tmp_path: Path) -> None:
-        """Bytes that differ from the pin are refused, sidecar or no sidecar."""
-        outcome = self._step(tmp_path, Release(bundle=b"tampered"))
-        assert outcome.process.returncode != 0, (
-            "expected: outcome.process.returncode != 0"
-        )
-        assert "snapshot digest mismatch" in outcome.log, (
-            "expected: 'snapshot digest mismatch' in outcome.log"
-        )
-        assert "bundle" not in outcome.outputs, (
-            "expected: 'bundle' not in outcome.outputs"
-        )
-
-    def test_a_disagreeing_sidecar_fails_closed(self, tmp_path: Path) -> None:
-        """A sidecar naming another digest refuses a bundle that matches the pin."""
-        outcome = self._step(tmp_path, Release(sidecar=f"{'c' * 64}  {BUNDLE}\n"))
-        assert outcome.process.returncode != 0, (
-            "expected: outcome.process.returncode != 0"
-        )
-        assert "sidecar digest" in outcome.log, (
-            "expected: 'sidecar digest' in outcome.log"
-        )
-        assert "bundle" not in outcome.outputs, (
-            "expected: 'bundle' not in outcome.outputs"
-        )
+    @pytest.mark.parametrize(
+        ("served", "fragment"),
+        [
+            (Release(bundle=b"tampered"), "snapshot digest mismatch"),
+            (Release(sidecar=f"{'c' * 64}  {BUNDLE}\n"), "sidecar digest"),
+        ],
+        ids=["corrupted-bundle", "disagreeing-sidecar"],
+    )
+    def test_a_bundle_or_sidecar_that_disagrees_fails_closed(
+        self, tmp_path: Path, served: Release, fragment: str
+    ) -> None:
+        """Bytes that differ from the pin, or a sidecar naming another digest."""
+        outcome = self._step(tmp_path, served)
+        assert outcome.process.returncode != 0, "a disagreeing digest was accepted"
+        assert fragment in outcome.log, f"the failure did not name {fragment!r}"
+        assert "bundle" not in outcome.outputs, "a refused bundle was published"
 
     def test_an_empty_sidecar_fails_closed(self, tmp_path: Path) -> None:
         """A sidecar with no digest never counts as agreement."""
@@ -500,37 +491,34 @@ class TestFinalVerification:
             "expected: 'no Clippy snapshot' in outcome.log"
         )
 
-    def test_a_reported_snapshot_elsewhere_fails(self, tmp_path: Path) -> None:
-        """The installer's own report must name the derived generation."""
+    @pytest.mark.parametrize(
+        ("wrong", "fragment"),
+        [
+            ("snapshot", "reports its snapshot at"),
+            ("driver", "reports its driver directory at"),
+        ],
+    )
+    def test_a_report_naming_other_paths_fails(
+        self, tmp_path: Path, wrong: str, fragment: str
+    ) -> None:
+        """The installer's own report must name the derived paths."""
         layout = self._layout(tmp_path)
+        elsewhere = {
+            "snapshot": f"{tmp_path}/elsewhere/clippy/{COMMIT}",
+            "driver": f"{tmp_path}/elsewhere/drivers",
+        }
+        snapshot = elsewhere.get(
+            wrong if wrong == "snapshot" else "", layout["generation"]
+        )
+        driver = elsewhere.get(wrong if wrong == "driver" else "", layout["driver"])
         report = (
-            f"Clippy snapshot: {tmp_path}/elsewhere/clippy/{COMMIT}\n"
+            f"Clippy snapshot: {snapshot}\n"
             f"Clippy snapshot state: installed\n"
-            f"Dylint driver directory: {layout['driver']}\n"
+            f"Dylint driver directory: {driver}\n"
         )
         outcome = self._step(tmp_path, layout, report=report)
-        assert outcome.process.returncode != 0, (
-            "expected: outcome.process.returncode != 0"
-        )
-        assert "reports its snapshot at" in outcome.log, (
-            "expected: 'reports its snapshot at' in outcome.log"
-        )
-
-    def test_a_reported_driver_directory_elsewhere_fails(self, tmp_path: Path) -> None:
-        """The installer's own report must name the derived driver directory."""
-        layout = self._layout(tmp_path)
-        report = (
-            f"Clippy snapshot: {layout['generation']}\n"
-            f"Clippy snapshot state: installed\n"
-            f"Dylint driver directory: {tmp_path}/elsewhere/drivers\n"
-        )
-        outcome = self._step(tmp_path, layout, report=report)
-        assert outcome.process.returncode != 0, (
-            "expected: outcome.process.returncode != 0"
-        )
-        assert "reports its driver directory at" in outcome.log, (
-            "expected: 'reports its driver directory at' in outcome.log"
-        )
+        assert outcome.process.returncode != 0, "a misreported path was accepted"
+        assert fragment in outcome.log, f"the failure did not say {fragment!r}"
 
     def test_a_failed_dry_run_with_a_plausible_report_fails(
         self, tmp_path: Path

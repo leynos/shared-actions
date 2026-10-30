@@ -226,24 +226,28 @@ class TestBootstrapCacheVerification:
         assert neighbour.exists()
 
 
+@dc.dataclass(frozen=True)
+class Release:
+    """What the stubbed release serves, and whether ``curl`` works at all."""
+
+    bundle: bytes = PAYLOAD
+    sidecar: str | None = None
+    expected: str = PAYLOAD_SHA256
+    curl_fails: bool = False
+
+
 class TestSnapshotDownload:
     """The bundle is trusted only after two digests agree."""
 
     @staticmethod
-    def _step(
-        tmp_path: Path,
-        *,
-        bundle: bytes = PAYLOAD,
-        sidecar: str | None = None,
-        expected: str = PAYLOAD_SHA256,
-        curl_fails: bool = False,
-    ) -> Outcome:
+    def _step(tmp_path: Path, served: Release = Release()) -> Outcome:  # noqa: B008
         """Run the download fragment against a stubbed release and ``curl``."""
+        sidecar = served.sidecar
         if sidecar is None:
             sidecar = f"{PAYLOAD_SHA256}  {BUNDLE}\n"
         release = tmp_path / "release"
         release.mkdir()
-        (release / BUNDLE).write_bytes(bundle)
+        (release / BUNDLE).write_bytes(served.bundle)
         (release / SIDECAR).write_text(sidecar, encoding="utf-8")
         stubs = tmp_path / "stubs"
         _stub(
@@ -265,7 +269,7 @@ class TestSnapshotDownload:
                 "snapshot": {
                     "bundle-asset": BUNDLE,
                     "sidecar-asset": SIDECAR,
-                    "expected-sha": expected,
+                    "expected-sha": served.expected,
                     "trust-anchor": "pinned",
                 },
                 "validate-inputs": {"installer-version": "0.2.11"},
@@ -273,7 +277,7 @@ class TestSnapshotDownload:
             {
                 "PATH": f"{stubs}:{ambient_env()['PATH']}",
                 "RELEASE_DIR": str(release),
-                "CURL_FAILS": "1" if curl_fails else "0",
+                "CURL_FAILS": "1" if served.curl_fails else "0",
             },
         )
 
@@ -285,21 +289,21 @@ class TestSnapshotDownload:
 
     def test_a_corrupted_bundle_fails_the_pinned_digest(self, tmp_path: Path) -> None:
         """Bytes that differ from the pin are refused, sidecar or no sidecar."""
-        outcome = self._step(tmp_path, bundle=b"tampered")
+        outcome = self._step(tmp_path, Release(bundle=b"tampered"))
         assert outcome.process.returncode != 0
         assert "snapshot digest mismatch" in outcome.log
         assert "bundle" not in outcome.outputs
 
     def test_a_disagreeing_sidecar_fails_closed(self, tmp_path: Path) -> None:
         """A sidecar naming another digest refuses a bundle that matches the pin."""
-        outcome = self._step(tmp_path, sidecar=f"{'c' * 64}  {BUNDLE}\n")
+        outcome = self._step(tmp_path, Release(sidecar=f"{'c' * 64}  {BUNDLE}\n"))
         assert outcome.process.returncode != 0
         assert "sidecar digest" in outcome.log
         assert "bundle" not in outcome.outputs
 
     def test_an_empty_sidecar_fails_closed(self, tmp_path: Path) -> None:
         """A sidecar with no digest never counts as agreement."""
-        outcome = self._step(tmp_path, sidecar="")
+        outcome = self._step(tmp_path, Release(sidecar=""))
         assert outcome.process.returncode != 0
         assert "sidecar digest <empty>" in outcome.log
 
@@ -307,7 +311,7 @@ class TestSnapshotDownload:
         self, tmp_path: Path
     ) -> None:
         """The expected digest, pinned or supplied, is the one the bytes meet."""
-        outcome = self._step(tmp_path, expected="d" * 64)
+        outcome = self._step(tmp_path, Release(expected="d" * 64))
         assert outcome.process.returncode != 0
         assert "snapshot digest mismatch" in outcome.log
 
@@ -325,14 +329,14 @@ class TestSnapshotDownload:
         self, tmp_path: Path
     ) -> None:
         """A failure carries the failed outcome before the step error."""
-        outcome = self._step(tmp_path, curl_fails=True)
+        outcome = self._step(tmp_path, Release(curl_fails=True))
         assert "part=bundle outcome=failed" in outcome.log
 
     def test_a_failed_download_names_the_asset_and_does_not_fall_back(
         self, tmp_path: Path
     ) -> None:
         """No download means no bundle, and no other source is tried."""
-        outcome = self._step(tmp_path, curl_fails=True)
+        outcome = self._step(tmp_path, Release(curl_fails=True))
         assert outcome.process.returncode != 0
         assert f"could not download {BUNDLE}" in outcome.log
         assert "bundle" not in outcome.outputs

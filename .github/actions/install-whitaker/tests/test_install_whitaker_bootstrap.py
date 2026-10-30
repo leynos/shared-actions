@@ -17,7 +17,7 @@ from _action_manifest import ACTION_PATH, manifest_steps, step_by_name
 
 def _script(name: str) -> str:
     run = step_by_name(name)["run"]
-    assert isinstance(run, str)
+    assert isinstance(run, str), "expected: isinstance(run, str)"
     return run
 
 
@@ -44,8 +44,12 @@ class TestBootstrapContract:
         """Wiping the bootstrap can never touch the installer cache."""
         installer = str(step_by_name("Cache Whitaker installer")["with"]["path"])
         bootstrap = str(step_by_name("Cache Whitaker bootstrap")["with"]["path"])
-        assert "bootstrap-location" in bootstrap
-        assert "bootstrap-location" not in installer
+        assert "bootstrap-location" in bootstrap, (
+            "expected: 'bootstrap-location' in bootstrap"
+        )
+        assert "bootstrap-location" not in installer, (
+            "expected: 'bootstrap-location' not in installer"
+        )
 
     def test_a_mismatched_cache_wipes_only_the_bootstrap_root_and_says_why(
         self,
@@ -54,23 +58,29 @@ class TestBootstrapContract:
         script = _script("Verify Whitaker bootstrap cache")
         removals = re.findall(r"rm -rf -- (.+)", script)
         assert removals == ['"$root"'], removals
-        assert script.index("::warning") < script.index("rm -rf")
+        assert script.index("::warning") < script.index("rm -rf"), (
+            "expected: script.index('::warning') < script.index('rm -rf')"
+        )
         for check in (
             "bootstrap.json",
             "snapshot_commit",
             "dylint_version",
             "toolchain",
         ):
-            assert check in script
+            assert check in script, "expected: check in script"
 
     def test_the_wipe_is_refused_for_any_root_but_the_bootstrap_directory(
         self,
     ) -> None:
         """A guard on the root's name precedes the removal."""
         script = _script("Verify Whitaker bootstrap cache")
-        assert "whitaker-bootstrap) ;;" in script
-        assert "${root##*/}" in script
-        assert script.index("${root##*/}") < script.index("rm -rf")
+        assert "whitaker-bootstrap) ;;" in script, (
+            "expected: 'whitaker-bootstrap) ;;' in script"
+        )
+        assert "${root##*/}" in script, "expected: '${root##*/}' in script"
+        assert script.index("${root##*/}") < script.index("rm -rf"), (
+            "expected: script.index('${root##*/}') < script.index('rm -rf')"
+        )
 
     def test_the_derived_paths_are_checked_against_the_installers_report(
         self,
@@ -81,42 +91,56 @@ class TestBootstrapContract:
             '== "$(normalise "$generation")" ]]',
             "$(field driver-directory)",
         ):
-            assert compared in script
-        assert "--dry-run --skip-deps" in script
+            assert compared in script, "expected: compared in script"
+        assert "--dry-run --skip-deps" in script, (
+            "expected: '--dry-run --skip-deps' in script"
+        )
         assert "bootstrap-paths.sh" in "".join(
             str(v) for v in step_by_name("Verify Whitaker bootstrap")["env"].values()
-        )
+        ), "expected: 'bootstrap-paths.sh' in ''.join((str(v) for v in step_by_"
 
     def test_the_installer_directory_reaches_later_steps_for_the_wrapper(
         self,
     ) -> None:
         """A custom cargo-home must not hide the installer from the wrapper."""
         script = _script("Expose the Whitaker installer to the wrapper")
-        assert 'dirname -- "$WHITAKER_INSTALLER_PATH"' in script
-        assert '>> "$GITHUB_PATH"' in script
+        assert 'dirname -- "$WHITAKER_INSTALLER_PATH"' in script, (
+            "expected: 'dirname -- '$WHITAKER_INSTALLER_PATH'' in script"
+        )
+        assert '>> "$GITHUB_PATH"' in script, "expected: '>> '$GITHUB_PATH'' in script"
         verify = _script("Verify Whitaker bootstrap")
         assert "whitaker.ps1" in verify, "the Windows wrapper is a .ps1 script"
-        assert "command -v whitaker " not in verify
+        assert "command -v whitaker " not in verify, (
+            "expected: 'command -v whitaker ' not in verify"
+        )
         assert "GITHUB_PATH" not in verify, "verification must only read"
 
     def test_the_snapshot_download_is_verified_twice_and_has_no_fallback(self) -> None:
         """Pinned digest and release sidecar both gate the bundle."""
         script = _script("Download Whitaker Clippy snapshot")
-        assert "digest mismatch" in script
-        assert "sidecar digest" in script
-        assert 'if [[ "$sidecar" != "$actual" ]]; then' in script
-        assert 'if [[ "$actual" != "$WHITAKER_EXPECTED_SHA" ]]; then' in script
-        assert "https://github.com/leynos/whitaker/releases/download/" in script
+        assert "digest mismatch" in script, "expected: 'digest mismatch' in script"
+        assert "sidecar digest" in script, "expected: 'sidecar digest' in script"
+        assert 'if [[ "$sidecar" != "$actual" ]]; then' in script, (
+            "expected: 'if [[ '$sidecar' != '$actual' ]]; then' in script"
+        )
+        assert 'if [[ "$actual" != "$WHITAKER_EXPECTED_SHA" ]]; then' in script, (
+            "expected: 'if [[ '$actual' != '$WHITAKER_EXPECTED_SHA' ]]; then' in..."
+        )
+        assert "https://github.com/leynos/whitaker/releases/download/" in script, (
+            "expected: 'https://github.com/leynos/whitaker/releases/download/' i..."
+        )
         assert "rust-clippy" not in script, "the action must never name public Clippy"
 
     def test_the_run_step_hands_the_verified_bundle_to_the_installer(self) -> None:
         """The bundle reaches the installer by flag, from the download step."""
         script = _script("Run Whitaker installer")
-        assert '--clippy-snapshot-bundle "$WHITAKER_SNAPSHOT_BUNDLE"' in script
+        assert '--clippy-snapshot-bundle "$WHITAKER_SNAPSHOT_BUNDLE"' in script, (
+            "expected: '--clippy-snapshot-bundle '$WHITAKER_SNAPSHOT_BUNDLE'' in..."
+        )
         env = step_by_name("Run Whitaker installer")["env"]
         assert env["WHITAKER_SNAPSHOT_BUNDLE"] == (
             "${{ steps.snapshot-download.outputs.bundle }}"
-        )
+        ), "expected: env['WHITAKER_SNAPSHOT_BUNDLE'] == '${{ steps.snapshot-do"
 
     def test_bootstrap_configuration_never_enters_the_job_environment(self) -> None:
         """The wrapper carries DYLINT_* per run; the action exports none of it."""
@@ -129,10 +153,10 @@ class TestBootstrapContract:
         assert names[-2:] == [
             "Verify Whitaker bootstrap",
             "Expose the Whitaker installer to the wrapper",
-        ]
+        ], "expected: names[-2:] == ['Verify Whitaker bootstrap', 'Expose the W"
         assert names.index("Run Whitaker installer") < names.index(
             "Verify Whitaker bootstrap"
-        )
+        ), "expected: names.index('Run Whitaker installer') < names.index('Veri"
 
     @pytest.mark.parametrize(
         "name",
@@ -151,6 +175,8 @@ class TestBootstrapContract:
         """Steps after the resolution run only when it said `install`."""
         condition = str(step_by_name(name).get("if", ""))
         if name == "Resolve Whitaker Clippy snapshot":
-            assert condition == ""
+            assert condition == "", "expected: condition == ''"
         else:
-            assert "steps.snapshot.outputs.status == 'install'" in condition
+            assert "steps.snapshot.outputs.status == 'install'" in condition, (
+                "expected: 'steps.snapshot.outputs.status == 'install'' in condition"
+            )

@@ -159,7 +159,9 @@ class TestBootstrapCacheVerification:
         """Nothing restored reports `empty` and asks for the download."""
         outcome = self._step(tmp_path, tmp_path / "data" / "whitaker-bootstrap")
         assert outcome.process.returncode == 0, outcome.log
-        assert outcome.outputs == {"state": "empty", "snapshot-installed": "false"}
+        assert outcome.outputs == {"state": "empty", "snapshot-installed": "false"}, (
+            "expected: outcome.outputs == {'state': 'empty', 'snapshot-installed..."
+        )
 
     def test_a_matching_bootstrap_is_kept(self, tmp_path: Path) -> None:
         """Metadata and generation that agree with the pins are restored."""
@@ -167,9 +169,13 @@ class TestBootstrapCacheVerification:
         neighbour = self._populate(root)
         outcome = self._step(tmp_path, root)
         assert outcome.process.returncode == 0, outcome.log
-        assert outcome.outputs == {"state": "restored", "snapshot-installed": "true"}
-        assert (root / "bootstrap.json").exists()
-        assert neighbour.exists()
+        assert outcome.outputs == {"state": "restored", "snapshot-installed": "true"}, (
+            "expected: outcome.outputs == {'state': 'restored', 'snapshot-instal..."
+        )
+        assert (root / "bootstrap.json").exists(), (
+            "expected: (root / 'bootstrap.json').exists()"
+        )
+        assert neighbour.exists(), "expected: neighbour.exists()"
 
     @pytest.mark.parametrize(
         ("record", "generation", "reason"),
@@ -206,10 +212,12 @@ class TestBootstrapCacheVerification:
         neighbour = self._populate(root, record, generation=generation)
         outcome = self._step(tmp_path, root)
         assert outcome.process.returncode == 0, outcome.log
-        assert outcome.outputs == {"state": "wiped", "snapshot-installed": "false"}
-        assert "::warning" in outcome.log
-        assert reason in outcome.log
-        assert not root.exists()
+        assert outcome.outputs == {"state": "wiped", "snapshot-installed": "false"}, (
+            "expected: outcome.outputs == {'state': 'wiped', 'snapshot-installed..."
+        )
+        assert "::warning" in outcome.log, "expected: '::warning' in outcome.log"
+        assert reason in outcome.log, "expected: reason in outcome.log"
+        assert not root.exists(), "expected: not root.exists()"
         assert neighbour.exists(), "the wipe reached beyond the bootstrap directory"
 
     @pytest.mark.parametrize("name", ["data", "whitaker", "whitaker-bootstrap-old"])
@@ -220,10 +228,14 @@ class TestBootstrapCacheVerification:
         root = tmp_path / name
         neighbour = self._populate(root, {"schema_version": 9})
         outcome = self._step(tmp_path, root)
-        assert outcome.process.returncode != 0
-        assert "refusing to manage" in outcome.log
-        assert root.exists()
-        assert neighbour.exists()
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert "refusing to manage" in outcome.log, (
+            "expected: 'refusing to manage' in outcome.log"
+        )
+        assert root.exists(), "expected: root.exists()"
+        assert neighbour.exists(), "expected: neighbour.exists()"
 
 
 @dc.dataclass(frozen=True)
@@ -286,35 +298,57 @@ class TestSnapshotDownload:
         """A bundle matching the pin and its sidecar is handed on."""
         outcome = self._step(tmp_path)
         assert outcome.process.returncode == 0, outcome.log
-        assert outcome.outputs["bundle"].endswith(f"/whitaker-clippy-snapshot/{BUNDLE}")
+        assert outcome.outputs["bundle"].endswith(
+            f"/whitaker-clippy-snapshot/{BUNDLE}"
+        ), "expected: outcome.outputs['bundle'].endswith(f'/whitaker-clippy-sna..."
 
     def test_a_corrupted_bundle_fails_the_pinned_digest(self, tmp_path: Path) -> None:
         """Bytes that differ from the pin are refused, sidecar or no sidecar."""
         outcome = self._step(tmp_path, Release(bundle=b"tampered"))
-        assert outcome.process.returncode != 0
-        assert "snapshot digest mismatch" in outcome.log
-        assert "bundle" not in outcome.outputs
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert "snapshot digest mismatch" in outcome.log, (
+            "expected: 'snapshot digest mismatch' in outcome.log"
+        )
+        assert "bundle" not in outcome.outputs, (
+            "expected: 'bundle' not in outcome.outputs"
+        )
 
     def test_a_disagreeing_sidecar_fails_closed(self, tmp_path: Path) -> None:
         """A sidecar naming another digest refuses a bundle that matches the pin."""
         outcome = self._step(tmp_path, Release(sidecar=f"{'c' * 64}  {BUNDLE}\n"))
-        assert outcome.process.returncode != 0
-        assert "sidecar digest" in outcome.log
-        assert "bundle" not in outcome.outputs
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert "sidecar digest" in outcome.log, (
+            "expected: 'sidecar digest' in outcome.log"
+        )
+        assert "bundle" not in outcome.outputs, (
+            "expected: 'bundle' not in outcome.outputs"
+        )
 
     def test_an_empty_sidecar_fails_closed(self, tmp_path: Path) -> None:
         """A sidecar with no digest never counts as agreement."""
         outcome = self._step(tmp_path, Release(sidecar=""))
-        assert outcome.process.returncode != 0
-        assert "sidecar digest <empty>" in outcome.log
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert "sidecar digest <empty>" in outcome.log, (
+            "expected: 'sidecar digest <empty>' in outcome.log"
+        )
 
     def test_a_supplied_digest_that_disagrees_with_the_bundle_fails(
         self, tmp_path: Path
     ) -> None:
         """The expected digest, pinned or supplied, is the one the bytes meet."""
         outcome = self._step(tmp_path, Release(expected="d" * 64))
-        assert outcome.process.returncode != 0
-        assert "snapshot digest mismatch" in outcome.log
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert "snapshot digest mismatch" in outcome.log, (
+            "expected: 'snapshot digest mismatch' in outcome.log"
+        )
 
     def test_each_transfer_is_reported_with_its_part_and_outcome(
         self, tmp_path: Path
@@ -323,24 +357,34 @@ class TestSnapshotDownload:
         outcome = self._step(tmp_path)
         assert (
             "Whitaker Clippy snapshot transfer::part=bundle outcome=ok" in outcome.log
+        ), "expected: 'Whitaker Clippy snapshot transfer::part=bundle outcome=o"
+        assert "part=sidecar outcome=ok" in outcome.log, (
+            "expected: 'part=sidecar outcome=ok' in outcome.log"
         )
-        assert "part=sidecar outcome=ok" in outcome.log
 
     def test_a_failed_download_is_reported_as_a_failed_transfer(
         self, tmp_path: Path
     ) -> None:
         """A failure carries the failed outcome before the step error."""
         outcome = self._step(tmp_path, Release(curl_fails=True))
-        assert "part=bundle outcome=failed" in outcome.log
+        assert "part=bundle outcome=failed" in outcome.log, (
+            "expected: 'part=bundle outcome=failed' in outcome.log"
+        )
 
     def test_a_failed_download_names_the_asset_and_does_not_fall_back(
         self, tmp_path: Path
     ) -> None:
         """No download means no bundle, and no other source is tried."""
         outcome = self._step(tmp_path, Release(curl_fails=True))
-        assert outcome.process.returncode != 0
-        assert f"could not download {BUNDLE}" in outcome.log
-        assert "bundle" not in outcome.outputs
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert f"could not download {BUNDLE}" in outcome.log, (
+            "expected: f'could not download {BUNDLE}' in outcome.log"
+        )
+        assert "bundle" not in outcome.outputs, (
+            "expected: 'bundle' not in outcome.outputs"
+        )
 
 
 class TestFinalVerification:
@@ -429,22 +473,32 @@ class TestFinalVerification:
             json.dumps(record), encoding="utf-8"
         )
         outcome = self._step(tmp_path, layout)
-        assert outcome.process.returncode != 0
-        assert "bootstrap.json does not match" in outcome.log
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert "bootstrap.json does not match" in outcome.log, (
+            "expected: 'bootstrap.json does not match' in outcome.log"
+        )
 
     def test_unreadable_bootstrap_metadata_fails(self, tmp_path: Path) -> None:
         """Metadata that is not JSON fails the step rather than passing it."""
         layout = self._layout(tmp_path)
         (layout["root"] / "bootstrap.json").write_text("{nope", encoding="utf-8")
-        assert self._step(tmp_path, layout).process.returncode != 0
+        assert self._step(tmp_path, layout).process.returncode != 0, (
+            "expected: self._step(tmp_path, layout).process.returncode != 0"
+        )
 
     def test_a_missing_snapshot_generation_fails(self, tmp_path: Path) -> None:
         """No snapshot directory means the driver build has no Clippy."""
         layout = self._layout(tmp_path)
         layout["generation"].rmdir()
         outcome = self._step(tmp_path, layout)
-        assert outcome.process.returncode != 0
-        assert "no Clippy snapshot" in outcome.log
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert "no Clippy snapshot" in outcome.log, (
+            "expected: 'no Clippy snapshot' in outcome.log"
+        )
 
     def test_a_reported_snapshot_elsewhere_fails(self, tmp_path: Path) -> None:
         """The installer's own report must name the derived generation."""
@@ -455,8 +509,12 @@ class TestFinalVerification:
             f"Dylint driver directory: {layout['driver']}\n"
         )
         outcome = self._step(tmp_path, layout, report=report)
-        assert outcome.process.returncode != 0
-        assert "reports its snapshot at" in outcome.log
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert "reports its snapshot at" in outcome.log, (
+            "expected: 'reports its snapshot at' in outcome.log"
+        )
 
     def test_a_reported_driver_directory_elsewhere_fails(self, tmp_path: Path) -> None:
         """The installer's own report must name the derived driver directory."""
@@ -467,8 +525,12 @@ class TestFinalVerification:
             f"Dylint driver directory: {tmp_path}/elsewhere/drivers\n"
         )
         outcome = self._step(tmp_path, layout, report=report)
-        assert outcome.process.returncode != 0
-        assert "reports its driver directory at" in outcome.log
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert "reports its driver directory at" in outcome.log, (
+            "expected: 'reports its driver directory at' in outcome.log"
+        )
 
     def test_a_failed_dry_run_with_a_plausible_report_fails(
         self, tmp_path: Path
@@ -476,23 +538,35 @@ class TestFinalVerification:
         """A non-zero dry run is an error even when its output parses."""
         layout = self._layout(tmp_path)
         outcome = self._step(tmp_path, layout, dry_run_status=3)
-        assert outcome.process.returncode != 0
-        assert "dry run failed" in outcome.log
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert "dry run failed" in outcome.log, (
+            "expected: 'dry run failed' in outcome.log"
+        )
 
     def test_a_report_without_the_labels_fails(self, tmp_path: Path) -> None:
         """Partial output that names no snapshot or driver is refused."""
         layout = self._layout(tmp_path)
         outcome = self._step(tmp_path, layout, report="Workspace root: /x")
-        assert outcome.process.returncode != 0
-        assert "could not read the installer's dry-run report" in outcome.log
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert "could not read the installer's dry-run report" in outcome.log, (
+            "expected: 'could not read the installer's dry-run report' in outcom..."
+        )
 
     def test_a_missing_wrapper_fails(self, tmp_path: Path) -> None:
         """Without the `whitaker` wrapper the driver gets no bootstrap."""
         layout = self._layout(tmp_path)
         (tmp_path / "home" / ".local" / "bin" / "whitaker").unlink()
         outcome = self._step(tmp_path, layout)
-        assert outcome.process.returncode != 0
-        assert "wrapper is not in" in outcome.log
+        assert outcome.process.returncode != 0, (
+            "expected: outcome.process.returncode != 0"
+        )
+        assert "wrapper is not in" in outcome.log, (
+            "expected: 'wrapper is not in' in outcome.log"
+        )
 
 
 class TestInstallerExposure:
@@ -515,4 +589,6 @@ class TestInstallerExposure:
             {"GITHUB_PATH": str(github_path)},
         )
         assert outcome.process.returncode == 0, outcome.log
-        assert github_path.read_text("utf-8").splitlines() == [str(cargo_bin)]
+        assert github_path.read_text("utf-8").splitlines() == [str(cargo_bin)], (
+            "expected: github_path.read_text('utf-8').splitlines() == [str(cargo..."
+        )

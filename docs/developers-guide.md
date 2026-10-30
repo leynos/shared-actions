@@ -1331,43 +1331,6 @@ credentials this action already exported by the cleared
 private-address check must stay identical to this one, and a contract in the
 `setup-rust` tests fails when they drift.
 
-### The Dylint bootstrap
-
-From installer 0.2.11 the action provisions Whitaker's Clippy snapshot, because
-Dylint 6.0.1 cloned Clippy `master`. `scripts/resolve-snapshot.sh` is pure: it
-reads `clippy-snapshots.tsv` (installer version, Clippy commit, Dylint version
-and toolchain) and `snapshot-digests.sha256` (the pinned bundle digest) and
-prints either `status=none` for an older installer, `status=install` with the
-bundle, sidecar, commit, expected digest and trust anchor, or `status=error`
-with a kind (`table-unreadable`, `unlisted-version`, `table-invalid`,
-`manifest-unreadable`, `digest-conflict` or `unpinned-digest`). A failed read
-is an error, never an empty answer. A pinned digest wins over the
-`clippy-snapshot-sha256` input; a conflict fails.
-
-The bootstrap steps run in this order: resolve, locate, cache, verify the
-cache, download, then (after the installer) verify the result.
-`scripts/bootstrap-paths.sh` derives the bootstrap root from the installer's
-project directories before the installer runs, and parses its `--dry-run`
-report afterwards; the final step compares the two, so a wrong derivation fails
-loudly. Its parser is tested against a capture of the published 0.2.11 binary
-(`tests/fixtures/dry-run-0.2.11-installed.txt`, `bootstrap-0.2.11.json`).
-
-The bootstrap directory is its own cache entry, keyed by runner, installer
-version, Dylint version, Clippy commit, toolchain and `bootstrap-cache-salt`. A
-restored bootstrap is verified and only the directory named
-`whitaker-bootstrap` is ever wiped. The download is checked against the pin and
-the release sidecar, handed to the installer with `--clippy-snapshot-bundle`,
-and reports transfer telemetry. Nothing is written to `GITHUB_ENV`: the
-`whitaker` wrapper alone carries the driver configuration. The final step puts
-the installer's directory on `GITHUB_PATH` for the wrapper, and checks the
-wrapper file rather than resolving the command, because the Windows wrapper is a
-`.ps1` script. Whitaker marks a driver ready by its file identity, which a
-cache restore cannot preserve, so a restored bootstrap saves the download but
-not the driver build; the cold lane proves in-place reuse instead. Executable
-fragment tests are in `test_install_whitaker_bootstrap_runtime.py`, and the
-fresh-runner lanes are in
-`.github/workflows/test-install-whitaker-bootstrap.yml`.
-
 ## `install-whitaker` action contract
 
 The composite action's built-in cache restores
@@ -1677,6 +1640,59 @@ every workflow with a `.yml` or `.yaml` extension in any case:
 `tests/workflows/test_whitaker_floor_readers.py` covers those readers against
 synthetic workflows. Raising the floor is a decision, because every lane and
 every consumer has to move with it.
+
+### The Dylint bootstrap
+
+From installer 0.2.11 the action provisions Whitaker's Clippy snapshot, because
+Dylint 6.0.1 cloned Clippy `master`. `scripts/resolve-snapshot.sh` is pure: it
+reads `clippy-snapshots.tsv` (installer version, Clippy commit, Dylint version
+and toolchain) and `snapshot-digests.sha256` (the pinned bundle digest) and
+prints either `status=none` for an older installer, `status=install` with the
+bundle, sidecar, commit, expected digest and trust anchor, or `status=error`
+with a kind (`table-unreadable`, `unlisted-version`, `table-invalid`,
+`manifest-unreadable`, `digest-conflict` or `unpinned-digest`). A failed read
+is an error, never an empty answer. A pinned digest wins over the
+`clippy-snapshot-sha256` input; a conflict fails.
+
+The bootstrap steps run in this order: resolve, locate, cache, verify the
+cache, download, then (after the installer) verify the result.
+`scripts/bootstrap-paths.sh` derives the bootstrap root from the installer's
+project directories before the installer runs, and parses its `--dry-run`
+report afterwards; the final step compares the two, so a wrong derivation fails
+loudly. Its parser is tested against a capture of the published 0.2.11 binary
+(`tests/fixtures/dry-run-0.2.11-installed.txt`, `bootstrap-0.2.11.json`).
+
+The bootstrap directory is its own cache entry, keyed by runner, installer
+version, Dylint version, Clippy commit, toolchain and `bootstrap-cache-salt`. A
+restored bootstrap is verified and only the directory named
+`whitaker-bootstrap` is ever wiped. The download is checked against the pin and
+the release sidecar, handed to the installer with `--clippy-snapshot-bundle`,
+and reports transfer telemetry. Nothing is written to `GITHUB_ENV`: the
+`whitaker` wrapper alone carries the driver configuration. The final step puts
+the installer's directory on `GITHUB_PATH` for the wrapper, and checks the
+wrapper file rather than resolving the command, because the Windows wrapper is a
+`.ps1` script. Whitaker marks a driver ready by its file identity, which a
+cache restore cannot preserve, so a restored bootstrap saves the download but
+not the driver build; the cold lane proves in-place reuse instead. Executable
+fragment tests are in `test_install_whitaker_bootstrap_runtime.py`, and the
+fresh-runner lanes are in
+`.github/workflows/test-install-whitaker-bootstrap.yml`.
+
+The contract in full. Inputs: `installer-version` (default 0.2.11, floor 0.2.9),
+`clippy-snapshot-sha256` (a digest for a bundle the action does not pin) and
+`bootstrap-cache-salt` (letters, digits, dot, underscore and hyphen, at most 64
+characters, mixed into the bootstrap cache key). Outputs: `clippy-snapshot` and
+`driver-directory`, the verified generation and the directory the driver is
+built into, and `bootstrap-cache-state`, one of `empty`, `restored` or `wiped`;
+all three are empty before installer 0.2.11. The wrapper sets
+`DYLINT_LIBRARY_PATH`, `DYLINT_CLIPPY_REPO` and `DYLINT_DRIVER_PATH` for each
+run; the action sets none of them, and bare `cargo dylint` is unsupported. The
+runner needs a writable `runner.temp` for the download staging directory and
+crates.io access for Dylint's registry dependencies, but no access to public
+Clippy. A pinned digest wins over the input, a conflict fails, and with neither
+the step fails as `unpinned-digest`. Installers before 0.2.11 resolve to
+`status=none` and skip every bootstrap step. The decision is recorded in the
+addendum to [ADR 0006](adr/0006-binary-only-whitaker-install.md).
 
 ## `install-makeutil` action contract
 

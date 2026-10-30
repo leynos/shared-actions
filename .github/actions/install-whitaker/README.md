@@ -109,7 +109,10 @@ verified against as `whitaker-clippy-snapshot-<commit>.bundle`, with a
 2. restores the `whitaker-bootstrap/` directory (snapshot, `bootstrap.json`
    and the driver built on first use) from a cache keyed by installer version,
    Dylint release, Clippy commit and toolchain, and wipes only that directory,
-   saying why, if its metadata or snapshot disagree with the pins;
+   saying why, if its metadata or snapshot generation disagree with the pins (a
+   generation that exists but holds corrupt data passes this check and is then
+   rejected by the installer, which fails the step instead of wiping it; to
+   recover, change `bootstrap-cache-salt` or delete the cache entry);
 3. otherwise downloads the bundle and sidecar from the same release, checks the
    bundle against the pinned digest and the sidecar, and passes it to the
    installer with `--clippy-snapshot-bundle`;
@@ -128,8 +131,9 @@ before.
 A restored bootstrap saves the snapshot download, but not the driver build:
 Whitaker marks a driver ready by its file identity (device, inode and creation
 time), which a cache restore cannot keep, so the first run on a new runner
-rebuilds the driver once, from the verified snapshot and without the network.
-Runs after that on the same runner reuse it.
+rebuilds the driver once, from the verified snapshot and without public Clippy
+access (Dylint still fetches its registry dependencies, so the runner needs
+crates.io). Runs after that on the same runner reuse it.
 
 ## What is pinned, and what is not
 

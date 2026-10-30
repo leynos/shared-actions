@@ -74,7 +74,8 @@ installers, clones Clippy `master`, a branch Rust has renamed, so a cold driver
 build fails there. At 0.2.11 the action downloads and verifies the snapshot
 bundle and the installed `whitaker` wrapper builds the driver from it; run
 lints through that wrapper, not bare `cargo dylint`. Callers that pin 0.2.9 or
-0.2.10 keep working but build the driver from public Clippy.
+0.2.10 remain accepted, but cold driver builds use public Clippy and can fail.
+Use 0.2.11 for cold driver builds.
 
 The floor stays `0.2.9`, the first installer release with
 `--no-source-fallback`. The action refuses any older version, because it passes

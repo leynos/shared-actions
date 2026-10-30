@@ -48,7 +48,10 @@ BOOTSTRAP_PREPARATION_STEP_NAMES = (
     "Download Whitaker Clippy snapshot",
 )
 #: The step that proves the installed bootstrap after the installer has run.
-BOOTSTRAP_VERIFICATION_STEP_NAMES = ("Verify Whitaker bootstrap",)
+BOOTSTRAP_VERIFICATION_STEP_NAMES = (
+    "Verify Whitaker bootstrap",
+    "Expose the Whitaker installer to the wrapper",
+)
 
 #: Every runner pair the action supports, with the release asset it selects.
 SUPPORTED_PLATFORMS = {

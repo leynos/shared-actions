@@ -398,10 +398,17 @@ class TestTheInstallerFloor:
             if workflow == "ci.yml"
         ]
         assert own, "ci.yml no longer installs Whitaker through the local action"
+        floor = ".".join(str(part) for part in OWN_LINT_FLOOR)
         for workflow, job_id, requested in own:
+            subject = _identifier(workflow, job_id)
+            assert _VERSION.fullmatch(requested), (
+                f"{subject} asks for installer-version {requested!r}, which is "
+                "not a version this rule can read; it must be one to three "
+                "numeric components, resolved from a bare env.NAME at most"
+            )
             assert _version(requested) >= OWN_LINT_FLOOR, (
-                f"{_identifier(workflow, job_id)} asks for {requested}; the lint "
-                "lane needs 0.2.11 or later for the Clippy snapshot bootstrap"
+                f"{subject} asks for {requested}; the lint lane needs {floor} "
+                "or later for the Clippy snapshot bootstrap"
             )
 
     def test_the_action_default_is_at_or_above_the_floor(self) -> None:

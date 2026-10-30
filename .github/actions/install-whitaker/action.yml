@@ -106,6 +106,10 @@ runs:
         SUITE_VERSION_INPUT: ${{ inputs.suite-version }}
       run: |
         set -euo pipefail
+        # Bracket ranges follow the locale's collation in a UTF-8 locale, so
+        # `[0-9]` and `[A-Za-z]` would accept characters such as a superscript
+        # one. Collate bytewise so each range means what it says.
+        export LC_COLLATE=C
         input_error() {
           echo "::error title=Invalid Whitaker input::$1" >&2
           exit 1
@@ -728,11 +732,13 @@ runs:
           whitaker-bootstrap) ;;
           *)
             echo "::error title=Whitaker bootstrap cache::refusing to manage '${root}': it is not a whitaker-bootstrap directory" >&2
+            emit_metric "whitaker-bootstrap.failure=cache-root"
             exit 1
             ;;
         esac
         if [[ -z "$root" || "$root" == / ]]; then
           echo "::error title=Whitaker bootstrap cache::refusing to manage an empty or root directory" >&2
+          emit_metric "whitaker-bootstrap.failure=cache-root"
           exit 1
         fi
         reason=
@@ -1071,19 +1077,9 @@ runs:
         sys.exit("disagrees on " + ", ".join(bad) if bad else 0)
         PY
           step_error "bootstrap.json does not match the pinned snapshot (commit ${WHITAKER_COMMIT}, Dylint ${WHITAKER_DYLINT_VERSION}, ${WHITAKER_TOOLCHAIN})"
-        # The wrapper hands the bootstrap configuration to the driver build,
-        # and finds the installer beside itself or on PATH. A caller's custom
-        # cargo-home puts the installer in neither, so its directory joins
-        # PATH for the later steps. The Windows wrapper is a `.ps1` script,
-        # which `command -v` does not resolve, so the file is what is checked.
-        installer_dir="$(dirname -- "$WHITAKER_INSTALLER_PATH")"
-        if [[ -n "${GITHUB_PATH:-}" ]]; then
-          if command -v cygpath >/dev/null 2>&1; then
-            cygpath -w "$installer_dir" >> "$GITHUB_PATH"
-          else
-            printf '%s\n' "$installer_dir" >> "$GITHUB_PATH"
-          fi
-        fi
+        # The wrapper hands the bootstrap configuration to the driver build.
+        # The Windows wrapper is a `.ps1` script, which `command -v` does not
+        # resolve, so the file is what is checked.
         wrapper_dir="${XDG_BIN_HOME:-${HOME}/.local/bin}"
         if [[ "${RUNNER_OS:-}" == Windows && -n "${USERPROFILE:-}" ]] &&
           command -v cygpath >/dev/null 2>&1; then
@@ -1097,3 +1093,25 @@ runs:
           printf 'clippy-snapshot=%s\n' "$WHITAKER_GENERATION"
           printf 'driver-directory=%s\n' "$WHITAKER_DRIVER_DIRECTORY"
         } >> "$GITHUB_OUTPUT"
+
+    - name: Expose the Whitaker installer to the wrapper
+      id: installer-on-path
+      if: ${{ steps.snapshot.outputs.status == 'install' }}
+      shell: bash
+      env:
+        WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
+      run: |
+        # The `whitaker` wrapper finds the installer beside itself or on PATH.
+        # A caller's custom cargo-home puts it in neither, so the installer's
+        # directory joins PATH for the steps after this action. This is the
+        # one publication the bootstrap makes; it is kept apart from the
+        # verification, which only reads.
+        set -Eeuo pipefail
+        installer_dir="$(dirname -- "$WHITAKER_INSTALLER_PATH")"
+        if [[ -n "${GITHUB_PATH:-}" ]]; then
+          if command -v cygpath >/dev/null 2>&1; then
+            cygpath -w "$installer_dir" >> "$GITHUB_PATH"
+          else
+            printf '%s\n' "$installer_dir" >> "$GITHUB_PATH"
+          fi
+        fi

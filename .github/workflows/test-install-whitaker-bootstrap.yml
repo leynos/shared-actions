@@ -160,6 +160,9 @@ jobs:
         with:
           cargo-home: ${{ runner.temp }}/whitaker-test-cargo
           installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
+          # This lane deletes the snapshot generation, so its cache entry
+          # must never be shared with another lane.
+          bootstrap-cache-salt: missing-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Delete the snapshot generation and lint
         shell: bash

@@ -65,3 +65,24 @@ to Whitaker estate-wide.
 The installer's `PATH`-dependent verification is tracked upstream as
 leynos/whitaker#460. The action's `PATH` handling works around it and stays
 correct once the installer verifies by explicit path.
+
+## Addendum, 2026-10-30: the verified Clippy snapshot
+
+Dylint 6.0.1 pinned Clippy to the branch `master`, which Rust renamed, so a
+cold driver build began to fail estate-wide. Whitaker 0.2.11 publishes a Clippy
+snapshot bundle with a SHA-256 sidecar, installs it, and runs the lints through
+a wrapper that points Dylint at it. `install-whitaker` extends the same
+principle: it takes only published, digest-checked inputs and never reaches
+public Clippy.
+
+- The bundle's digest is pinned beside the installer's in the action, and a
+  supplied digest may not contradict a pinned one.
+- The bundle is checked against the pin and the release sidecar before the
+  installer sees it, and the installer verifies it again.
+- The bootstrap directory is cached separately from the installer. A restored
+  bootstrap is verified against the pins and only that directory is wiped on a
+  mismatch.
+- The action passes the bundle by flag and writes nothing to `GITHUB_ENV`; the
+  `whitaker` wrapper alone carries the driver configuration, so bare
+  `cargo dylint` is unsupported.
+- Installers before 0.2.11 have no bootstrap and run as before.

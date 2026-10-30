@@ -10,7 +10,7 @@
 #                                  `generation=`, `state=` and `driver-directory=`
 #
 # The installer sits the bootstrap beside its data directory, from the
-# `directories-next` project directories for qualifier "io", organisation
+# `directories-next` project directories for qualifier "io", organization
 # "github" and application "whitaker" (the data directory's parent):
 # `$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application
 # Support` on macOS, and `%APPDATA%\github\whitaker` on Windows.

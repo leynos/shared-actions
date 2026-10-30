@@ -91,11 +91,13 @@ class TestBootstrapContract:
         self,
     ) -> None:
         """A custom cargo-home must not hide the installer from the wrapper."""
-        script = _script("Verify Whitaker bootstrap")
+        script = _script("Expose the Whitaker installer to the wrapper")
         assert 'dirname -- "$WHITAKER_INSTALLER_PATH"' in script
         assert '>> "$GITHUB_PATH"' in script
-        assert "whitaker.ps1" in script, "the Windows wrapper is a .ps1 script"
-        assert "command -v whitaker " not in script
+        verify = _script("Verify Whitaker bootstrap")
+        assert "whitaker.ps1" in verify, "the Windows wrapper is a .ps1 script"
+        assert "command -v whitaker " not in verify
+        assert "GITHUB_PATH" not in verify, "verification must only read"
 
     def test_the_snapshot_download_is_verified_twice_and_has_no_fallback(self) -> None:
         """Pinned digest and release sidecar both gate the bundle."""
@@ -124,7 +126,10 @@ class TestBootstrapContract:
     def test_the_verification_runs_after_the_installer(self) -> None:
         """The proof of what was installed comes last."""
         names = [step["name"] for step in manifest_steps()]
-        assert names[-1] == "Verify Whitaker bootstrap"
+        assert names[-2:] == [
+            "Verify Whitaker bootstrap",
+            "Expose the Whitaker installer to the wrapper",
+        ]
         assert names.index("Run Whitaker installer") < names.index(
             "Verify Whitaker bootstrap"
         )
@@ -137,6 +142,7 @@ class TestBootstrapContract:
             "Verify Whitaker bootstrap cache",
             "Download Whitaker Clippy snapshot",
             "Verify Whitaker bootstrap",
+            "Expose the Whitaker installer to the wrapper",
         ],
     )
     def test_each_bootstrap_step_is_skipped_for_an_installer_without_one(

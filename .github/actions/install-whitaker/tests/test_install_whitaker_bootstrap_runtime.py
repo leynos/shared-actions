@@ -198,7 +198,7 @@ class TestBootstrapCacheVerification:
         self,
         tmp_path: Path,
         record: dict[str, object] | str,
-        generation: bool,  # noqa: FBT001 - a parametrised flag.
+        generation: bool,  # noqa: FBT001 - a parametrized flag.
         reason: str,
     ) -> None:
         """The bootstrap alone is removed, with the reason, and reported `wiped`."""
@@ -240,8 +240,9 @@ class TestSnapshotDownload:
     """The bundle is trusted only after two digests agree."""
 
     @staticmethod
-    def _step(tmp_path: Path, served: Release = Release()) -> Outcome:  # noqa: B008
+    def _step(tmp_path: Path, served: Release | None = None) -> Outcome:
         """Run the download fragment against a stubbed release and ``curl``."""
+        served = served or Release()
         sidecar = served.sidecar
         if sidecar is None:
             sidecar = f"{PAYLOAD_SHA256}  {BUNDLE}\n"
@@ -492,3 +493,26 @@ class TestFinalVerification:
         outcome = self._step(tmp_path, layout)
         assert outcome.process.returncode != 0
         assert "wrapper is not in" in outcome.log
+
+
+class TestInstallerExposure:
+    """The wrapper must be able to find the installer."""
+
+    def test_the_installers_directory_is_published_to_later_steps(
+        self, tmp_path: Path
+    ) -> None:
+        """A custom cargo-home's bin directory joins `GITHUB_PATH`."""
+        cargo_bin = tmp_path / "cargo" / "bin"
+        github_path = tmp_path / "github_path"
+        outcome = _run(
+            tmp_path,
+            "installer-on-path",
+            {
+                "validate-inputs": {
+                    "installer-path": str(cargo_bin / "whitaker-installer")
+                }
+            },
+            {"GITHUB_PATH": str(github_path)},
+        )
+        assert outcome.process.returncode == 0, outcome.log
+        assert github_path.read_text("utf-8").splitlines() == [str(cargo_bin)]

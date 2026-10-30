@@ -923,7 +923,7 @@ configuration for that run, and bare `cargo dylint` is unsupported. The
 bootstrap directory is cached separately from the installer; a restored cache
 is checked against the pins and wiped, with the reason logged, if it disagrees.
 The action adds the installer's directory to `GITHUB_PATH` so the wrapper finds
-it. The driver is rebuilt once on a new runner, because Whitaker identifies a
+it. The driver is rebuilt once on a new runner because Whitaker identifies a
 ready driver by file identity, which a cache restore cannot keep. The
 `clippy-snapshot-sha256` input supplies a digest for a bundle the action does
 not pin, `bootstrap-cache-salt` isolates the cache for tests that pair runs,

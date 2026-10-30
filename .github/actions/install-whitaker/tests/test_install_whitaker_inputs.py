@@ -139,34 +139,28 @@ class TestNormalisation:
         assert run.returncode == 0, run.stderr
         assert run.outputs["installer-path"].endswith("/whitaker-installer.exe")
 
-    def test_lowercases_a_supplied_digest(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("field", "output"),
+        [
+            ("installer_sha256", "installer-sha256"),
+            ("snapshot_sha256", "snapshot-sha256"),
+        ],
+    )
+    def test_lowercases_a_supplied_digest(
+        self, tmp_path: Path, field: str, output: str
+    ) -> None:
         """Verify an uppercase digest input is normalised for comparison."""
-        run = run_validation(
-            tmp_path,
-            ValidationInputs(
-                "~/.cargo",
-                "1.2.3",
-                installer_sha256=_PAYLOAD_SHA256.upper(),
-            ),
+        inputs = ValidationInputs(
+            "~/.cargo", "1.2.3", **{field: _PAYLOAD_SHA256.upper()}
         )
+        run = run_validation(tmp_path, inputs)
 
         assert run.returncode == 0, run.stderr
-        assert run.outputs["installer-sha256"] == _PAYLOAD_SHA256
+        assert run.outputs[output] == _PAYLOAD_SHA256
 
 
 class TestBootstrapInputs:
     """Cover the two bootstrap inputs the validation fragment judges."""
-
-    def test_normalises_an_uppercase_snapshot_digest(self, tmp_path: Path) -> None:
-        """An uppercase snapshot digest is published lowercase."""
-        run = run_validation(
-            tmp_path,
-            ValidationInputs(
-                "~/.cargo", "1.2.3", snapshot_sha256=_PAYLOAD_SHA256.upper()
-            ),
-        )
-        assert run.returncode == 0, run.stderr
-        assert run.outputs["snapshot-sha256"] == _PAYLOAD_SHA256
 
     @pytest.mark.parametrize(
         "digest", ["", "abc", "z" * 64, "a" * 63, "a" * 65, " " + "a" * 63]

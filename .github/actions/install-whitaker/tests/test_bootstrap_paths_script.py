@@ -54,7 +54,7 @@ class TestParse:
             "generation": f"{root}/clippy/{COMMIT}",
             "state": "installed",
             "driver-directory": f"{root}/drivers/dylint-6.3.0/clippy-{COMMIT}",
-        }
+        }, "expected: lines == {'generation': f'{root}/clippy/{COMMIT}', 'state"
 
     @pytest.mark.parametrize(
         "report",
@@ -62,7 +62,9 @@ class TestParse:
     )
     def test_a_report_without_the_labels_is_refused(self, report: str) -> None:
         """The pre-install failure the first design hit is an error, not a path."""
-        assert _run("parse", stdin=report).returncode != 0
+        assert _run("parse", stdin=report).returncode != 0, (
+            "expected: _run('parse', stdin=report).returncode != 0"
+        )
 
     def test_the_real_bootstrap_record_matches_the_pinned_row(self) -> None:
         """`bootstrap.json` carries the keys the verification step compares."""
@@ -71,10 +73,16 @@ class TestParse:
         _, commit, dylint, toolchain = next(
             line.split() for line in row.splitlines() if line.startswith("0.2.11 ")
         )
-        assert record["schema_version"] == 1
-        assert record["snapshot_commit"] == commit
-        assert record["dylint_version"] == dylint
-        assert record["toolchain"] == toolchain
+        assert record["schema_version"] == 1, "expected: record['schema_version'] == 1"
+        assert record["snapshot_commit"] == commit, (
+            "expected: record['snapshot_commit'] == commit"
+        )
+        assert record["dylint_version"] == dylint, (
+            "expected: record['dylint_version'] == dylint"
+        )
+        assert record["toolchain"] == toolchain, (
+            "expected: record['toolchain'] == toolchain"
+        )
 
 
 class TestRoot:
@@ -83,14 +91,18 @@ class TestRoot:
     def test_linux_honours_xdg_data_home(self, tmp_path: Path) -> None:
         """`XDG_DATA_HOME` wins, as it does for the installer."""
         done = _run("root", "Linux", HOME="/home/runner", XDG_DATA_HOME=str(tmp_path))
-        assert done.stdout.strip() == f"{tmp_path}/whitaker-bootstrap"
+        assert done.stdout.strip() == f"{tmp_path}/whitaker-bootstrap", (
+            "expected: done.stdout.strip() == f'{tmp_path}/whitaker-bootstrap'"
+        )
 
     def test_linux_falls_back_to_the_home_data_directory(self) -> None:
         """Without `XDG_DATA_HOME` the real report's directory is derived."""
         done = _run("root", "Linux", HOME="/home/runner", XDG_DATA_HOME="")
         report = (FIXTURES / "dry-run-0.2.11-installed.txt").read_text("utf-8")
         generation = _run("parse", stdin=report).stdout.splitlines()[0]
-        assert generation.split("=", 1)[1].startswith(done.stdout.strip() + "/")
+        assert generation.split("=", 1)[1].startswith(done.stdout.strip() + "/"), (
+            "expected: generation.split('=', 1)[1].startswith(done.stdout.strip(..."
+        )
 
     def test_macos_and_windows_follow_the_installers_project_directories(
         self,
@@ -99,12 +111,14 @@ class TestRoot:
         mac = _run("root", "macOS", HOME="/Users/runner")
         assert mac.stdout.strip() == (
             "/Users/runner/Library/Application Support/whitaker-bootstrap"
-        )
+        ), "expected: mac.stdout.strip() == '/Users/runner/Library/Application "
         windows = _run("root", "Windows", HOME="/h", APPDATA="C:\\Users\\r\\AppData")
         assert windows.stdout.strip() == (
             "C:\\Users\\r\\AppData\\github\\whitaker\\whitaker-bootstrap"
-        )
+        ), "expected: windows.stdout.strip() == 'C:UsersrAppDatagithubwhitakerw"
 
     def test_an_unknown_os_is_refused(self) -> None:
         """No guess is made for a platform the installer does not support."""
-        assert _run("root", "Plan9", HOME="/h").returncode != 0
+        assert _run("root", "Plan9", HOME="/h").returncode != 0, (
+            "expected: _run('root', 'Plan9', HOME='/h').returncode != 0"
+        )

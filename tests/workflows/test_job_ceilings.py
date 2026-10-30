@@ -95,6 +95,12 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ("test-install-whitaker.yml", "install-whitaker"): "install",
     ("test-install-whitaker.yml", "install-whitaker-windows"): "install",
     ("test-install-whitaker.yml", "install-whitaker-failure"): "assertion",
+    # Each installs the action and builds or reuses a Dylint driver; the cold
+    # lane compiles the driver from the snapshot, so it takes the coverage tier.
+    ("test-install-whitaker-bootstrap.yml", "cold-driver"): "coverage",
+    ("test-install-whitaker-bootstrap.yml", "warm-driver"): "coverage",
+    ("test-install-whitaker-bootstrap.yml", "invalid-snapshot"): "install",
+    ("test-install-whitaker-bootstrap.yml", "missing-snapshot"): "install",
     ("test-resolve-workflow-source.yml", "resolve"): "assertion",
     (
         "test-rust-build-release-root-discovery.yml",

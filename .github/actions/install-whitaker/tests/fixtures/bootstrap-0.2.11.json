@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "dylint_version": "6.3.0",
+  "snapshot_commit": "e4608a25c2e20116fbc1e97a51a73f094a1db7a1",
+  "toolchain": "nightly-2026-05-28",
+  "library_dir": {
+    "data_root_relative": "whitaker/lints/nightly-2026-05-28/x86_64-unknown-linux-gnu/lib"
+  }
+}

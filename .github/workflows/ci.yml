@@ -25,10 +25,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       MERMAN_CLI_VERSION: '0.7.0'
-      # 0.2.9 is the floor: it is the first installer with
-      # --no-source-fallback, which install-whitaker always passes.
-      # tests/workflows/test_whitaker_installer_floor.py holds the rule.
-      WHITAKER_INSTALLER_VERSION: '0.2.9'
+      # 0.2.9 is the action-wide floor: it is the first installer with
+      # --no-source-fallback, which install-whitaker always passes. This job's
+      # lint needs 0.2.11 or later, the first installer with the verified
+      # Clippy snapshot bootstrap; Dylint 6.0.1 clones a Clippy branch that no
+      # longer exists. Do not lower this pin. Both rules are held by
+      # tests/workflows/test_whitaker_installer_floor.py.
+      WHITAKER_INSTALLER_VERSION: '0.2.11'
       MAKEUTIL_REVISION: '7ab9b7b73a8f50ef1d3df548c7def7b94db35ba2'
       MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     strategy:

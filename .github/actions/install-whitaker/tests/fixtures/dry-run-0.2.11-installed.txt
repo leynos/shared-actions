@@ -1,0 +1,18 @@
+Dry run - no files will be modified
+
+Workspace root: /home/runner/.local/share/whitaker
+Toolchain: nightly-2026-05-28
+Target directory: /home/runner/.local/share/whitaker/lints/nightly-2026-05-28/x86_64-unknown-linux-gnu/lib
+Verbosity level: 0
+Quiet: false
+Skip deps: true
+Skip wrapper: false
+No update: false
+Suite: default branch tip (unpinned)
+
+Crates to build:
+  - whitaker_suite
+
+Clippy snapshot: /home/runner/.local/share/whitaker-bootstrap/clippy/e4608a25c2e20116fbc1e97a51a73f094a1db7a1
+Clippy snapshot state: installed
+Dylint driver directory: /home/runner/.local/share/whitaker-bootstrap/drivers/dylint-6.3.0/clippy-e4608a25c2e20116fbc1e97a51a73f094a1db7a1

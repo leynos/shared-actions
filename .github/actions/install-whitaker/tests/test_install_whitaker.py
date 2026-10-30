@@ -15,6 +15,8 @@ import string
 import typing as typ
 
 from _action_manifest import (
+    BOOTSTRAP_PREPARATION_STEP_NAMES,
+    BOOTSTRAP_VERIFICATION_STEP_NAMES,
     DIGEST_MANIFEST_PATH,
     LIFECYCLE_STEP_NAMES,
     RESOLVE_SCRIPT_PATH,
@@ -31,7 +33,7 @@ _PINNED_TARGETS = (
     "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-gnu",
 )
-_PINNED_VERSIONS = ("0.2.9", "0.2.10")
+_PINNED_VERSIONS = ("0.2.9", "0.2.10", "0.2.11")
 
 
 def _step_env(name: str) -> dict[str, str]:
@@ -70,7 +72,7 @@ DOCUMENTED_INPUTS: dict[str, dict[str, object]] = {
             "always passes."
         ),
         "required": False,
-        "default": "0.2.10",
+        "default": "0.2.11",
     },
     "installer-sha256": {
         "description": (
@@ -79,6 +81,28 @@ DOCUMENTED_INPUTS: dict[str, dict[str, object]] = {
             "precedence; supply this only for an asset the manifest does "
             "not pin. A value that disagrees with a pinned digest is "
             "rejected."
+        ),
+        "required": False,
+        "default": "",
+    },
+    "clippy-snapshot-sha256": {
+        "description": (
+            "SHA-256 digest of the Clippy snapshot bundle this installer "
+            "release publishes (installer 0.2.11 and later). The action's "
+            "pinned digest manifest takes precedence; supply this only for a "
+            "bundle the manifest does not pin. A value that disagrees with a "
+            "pinned digest is rejected."
+        ),
+        "required": False,
+        "default": "",
+    },
+    "bootstrap-cache-salt": {
+        "description": (
+            "Extra text mixed into the bootstrap cache key, for a caller "
+            "that needs two runs to share a cache without sharing it with "
+            "any other run (a test pairing a cold run with a warm one "
+            "passes the workflow run identity). Letters, digits, dot, "
+            "underscore and hyphen, at most 64 characters."
         ),
         "required": False,
         "default": "",
@@ -154,10 +178,14 @@ class TestStepOrdering:
         """Verify the declared steps and their order."""
         names = [step["name"] for step in manifest_steps()]
 
+        installer_steps = list(LIFECYCLE_STEP_NAMES[:-2])
         assert names == [
             "Validate Whitaker inputs",
             "Cache Whitaker installer",
-            *LIFECYCLE_STEP_NAMES,
+            *installer_steps,
+            *BOOTSTRAP_PREPARATION_STEP_NAMES,
+            *LIFECYCLE_STEP_NAMES[-2:],
+            *BOOTSTRAP_VERIFICATION_STEP_NAMES,
         ]
 
     def test_every_lifecycle_step_uses_bash(self) -> None:
@@ -180,6 +208,8 @@ class TestValidationStep:
             "CRANELIFT_INPUT": "${{ inputs.cranelift }}",
             "INSTALLER_SHA256_INPUT": "${{ inputs.installer-sha256 }}",
             "INSTALLER_VERSION_INPUT": "${{ inputs.installer-version }}",
+            "CACHE_SALT_INPUT": "${{ inputs.bootstrap-cache-salt }}",
+            "SNAPSHOT_SHA256_INPUT": "${{ inputs.clippy-snapshot-sha256 }}",
             "SUITE_VERSION_INPUT": "${{ inputs.suite-version }}",
         }
 
@@ -527,11 +557,14 @@ class TestLifecycleSteps:
             if line.strip().startswith('"$WHITAKER_INSTALLER_PATH"')
         ]
 
+        # One invocation, built from positional parameters that always begin
+        # with the flag, so no argument list can omit it.
         tail = '2> "$installer_err" | tee "$installer_log" || installer_status=$?'
-        assert invocations == [
-            f'"$WHITAKER_INSTALLER_PATH" --no-source-fallback --cranelift {tail}',
-            f'"$WHITAKER_INSTALLER_PATH" --no-source-fallback {tail}',
-        ]
+        assert invocations == [f'"$WHITAKER_INSTALLER_PATH" "$@" {tail}']
+        assert "set -- --no-source-fallback" in script
+        assert script.index("set -- --no-source-fallback") < script.index(
+            '"$WHITAKER_INSTALLER_PATH" "$@"'
+        )
 
     def test_no_step_can_pin_the_suite(self) -> None:
         """No step forwards the suite input or names a suite flag.

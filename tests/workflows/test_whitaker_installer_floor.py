@@ -66,6 +66,11 @@ VERSION_INPUT: typ.Final[str] = "installer-version"
 #: every lane and every consumer to move with it.
 INSTALLER_FLOOR: typ.Final[tuple[int, ...]] = (0, 2, 9)
 
+#: The first installer with the verified Clippy snapshot bootstrap. This
+#: repository's own lint lane must run on it: Dylint 6.0.1, which older
+#: installers build, clones Clippy `master`, a branch Rust has renamed.
+OWN_LINT_FLOOR: typ.Final[tuple[int, ...]] = (0, 2, 11)
+
 #: Both extensions GitHub accepts for a workflow file, compared without
 #: regard to case. Scanning only `.yml` would let a `.yaml` workflow past
 #: every rule here while this module still claimed to be exhaustive.
@@ -376,6 +381,35 @@ class TestTheInstallerFloor:
         asserted here rather than waited for.
         """
         _assert_at_or_above_floor(requested, subject=_identifier(workflow, job_id))
+
+    def test_the_repositorys_own_lint_lanes_use_the_bootstrapped_installer(
+        self,
+    ) -> None:
+        """`ci.yml`'s lanes install an installer with the Clippy snapshot.
+
+        `make lint` runs Whitaker in the python-tests and coverage lanes; on
+        an installer older than 0.2.11 the cold Dylint driver build fails.
+        """
+        own = [
+            (workflow, job_id, requested)
+            for workflow, job_id, requested in _install_whitaker_steps(
+                WORKFLOWS_DIRECTORY
+            )
+            if workflow == "ci.yml"
+        ]
+        assert own, "ci.yml no longer installs Whitaker through the local action"
+        floor = ".".join(str(part) for part in OWN_LINT_FLOOR)
+        for workflow, job_id, requested in own:
+            subject = _identifier(workflow, job_id)
+            assert _VERSION.fullmatch(requested), (
+                f"{subject} asks for installer-version {requested!r}, which is "
+                "not a version this rule can read; it must be one to three "
+                "numeric components, resolved from a bare env.NAME at most"
+            )
+            assert _version(requested) >= OWN_LINT_FLOOR, (
+                f"{subject} asks for {requested}; the lint lane needs {floor} "
+                "or later for the Clippy snapshot bootstrap"
+            )
 
     def test_the_action_default_is_at_or_above_the_floor(self) -> None:
         """The action's own default carries the floor for callers that omit it.

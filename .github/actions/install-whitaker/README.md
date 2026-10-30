@@ -80,16 +80,60 @@ home would otherwise keep serving an installer built for an older version.
 
 ## Inputs
 
-| Name                | Type   | Description                                              | Required | Default        |
-| ------------------- | ------ | -------------------------------------------------------- | -------- | -------------- |
-| `cargo-home`        | string | Cargo home holding the cached installer binary           | no       | `~/.cargo`     |
-| `installer-version` | string | Version of `whitaker-installer`, 0.2.9 or later          | no       | `0.2.10`       |
-| `installer-sha256`  | string | Digest for an asset the manifest does not pin            | no       | `""`           |
-| `suite-version`     | string | Refused: any non-empty value fails the step              | no       | `""`           |
-| `cache-provider`    | string | Built-in `github` or caller-owned `external`             | no       | `github`       |
-| `ci-mode`           | string | Check the published assets before the installer          | no       | `true`         |
-| `cranelift`         | string | Also add rustc-codegen-cranelift for the suite toolchain | no       | `false`        |
-| `github-token`      | string | Read the rolling release without the anon limit          | no       | `github.token` |
+| Name                     | Type   | Description                                                     | Required | Default        |
+| ------------------------ | ------ | --------------------------------------------------------------- | -------- | -------------- |
+| `cargo-home`             | string | Cargo home holding the cached installer binary                  | no       | `~/.cargo`     |
+| `installer-version`      | string | Version of `whitaker-installer`, 0.2.9 or later                 | no       | `0.2.11`       |
+| `installer-sha256`       | string | Digest for an asset the manifest does not pin                   | no       | `""`           |
+| `bootstrap-cache-salt`   | string | Text mixed into the bootstrap cache key, for tests pairing runs | no       | `""`           |
+| `clippy-snapshot-sha256` | string | Digest for a snapshot bundle the manifest does not pin          | no       | `""`           |
+| `suite-version`          | string | Refused: any non-empty value fails the step                     | no       | `""`           |
+| `cache-provider`         | string | Built-in `github` or caller-owned `external`                    | no       | `github`       |
+| `ci-mode`                | string | Check the published assets before the installer                 | no       | `true`         |
+| `cranelift`              | string | Also add rustc-codegen-cranelift for the suite toolchain        | no       | `false`        |
+| `github-token`           | string | Read the rolling release without the anon limit                 | no       | `github.token` |
+
+## The Dylint bootstrap (installer 0.2.11 and later)
+
+Dylint builds its driver from Clippy's Git history, and upstream moved that
+history (the `master` to `main` rename), so a cold driver build that clones
+public Clippy fails. Whitaker publishes the Clippy history its suite was
+verified against as `whitaker-clippy-snapshot-<commit>.bundle`, with a
+`.sha256` sidecar, beside each installer release. The action:
+
+1. resolves the bundle for the requested installer from
+   [`clippy-snapshots.tsv`](clippy-snapshots.tsv) and its digest from
+   [`snapshot-digests.sha256`](snapshot-digests.sha256) (or the
+   `clippy-snapshot-sha256` input for an unpinned bundle; a value that
+   disagrees with a pinned one is rejected);
+2. restores the `whitaker-bootstrap/` directory (snapshot, `bootstrap.json`
+   and the driver built on first use) from a cache keyed by installer version,
+   Dylint release, Clippy commit and toolchain, and wipes only that directory,
+   saying why, if its metadata or snapshot generation disagree with the pins (a
+   generation that exists but holds corrupt data passes this check and is then
+   rejected by the installer, which fails the step instead of wiping it; to
+   recover, change `bootstrap-cache-salt` or delete the cache entry);
+3. otherwise downloads the bundle and sidecar from the same release, checks the
+   bundle against the pinned digest and the sidecar, and passes it to the
+   installer with `--clippy-snapshot-bundle`;
+4. after the installer runs, proves `bootstrap.json`, the snapshot generation
+   and the `whitaker` wrapper.
+
+Any gap fails the step; nothing falls back to public Clippy. Run the lints
+through the installed `whitaker` (or `whitaker-installer run -- ...`) wrapper,
+which sets `DYLINT_LIBRARY_PATH`, `DYLINT_CLIPPY_REPO` and `DYLINT_DRIVER_PATH`
+for that run; bare `cargo dylint` is unsupported, because Dylint would try to
+clone public Clippy. The action writes nothing to `GITHUB_ENV`. Outputs:
+`clippy-snapshot`, `driver-directory` and `bootstrap-cache-state` (`empty`,
+`restored` or `wiped`). Installers before 0.2.11 have no bootstrap and run as
+before.
+
+A restored bootstrap saves the snapshot download, but not the driver build:
+Whitaker marks a driver ready by its file identity (device, inode and creation
+time), which a cache restore cannot keep, so the first run on a new runner
+rebuilds the driver once, from the verified snapshot and without public Clippy
+access (Dylint still fetches its registry dependencies, so the runner needs
+crates.io). Runs after that on the same runner reuse it.
 
 ## What is pinned, and what is not
 
@@ -144,9 +188,11 @@ to the compiler that produced the libraries. Each run also records
 
 ## Outputs
 
-| Name | Description                     |
-| ---- | ------------------------------- |
-| None | This action exposes no outputs. |
+| Name                    | Type   | Description                                                                           |
+| ----------------------- | ------ | ------------------------------------------------------------------------------------- |
+| `clippy-snapshot`       | string | Directory of the verified Clippy snapshot; empty before installer 0.2.11              |
+| `driver-directory`      | string | Directory the Dylint driver is built into on first use; empty before installer 0.2.11 |
+| `bootstrap-cache-state` | string | `empty`, `restored` or `wiped` for the bootstrap cache; empty before installer 0.2.11 |
 
 ## Usage
 

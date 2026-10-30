@@ -884,9 +884,9 @@ action from a workflow in this repository with its local path:
 The repository must be checked out before invoking this local action.
 
 **The action pins the installer and never the lints.** The installer is an
-exact version, 0.2.9 by default, and the action refuses anything older. The
-lint suite is a rolling release that every consumer takes from the Whitaker
-default branch tip. A non-empty `suite-version` fails the step, and
+exact version, 0.2.11 by default, and the action refuses anything older than
+0.2.9. The lint suite is a rolling release that every consumer takes from the
+Whitaker default branch tip. A non-empty `suite-version` fails the step, and
 `allow-suite-pin` no longer exists.
 
 **Nothing is built from source.** Every run passes `--no-source-fallback` to
@@ -914,11 +914,28 @@ it to `GITHUB_PATH`, so later steps in the job can call `cargo dylint` and
 `dylint-link` by name. The Windows images do not have the directory on `PATH`
 by default.
 
+**The Dylint driver builds from a verified snapshot.** From installer 0.2.11
+the action also downloads the release's Clippy snapshot bundle, checks it
+against a digest pinned in the action and against the release sidecar, and
+hands it to the installer, so the driver build never clones public Clippy. Run
+the lints through the installed `whitaker` (or `whitaker-ls`) wrapper: it sets
+the driver's configuration for that run, and bare `cargo dylint` is
+unsupported. The bootstrap directory is cached separately from the installer; a
+restored cache is checked against the pins and wiped, with the reason logged,
+if it disagrees. The action adds the installer's directory to `GITHUB_PATH` so
+the wrapper finds it. The driver is rebuilt once on a new runner, because
+Whitaker identifies a ready driver by file identity, which a cache restore
+cannot keep. The `clippy-snapshot-sha256` input supplies a digest for a bundle
+the action does not pin, `bootstrap-cache-salt` isolates the cache for tests
+that pair runs, and the `clippy-snapshot`, `driver-directory` and
+`bootstrap-cache-state` outputs report the result. Installers before 0.2.11
+have no bootstrap and run as before.
+
 The optional `installer-version` input selects the `whitaker-installer` version
-and defaults to `0.2.9`; the action refuses any older version, because older
-installers reject `--no-source-fallback`. Set the optional `cranelift` input to
-`true` when the repository's builds select the Cranelift codegen backend: the
-action then passes `--cranelift`, and the installer adds
+and defaults to `0.2.11`; the action refuses any version before 0.2.9, because
+older installers reject `--no-source-fallback`. Set the optional `cranelift`
+input to `true` when the repository's builds select the Cranelift codegen
+backend: the action then passes `--cranelift`, and the installer adds
 `rustc-codegen-cranelift` to the lint suite's toolchain through rustup. The
 optional `cargo-home` input defaults to `~/.cargo`; it controls the cached
 `whitaker-installer` location

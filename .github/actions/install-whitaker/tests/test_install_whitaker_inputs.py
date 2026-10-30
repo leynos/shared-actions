@@ -8,10 +8,14 @@ script rather than a paraphrase of it.
 from __future__ import annotations
 
 import dataclasses as dc
+import re
+import string
 import typing as typ
 
 import pytest
 from _action_manifest import step_by_id
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from composite_fragments import (
     ActionContext,
@@ -25,6 +29,7 @@ from composite_fragments import (
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
+_SALT_ALPHABET = string.ascii_letters + string.digits + "._-"
 _PAYLOAD_SHA256 = "239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5"
 
 require_posix_host()
@@ -42,6 +47,8 @@ class ValidationInputs:
     ci_mode: str = "true"
     cranelift: str = "false"
     suite_version: str = ""
+    snapshot_sha256: str = ""
+    cache_salt: str = ""
 
 
 @dc.dataclass(frozen=True)
@@ -75,6 +82,8 @@ def run_validation(tmp_path: Path, inputs: ValidationInputs) -> ValidationRun:
             "cranelift": inputs.cranelift,
             "installer-sha256": inputs.installer_sha256,
             "installer-version": inputs.installer_version,
+            "clippy-snapshot-sha256": inputs.snapshot_sha256,
+            "bootstrap-cache-salt": inputs.cache_salt,
             "suite-version": inputs.suite_version,
         },
         runner_os=inputs.runner_os,
@@ -121,6 +130,8 @@ class TestNormalisation:
             ),
             "installer-version": "1.2.3",
             "installer-sha256": "",
+            "snapshot-sha256": "",
+            "cache-salt": "",
         }
 
     def test_selects_the_windows_executable_suffix(self, tmp_path: Path) -> None:
@@ -133,19 +144,141 @@ class TestNormalisation:
         assert run.returncode == 0, run.stderr
         assert run.outputs["installer-path"].endswith("/whitaker-installer.exe")
 
-    def test_lowercases_a_supplied_digest(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("field", "output"),
+        [
+            ("installer_sha256", "installer-sha256"),
+            ("snapshot_sha256", "snapshot-sha256"),
+        ],
+    )
+    def test_lowercases_a_supplied_digest(
+        self, tmp_path: Path, field: str, output: str
+    ) -> None:
         """Verify an uppercase digest input is normalised for comparison."""
-        run = run_validation(
-            tmp_path,
-            ValidationInputs(
-                "~/.cargo",
-                "1.2.3",
-                installer_sha256=_PAYLOAD_SHA256.upper(),
-            ),
+        inputs = ValidationInputs(
+            "~/.cargo", "1.2.3", **{field: _PAYLOAD_SHA256.upper()}
         )
+        run = run_validation(tmp_path, inputs)
 
         assert run.returncode == 0, run.stderr
-        assert run.outputs["installer-sha256"] == _PAYLOAD_SHA256
+        assert run.outputs[output] == _PAYLOAD_SHA256
+
+
+class TestBootstrapInputs:
+    """Cover the two bootstrap inputs the validation fragment judges."""
+
+    def test_an_unset_snapshot_digest_is_accepted_and_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """The empty input means the action's own pin decides."""
+        run = run_validation(tmp_path, ValidationInputs("~/.cargo", "1.2.3"))
+        assert run.returncode == 0, run.stderr
+        assert run.outputs["snapshot-sha256"] == "", "an unset digest stays unset"
+
+    @pytest.mark.parametrize(
+        "digest", ["abc", "z" * 64, "a" * 63, "a" * 65, " " + "a" * 63]
+    )
+    def test_rejects_a_malformed_snapshot_digest(
+        self, tmp_path: Path, digest: str
+    ) -> None:
+        """Only 64 hexadecimal characters pass."""
+        run = run_validation(
+            tmp_path, ValidationInputs("~/.cargo", "1.2.3", snapshot_sha256=digest)
+        )
+        assert run.returncode != 0, f"{digest!r} was accepted"
+        assert "clippy-snapshot-sha256 must be 64 hexadecimal characters" in run.stderr
+
+    def test_publishes_a_valid_cache_salt(self, tmp_path: Path) -> None:
+        """A run identity such as `123-2` is carried to the cache key."""
+        run = run_validation(
+            tmp_path, ValidationInputs("~/.cargo", "1.2.3", cache_salt="123-2")
+        )
+        assert run.returncode == 0, run.stderr
+        assert run.outputs["cache-salt"] == "123-2"
+
+    @pytest.mark.parametrize("salt", ["a b", "a/b", "x" * 65, "a$b"])
+    def test_rejects_an_unsafe_cache_salt(self, tmp_path: Path, salt: str) -> None:
+        """A salt reaches a cache key, so only a safe alphabet and length pass."""
+        run = run_validation(
+            tmp_path, ValidationInputs("~/.cargo", "1.2.3", cache_salt=salt)
+        )
+        assert run.returncode != 0, f"{salt!r} was accepted"
+        assert "bootstrap-cache-salt must be at most 64" in run.stderr
+
+
+_PROPERTY = settings(
+    max_examples=30,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+
+
+class TestBootstrapInputProperties:
+    """The accepted languages of the digest and salt inputs, over generated text."""
+
+    @_PROPERTY
+    @given(digest=st.text(alphabet="0123456789abcdefABCDEF", min_size=64, max_size=64))
+    def test_every_64_hex_digest_is_accepted_and_lowercased(
+        self, tmp_path_factory: pytest.TempPathFactory, digest: str
+    ) -> None:
+        """Any case mix of 64 hex characters publishes as its lowercase form."""
+        run = run_validation(
+            tmp_path_factory.mktemp("digest"),
+            ValidationInputs("~/.cargo", "1.2.3", snapshot_sha256=digest),
+        )
+        assert run.returncode == 0, run.stderr
+        assert run.outputs["snapshot-sha256"] == digest.lower()
+
+    @_PROPERTY
+    @given(
+        digest=st.text(alphabet="0123456789abcdefABCDEF", max_size=80).filter(
+            lambda text: len(text) not in {0, 64}
+        )
+    )
+    def test_a_hex_digest_of_any_other_length_is_rejected(
+        self, tmp_path_factory: pytest.TempPathFactory, digest: str
+    ) -> None:
+        """Length is part of the language: nothing but 64 passes."""
+        run = run_validation(
+            tmp_path_factory.mktemp("length"),
+            ValidationInputs("~/.cargo", "1.2.3", snapshot_sha256=digest),
+        )
+        assert run.returncode != 0, f"{len(digest)} characters were accepted"
+
+    @_PROPERTY
+    @given(salt=st.text(alphabet=_SALT_ALPHABET, max_size=64))
+    def test_every_salt_in_the_alphabet_within_the_bound_is_accepted(
+        self, tmp_path_factory: pytest.TempPathFactory, salt: str
+    ) -> None:
+        """Letters, digits, dot, underscore and hyphen up to 64 characters pass."""
+        run = run_validation(
+            tmp_path_factory.mktemp("salt"),
+            ValidationInputs("~/.cargo", "1.2.3", cache_salt=salt),
+        )
+        assert run.returncode == 0, run.stderr
+        assert run.outputs["cache-salt"] == salt
+
+    @_PROPERTY
+    @given(
+        salt=st.text(alphabet=_SALT_ALPHABET, min_size=65, max_size=90)
+        | st.text(min_size=1, max_size=20).filter(
+            lambda text: (
+                re.search(r"[^A-Za-z0-9._-]", text) is not None
+                and "\n" not in text
+                and "\x00" not in text
+                and "\r" not in text
+            )
+        )
+    )
+    def test_a_salt_outside_the_alphabet_or_bound_is_rejected(
+        self, tmp_path_factory: pytest.TempPathFactory, salt: str
+    ) -> None:
+        """Anything else would reach a cache key and is refused."""
+        run = run_validation(
+            tmp_path_factory.mktemp("unsafe"),
+            ValidationInputs("~/.cargo", "1.2.3", cache_salt=salt),
+        )
+        assert run.returncode != 0, f"{salt!r} was accepted"
 
 
 class TestRejections:

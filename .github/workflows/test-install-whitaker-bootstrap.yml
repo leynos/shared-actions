@@ -1,0 +1,171 @@
+name: Test install-whitaker bootstrap
+
+# Fresh-runner proof of the reproducible Dylint bootstrap that install-whitaker
+# consumes from whitaker-installer 0.2.11: a verified Clippy snapshot, a driver
+# built from it on first use, and a cache of both. Each lane installs through
+# the action, then denies Clippy's git host, so a green run cannot have read
+# public Clippy. The action's own downloads happen before the denial.
+
+on:
+  pull_request:
+    paths:
+      - '.github/actions/install-whitaker/**'
+      - '.github/workflows/test-install-whitaker-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WHITAKER_TEST_INSTALLER_VERSION: 0.2.11
+  WHITAKER_TEST_DIAGNOSTIC: no_std_fs_operations
+
+jobs:
+  cold-driver:
+    # Dependabot pull requests run on the hosted pool too (free on a public
+    # repository). The author is tested, not the actor, which changes when
+    # someone else pushes to the branch.
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Whitaker
+        id: install
+        uses: ./.github/actions/install-whitaker
+        with:
+          cargo-home: ${{ runner.temp }}/whitaker-test-cargo
+          installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
+          # Shared by the cold and warm lanes alone, so a rerun or an earlier
+          # push cannot leave the cold lane a bootstrap it did not build.
+          bootstrap-cache-salt: ${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Assert the bootstrap cache was empty
+        shell: bash
+        env:
+          STATE: ${{ steps.install.outputs.bootstrap-cache-state }}
+        run: |
+          set -euo pipefail
+          test "$STATE" = empty || { echo "expected an empty bootstrap cache, got '${STATE}'" >&2; exit 1; }
+
+      - name: Deny Clippy's git host
+        shell: bash
+        run: bash .github/actions/install-whitaker/tests/fixtures/deny-clippy-host.sh
+
+      - name: Lint the fixture (cold driver)
+        shell: bash
+        env:
+          DRIVER_DIRECTORY: ${{ steps.install.outputs.driver-directory }}
+          SNAPSHOT: ${{ steps.install.outputs.clippy-snapshot }}
+        run: bash .github/actions/install-whitaker/tests/fixtures/lint-fixture.sh cold
+
+  # The warm lane: the cold lane's cache is restored and verified, and the
+  # driver is rebuilt once from the restored snapshot with github.com denied.
+  # Whitaker marks a driver ready by file identity (device, inode, creation
+  # time), which a restore cannot keep, so a restored driver is never reused;
+  # reuse of a driver in place is proved by the cold lane's second run.
+  warm-driver:
+    needs: cold-driver
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Whitaker
+        id: install
+        uses: ./.github/actions/install-whitaker
+        with:
+          cargo-home: ${{ runner.temp }}/whitaker-test-cargo
+          installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
+          # Shared by the cold and warm lanes alone, so a rerun or an earlier
+          # push cannot leave the cold lane a bootstrap it did not build.
+          bootstrap-cache-salt: ${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Assert the bootstrap cache was restored
+        shell: bash
+        env:
+          STATE: ${{ steps.install.outputs.bootstrap-cache-state }}
+        run: |
+          set -euo pipefail
+          test "$STATE" = restored || { echo "expected a restored bootstrap cache, got '${STATE}'" >&2; exit 1; }
+
+      - name: Deny Clippy's git host
+        shell: bash
+        run: bash .github/actions/install-whitaker/tests/fixtures/deny-clippy-host.sh
+
+      - name: Lint the fixture (restored bootstrap)
+        shell: bash
+        env:
+          DRIVER_DIRECTORY: ${{ steps.install.outputs.driver-directory }}
+          SNAPSHOT: ${{ steps.install.outputs.clippy-snapshot }}
+        run: bash .github/actions/install-whitaker/tests/fixtures/lint-fixture.sh restored
+
+  invalid-snapshot:
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install with a digest that contradicts the pinned snapshot
+        id: install
+        continue-on-error: true
+        uses: ./.github/actions/install-whitaker
+        with:
+          cargo-home: ${{ runner.temp }}/whitaker-test-cargo
+          installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
+          clippy-snapshot-sha256: ${{ format('{0}{0}{0}{0}', '0123456789abcdef') }}
+
+      - name: Assert the action refused and installed no bootstrap
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.install.outcome }}
+        run: |
+          set -euo pipefail
+          test "$OUTCOME" = failure || { echo "the action accepted a conflicting snapshot digest (${OUTCOME})" >&2; exit 1; }
+          if command -v whitaker >/dev/null 2>&1; then
+            echo "a whitaker wrapper exists although the snapshot was refused" >&2
+            exit 1
+          fi
+          test ! -e "${XDG_DATA_HOME:-$HOME/.local/share}/whitaker-bootstrap/bootstrap.json"
+
+  missing-snapshot:
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Whitaker
+        id: install
+        uses: ./.github/actions/install-whitaker
+        with:
+          cargo-home: ${{ runner.temp }}/whitaker-test-cargo
+          installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
+          # This lane deletes the snapshot generation, so its cache entry
+          # must never be shared with another lane.
+          bootstrap-cache-salt: missing-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Delete the snapshot generation and lint
+        shell: bash
+        env:
+          SNAPSHOT: ${{ steps.install.outputs.clippy-snapshot }}
+        run: bash .github/actions/install-whitaker/tests/fixtures/lint-fixture.sh missing

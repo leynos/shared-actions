@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  WHITAKER_TEST_INSTALLER_VERSION: 0.2.10
+  WHITAKER_TEST_INSTALLER_VERSION: 0.2.11
 
 jobs:
   install-whitaker:

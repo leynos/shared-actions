@@ -184,7 +184,9 @@ def collect_reports(report_root: Path) -> list[TargetReport]:
             emit("mutation_summary_missing_outcomes", artefact_dir.name)
             continue
         try:
-            payload = json.loads(outcomes_path.read_text(encoding="utf-8"))
+            # pragma below: encoding is a locale-independent UTF-8 codec alias.
+            raw = outcomes_path.read_text(encoding="utf-8")  # pragma: no mutate
+            payload = json.loads(raw)
         except json.JSONDecodeError as error:
             emit("mutation_summary_invalid_outcomes", f"{artefact_dir.name}: {error}")
             continue

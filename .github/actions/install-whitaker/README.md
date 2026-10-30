@@ -125,6 +125,12 @@ clone public Clippy. The action writes nothing to `GITHUB_ENV`. Outputs:
 `restored` or `wiped`). Installers before 0.2.11 have no bootstrap and run as
 before.
 
+A restored bootstrap saves the snapshot download, but not the driver build:
+Whitaker marks a driver ready by its file identity (device, inode and creation
+time), which a cache restore cannot keep, so the first run on a new runner
+rebuilds the driver once, from the verified snapshot and without the network.
+Runs after that on the same runner reuse it.
+
 ## What is pinned, and what is not
 
 The installer is pinned: an exact version, taken from a release archive

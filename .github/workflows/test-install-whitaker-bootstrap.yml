@@ -30,8 +30,6 @@ jobs:
       || github.event.pull_request.user.login == 'dependabot[bot]')
       && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 30
-    outputs:
-      driver-sha256: ${{ steps.lint.outputs.driver-sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,13 +58,17 @@ jobs:
         run: bash .github/actions/install-whitaker/tests/fixtures/deny-clippy-host.sh
 
       - name: Lint the fixture (cold driver)
-        id: lint
         shell: bash
         env:
           DRIVER_DIRECTORY: ${{ steps.install.outputs.driver-directory }}
           SNAPSHOT: ${{ steps.install.outputs.clippy-snapshot }}
         run: bash .github/actions/install-whitaker/tests/fixtures/lint-fixture.sh cold
 
+  # The warm lane: the cold lane's cache is restored and verified, and the
+  # driver is rebuilt once from the restored snapshot with github.com denied.
+  # Whitaker marks a driver ready by file identity (device, inode, creation
+  # time), which a restore cannot keep, so a restored driver is never reused;
+  # reuse of a driver in place is proved by the cold lane's second run.
   warm-driver:
     needs: cold-driver
     runs-on: >-
@@ -101,13 +103,12 @@ jobs:
         shell: bash
         run: bash .github/actions/install-whitaker/tests/fixtures/deny-clippy-host.sh
 
-      - name: Lint the fixture (warm driver)
+      - name: Lint the fixture (restored bootstrap)
         shell: bash
         env:
           DRIVER_DIRECTORY: ${{ steps.install.outputs.driver-directory }}
           SNAPSHOT: ${{ steps.install.outputs.clippy-snapshot }}
-          COLD_DRIVER_SHA256: ${{ needs.cold-driver.outputs.driver-sha256 }}
-        run: bash .github/actions/install-whitaker/tests/fixtures/lint-fixture.sh warm
+        run: bash .github/actions/install-whitaker/tests/fixtures/lint-fixture.sh restored
 
   invalid-snapshot:
     runs-on: >-

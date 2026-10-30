@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Lint a crate that deliberately calls std::fs through the installed wrapper.
 #
-# Usage: lint-fixture.sh cold|warm|missing
+# Usage: lint-fixture.sh cold|restored|missing
 #
-#   cold     the driver is built on this run; its digest goes to GITHUB_OUTPUT
-#   warm     the driver is reused byte for byte and no build notice appears
-#   missing  the snapshot generation is deleted first; the wrapper must fail
-#            clearly, naming the snapshot, and must not report the diagnostic
+#   cold      the driver is built on this run, once; a second run on the same
+#             machine reuses it byte for byte and prints no build notice
+#   restored  the bootstrap came from the cache. Whitaker marks a driver ready
+#             by its file identity (device, inode, creation time), which a
+#             restore cannot preserve, so the driver is rebuilt once, from the
+#             restored and verified snapshot, with github.com denied
+#   missing   the snapshot generation is deleted first; the wrapper must fail
+#             clearly, naming the snapshot, and must not report the diagnostic
 #
 # Every lint failure has to name the diagnostic: a crash or a missing driver
 # never counts as enforcement. RUSTFLAGS carries -D warnings, as consumers' do.
@@ -40,13 +44,17 @@ driver_sha256() {
   sha256sum "$driver" | cut -d ' ' -f 1
 }
 log="$work/lint.log"
-status=0
+lint() {
+  local status=0
+  (cd "$work" && RUSTFLAGS="-D warnings" whitaker --all) > "$log" 2>&1 || status=$?
+  cat "$log"
+  [[ "$status" -ne 0 ]] || { echo "whitaker succeeded on a std::fs violation" >&2; exit 1; }
+}
+builds() { grep -c -- "$notice" "$log" || true; }
 if [[ "$mode" == missing ]]; then
   rm -rf -- "${SNAPSHOT:?}"
 fi
-(cd "$work" && RUSTFLAGS="-D warnings" whitaker --all) > "$log" 2>&1 || status=$?
-cat "$log"
-[[ "$status" -ne 0 ]] || { echo "whitaker succeeded on a std::fs violation" >&2; exit 1; }
+lint
 case "$mode" in
   missing)
     grep -qi "snapshot" "$log" || { echo "the missing snapshot was not named" >&2; exit 1; }
@@ -57,16 +65,16 @@ case "$mode" in
     ;;
   cold)
     grep -q "$diagnostic" "$log" || { echo "no ${diagnostic} diagnostic" >&2; exit 1; }
-    [[ "$(grep -c -- "$notice" "$log" || true)" -eq 1 ]] || { echo "the cold run did not build the driver once" >&2; exit 1; }
-    printf 'driver-sha256=%s\n' "$(driver_sha256)" >> "${GITHUB_OUTPUT:-/dev/null}"
+    [[ "$(builds)" -eq 1 ]] || { echo "the cold run did not build the driver once" >&2; exit 1; }
+    first="$(driver_sha256)"
+    lint
+    grep -q "$diagnostic" "$log" || { echo "no ${diagnostic} diagnostic on the warm rerun" >&2; exit 1; }
+    [[ "$(builds)" -eq 0 ]] || { echo "the warm rerun rebuilt the driver" >&2; exit 1; }
+    [[ "$(driver_sha256)" == "$first" ]] || { echo "the warm rerun replaced the driver" >&2; exit 1; }
     ;;
-  warm)
+  restored)
     grep -q "$diagnostic" "$log" || { echo "no ${diagnostic} diagnostic" >&2; exit 1; }
-    if grep -q -- "$notice" "$log"; then
-      echo "the warm run rebuilt the driver" >&2
-      exit 1
-    fi
-    [[ "$(driver_sha256)" == "${COLD_DRIVER_SHA256:?}" ]] || { echo "the restored driver differs from the cold one" >&2; exit 1; }
+    [[ "$(builds)" -eq 1 ]] || { echo "the restored bootstrap did not rebuild the driver once" >&2; exit 1; }
     ;;
   *) echo "unknown mode ${mode}" >&2; exit 2 ;;
 esac

@@ -18,13 +18,20 @@ Behavioural notes (validated empirically against mutmut 3.6.0)
   step naturally.
 - Positional run arguments are mutant-name globs in module-path form
   (file paths are rejected), so changed files are translated to module
-  globs: ``src/pkg/mod.py`` becomes ``pkg.mod.*``.
+  globs: ``src/pkg/mod.py`` becomes ``pkg.mod.*``. The caller's mutmut
+  ``source_paths``, ``only_mutate``, and ``do_not_mutate`` settings define
+  which files are mutable; a scope with no matching files short-circuits
+  to a graceful no-op rather than aborting mutmut with an empty filter.
+- The reusable workflow's ``INPUT_*`` variables configure this script but
+  are stripped from the environment before ``mutmut run``, so they cannot
+  leak into the mutated project's in-process pytest baseline.
 - Results live in per-source ``.meta`` files under ``mutants/``; the
   parseable interface is ``mutmut results --all true``, which prints
   ``name: status`` lines.
 
-The caller must be a uv-managed project with ``[tool.mutmut]`` configured
-in ``pyproject.toml`` (``source_paths``, test selection, and runner).
+The caller must be a uv-managed project with mutmut configured in
+``pyproject.toml`` or ``setup.cfg``. Mutmut path filters constrain changed-file
+globs to modules the caller has configured as mutable.
 
 Environment Variables
 ---------------------
@@ -54,15 +61,21 @@ As a workflow step::
 from __future__ import annotations
 
 import collections
+import configparser
 import dataclasses
+import fnmatch
 import os
 import shlex
 import sys
+import tomllib
 import typing as typ
 from pathlib import Path, PurePosixPath
 
 from cyclopts import App, Parameter
 from plumbum import RETCODE, local
+
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
 
 if __package__:
     from .output import emit, fail
@@ -70,6 +83,13 @@ else:
     from output import emit, fail  # type: ignore[import-not-found,no-redef]
 
 app = App()
+
+#: Prefix of the workflow-input environment variables. mutmut runs the
+#: caller's test suite in-process as its baseline, inheriting this
+#: process's environment; leaving ``INPUT_*`` set would let workflow
+#: inputs (for example ``INPUT_MODULE_PREFIX_STRIP``) leak into the
+#: mutated project's tests, so they are stripped before ``mutmut run``.
+WORKFLOW_INPUT_ENV_PREFIX = "INPUT_"
 
 #: Statuses that indicate the suite failed to kill a runnable mutant.
 SURVIVOR_STATUSES: frozenset[str] = frozenset({"survived", "no tests"})
@@ -92,14 +112,184 @@ class MutantResult:
     status: str
 
 
-def _module_glob_for(name: str, prefix_strip: str) -> str | None:
-    """Translate one changed file into a mutant-name glob, or None.
+class _MutmutConfigurationError(ValueError):
+    """Invalid mutmut configuration value."""
 
-    ``__init__.py`` maps to its package; non-Python paths and paths that
-    reduce to nothing after stripping yield None.
-    """
+    def __init__(self, setting: str, reason: str) -> None:
+        """Build an error message for one invalid setting."""
+        message = f"mutmut {setting} {reason}"
+        super().__init__(message)
+
+
+class _MutmutConfigurationTypeError(TypeError):
+    """Mutmut configuration value has the wrong type."""
+
+    def __init__(self, setting: str, reason: str) -> None:
+        """Build an error message for one wrongly typed setting."""
+        message = f"mutmut {setting} {reason}"
+        super().__init__(message)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _MutmutScope:
+    """Resolved mutmut source and exclusion patterns."""
+
+    source_paths: tuple[str, ...]
+    only_mutate: tuple[str, ...] = ()
+    do_not_mutate: tuple[str, ...] = ()
+
+
+def _clean_mutmut_patterns(values: cabc.Iterable[str]) -> tuple[str, ...]:
+    """Trim blank entries from mutmut path patterns."""
+    patterns: list[str] = []
+    for value in values:
+        pattern = value.strip()
+        if pattern:
+            patterns.append(pattern)
+    return tuple(patterns)
+
+
+def _patterns_from_list(values: list[object], setting: str) -> tuple[str, ...]:
+    """Validate and normalize an array-valued mutmut setting."""
+    patterns: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            error = _MutmutConfigurationTypeError(setting, "must contain only strings")
+            raise error
+        patterns.append(value)
+    return _clean_mutmut_patterns(patterns)
+
+
+def _patterns_from_setting(value: object, setting: str) -> tuple[str, ...]:
+    """Normalize one mutmut path-list setting."""
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return _clean_mutmut_patterns(value.splitlines())
+    if isinstance(value, list):
+        return _patterns_from_list(value, setting)
+    error = _MutmutConfigurationTypeError(
+        setting, "must be a string or an array of strings"
+    )
+    raise error
+
+
+def _pyproject_mutmut_settings(
+    project_root: Path,
+) -> dict[str, object] | None:
+    """Read the caller's ``[tool.mutmut]`` table from ``pyproject.toml``."""
+    pyproject = project_root / "pyproject.toml"
+    if not pyproject.is_file():
+        return None
+
+    pyproject_data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    tool_data = pyproject_data.get("tool", {})
+    if not isinstance(tool_data, dict):
+        error = _MutmutConfigurationTypeError(
+            "pyproject.toml [tool]", "must be a table"
+        )
+        raise error
+    mutmut_data = tool_data.get("mutmut")
+    if mutmut_data is None:
+        return None
+    if not isinstance(mutmut_data, dict):
+        error = _MutmutConfigurationTypeError(
+            "pyproject.toml [tool.mutmut]", "must be a table"
+        )
+        raise error
+    return typ.cast("dict[str, object]", mutmut_data)
+
+
+def _setup_cfg_mutmut_settings(
+    project_root: Path,
+) -> dict[str, object] | None:
+    """Read the caller's ``[mutmut]`` section from ``setup.cfg``."""
+    setup_cfg = project_root / "setup.cfg"
+    if not setup_cfg.is_file():
+        return None
+
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read_string(setup_cfg.read_text(encoding="utf-8"), source=str(setup_cfg))
+    if not parser.has_section("mutmut"):
+        return None
+    return dict(parser.items("mutmut"))
+
+
+def _load_mutmut_settings(project_root: Path) -> dict[str, object]:
+    """Load mutmut settings, preferring ``pyproject.toml``."""
+    settings = _pyproject_mutmut_settings(project_root)
+    if settings is None:
+        settings = _setup_cfg_mutmut_settings(project_root)
+    if settings is None:
+        error = _MutmutConfigurationError("configuration", "must define source_paths")
+        raise error
+    return settings
+
+
+def _scope_from_settings(settings: dict[str, object]) -> _MutmutScope:
+    """Build a validated mutmut scope from its path settings."""
+    source_paths = _patterns_from_setting(settings.get("source_paths"), "source_paths")
+    if not source_paths:
+        error = _MutmutConfigurationError(
+            "source_paths", "must contain at least one path"
+        )
+        raise error
+    return _MutmutScope(
+        source_paths=source_paths,
+        only_mutate=_patterns_from_setting(settings.get("only_mutate"), "only_mutate"),
+        do_not_mutate=_patterns_from_setting(
+            settings.get("do_not_mutate"), "do_not_mutate"
+        ),
+    )
+
+
+def _load_mutmut_scope(project_root: Path) -> _MutmutScope:
+    """Load and validate the caller's mutmut path filters."""
+    return _scope_from_settings(_load_mutmut_settings(project_root))
+
+
+def _matches_mutmut_pattern(path: PurePosixPath, pattern: str) -> bool:
+    """Match a path against one mutmut path or glob pattern."""
+    normalized = pattern.replace("\\", "/").strip()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    if normalized in {"", "."}:
+        return True
+
+    path_text = path.as_posix()
+    if fnmatch.fnmatchcase(path_text, normalized) or fnmatch.fnmatchcase(
+        path.name, normalized
+    ):
+        return True
+
+    directory = normalized.rstrip("/")
+    if not any(character in directory for character in "*?["):
+        return path_text == directory or path_text.startswith(f"{directory}/")
+    return False
+
+
+def _is_mutable_source_file(path: PurePosixPath, scope: _MutmutScope) -> bool:
+    """Return whether mutmut's configured path filters include ``path``."""
+    in_source_paths = any(
+        _matches_mutmut_pattern(path, pattern) for pattern in scope.source_paths
+    )
+    if not in_source_paths:
+        return False
+    if scope.only_mutate and not any(
+        _matches_mutmut_pattern(path, pattern) for pattern in scope.only_mutate
+    ):
+        return False
+    return not any(
+        _matches_mutmut_pattern(path, pattern) for pattern in scope.do_not_mutate
+    )
+
+
+def _module_glob_for(name: str, prefix_strip: str, scope: _MutmutScope) -> str | None:
+    """Translate one configured mutable Python file into a mutant glob."""
     path = PurePosixPath(name)
     if path.suffix != ".py":
+        return None
+    if not _is_mutable_source_file(path, scope):
         return None
     stripped_base = PurePosixPath(prefix_strip.rstrip("/")) if prefix_strip else None
     if stripped_base is not None and path.is_relative_to(stripped_base):
@@ -112,7 +302,9 @@ def _module_glob_for(name: str, prefix_strip: str) -> str | None:
     return ".".join(parts) + ".*"
 
 
-def files_to_module_globs(files: str, prefix_strip: str) -> list[str]:
+def files_to_module_globs(
+    files: str, prefix_strip: str, scope: _MutmutScope
+) -> list[str]:
     """Translate changed Python files into mutmut mutant-name globs.
 
     mutmut 3.x rejects file paths as run arguments; scoping uses mutant
@@ -124,6 +316,9 @@ def files_to_module_globs(files: str, prefix_strip: str) -> list[str]:
         Space-separated file paths.
     prefix_strip : str
         Path prefix (e.g. ``src/``) removed before translation.
+    scope : _MutmutScope
+        The caller's ``source_paths``, ``only_mutate``, and ``do_not_mutate``
+        settings.
 
     Returns
     -------
@@ -131,7 +326,7 @@ def files_to_module_globs(files: str, prefix_strip: str) -> list[str]:
         De-duplicated module globs such as ``pkg.mod.*``; ``__init__.py``
         maps to its package. Non-Python paths are ignored.
     """
-    globs = (_module_glob_for(name, prefix_strip) for name in files.split())
+    globs = (_module_glob_for(name, prefix_strip, scope) for name in files.split())
     return list(dict.fromkeys(glob for glob in globs if glob is not None))
 
 
@@ -238,6 +433,11 @@ def _mutmut_command(version: str) -> list[str]:
     return ["run", "--with", f"mutmut=={version}", "mutmut"]
 
 
+def _workflow_input_env_names(names: cabc.Iterable[str]) -> list[str]:
+    """Return workflow-input variable names from ``names``."""
+    return [name for name in names if name.startswith(WORKFLOW_INPUT_ENV_PREFIX)]
+
+
 def _run_mutation_testing(
     globs: list[str], mutmut_version: str, extra_args: str
 ) -> None:
@@ -254,7 +454,15 @@ def _run_mutation_testing(
         *globs,
     ]
     emit("mutation_mutmut_command", ["uv", *run_arguments])
-    code = local["uv"][run_arguments] & RETCODE(FG=True)
+    # mutmut runs the caller's test suite in-process as its baseline,
+    # inheriting the subprocess environment; strip the workflow's INPUT_*
+    # variables so they cannot leak into the mutated project's tests
+    # (shared-actions#369). The `with` block restores the environment on
+    # exit, leaving the later `mutmut results` call unaffected.
+    with local.env():
+        for name in _workflow_input_env_names(list(local.env.keys())):
+            del local.env[name]
+        code = local["uv"][run_arguments] & RETCODE(FG=True)
     emit("mutation_mutmut_exit_code", code)
     if code != 0:
         emit(
@@ -263,6 +471,18 @@ def _run_mutation_testing(
             stream=sys.stderr,
         )
         raise SystemExit(code)
+
+
+NO_SOURCE_SUMMARY = """## Mutation testing results (mutmut)
+
+Skipped: changed files contain no mutable source.
+"""
+
+
+def _write_no_source_summary(summary_path: str) -> None:
+    """Note a graceful no-op when no changed file is mutable."""
+    with Path(summary_path).open("a", encoding="utf-8") as handle:
+        handle.write(NO_SOURCE_SUMMARY)
 
 
 def _publish_results(mutmut_version: str, results_file: str, summary_path: str) -> None:
@@ -312,16 +532,22 @@ def main(
     SystemExit
         Exits with mutmut's code when ``mutmut run`` fails (failing
         baseline, usage error), and with 1 when ``GITHUB_STEP_SUMMARY``
-        is unset.
+        is unset or the mutmut source configuration cannot be loaded.
     """
     summary_env = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_env:
         fail("GITHUB_STEP_SUMMARY is not set")
 
-    globs = files_to_module_globs(files, module_prefix_strip)
+    try:
+        scope = _load_mutmut_scope(Path.cwd())
+    except (configparser.Error, OSError, TypeError, ValueError) as error:
+        fail(f"Could not load mutmut source configuration: {error}")
+
+    globs = files_to_module_globs(files, module_prefix_strip, scope)
     if files.strip() and not globs:
-        emit("mutation_mutmut_outcome", "no python files in scope")
+        emit("mutation_mutmut_outcome", "changed files contain no mutable source")
         Path(results_file).write_text("", encoding="utf-8")
+        _write_no_source_summary(summary_env)
         return
 
     _run_mutation_testing(globs, mutmut_version, extra_args)

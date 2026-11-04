@@ -28,8 +28,13 @@ supported by this workflow's first release.
   `window-hours` and translate changed `*.py` files into mutant-name globs
   (mutmut 3.x rejects file paths as run arguments): with the default
   `module-prefix-strip` of `src/`, `src/pkg/mod.py` scopes the run to
-  `pkg.mod.*`. When nothing relevant changed, the run writes a skip message and
-  finishes in seconds.
+  `pkg.mod.*`. The caller's mutmut `source_paths`, `only_mutate`, and
+  `do_not_mutate` settings define which changed files can produce globs, so a
+  mutable module remains eligible even when its name or directory resembles a
+  test. A change window containing only paths outside that configured scope
+  short-circuits as a no-op with a "no mutable source" summary note. When
+  nothing relevant changed, the run writes a skip message and finishes in
+  seconds.
 - **`workflow_dispatch` runs** bypass the guard and mutate everything
   in `source_paths`. There is no shard fan-out — mutmut has no shard equivalent
   — so size `timeout-minutes` to the suite.

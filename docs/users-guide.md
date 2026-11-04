@@ -1508,6 +1508,18 @@ prebuilt binary before `setup-commands`; its `mdtablefix-version` defaults to
 checksum. The input defaults to off. See the
 [mutation workflow guide](mutation-cargo-workflow.md#installing-mdtablefix).
 
+### Python mutation testing with mutmut
+
+For the reusable Python workflow, mutmut's `source_paths`, `only_mutate`, and
+`do_not_mutate` settings in `pyproject.toml` or `setup.cfg` decide which
+changed files are mutable; test-like names alone do not exclude a file, so use
+`do_not_mutate` for explicit exclusions. A changed-file window with no
+configured mutable source skips `mutmut run` and adds a summary note “Skipped:
+changed files contain no mutable source.” The workflow also removes its
+`INPUT_*` variables before mutmut runs the caller's tests in-process for the
+baseline, so workflow inputs cannot change the test environment. See the
+[mutmut workflow guide](mutation-mutmut-workflow.md) for setup and inputs.
+
 ## The problem
 
 The nested `actions-rust-lang/setup-rust-toolchain` action exports

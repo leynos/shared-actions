@@ -278,7 +278,9 @@ proceeds.
   mechanism. The `setup-rust` step uses the remote pinned action
   (`leynos/shared-actions/.github/actions/setup-rust@<full SHA>`) under the
   `ACT` guard, so its post hook survives relocation of `workflow-src`; Python
-  helpers can still use the checked-out `workflow-src` path.
+  helpers can still use the checked-out `workflow-src` path. No workflow step
+  may reference an action through `./workflow-src/`; the workflow-shape test
+  enforces this relocation invariant.
 - 2026-07-04: The wireframe finding about feature-gated tests (its
   issue #571) is addressed by the `extra-args` input (e.g. `--all-features`)
   rather than a dedicated features input — cargo- mutants accepts arbitrary

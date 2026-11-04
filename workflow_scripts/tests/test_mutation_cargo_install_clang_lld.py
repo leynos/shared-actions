@@ -1,12 +1,12 @@
 """Contract for ``mutation-cargo.yml``'s ``install-clang-lld`` passthrough.
 
 Callers whose ``.cargo/config.toml`` selects clang or lld need them on the
-mutation runner, and the reusable workflow calls ``setup-rust`` from its own
-checkout, so a caller cannot reach that step's inputs directly. The input is
-therefore declared on the workflow and forwarded to the step. Each half is
-asserted separately, because an input that is declared but never forwarded
-looks configurable while every caller gets the default, and a forward of a
-literal or of another input silently ignores the caller's choice.
+mutation runner, and the reusable workflow calls the shared ``setup-rust``
+action remotely, so a caller cannot reach that step's inputs directly. The
+input is therefore declared on the workflow and forwarded to the step. Each
+half is asserted separately, because an input that is declared but never
+forwarded looks configurable while every caller gets the default, and a
+forward of a literal or of another input silently ignores the caller's choice.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import yaml
 WORKFLOW = (
     Path(__file__).resolve().parents[2] / ".github" / "workflows" / "mutation-cargo.yml"
 )
-SETUP_RUST_USE = "./workflow-src/.github/actions/setup-rust"
+SETUP_RUST_USE_PREFIX = "leynos/shared-actions/.github/actions/setup-rust@"
 FORWARD = "${{ inputs.install-clang-lld }}"
 
 pytestmark = pytest.mark.skipif(
@@ -78,12 +78,12 @@ def _declared_inputs() -> dict[str, _Input]:
 
 
 def _setup_rust_steps() -> list[_Step]:
-    """Return every step that runs the local ``setup-rust`` action."""
+    """Return every step that uses the remote ``setup-rust`` action."""
     return [
         step
         for job in _workflow()["jobs"].values()
         for step in job.get("steps", [])
-        if step.get("uses") == SETUP_RUST_USE
+        if step.get("uses", "").startswith(SETUP_RUST_USE_PREFIX)
     ]
 
 
@@ -108,7 +108,7 @@ def test_setup_rust_receives_the_callers_install_clang_lld() -> None:
     """The step forwards the caller's input, not a literal or another input."""
     steps = _setup_rust_steps()
 
-    assert steps, "mutation-cargo.yml must run the local setup-rust action"
+    assert steps, "mutation-cargo.yml must run the remote setup-rust action"
     for step in steps:
         forwarded = step.get("with", {}).get("install-clang-lld")
         assert forwarded == FORWARD, (

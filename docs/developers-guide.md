@@ -2790,8 +2790,8 @@ Internals for maintainers:
 - A caller's linker needs are inputs, not caller-side `apt-get` lines.
   `mutation-cargo.yml` declares `install-mold` and `install-clang-lld`, each a
   string defaulting to `'false'` because the `setup-rust` inputs they feed
-  accept only the strings `true` and `false`, and forwards each to its local
-  `setup-rust` step. `install-clang-lld` installs `clang` and `lld` on Linux
+  accept only the strings `true` and `false`, and forwards each to its
+  `Setup Rust` step. `install-clang-lld` installs `clang` and `lld` on Linux
   and skips with a notice elsewhere; neither input sets a linker flag.
   `workflow_scripts/tests/test_mutation_cargo_install_mold.py` and
   `test_mutation_cargo_install_clang_lld.py` assert that each input is declared
@@ -2825,28 +2825,17 @@ Internals for maintainers:
   inventories, lint-everything globs — never see foreign files in their
   baseline or mutant runs.
 
-  A job that also loads an action out of that checkout has to put it back.
-  GitHub re-reads a local action's `action.yml` when it runs that action's post
-  step, so the mutants job, which uses
-  `./workflow-src/.github/actions/setup-rust`, failed at `Post Setup Rust` with
-  its mutation results already produced and uploaded. The restore is the job's
-  last regular step, which is late enough that no mutation run sees the tree
-  and early enough for the post phase, since post steps run after the last
-  regular step.
-
-  It is guarded by `always()` rather than `!cancelled()`, deliberately. Three
-  endings need covering: a failed run, whose cleanup must not add a second
-  failure; an overrun, which the step's own `timeout-minutes` records as a
-  failed step; and a cancelled job, where `always()` steps still run. The third
-  is the one `!cancelled()` would drop, and it is the one that most needs the
-  restore.
-
-  `workflow_scripts/tests/test_mutation_workflow_shape.py` pins the shape in
-  its general form, so a local action added to either workflow brings the
-  requirement with it, and
-  `workflow_scripts/tests/test_mutation_restore_fragment.py` executes the
-  shipped Bash against temporary directories, because a step named, positioned
-  and guarded correctly can still fail to move a directory.
+  Keep `Setup Rust` as a remote action reference pinned to a full SHA. GitHub
+  materializes that action under its managed `_actions` directory, outside the
+  caller's workspace, so its post hook survives relocation of `workflow-src`.
+  No workflow step may reference an action through `./workflow-src/`; the
+  `Setup Rust` step is guarded by `if: ${{ env.ACT != 'true' }}`, and the
+  workflow-shape test enforces its full-SHA pin, guard, and no-local-action
+  invariant. `Setup uv` must run before relocation because its cache-dependency
+  glob hashes workflow scripts while they are still inside the workspace; Setup
+  Rust has no such ordering requirement. The hosted smoke workflow
+  `.github/workflows/test-mutation-cargo-post-hook.yml` runs Setup Rust, then
+  relocates `workflow-src`, and reaches the real hosted job post phase.
 - Unit tests fake the `cargo`/`uv` boundary with POSIX shell shims on
   `PATH`; those tests are skipped on Windows (the workflows only run on
   `ubuntu-latest`). Property-based tests in
@@ -2865,15 +2854,6 @@ Internals for maintainers:
   fail-fast branches are exercised by
   `tests/workflows/test_resolve_workflow_source.py`; the OIDC happy path is
   validated by every real run of the consuming workflows.
-- In `mutation-cargo.yml`, keep `Setup Rust` as a remote
-  `leynos/shared-actions/.github/actions/setup-rust` reference pinned to a full
-  SHA. The workflow relocates `workflow-src` before teardown, while GitHub
-  re-resolves a local `action.yml` for post hooks such as setup-rust's cache
-  save; the remote reference is materialized outside the caller's workspace
-  and survives that relocation. The current Setup Rust step is guarded with
-  `if: ${{ env.ACT != 'true' }}` and ordered before relocation; static
-  workflow-shape tests enforce those invariants and prohibit `./workflow-src/`
-  action uses.
 
 ## The `cv005-contracts` library
 

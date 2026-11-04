@@ -56,7 +56,8 @@ def test_bucket_files_partitions_without_loss_or_overlap(
 )
 def test_module_globs_are_deduplicated_module_patterns(paths: list[str]) -> None:
     """Globs are unique module patterns with no path or suffix residue."""
-    globs = run_mutmut.files_to_module_globs(" ".join(paths), "src/")
+    scope = run_mutmut._MutmutScope(source_paths=("src/",))
+    globs = run_mutmut.files_to_module_globs(" ".join(paths), "src/", scope)
     # Compare against the expected module path rather than asserting that
     # ".py" is absent: a directory segment may itself be named "py", so
     # "src/a/py.py" correctly yields "a.py.*".

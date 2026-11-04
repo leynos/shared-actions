@@ -37,10 +37,11 @@ def load_script_module(
     ``importlib.invalidate_caches`` is called for the same reason.
 
     Because ``monkeypatch`` owns the ``sys.path`` and ``sys.modules`` edits,
-    they are reverted when the requesting test ends. The returned module itself
-    is not registered in ``sys.modules``, so each call yields an independent
-    object whose module-level state — including import-time side effects — can
-    be mutated without affecting other tests.
+    they are reverted when the requesting test ends. The module is registered
+    under its name while executing and remains available for the test lifetime;
+    dataclasses need that entry to resolve postponed annotations. Each call
+    still yields a fresh module object whose state can be mutated without
+    affecting other tests.
 
     Parameters
     ----------
@@ -84,5 +85,6 @@ def load_script_module(
         message = f"unable to load script module {name!r} from {SCRIPT_DIR}"
         raise RuntimeError(message)
     module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, name, module)
     spec.loader.exec_module(module)
     return module

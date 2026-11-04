@@ -619,7 +619,7 @@ to keep its current behaviour. Opt in only when the coverage job must replace a
 separate test job.
 
 ```yaml
-- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
   with:
     output-path: coverage.xml
     all-features: 'true'
@@ -646,7 +646,7 @@ coverage step with `error: no tests to run`. Set `allow-no-tests` to let such a
 workspace report zero coverage instead:
 
 ```yaml
-- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
   with:
     output-path: lcov.info
     format: lcov
@@ -1147,13 +1147,13 @@ argument. Unmatched quotes are rejected before Cargo starts.
 
 The parsed arguments follow the manifest and feature-selection flags and come
 before the report-format and output-path arguments. Supplying a package selector
-(`-p`, `--package`, or `--package=<crate>`) replaces the default `--workspace`,
-so Cargo can limit coverage to the selected package. An exclusion such as
-`--exclude <crate>` refines the workspace selection and therefore keeps
-`--workspace` in the command.
+(`-p`, `-p<crate>`, `--package`, or `--package=<crate>`) replaces the default
+`--workspace`, so Cargo can limit coverage to the selected package. An
+exclusion such as `--exclude <crate>` refines the workspace selection and
+therefore keeps `--workspace` in the command.
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
   with:
     output-path: coverage.xml
     extra-cargo-args: >-
@@ -1166,6 +1166,10 @@ When cucumber-rs coverage is requested with `with-cucumber-rs: true` and a
 primary and cucumber-rs coverage commands. Use `cucumber-rs-args` for arguments
 to the cucumber test command itself; those are parsed separately after Cargo's
 `--` boundary.
+
+Doc tests run separately as `cargo test --doc --workspace` with the selected
+features and do not receive `extra-cargo-args`, so package selectors and
+exclusions do not narrow doc-test coverage.
 
 `cargo-llvm-cov` itself is installed from the repository's tool manifest
 (`.github/tool-manifest.toml`), at 0.9.0. The installer selects the archive for

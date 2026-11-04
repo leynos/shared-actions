@@ -711,15 +711,16 @@ def _raw_inputs(run_rust: ModuleType, **overrides: RawInputValue) -> object:
     """Build a ``_RawInputs`` record with every field defaulted to unset."""
     defaults: dict[str, RawInputValue] = {
         "output_path": None,
-        "features": "",
+        "features": None,
         "with_default": None,
         "use_nextest": None,
         "lang": None,
         "fmt": None,
         "manifest_path": None,
         "github_output": None,
-        "cucumber_rs_features": "",
-        "cucumber_rs_args": "",
+        "cucumber_rs_features": None,
+        "cucumber_rs_args": None,
+        "extra_cargo_args": None,
         "with_cucumber_rs": None,
         "all_features": None,
         "all_targets": None,
@@ -754,6 +755,7 @@ def test_resolvers_read_only_the_mapping_they_are_given(
         ("INPUT_WITH_CUCUMBER_RS", "true"),
         ("INPUT_CUCUMBER_RS_FEATURES", "ambient/features"),
         ("INPUT_CUCUMBER_RS_ARGS", "--tag ambient"),
+        ("INPUT_EXTRA_CARGO_ARGS", "--exclude ambient-crate"),
     ):
         monkeypatch.setenv(name, value)
 
@@ -772,6 +774,7 @@ def test_resolvers_read_only_the_mapping_they_are_given(
         "INPUT_WITH_CUCUMBER_RS": "false",
         "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
         "INPUT_CUCUMBER_RS_ARGS": "--tag fast",
+        "INPUT_EXTRA_CARGO_ARGS": "--exclude scoped-crate",
     }
     raw = _raw_inputs(run_rust)
 
@@ -789,6 +792,7 @@ def test_resolvers_read_only_the_mapping_they_are_given(
     assert selection.all_features is False
     assert selection.all_targets is False
     assert selection.doctests is False
+    assert selection.extra_cargo_args == ("--exclude", "scoped-crate")
     assert cucumber.enabled is False
     assert cucumber.features == "tests/features"
     assert cucumber.args == "--tag fast"
@@ -805,6 +809,7 @@ def test_resolvers_apply_defaults_for_an_empty_mapping(
         ("INPUT_ALL_FEATURES", "true"),
         ("INPUT_ALL_TARGETS", "true"),
         ("INPUT_DOCTESTS", "true"),
+        ("INPUT_EXTRA_CARGO_ARGS", "--exclude ambient-crate"),
     ):
         monkeypatch.setenv(name, value)
 
@@ -816,14 +821,25 @@ def test_resolvers_apply_defaults_for_an_empty_mapping(
     assert selection.all_features is False
     assert selection.all_targets is False
     assert selection.doctests is False
+    assert selection.extra_cargo_args == ()
 
 
 def test_explicit_inputs_win_over_the_mapping(run_rust: ModuleType) -> None:
     """A value passed on the command line must beat the environment."""
-    env = {"INPUT_FEATURES": "from-env", "INPUT_ALL_TARGETS": "true"}
-    raw = _raw_inputs(run_rust, features="from-cli", all_targets=False)
+    env = {
+        "INPUT_FEATURES": "from-env",
+        "INPUT_ALL_TARGETS": "true",
+        "INPUT_EXTRA_CARGO_ARGS": "--exclude env-crate",
+    }
+    raw = _raw_inputs(
+        run_rust,
+        features="from-cli",
+        all_targets=False,
+        extra_cargo_args="--package cli-crate",
+    )
 
     selection = run_rust._resolve_features(raw, env)
 
     assert selection.features == "from-cli"
     assert selection.all_targets is False
+    assert selection.extra_cargo_args == ("--package", "cli-crate")

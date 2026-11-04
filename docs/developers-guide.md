@@ -2106,31 +2106,33 @@ which also holds the manifest contract and the rendered cargo commands.
 ### Rust coverage argument parsing and propagation
 
 The `extra-cargo-args` action input reaches `run_rust.py` as
-`INPUT_EXTRA_CARGO_ARGS`. `main` prefers a supplied CLI value to the
-environment value and parses the result once with Python's `shlex.split`.
-`_resolve_string_input` distinguishes `None` (no CLI value) from an explicitly
-empty string, so `--extra-cargo-args ""` selects no extra arguments instead of
-falling back to the environment. The same precedence applies to `--features`,
-`--cucumber-rs-features`, and `--cucumber-rs-args`. `shlex.split` preserves
-shell-style token grouping, for example `--features "feature-a feature-b"`;
-malformed quoting is reported as `Invalid extra-cargo-args value` and exits
-with status 2 before Cargo starts.
+`INPUT_EXTRA_CARGO_ARGS`. `_resolve_features` prefers a supplied CLI value to
+the environment value and passes the result to
+`_parse_extra_cargo_args_or_exit`, which parses it once with Python's
+`shlex.split`. `_resolve_string_input` distinguishes `None` (no CLI value) from
+an explicitly empty string, so `--extra-cargo-args ""` selects no extra
+arguments instead of falling back to the environment. The same precedence
+applies to `--features`, `--cucumber-rs-features`, and `--cucumber-rs-args`.
+`shlex.split` preserves shell-style token grouping, for example
+`--features "feature-a feature-b"`; malformed quoting is reported as
+`Invalid extra-cargo-args value` and exits with status 2 before Cargo starts.
 
 `get_cargo_coverage_cmd` builds the Rust command with
 `--manifest-path <manifest>` and adds `--workspace` by default, followed by
 default-feature and feature flags. It then appends the parsed
 `extra_cargo_args` sequence before the coverage format and output-path
 arguments. The command omits `--workspace` when the sequence contains a Cargo
-package selector (`-p`, `--package`, or `--package=<crate>`), allowing explicit
-package selection to replace the default. `--exclude <crate>` retains
-`--workspace` because the exclusion refines that selection.
+package selector (`-p`, `-p<crate>`, `--package`, or `--package=<crate>`),
+allowing explicit package selection to replace the default. `--exclude <crate>`
+retains `--workspace` because the exclusion refines that selection.
 
 When cucumber.rs coverage is requested with `with-cucumber-rs` and a
-`cucumber-rs-features` path, `main` passes the same parsed sequence to
-`run_cucumber_rs_coverage`, which uses the same command builder before
-appending the cucumber test arguments. Extra Cargo arguments consequently
-apply to both the regular and cucumber.rs coverage runs; `cucumber-rs-args` is
-parsed separately for the command after Cargo's `--` boundary.
+`cucumber-rs-features` path, `_run_primary_coverage` calls
+`_run_optional_cucumber_coverage`, which passes the same parsed sequence to
+`run_cucumber_rs_coverage`. That function uses the same command builder before
+appending the cucumber test arguments. Extra Cargo arguments consequently apply
+to both the regular and cucumber.rs coverage runs; `cucumber-rs-args` is parsed
+separately for the command after Cargo's `--` boundary.
 
 ### `run_rust.py` boundaries
 
@@ -2138,16 +2140,16 @@ The script is arranged so that ambient state is read once and every other
 function is a function of its arguments.
 
 <!-- markdownlint-disable MD013 -->
-| Symbol                                                       | Role                                                                                  |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| `feature_selection_args`                                     | Pure builder. Returns the Cargo feature flags and emits nothing.                      |
-| `feature_selection_diagnostics`                              | Pure query. Returns the `(error, warning)` a selection deserves.                      |
-| `check_feature_selection`                                    | The only function that reports a selection or raises `typer.Exit`.                    |
-| `_resolve_targets`, `_resolve_features`, `_resolve_cucumber` | Take the raw inputs and an explicit environment mapping; return a frozen record each. |
+| Symbol                                                       | Role                                                                                        |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `feature_selection_args`                                     | Pure builder. Returns the Cargo feature flags and emits nothing.                            |
+| `feature_selection_diagnostics`                              | Pure query. Returns the `(error, warning)` a selection deserves.                            |
+| `check_feature_selection`                                    | The only function that reports a selection or raises `typer.Exit`.                          |
+| `_resolve_targets`, `_resolve_features`, `_resolve_cucumber` | Take the raw inputs and an explicit environment mapping; return a frozen record each.       |
 | `_run_primary_coverage`                                      | Runs primary coverage, delegates optional cucumber coverage, then runs requested doc tests. |
-| `_run_optional_cucumber_coverage`                            | Runs cucumber coverage only when enabled with a feature path.                         |
-| `run_doctests`                                               | Uninstrumented `cargo test --doc --workspace` with the same feature selection.        |
-| `main`                                                       | Reads `os.environ` once, assembles the records, checks the selection, and reports.    |
+| `_run_optional_cucumber_coverage`                            | Runs cucumber coverage only when enabled with a feature path.                               |
+| `run_doctests`                                               | Uninstrumented `cargo test --doc --workspace` with the same feature selection.              |
+| `main`                                                       | Reads `os.environ` once, assembles the records, checks the selection, and reports.          |
 <!-- markdownlint-enable MD013 -->
 
 Keep the split. The precedence rule holds only because one builder owns it and

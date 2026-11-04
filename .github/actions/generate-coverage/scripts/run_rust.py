@@ -248,7 +248,7 @@ def get_cargo_coverage_cmd(
     all_features: bool = False,
     all_targets: bool = False,
     allow_no_tests: bool = False,
-    extra_cargo_args: typ.Sequence[str] = (),
+    extra_cargo_args: cabc.Sequence[str] = (),
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments.
 
@@ -266,6 +266,10 @@ def get_cargo_coverage_cmd(
     it finds nothing to run, lets a crate without tests report zero coverage.
     It is a nextest option, so it is not rendered for a plain ``cargo
     llvm-cov`` run, which already tolerates an empty test set.
+
+    ``extra_cargo_args`` contains already-split Cargo argument tokens. They
+    follow workspace and feature selection and precede the format and output
+    arguments. Package-selection tokens suppress the default ``--workspace``.
     """
     args = ["llvm-cov"]
     if use_nextest:
@@ -296,7 +300,7 @@ def _parse_extra_cargo_args(raw: str) -> list[str]:
         raise ValueError(msg) from exc
 
 
-def _selects_packages(args: typ.Sequence[str]) -> bool:
+def _selects_packages(args: cabc.Sequence[str]) -> bool:
     """Return whether Cargo arguments select packages explicitly."""
     return any(
         (arg.startswith("-p") and not arg.startswith("--"))
@@ -425,7 +429,7 @@ def run_cucumber_rs_coverage(
     all_features: bool = False,
     all_targets: bool = False,
     allow_no_tests: bool = False,
-    extra_cargo_args: typ.Sequence[str] = (),
+    extra_cargo_args: cabc.Sequence[str] = (),
 ) -> None:
     """Run cucumber.rs coverage and merge results into ``out``."""
     cucumber_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
@@ -597,7 +601,7 @@ def _parse_extra_cargo_args_or_exit(raw: str) -> list[str]:
     try:
         return _parse_extra_cargo_args(raw)
     except ValueError as exc:
-        typer.echo(str(exc), err=True)
+        typer.echo(f"::error::{exc}", err=True)
         raise typer.Exit(2) from exc
 
 
@@ -652,7 +656,7 @@ class FeatureSelection:
     all_targets: bool
     doctests: bool
     allow_no_tests: bool
-    extra_cargo_args: list[str]
+    extra_cargo_args: tuple[str, ...]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -714,7 +718,7 @@ def _resolve_features(raw: _RawInputs, env: cabc.Mapping[str, str]) -> FeatureSe
         allow_no_tests=_resolve_bool_input(
             raw.allow_no_tests, "INPUT_ALLOW_NO_TESTS", default=False, env=env
         ),
-        extra_cargo_args=_parse_extra_cargo_args_or_exit(extra_cargo_args),
+        extra_cargo_args=tuple(_parse_extra_cargo_args_or_exit(extra_cargo_args)),
     )
 
 
@@ -740,7 +744,7 @@ def _run_optional_cucumber_coverage(
     cargo_env: cabc.Mapping[str, str],
 ) -> None:
     """Run cucumber.rs coverage only when enabled and configured."""
-    if cucumber.enabled and cucumber.features:
+    if cucumber.requested:
         run_cucumber_rs_coverage(
             targets.out,
             targets.fmt,
@@ -822,92 +826,7 @@ def main(
     allow_no_tests: typ.Annotated[bool | None, typer.Option()] = None,
     baseline_file: typ.Annotated[Path | None, typer.Option()] = None,
 ) -> None:
-    r"""Run ``cargo llvm-cov`` and record the coverage result for the action.
-
-    Each input may be given as a command-line option or through the environment
-    variable the composite action sets for it. An explicit option always wins,
-    so an empty string deliberately selects "no value" rather than falling back
-    to the environment. ``output_path``, ``lang``, ``fmt``, and ``github_output``
-    have no default and fail fast when neither source supplies them.
-
-    The report is written to ``output_path``, except for ``lang="mixed"``, where
-    the Rust report becomes ``<stem>.rust<suffix>`` so the Python report can keep
-    the original name. A configured cucumber-rs run is merged into that report.
-    The coverage percentage is echoed with any baseline, and ``file=`` and
-    ``percent=`` lines are appended to ``github_output`` for downstream steps.
-
-    Parameters
-    ----------
-    output_path : Path | None, optional
-        Coverage file to write; falls back to ``INPUT_OUTPUT_PATH``.
-    features : str | None, optional
-        Cargo features to enable; falls back to ``INPUT_FEATURES``.
-    with_default : bool | None, optional
-        Keep default Cargo features; ``INPUT_WITH_DEFAULT_FEATURES``, default
-        ``True``.
-    use_nextest : bool | None, optional
-        Run coverage through ``cargo nextest``; ``INPUT_USE_CARGO_NEXTEST``,
-        default ``True``.
-    lang : str | None, optional
-        Language scope; falls back to ``DETECTED_LANG``.
-    fmt : str | None, optional
-        Coverage format; falls back to ``DETECTED_FMT``.
-    manifest_path : Path | None, optional
-        Cargo manifest to measure; falls back to ``DETECTED_CARGO_MANIFEST``
-        and then ``Cargo.toml``.
-    github_output : Path | None, optional
-        File receiving step outputs; falls back to ``GITHUB_OUTPUT``.
-    cucumber_rs_features : str | None, optional
-        Cucumber features path; ``INPUT_CUCUMBER_RS_FEATURES``. Cucumber
-        coverage is skipped when empty, even if ``with_cucumber_rs`` is set.
-    cucumber_rs_args : str | None, optional
-        Extra cucumber arguments, shell-quoted; ``INPUT_CUCUMBER_RS_ARGS``.
-    extra_cargo_args : str | None, optional
-        Extra arguments for every ``cargo llvm-cov`` invocation, parsed once
-        with shell quoting; ``INPUT_EXTRA_CARGO_ARGS``.
-    with_cucumber_rs : bool | None, optional
-        Attempt cucumber-rs coverage; ``INPUT_WITH_CUCUMBER_RS``, default
-        ``False``.
-    all_features : bool | None, optional
-        Enable all Cargo features; ``INPUT_ALL_FEATURES``, default ``False``.
-    all_targets : bool | None, optional
-        Include all Cargo targets; ``INPUT_ALL_TARGETS``, default ``False``.
-    doctests : bool | None, optional
-        Run doctests after coverage; ``INPUT_DOCTESTS``, default ``False``.
-    allow_no_tests : bool | None, optional
-        Allow selected packages to contain no tests; ``INPUT_ALLOW_NO_TESTS``,
-        default ``False``.
-    baseline_file : Path | None, optional
-        Previous-coverage baseline reported alongside the current figure.
-
-    Returns
-    -------
-    None
-        Results are delivered as console output and ``github_output`` entries.
-
-    Raises
-    ------
-    typer.Exit
-        Code 2 when ``extra_cargo_args`` is not valid shell quoting; code 1
-        when a required environment value is missing, the report cannot be
-        parsed, or a merge step fails.
-
-    Examples
-    --------
-    Run as the composite action does, with values in the environment::
-
-        $ INPUT_OUTPUT_PATH=coverage.xml DETECTED_LANG=rust \
-              DETECTED_FMT=cobertura GITHUB_OUTPUT=outputs.txt \
-              uv run --script run_rust.py
-
-    Override inputs locally, here excluding a crate from the workspace run::
-
-        $ uv run --script run_rust.py --output-path coverage.xml \
-              --lang rust --fmt cobertura --github-output outputs.txt \
-              --extra-cargo-args '--exclude rustc-proxy'
-
-    Both append ``file=coverage.xml`` and ``percent=<value>`` to ``outputs.txt``.
-    """
+    """Run Rust coverage and publish the coverage result for the action."""
     raw = _RawInputs(
         output_path=output_path,
         features=features,

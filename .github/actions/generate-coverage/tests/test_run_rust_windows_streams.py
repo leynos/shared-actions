@@ -69,38 +69,42 @@ def test_try_reconfigure_windows_stream_without_reconfigure(
 
 
 @pytest.mark.parametrize(
-    "error",
+    ("error", "debug", "expected_log"),
     [
-        AttributeError("no attr"),
-        ValueError("bad value"),
-        io.UnsupportedOperation("unsupported"),
-        OSError("io failure"),
+        (AttributeError("no attr"), "1", "Failed to reconfigure stdout"),
+        (ValueError("bad value"), "1", "Failed to reconfigure stdout"),
+        (
+            io.UnsupportedOperation("unsupported"),
+            "1",
+            "Failed to reconfigure stdout",
+        ),
+        (OSError("io failure"), "1", "Failed to reconfigure stdout"),
+        (OSError("io failure"), None, None),
     ],
-    ids=["attribute-error", "value-error", "unsupported-operation", "os-error"],
+    ids=[
+        "attribute-error-debugged",
+        "value-error-debugged",
+        "unsupported-operation-debugged",
+        "os-error-debugged",
+        "os-error-without-debug",
+    ],
 )
 def test_try_reconfigure_windows_stream_handles_failures(
     run_rust_module: ModuleType,
     caplog: pytest.LogCaptureFixture,
     error: Exception,
+    debug: str | None,
+    expected_log: str | None,
 ) -> None:
-    """Handled reconfiguration failures are reported without propagating."""
+    """Reconfiguration failures stay contained and log only in debug mode."""
     caplog.set_level(logging.DEBUG)
     stream = _ReconfigurableStream(error=error)
 
-    assert not run_rust_module._try_reconfigure_windows_stream(stream, "stdout", "1")
-    assert "Failed to reconfigure stdout" in caplog.text
-
-
-def test_try_reconfigure_windows_stream_failure_is_quiet_without_debug(
-    run_rust_module: ModuleType,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """No diagnostic is emitted when ``RUN_RUST_DEBUG`` is unset."""
-    caplog.set_level(logging.DEBUG)
-    stream = _ReconfigurableStream(error=OSError("io failure"))
-
-    assert not run_rust_module._try_reconfigure_windows_stream(stream, "stdout", None)
-    assert caplog.text == ""
+    assert not run_rust_module._try_reconfigure_windows_stream(stream, "stdout", debug)
+    if expected_log is None:
+        assert caplog.text == ""
+    else:
+        assert expected_log in caplog.text
 
 
 def test_try_wrap_windows_stream_wraps_buffer(
@@ -136,38 +140,32 @@ def test_try_wrap_windows_stream_without_buffer(
     assert "stdout has no buffer; leaving as-is" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("debug", "expected_log"),
+    [("1", "Failed to wrap stderr"), (None, None)],
+    ids=["debug-enabled", "debug-unset"],
+)
 def test_try_wrap_windows_stream_wrapping_failure(
     monkeypatch: pytest.MonkeyPatch,
     run_rust_module: ModuleType,
     caplog: pytest.LogCaptureFixture,
+    debug: str | None,
+    expected_log: str | None,
 ) -> None:
-    """A buffer that cannot be wrapped leaves the stream untouched."""
+    """A failed wrap leaves the stream untouched and logs only in debug mode."""
     caplog.set_level(logging.DEBUG)
     original = sys.stderr
     monkeypatch.setattr(sys, "stderr", original)
     closed = io.BytesIO()
     closed.close()
 
-    run_rust_module._try_wrap_windows_stream(_PlainStream(closed), "stderr", "1")
+    run_rust_module._try_wrap_windows_stream(_PlainStream(closed), "stderr", debug)
 
     assert sys.stderr is original
-    assert "Failed to wrap stderr" in caplog.text
-
-
-def test_try_wrap_windows_stream_failure_is_quiet_without_debug(
-    monkeypatch: pytest.MonkeyPatch,
-    run_rust_module: ModuleType,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Wrapping failures stay silent when ``RUN_RUST_DEBUG`` is unset."""
-    caplog.set_level(logging.DEBUG)
-    monkeypatch.setattr(sys, "stderr", sys.stderr)
-    closed = io.BytesIO()
-    closed.close()
-
-    run_rust_module._try_wrap_windows_stream(_PlainStream(closed), "stderr", None)
-
-    assert caplog.text == ""
+    if expected_log is None:
+        assert caplog.text == ""
+    else:
+        assert expected_log in caplog.text
 
 
 def test_configure_windows_standard_streams_prefers_reconfigure(

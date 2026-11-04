@@ -1510,7 +1510,7 @@ def test_run_optional_cucumber_coverage_requires_both_inputs(
         all_targets=False,
         doctests=False,
         allow_no_tests=False,
-        extra_cargo_args=["--exclude", "rustc-proxy"],
+        extra_cargo_args=("--exclude", "rustc-proxy"),
     )
     cucumber = run_rust_module.CucumberSelection(
         enabled=case.enabled,

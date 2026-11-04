@@ -106,14 +106,14 @@ For a Cranelift-configured repository, the standard coverage invocation is
 still enough:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     format: cobertura
 ```
 
 ```yaml
-- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
   with:
     output-path: coverage.xml
     format: cobertura
@@ -325,7 +325,7 @@ Use `language: rust` for a Rust repository that keeps a tooling-only
 `lcov`):
 
 ```yaml
-- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
   with:
     language: rust
     output-path: lcov.info
@@ -509,14 +509,17 @@ cargo is spawned, naming the source that supplied it.
 ## Example
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- name: Check out the repository
+  uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     format: cobertura
 ```
 
 ```yaml
-- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
   with:
     output-path: coverage.xml
     format: cobertura
@@ -525,7 +528,7 @@ cargo is spawned, naming the source that supplied it.
 For a single feature:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     features: logging
@@ -534,7 +537,7 @@ For a single feature:
 For multiple features:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     features: logging tracing
@@ -544,7 +547,7 @@ For multiple features:
 Comma-separated feature list:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     features: logging,tracing
@@ -553,7 +556,7 @@ Comma-separated feature list:
 Enable ratcheting:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     with-ratchet: true
@@ -571,7 +574,7 @@ run restores it, so the baseline tracks the latest trunk coverage.
 Enable cucumber-rs:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     with-cucumber-rs: true
@@ -582,7 +585,7 @@ Enable cucumber-rs:
 Disable cargo-nextest:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     use-cargo-nextest: false
@@ -591,7 +594,7 @@ Disable cargo-nextest:
 Exclude crates from Rust workspace coverage:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     extra-cargo-args: >-
@@ -600,7 +603,7 @@ Exclude crates from Rust workspace coverage:
 ```
 
 ```yaml
-- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
   with:
     output-path: coverage.xml
     extra-cargo-args: >-
@@ -611,7 +614,7 @@ Exclude crates from Rust workspace coverage:
 Measure a single crate instead of the whole workspace:
 
 ```yaml
-- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
   with:
     output-path: coverage.xml
     extra-cargo-args: --package coverage-helper
@@ -626,7 +629,7 @@ build and report the whole workspace regardless of `--package`.
 Run pytest serially (disable pytest-xdist):
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     pytest-workers: ""
@@ -725,7 +728,7 @@ to `""` to keep the historical serial behaviour.
 Use a nested Cargo manifest:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     cargo-manifest: rust-toy-app/Cargo.toml

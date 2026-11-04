@@ -42,7 +42,35 @@ TOOLING_PACKAGES: tuple[str, ...] = (
     "pytest-xdist",
     "coverage",
 )
+#: The project's lockfile. Its presence selects the locked code path, below.
+LOCKFILE_NAME = "uv.lock"
+#: Where the lock's pins are written for the tooling install. It lives inside
+#: the throwaway coverage venv, so a caller's checkout gains no artefact.
+CONSTRAINTS_NAME = "tooling-constraints.txt"
 PROJECT_SYNC_ARGS: tuple[str, ...] = ("sync", "--inexact", "--python")
+#: ``--locked`` refuses to rewrite a stale lockfile. Without it, a dependency
+#: bump merged without a regenerated lock quietly installed different packages
+#: than the caller's own `uv sync --locked` would, so coverage measured an
+#: environment the repository does not build.
+PROJECT_LOCKED_SYNC_ARGS: tuple[str, ...] = (
+    "sync",
+    "--locked",
+    "--inexact",
+    "--python",
+)
+#: The lock rendered as requirement pins. ``--locked`` again asserts the
+#: lockfile is current; ``--no-hashes`` and ``--no-annotate`` keep it readable
+#: as a constraints file.
+EXPORT_LOCK_ARGS: tuple[str, ...] = (
+    "export",
+    "--locked",
+    "--format",
+    "requirements.txt",
+    "--no-hashes",
+    "--no-header",
+    "--no-annotate",
+    "--no-emit-project",
+)
 #: Where the "Resolve coverage interpreter" step publishes its choice. Read
 #: once, in :func:`main`, and passed down as ``interpreter``; empty keeps uv's
 #: own discovery, which is what a direct script run outside the action gets.
@@ -172,12 +200,37 @@ def _project_env(venv: Path) -> cabc.Generator[None]:
             os.environ["UV_PROJECT_ENVIRONMENT"] = previous
 
 
-def _sync_project_deps(python: Path) -> None:
-    """Run `uv sync` for the project into the coverage venv, with logs."""
+def _has_lockfile(project_dir: Path | None = None) -> bool:
+    """Return whether the project at *project_dir* has a lockfile."""
+    directory = project_dir if project_dir is not None else Path.cwd()
+    return (directory / LOCKFILE_NAME).is_file()
+
+
+def _project_sync_args(python: Path, *, is_locked: bool) -> list[str]:
+    """Return the ``uv sync`` argv for a locked or lockfile-less project.
+
+    Examples
+    --------
+    >>> _project_sync_args(Path("/venv/bin/python"), is_locked=True)[:2]
+    ['sync', '--locked']
+    >>> _project_sync_args(Path("/venv/bin/python"), is_locked=False)[:2]
+    ['sync', '--inexact']
+    """
+    args = PROJECT_LOCKED_SYNC_ARGS if is_locked else PROJECT_SYNC_ARGS
+    return [*args, str(python)]
+
+
+def _sync_project_deps(python: Path, *, is_locked: bool) -> None:
+    """Run `uv sync` for the project into the coverage venv, with logs.
+
+    A project with a lockfile is synced with ``--locked``, so a lockfile that
+    no longer matches ``pyproject.toml`` fails here rather than silently
+    installing a different dependency set from the one the repository builds.
+    """
     typer.echo(f"Installing project dependencies into {COVERAGE_VENV}")
     try:
         with _project_env(COVERAGE_VENV):
-            run_cmd(uv[*PROJECT_SYNC_ARGS, str(python)])
+            run_cmd(uv[_project_sync_args(python, is_locked=is_locked)])
         typer.echo(f"Project dependencies installed into {COVERAGE_VENV}")
     except ProcessExecutionError as exc:
         typer.echo(
@@ -187,11 +240,84 @@ def _sync_project_deps(python: Path) -> None:
         raise
 
 
-def _install_coverage_tooling(python: Path) -> None:
-    """Install slipcover/pytest/coverage into the venv, with logs."""
-    typer.echo(f"Installing coverage tooling {TOOLING_PACKAGES} into {COVERAGE_VENV}")
+def _export_lock_constraints(python: Path) -> Path:
+    """Write the lockfile's pins to a constraints file inside the venv.
+
+    The file sits at the root of the coverage venv rather than in its scripts
+    directory, so one path shape works for both the POSIX ``bin`` and Windows
+    ``Scripts`` layouts.
+
+    Returns
+    -------
+    Path
+        The constraints file, at the coverage venv's root.
+
+    Raises
+    ------
+    plumbum.commands.processes.ProcessExecutionError
+        If ``uv export`` fails, which includes a lockfile that is stale with
+        respect to ``pyproject.toml``.
+    RuntimeError
+        If ``uv export`` reports success but writes no file, or less than the
+        project's own dependency tree: an empty or truncated export would
+        constrain nothing and let the tooling install replace locked versions.
+    """
+    constraints = COVERAGE_VENV.resolve() / CONSTRAINTS_NAME
+    typer.echo(f"Exporting lockfile constraints to {constraints}")
     try:
-        run_cmd(uv["pip", "install", "--python", str(python), *TOOLING_PACKAGES])
+        with _project_env(COVERAGE_VENV):
+            run_cmd(
+                uv[
+                    *EXPORT_LOCK_ARGS,
+                    "--python",
+                    str(python),
+                    "-o",
+                    str(constraints),
+                ]
+            )
+    except ProcessExecutionError as exc:
+        typer.echo(
+            f"uv export failed with code {exc.retcode}: {exc.stderr}",
+            err=True,
+        )
+        raise
+    if not constraints.is_file() or not constraints.read_text().strip():
+        message = (
+            f"uv export wrote no constraints to {constraints}; refusing to "
+            "install coverage tooling without the lockfile's pins"
+        )
+        raise RuntimeError(message)
+    return constraints
+
+
+def _tooling_install_args(python: Path, constraints: Path | None) -> list[str]:
+    """Return the ``uv pip install`` argv for the coverage tooling."""
+    args = ["pip", "install", "--python", str(python)]
+    if constraints is not None:
+        args.extend(["--constraints", str(constraints)])
+    return [*args, *TOOLING_PACKAGES]
+
+
+def _install_coverage_tooling(python: Path, constraints: Path | None) -> None:
+    """Install slipcover/pytest/coverage into the venv, with logs.
+
+    With a constraints file the install resolves under the lockfile's pins, so
+    it can add what the project lacks but cannot upgrade or downgrade a package
+    the lock already fixes. Without one it stays unconstrained, which is the
+    documented behaviour for a caller that keeps no lockfile.
+    """
+    if constraints is not None:
+        typer.echo(
+            f"Installing coverage tooling {TOOLING_PACKAGES} into "
+            f"{COVERAGE_VENV} under {constraints}"
+        )
+    else:
+        typer.echo(
+            f"Installing coverage tooling {TOOLING_PACKAGES} into {COVERAGE_VENV} "
+            "without lockfile constraints"
+        )
+    try:
+        run_cmd(uv[_tooling_install_args(python, constraints)])
     except ProcessExecutionError as exc:
         typer.echo(
             f"uv pip install failed with code {exc.retcode}: {exc.stderr}",
@@ -280,8 +406,11 @@ def _ensure_coverage_venv(interpreter: str = "") -> str:
     ``interpreter`` is the resolved Python the venv is built on, if any.
 
     Delegates venv discovery and creation to _acquire_coverage_python, then
-    runs ``uv sync`` to install project dependencies, followed by
-    ``uv pip install`` to add ``slipcover``, ``pytest``, and ``coverage``.
+    runs ``uv sync`` to install project dependencies. A project with a
+    ``uv.lock`` is synced with ``--locked`` and its pins are exported to a
+    constraints file, so the later ``uv pip install`` of ``slipcover``,
+    ``pytest``, and ``coverage`` resolves under them. A project without a
+    lockfile keeps the unconstrained install.
 
     Returns
     -------
@@ -294,29 +423,36 @@ def _ensure_coverage_venv(interpreter: str = "") -> str:
         Propagated from :func:`_recreate_coverage_venv` when the Python
         executable cannot be located after venv creation.
     plumbum.commands.processes.ProcessExecutionError
-        Propagated from ``uv sync`` or ``uv pip install`` when either
-        command exits with a non-zero return code.
+        Propagated from ``uv sync``, ``uv export`` or ``uv pip install`` when
+        any command exits with a non-zero return code.
+    RuntimeError
+        Propagated from :func:`_export_lock_constraints` when the export
+        produces no pins to constrain the tooling install.
     """
     python = _acquire_coverage_python(interpreter)
+    is_locked = _has_lockfile()
     logger.info(
         "using coverage venv Python for uv commands",
         extra={
             "coverage_venv": str(COVERAGE_VENV),
             "python": str(python),
-            "sync_args": [*PROJECT_SYNC_ARGS, str(python)],
+            "locked": is_locked,
+            "sync_args": _project_sync_args(python, is_locked=is_locked),
             "tooling_packages": [*TOOLING_PACKAGES],
         },
     )
-    _sync_project_deps(python)
+    _sync_project_deps(python, is_locked=is_locked)
+    constraints = _export_lock_constraints(python) if is_locked else None
     logger.info(
         "installing coverage tooling with uv pip",
         extra={
             "coverage_venv": str(COVERAGE_VENV),
             "python": str(python),
-            "pip_args": ["pip", "install", "--python", str(python), *TOOLING_PACKAGES],
+            "constraints": str(constraints) if constraints else None,
+            "pip_args": _tooling_install_args(python, constraints),
         },
     )
-    _install_coverage_tooling(python)
+    _install_coverage_tooling(python, constraints)
     return str(python)
 
 

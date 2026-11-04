@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Sync a locked Python project with `uv sync --locked`, and bound the coverage
+  tooling install by the lockfile's pins. The Python step previously ran
+  `uv sync` with no lock assertion and then installed `slipcover`, `pytest`,
+  `pytest-xdist`, and `coverage` unconstrained into `.venv-coverage`. Two
+  failures followed. A dependency bump merged without a regenerated lock was
+  silently resolved on the runner, so coverage measured an environment the
+  repository's own `uv sync --locked` would have refused, and the lockfile in
+  the checkout was rewritten rather than treated as stale. Separately,
+  `uv pip install pytest pytest-xdist` could upgrade or downgrade the versions
+  the lock fixes to satisfy slipcover's own requirements, so the coverage run
+  used a pytest and plugin set the repository never builds. A project with a
+  `uv.lock` is now synced with `--locked`, so a stale lock fails the step with
+  uv's error and the lock is left untouched. `uv export --locked` writes the
+  lock's pins to `tooling-constraints.txt` inside the throwaway coverage venv,
+  and the tooling install passes it as `--constraints`, which bounds every
+  package the lock names without asking for anything to be installed. An export
+  that reports success but writes no pins fails the step instead of falling
+  back to an unconstrained install. A project with no `uv.lock` keeps the
+  previous plain `uv sync` and unconstrained tooling install, which is the
+  documented behaviour for a caller that has not adopted uv locking.
 - Never archive or reuse an interpreter-bound uv script environment. `uv run`
   builds each PEP 723 script environment under `environments-v2`, bound to the
   interpreter that built it. A cache restored on a runner whose Python patch

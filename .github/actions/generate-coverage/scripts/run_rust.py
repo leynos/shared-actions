@@ -243,9 +243,7 @@ def _parse_extra_cargo_args(raw: str) -> list[str]:
 def _selects_packages(args: cabc.Sequence[str]) -> bool:
     """Return whether Cargo arguments select packages explicitly."""
     return any(
-        (arg.startswith("-p") and not arg.startswith("--"))
-        or arg == "--package"
-        or arg.startswith("--package=")
+        arg.startswith("-p") or arg == "--package" or arg.startswith("--package=")
         for arg in args
     )
 

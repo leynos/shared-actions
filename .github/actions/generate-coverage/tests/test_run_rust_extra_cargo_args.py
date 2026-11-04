@@ -15,6 +15,7 @@ from hypothesis import strategies as st
 from script_loader import load_script_module
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
+    import collections.abc as cabc
     from types import ModuleType
 
 
@@ -308,8 +309,8 @@ def test_extra_cargo_args_retain_order_in_cucumber_command(
     def fake_run_cargo(
         args: list[str],
         *,
-        env_overrides: typ.Mapping[str, str] | None = None,
-        env_unsets: typ.Iterable[str] = (),
+        env_overrides: cabc.Mapping[str, str] | None = None,
+        env_unsets: cabc.Iterable[str] = (),
     ) -> str:
         _ = (env_overrides, env_unsets)
         cargo_calls.append(args)

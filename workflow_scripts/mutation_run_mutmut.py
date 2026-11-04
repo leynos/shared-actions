@@ -139,58 +139,95 @@ class _MutmutScope:
     do_not_mutate: tuple[str, ...] = ()
 
 
+def _clean_mutmut_patterns(values: cabc.Iterable[str]) -> tuple[str, ...]:
+    """Trim blank entries from mutmut path patterns."""
+    patterns: list[str] = []
+    for value in values:
+        pattern = value.strip()
+        if pattern:
+            patterns.append(pattern)
+    return tuple(patterns)
+
+
+def _patterns_from_list(values: list[object], setting: str) -> tuple[str, ...]:
+    """Validate and normalize an array-valued mutmut setting."""
+    patterns: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            error = _MutmutConfigurationTypeError(setting, "must contain only strings")
+            raise error
+        patterns.append(value)
+    return _clean_mutmut_patterns(patterns)
+
+
 def _patterns_from_setting(value: object, setting: str) -> tuple[str, ...]:
     """Normalize one mutmut path-list setting."""
     if value is None:
         return ()
     if isinstance(value, str):
-        values = value.splitlines()
-    elif isinstance(value, list):
-        values = [pattern for pattern in value if isinstance(pattern, str)]
-        if len(values) != len(value):
-            raise _MutmutConfigurationTypeError(setting, "must contain only strings")
-    else:
-        raise _MutmutConfigurationTypeError(
-            setting, "must be a string or an array of strings"
-        )
-    return tuple(pattern.strip() for pattern in values if pattern.strip())
+        return _clean_mutmut_patterns(value.splitlines())
+    if isinstance(value, list):
+        return _patterns_from_list(value, setting)
+    error = _MutmutConfigurationTypeError(
+        setting, "must be a string or an array of strings"
+    )
+    raise error
 
 
-def _load_mutmut_scope(project_root: Path) -> _MutmutScope:
-    """Load mutmut path filters from pyproject.toml or setup.cfg."""
-    settings: dict[str, object] | None = None
+def _pyproject_mutmut_settings(
+    project_root: Path,
+) -> dict[str, object] | None:
+    """Read the caller's ``[tool.mutmut]`` table from ``pyproject.toml``."""
     pyproject = project_root / "pyproject.toml"
-    if pyproject.is_file():
-        pyproject_data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-        tool_data = pyproject_data.get("tool", {})
-        if not isinstance(tool_data, dict):
-            error = _MutmutConfigurationTypeError(
-                "pyproject.toml [tool]", "must be a table"
-            )
-            raise error
-        mutmut_data = tool_data.get("mutmut")
-        if mutmut_data is not None:
-            if not isinstance(mutmut_data, dict):
-                error = _MutmutConfigurationTypeError(
-                    "pyproject.toml [tool.mutmut]", "must be a table"
-                )
-                raise error
-            settings = typ.cast("dict[str, object]", mutmut_data)
+    if not pyproject.is_file():
+        return None
 
+    pyproject_data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    tool_data = pyproject_data.get("tool", {})
+    if not isinstance(tool_data, dict):
+        error = _MutmutConfigurationTypeError(
+            "pyproject.toml [tool]", "must be a table"
+        )
+        raise error
+    mutmut_data = tool_data.get("mutmut")
+    if mutmut_data is None:
+        return None
+    if not isinstance(mutmut_data, dict):
+        error = _MutmutConfigurationTypeError(
+            "pyproject.toml [tool.mutmut]", "must be a table"
+        )
+        raise error
+    return typ.cast("dict[str, object]", mutmut_data)
+
+
+def _setup_cfg_mutmut_settings(
+    project_root: Path,
+) -> dict[str, object] | None:
+    """Read the caller's ``[mutmut]`` section from ``setup.cfg``."""
+    setup_cfg = project_root / "setup.cfg"
+    if not setup_cfg.is_file():
+        return None
+
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read_string(setup_cfg.read_text(encoding="utf-8"), source=str(setup_cfg))
+    if not parser.has_section("mutmut"):
+        return None
+    return dict(parser.items("mutmut"))
+
+
+def _load_mutmut_settings(project_root: Path) -> dict[str, object]:
+    """Load mutmut settings, preferring ``pyproject.toml``."""
+    settings = _pyproject_mutmut_settings(project_root)
     if settings is None:
-        setup_cfg = project_root / "setup.cfg"
-        if setup_cfg.is_file():
-            parser = configparser.ConfigParser(interpolation=None)
-            parser.read_string(
-                setup_cfg.read_text(encoding="utf-8"), source=str(setup_cfg)
-            )
-            if parser.has_section("mutmut"):
-                settings = dict(parser.items("mutmut"))
-
+        settings = _setup_cfg_mutmut_settings(project_root)
     if settings is None:
         error = _MutmutConfigurationError("configuration", "must define source_paths")
         raise error
+    return settings
 
+
+def _scope_from_settings(settings: dict[str, object]) -> _MutmutScope:
+    """Build a validated mutmut scope from its path settings."""
     source_paths = _patterns_from_setting(settings.get("source_paths"), "source_paths")
     if not source_paths:
         error = _MutmutConfigurationError(
@@ -204,6 +241,11 @@ def _load_mutmut_scope(project_root: Path) -> _MutmutScope:
             settings.get("do_not_mutate"), "do_not_mutate"
         ),
     )
+
+
+def _load_mutmut_scope(project_root: Path) -> _MutmutScope:
+    """Load and validate the caller's mutmut path filters."""
+    return _scope_from_settings(_load_mutmut_settings(project_root))
 
 
 def _matches_mutmut_pattern(path: PurePosixPath, pattern: str) -> bool:

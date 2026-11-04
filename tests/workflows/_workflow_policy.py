@@ -75,6 +75,20 @@ HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
         "Coverage upload on main blocks no one's work, so it does not need a "
         "paid Ubicloud runner."
     ),
+    ("test-install-makeutil.yml", "install-makeutil"): (
+        "The x86_64 cache producer must use GitHub-hosted runners because "
+        "Ubicloud's actions/cache integration cannot save the cross-job "
+        "entry that the restore job verifies. The workflow also tests a "
+        "real GitHub-hosted arm; keeping both jobs hosted ensures that a "
+        "fork can reach the cache contract without queueing for Ubicloud."
+    ),
+    ("test-install-makeutil.yml", "install-makeutil-cache-restore"): (
+        "The x86_64 cache restore must use GitHub-hosted runners because "
+        "the producer can save the cross-job actions/cache entry there; "
+        "Ubicloud's integration reports no workflow job data. Keeping the "
+        "restore hosted lets forks reach the cache contract without "
+        "queueing for a runner they cannot use."
+    ),
     (
         "test-export-ubicloud-cache-credentials.yml",
         "refuses-a-github-hosted-runner",
@@ -133,12 +147,14 @@ HOSTED_ARM_LINUX_JOBS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ("test-install-makeutil.yml", "install-makeutil"): (
         "The aarch64 musl binary and its digest are proved only on real Arm "
         "hardware, and this repository has measured no Ubicloud Arm shape. "
-        "The job's x86_64 leg follows the ordinary Ubicloud placement."
+        "The x86_64 leg stays GitHub-hosted so actions/cache can save the "
+        "cross-job entry."
     ),
     ("test-install-makeutil.yml", "install-makeutil-cache-restore"): (
         "It restores the entry the aarch64 leg of `install-makeutil` saved, "
-        "so it must run on the same architecture. The x86_64 leg follows the "
-        "ordinary Ubicloud placement."
+        "so it must run on the same architecture. The x86_64 leg stays "
+        "GitHub-hosted because the Ubicloud cache integration cannot restore "
+        "the cross-job entry."
     ),
     ("test-install-yaml-lint.yml", "install-yaml-lint"): (
         "The aarch64 actionlint and shellcheck archives are proved only on real "

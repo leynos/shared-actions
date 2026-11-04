@@ -28,6 +28,13 @@ TEST_LIKE_FILE = st.one_of(
     ),
     st.tuples(SEGMENT, SEGMENT).map(lambda parts: f"src/{parts[0]}/test/{parts[1]}.py"),
 )
+TEST_ONLY_FILE = st.one_of(
+    st.just("conftest.py"),
+    SEGMENT.map(lambda name: f"test_{name}.py"),
+    SEGMENT.map(lambda name: f"{name}_test.py"),
+    SEGMENT.map(lambda name: f"tests/{name}.py"),
+    SEGMENT.map(lambda name: f"test/{name}.py"),
+)
 INPUT_SUFFIX = st.from_regex(r"[A-Z][A-Z0-9_]{0,15}", fullmatch=True)
 OTHER_ENV_NAME = st.tuples(
     st.sampled_from(["GH", "OTHER", "PATH", "INPUTS", "input"]), SEGMENT
@@ -105,6 +112,15 @@ def test_configured_mutable_scope_keeps_test_like_modules(paths: list[str]) -> N
     assert globs == expected, (
         f"configured source paths must retain test-like modules: {paths}"
     )
+
+
+@given(paths=st.lists(TEST_ONLY_FILE, min_size=1, max_size=8))
+def test_test_only_paths_outside_source_scope_produce_no_globs(
+    paths: list[str],
+) -> None:
+    """Conventional test files outside mutmut's source root are not mutated."""
+    scope = run_mutmut._MutmutScope(source_paths=("src/",))
+    assert run_mutmut.files_to_module_globs(" ".join(paths), "src/", scope) == []
 
 
 @given(

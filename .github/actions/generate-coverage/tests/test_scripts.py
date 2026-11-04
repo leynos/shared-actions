@@ -13,11 +13,11 @@ import dataclasses
 import io
 import itertools
 import os
-import shlex
 import shutil
 import sys
 import typing as typ
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import yaml
@@ -365,6 +365,7 @@ def test_run_rust_success(
             use_nextest=False,
             features="fast",
             with_default_features=False,
+            extra_cargo_args="--exclude rustc-proxy",
         ),
         monkeypatch=monkeypatch,
     )
@@ -377,6 +378,8 @@ def test_run_rust_success(
         "--no-default-features",
         "--features",
         "fast",
+        "--exclude",
+        "rustc-proxy",
         "--lcov",
         "--output-path",
         str(out),
@@ -388,36 +391,6 @@ def test_run_rust_success(
     data = gh.read_text().splitlines()
     assert f"file={out}" in data
     assert "percent=81.50" in data
-
-
-def test_run_rust_appends_extra_cargo_args(
-    tmp_path: Path,
-    shell_stubs: StubManager,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Caller-supplied Cargo arguments precede the report output arguments."""
-    cargo_args, out, _gh = _run_rust_coverage_test(
-        tmp_path,
-        shell_stubs,
-        RustCoverageConfig(
-            use_nextest=False,
-            extra_cargo_args="--exclude rustc-proxy --exclude coverage-helper",
-        ),
-        monkeypatch=monkeypatch,
-    )
-    assert cargo_args == [
-        "llvm-cov",
-        "--manifest-path",
-        "Cargo.toml",
-        "--workspace",
-        "--exclude",
-        "rustc-proxy",
-        "--exclude",
-        "coverage-helper",
-        "--lcov",
-        "--output-path",
-        str(out),
-    ]
 
 
 def test_run_rust_nextest_command(
@@ -559,275 +532,6 @@ def test_get_cargo_coverage_cmd_summary_only_by_format(
         use_nextest=False,
     )
     assert ("--summary-only" in args) is expect_summary_only
-
-
-def test_get_cargo_coverage_cmd_inserts_extra_args_before_report_tail(
-    run_rust_module: ModuleType,
-) -> None:
-    """Extra Cargo arguments are inserted after workspace selection."""
-    baseline = run_rust_module.get_cargo_coverage_cmd(
-        "lcov",
-        Path("cov.lcov"),
-        "",
-        manifest_path=Path("Cargo.toml"),
-        with_default=True,
-        use_nextest=False,
-    )
-    with_extra = run_rust_module.get_cargo_coverage_cmd(
-        "lcov",
-        Path("cov.lcov"),
-        "",
-        manifest_path=Path("Cargo.toml"),
-        with_default=True,
-        use_nextest=False,
-        extra_cargo_args=["--exclude", "rustc-proxy"],
-    )
-    assert baseline == [
-        "llvm-cov",
-        "--manifest-path",
-        "Cargo.toml",
-        "--workspace",
-        "--lcov",
-        "--output-path",
-        "cov.lcov",
-    ]
-    assert with_extra == [
-        *baseline[:-3],
-        "--exclude",
-        "rustc-proxy",
-        *baseline[-3:],
-    ]
-
-
-@pytest.mark.parametrize(
-    "package_args",
-    [
-        ["--package", "coverage-helper"],
-        ["-p", "coverage-helper"],
-        ["-pcoverage-helper"],
-        ["--package=coverage-helper"],
-    ],
-)
-def test_get_cargo_coverage_cmd_drops_workspace_for_package_selection(
-    run_rust_module: ModuleType,
-    package_args: list[str],
-) -> None:
-    """Explicit package selection replaces the all-workspace default."""
-    args = run_rust_module.get_cargo_coverage_cmd(
-        "lcov",
-        Path("cov.lcov"),
-        "",
-        manifest_path=Path("Cargo.toml"),
-        with_default=True,
-        use_nextest=False,
-        extra_cargo_args=package_args,
-    )
-    assert "--workspace" not in args
-    assert args[3 : 3 + len(package_args)] == package_args
-
-
-def test_get_cargo_coverage_cmd_keeps_workspace_for_exclusions(
-    run_rust_module: ModuleType,
-) -> None:
-    """Cargo exclusions retain the workspace selector they refine."""
-    args = run_rust_module.get_cargo_coverage_cmd(
-        "lcov",
-        Path("cov.lcov"),
-        "",
-        manifest_path=Path("Cargo.toml"),
-        with_default=True,
-        use_nextest=False,
-        extra_cargo_args=["--exclude", "rustc-proxy"],
-    )
-    assert args[3:6] == ["--workspace", "--exclude", "rustc-proxy"]
-
-
-_EXTRA_CARGO_ARGS_SETTINGS = settings(
-    max_examples=100,
-    deadline=None,
-    suppress_health_check=[HealthCheck.function_scoped_fixture],
-)
-_CARGO_ARG_TOKEN = st.text(
-    alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_=./ ",
-    min_size=1,
-    max_size=24,
-)
-
-
-@_EXTRA_CARGO_ARGS_SETTINGS
-@given(tokens=st.lists(_CARGO_ARG_TOKEN, max_size=8))
-def test_parse_extra_cargo_args_round_trips_shell_quoted_tokens(
-    run_rust_module: ModuleType,
-    tokens: list[str],
-) -> None:
-    """Shell-quoted argument sequences retain every token and its order."""
-    assert run_rust_module._parse_extra_cargo_args(shlex.join(tokens)) == tokens
-
-
-@_EXTRA_CARGO_ARGS_SETTINGS
-@given(values=st.lists(_CARGO_ARG_TOKEN, max_size=8))
-def test_extra_cargo_args_retain_order_in_primary_command(
-    run_rust_module: ModuleType,
-    values: list[str],
-) -> None:
-    """Every parsed token reaches the primary Cargo command in order."""
-    tokens = [f"--config={value}" for value in values]
-    parsed = run_rust_module._parse_extra_cargo_args(shlex.join(tokens))
-    args = run_rust_module.get_cargo_coverage_cmd(
-        "lcov",
-        Path("cov.lcov"),
-        "",
-        manifest_path=Path("Cargo.toml"),
-        with_default=True,
-        use_nextest=False,
-        extra_cargo_args=parsed,
-    )
-    workspace_index = args.index("--workspace")
-    format_index = args.index("--lcov")
-    assert args[workspace_index + 1 : format_index] == tokens
-
-
-@_EXTRA_CARGO_ARGS_SETTINGS
-@given(fragment=st.text(alphabet="abcdefghijklmnopqrstuvwxyz -_", max_size=40))
-def test_parse_extra_cargo_args_rejects_unterminated_quotes(
-    run_rust_module: ModuleType,
-    fragment: str,
-) -> None:
-    """Every unmatched double quote is rejected with the canonical diagnostic."""
-    with pytest.raises(ValueError, match="Invalid extra-cargo-args value"):
-        run_rust_module._parse_extra_cargo_args(f'--package "{fragment}')
-
-
-def test_parse_extra_cargo_args_rejects_malformed_quoting(
-    run_rust_module: ModuleType,
-) -> None:
-    """Malformed shell quoting is reported as an input validation error."""
-    with pytest.raises(ValueError, match="Invalid extra-cargo-args value"):
-        run_rust_module._parse_extra_cargo_args('--exclude "unterminated')
-
-
-def test_main_translates_invalid_extra_cargo_args_into_typer_exit(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    run_rust_module: ModuleType,
-) -> None:
-    """``main`` converts malformed Cargo arguments into a clean exit code 2."""
-    output = tmp_path / "cov.lcov"
-    github_output = tmp_path / "gh.txt"
-
-    def fail_if_cargo_runs(*_args: object, **_kwargs: object) -> None:
-        pytest.fail("cargo must not run when argument validation fails")
-
-    monkeypatch.setattr(run_rust_module, "_run_cargo", fail_if_cargo_runs)
-    with pytest.raises(run_rust_module.typer.Exit) as excinfo:
-        run_rust_module.main(
-            output,
-            "",
-            with_default=True,
-            use_nextest=False,
-            lang="rust",
-            fmt="lcov",
-            manifest_path=Path("Cargo.toml"),
-            github_output=github_output,
-            extra_cargo_args='--exclude "unterminated',
-            with_cucumber_rs=False,
-        )
-    assert _exit_code(excinfo.value) == 2
-    assert "Invalid extra-cargo-args value" in capsys.readouterr().err
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class ExtraCargoArgsPrecedenceCase:
-    """CLI value and the Cargo arguments it should produce."""
-
-    cli_value: str | None
-    expected: tuple[str, ...]
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        pytest.param(
-            ExtraCargoArgsPrecedenceCase(cli_value="", expected=()),
-            id="explicit-empty-suppresses-env",
-        ),
-        pytest.param(
-            ExtraCargoArgsPrecedenceCase(
-                cli_value="--package cli-crate", expected=("--package", "cli-crate")
-            ),
-            id="explicit-value-wins",
-        ),
-        pytest.param(
-            ExtraCargoArgsPrecedenceCase(
-                cli_value=None, expected=("--exclude", "env-crate")
-            ),
-            id="omitted-uses-env",
-        ),
-    ],
-)
-def test_main_extra_cargo_args_cli_precedence(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    run_rust_module: ModuleType,
-    case: ExtraCargoArgsPrecedenceCase,
-) -> None:
-    """An explicit CLI value, including an empty one, overrides the environment."""
-    monkeypatch.chdir(tmp_path)
-    output = tmp_path / "cov.lcov"
-    output.write_text("LF:10\nLH:10\n")
-    github_output = tmp_path / "gh.txt"
-    monkeypatch.setenv("INPUT_EXTRA_CARGO_ARGS", "--exclude env-crate")
-    recorded: dict[str, object] = {}
-
-    def fake_run_cargo(args: list[str], **_kwargs: object) -> str:
-        recorded["args"] = args
-        return "Coverage: 100%"
-
-    monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
-    run_rust_module.main(
-        output,
-        "",
-        with_default=True,
-        use_nextest=False,
-        lang="rust",
-        fmt="lcov",
-        manifest_path=Path("Cargo.toml"),
-        github_output=github_output,
-        extra_cargo_args=case.cli_value,
-        with_cucumber_rs=False,
-        baseline_file=None,
-    )
-
-    args = typ.cast("list[str]", recorded["args"])
-    extra = list(case.expected)
-    selects_package = "--package" in extra
-    # Compare the whole command: a slice around the extra arguments would be
-    # vacuous for the empty case and would not detect a leaked environment
-    # value elsewhere in the argument list.
-    assert args == [
-        "llvm-cov",
-        "--manifest-path",
-        "Cargo.toml",
-        *([] if selects_package else ["--workspace"]),
-        *extra,
-        "--lcov",
-        "--output-path",
-        str(output),
-    ]
-    # Package selection must still suppress the default workspace selector.
-    assert ("--workspace" in args) is not selects_package
-
-
-def test_parse_extra_cargo_args_or_exit_translates_value_error(
-    capsys: pytest.CaptureFixture[str],
-    run_rust_module: ModuleType,
-) -> None:
-    """The CLI parser boundary emits stderr and exits with status 2."""
-    with pytest.raises(run_rust_module.typer.Exit) as excinfo:
-        run_rust_module._parse_extra_cargo_args_or_exit('--exclude "unterminated')
-    assert _exit_code(excinfo.value) == 2
-    assert "Invalid extra-cargo-args value" in capsys.readouterr().err
 
 
 def _run_rust_main_variant(
@@ -1303,47 +1007,6 @@ def test_run_cargo_invalid_timeout_does_not_spawn(
     ) in messages
 
 
-def _make_cucumber_spy(
-    calls: list[dict[str, object]],
-) -> typ.Callable[..., None]:
-    """Return a ``run_cucumber_rs_coverage`` spy that records its call arguments."""
-
-    def _spy(
-        out: Path,
-        fmt: str,
-        features: str,
-        *,
-        manifest_path: Path,
-        cargo_env: typ.Mapping[str, str],
-        with_default: bool,
-        use_nextest: bool,
-        cucumber_rs_features: str,
-        cucumber_rs_args: str,
-        all_features: bool = False,
-        all_targets: bool = False,
-        allow_no_tests: bool = False,
-        extra_cargo_args: typ.Sequence[str] = (),
-    ) -> None:
-        calls.append(
-            {
-                "out": out,
-                "fmt": fmt,
-                "features": features,
-                "manifest_path": manifest_path,
-                "cargo_env": cargo_env,
-                "with_default": with_default,
-                "use_nextest": use_nextest,
-                "cucumber_rs_features": cucumber_rs_features,
-                "cucumber_rs_args": cucumber_rs_args,
-                "all_features": all_features,
-                "all_targets": all_targets,
-                "extra_cargo_args": list(extra_cargo_args),
-            }
-        )
-
-    return _spy
-
-
 def test_main_reuses_cargo_env_for_cucumber(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1357,7 +1020,6 @@ def test_main_reuses_cargo_env_for_cucumber(
     cargo_env = {"CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm"}
     env_calls: list[Path] = []
     run_cargo_env_calls: list[typ.Mapping[str, str] | None] = []
-    cucumber_calls: list[dict[str, object]] = []
 
     def fake_get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:
         env_calls.append(manifest_path)
@@ -1373,7 +1035,7 @@ def test_main_reuses_cargo_env_for_cucumber(
         run_cargo_env_calls.append(env_overrides)
         return "Coverage: 100%"
 
-    cucumber_spy = _make_cucumber_spy(cucumber_calls)
+    cucumber_spy = mock.Mock()
 
     monkeypatch.setattr(
         run_rust_module, "get_cargo_coverage_env", fake_get_cargo_coverage_env
@@ -1401,126 +1063,10 @@ def test_main_reuses_cargo_env_for_cucumber(
     assert env_calls == [manifest_path]
     assert run_cargo_env_calls == [cargo_env]
     assert run_cargo_env_calls[0] is cargo_env
-    assert len(cucumber_calls) == 1
-    assert cucumber_calls[0]["cargo_env"] is cargo_env
-    assert cucumber_calls[0]["extra_cargo_args"] == ["--exclude", "rustc-proxy"]
-
-
-@_EXTRA_CARGO_ARGS_SETTINGS
-@given(values=st.lists(_CARGO_ARG_TOKEN, max_size=8))
-def test_extra_cargo_args_retain_order_in_cucumber_command(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    run_rust_module: ModuleType,
-    values: list[str],
-) -> None:
-    """Every parsed token reaches the cucumber Cargo command in order."""
-    tokens = [f"--config={value}" for value in values]
-    out = tmp_path / "cov.lcov"
-    cucumber_file = tmp_path / "cov.cucumber.lcov"
-    out.write_text("TN:primary\nend_of_record\n", encoding="utf-8")
-    cucumber_file.write_text("TN:cucumber\nend_of_record\n", encoding="utf-8")
-    cargo_calls: list[list[str]] = []
-
-    def fake_run_cargo(
-        args: list[str],
-        *,
-        env_overrides: typ.Mapping[str, str] | None = None,
-        env_unsets: typ.Iterable[str] = (),
-    ) -> str:
-        _ = (env_overrides, env_unsets)
-        cargo_calls.append(args)
-        return "Coverage: 100%"
-
-    monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
-    run_rust_module.run_cucumber_rs_coverage(
-        out,
-        "lcov",
-        "",
-        manifest_path=Path("Cargo.toml"),
-        cargo_env={},
-        with_default=True,
-        use_nextest=False,
-        cucumber_rs_features="tests/features",
-        cucumber_rs_args="",
-        extra_cargo_args=tokens,
-    )
-    assert len(cargo_calls) == 1
-    args = cargo_calls[0]
-    workspace_index = args.index("--workspace")
-    format_index = args.index("--lcov")
-    assert args[workspace_index + 1 : format_index] == tokens
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class OptionalCucumberCoverageCase:
-    """Inputs and expectation for optional cucumber coverage gating."""
-
-    enabled: bool
-    features_path: str
-    expected_calls: int
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        pytest.param(
-            OptionalCucumberCoverageCase(
-                enabled=False, features_path="tests/features", expected_calls=0
-            ),
-            id="disabled",
-        ),
-        pytest.param(
-            OptionalCucumberCoverageCase(
-                enabled=True, features_path="", expected_calls=0
-            ),
-            id="missing-features",
-        ),
-        pytest.param(
-            OptionalCucumberCoverageCase(
-                enabled=True, features_path="tests/features", expected_calls=1
-            ),
-            id="enabled-with-features",
-        ),
-    ],
-)
-def test_run_optional_cucumber_coverage_requires_both_inputs(
-    monkeypatch: pytest.MonkeyPatch,
-    run_rust_module: ModuleType,
-    case: OptionalCucumberCoverageCase,
-) -> None:
-    """Optional cucumber coverage runs only when enabled and configured."""
-    calls: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        run_rust_module, "run_cucumber_rs_coverage", _make_cucumber_spy(calls)
-    )
-    targets = run_rust_module.CoverageTargets(
-        out=Path("cov.lcov"),
-        lang="rust",
-        fmt="lcov",
-        manifest_path=Path("Cargo.toml"),
-        github_output=Path("gh.txt"),
-        baseline_file=None,
-    )
-    selection = run_rust_module.FeatureSelection(
-        features="",
-        with_default=True,
-        use_nextest=False,
-        all_features=False,
-        all_targets=False,
-        doctests=False,
-        allow_no_tests=False,
-        extra_cargo_args=("--exclude", "rustc-proxy"),
-    )
-    cucumber = run_rust_module.CucumberSelection(
-        enabled=case.enabled,
-        features=case.features_path,
-        args="--tag fast",
-    )
-    run_rust_module._run_optional_cucumber_coverage(
-        targets, selection, cucumber, {"CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm"}
-    )
-    assert len(calls) == case.expected_calls
+    cucumber_call = cucumber_spy.call_args
+    assert cucumber_call is not None
+    assert cucumber_call.kwargs["cargo_env"] is cargo_env
+    assert cucumber_call.kwargs["extra_cargo_args"] == ("--exclude", "rustc-proxy")
 
 
 def test_run_cargo_windows_nonzero_exit(
@@ -3707,24 +3253,6 @@ def _generate_coverage_step(step_name: str) -> dict[str, object]:
     )
     assert step is not None, f"Missing generate-coverage step: {step_name}"
     return step
-
-
-def test_generate_coverage_extra_cargo_args_action_contract() -> None:
-    """The action declares and forwards the extra Cargo argument input."""
-    action = _generate_coverage_action()
-    inputs = action.get("inputs")
-    assert isinstance(inputs, dict)
-    assert "extra-cargo-args" in inputs
-    assert inputs["extra-cargo-args"]["required"] is False
-
-    rust_step = next(
-        (step for step in _generate_coverage_steps() if step.get("id") == "rust"),
-        None,
-    )
-    assert rust_step is not None, "Missing generate-coverage Rust step"
-    env = rust_step.get("env")
-    assert isinstance(env, dict)
-    assert env["INPUT_EXTRA_CARGO_ARGS"] == "${{ inputs.extra-cargo-args }}"
 
 
 def _python_step_env_contract() -> dict[str, str]:

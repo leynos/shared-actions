@@ -8,6 +8,7 @@ every platform because the behaviour is pure stream plumbing.
 
 from __future__ import annotations
 
+import gc
 import io
 import logging
 import sys
@@ -22,8 +23,8 @@ if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
 
 @pytest.fixture
 def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """Return a freshly loaded ``run_rust`` module for testing."""
-    return load_script_module(monkeypatch, "run_rust")
+    """Return a freshly loaded Windows stream helper module for testing."""
+    return load_script_module(monkeypatch, "windows_standard_streams")
 
 
 class _ReconfigurableStream:
@@ -49,6 +50,22 @@ class _PlainStream:
             self.buffer = buffer
 
 
+class _FailsOnFlush(io.BytesIO):
+    """Byte buffer that raises once on a selected flush call."""
+
+    def __init__(self, failing_call: int) -> None:
+        super().__init__()
+        self.failing_call = failing_call
+        self.flush_calls = 0
+        self.error = OSError("simulated flush failure")
+
+    def flush(self) -> None:
+        self.flush_calls += 1
+        if self.flush_calls == self.failing_call:
+            raise self.error
+        super().flush()
+
+
 def test_try_reconfigure_windows_stream_success(
     run_rust_module: ModuleType,
 ) -> None:
@@ -69,34 +86,38 @@ def test_try_reconfigure_windows_stream_without_reconfigure(
 
 
 @pytest.mark.parametrize(
-    ("error", "debug", "expected_log"),
+    "case",
     [
-        (AttributeError("no attr"), "1", "Failed to reconfigure stdout"),
-        (ValueError("bad value"), "1", "Failed to reconfigure stdout"),
-        (
-            io.UnsupportedOperation("unsupported"),
-            "1",
-            "Failed to reconfigure stdout",
+        pytest.param(
+            (AttributeError("no attr"), "1", "Failed to reconfigure stdout"),
+            id="attribute-error-debugged",
         ),
-        (OSError("io failure"), "1", "Failed to reconfigure stdout"),
-        (OSError("io failure"), None, None),
-    ],
-    ids=[
-        "attribute-error-debugged",
-        "value-error-debugged",
-        "unsupported-operation-debugged",
-        "os-error-debugged",
-        "os-error-without-debug",
+        pytest.param(
+            (ValueError("bad value"), "1", "Failed to reconfigure stdout"),
+            id="value-error-debugged",
+        ),
+        pytest.param(
+            (
+                io.UnsupportedOperation("unsupported"),
+                "1",
+                "Failed to reconfigure stdout",
+            ),
+            id="unsupported-operation-debugged",
+        ),
+        pytest.param(
+            (OSError("io failure"), "1", "Failed to reconfigure stdout"),
+            id="os-error-debugged",
+        ),
+        pytest.param((OSError("io failure"), None, None), id="os-error-without-debug"),
     ],
 )
 def test_try_reconfigure_windows_stream_handles_failures(
     run_rust_module: ModuleType,
     caplog: pytest.LogCaptureFixture,
-    error: Exception,
-    debug: str | None,
-    expected_log: str | None,
+    case: tuple[Exception, str | None, str | None],
 ) -> None:
     """Reconfiguration failures stay contained and log only in debug mode."""
+    error, debug, expected_log = case
     caplog.set_level(logging.DEBUG)
     stream = _ReconfigurableStream(error=error)
 
@@ -124,6 +145,51 @@ def test_try_wrap_windows_stream_wraps_buffer(
     assert wrapped.write_through
 
 
+def test_try_wrap_windows_stream_releases_original_buffer_ownership(
+    run_rust_module: ModuleType,
+) -> None:
+    """The replacement remains usable after the original wrapper is collected."""
+    original_stdout = sys.stdout
+    buffer = io.BytesIO()
+    old_wrapper = io.TextIOWrapper(buffer, encoding="utf-8")
+    try:
+        sys.stdout = old_wrapper
+        run_rust_module._try_wrap_windows_stream(old_wrapper, "stdout", None)
+        replacement = sys.stdout
+        sys.stdout = original_stdout
+        del old_wrapper
+        gc.collect()
+
+        assert not buffer.closed
+        replacement.write("still open")
+        replacement.flush()
+        assert buffer.getvalue() == b"still open"
+    finally:
+        sys.stdout = original_stdout
+
+
+@pytest.mark.parametrize("failing_call", [1, 2], ids=["preflight", "detach"])
+def test_try_wrap_windows_stream_preserves_stream_when_flush_fails(
+    run_rust_module: ModuleType,
+    failing_call: int,
+) -> None:
+    """A failed flush leaves the original stream and buffer usable."""
+    original_stdout = sys.stdout
+    buffer = _FailsOnFlush(failing_call)
+    old_wrapper = io.TextIOWrapper(buffer, encoding="utf-8", write_through=True)
+    try:
+        old_wrapper.write("pending output")
+        sys.stdout = old_wrapper
+        run_rust_module._try_wrap_windows_stream(old_wrapper, "stdout", None)
+
+        assert sys.stdout is old_wrapper
+        assert not buffer.closed
+        assert old_wrapper.buffer is buffer
+    finally:
+        sys.stdout = original_stdout
+        old_wrapper.close()
+
+
 def test_try_wrap_windows_stream_without_buffer(
     monkeypatch: pytest.MonkeyPatch,
     run_rust_module: ModuleType,
@@ -141,18 +207,20 @@ def test_try_wrap_windows_stream_without_buffer(
 
 
 @pytest.mark.parametrize(
-    ("debug", "expected_log"),
-    [("1", "Failed to wrap stderr"), (None, None)],
-    ids=["debug-enabled", "debug-unset"],
+    "case",
+    [
+        pytest.param(("1", "Failed to wrap stderr"), id="debug-enabled"),
+        pytest.param((None, None), id="debug-unset"),
+    ],
 )
 def test_try_wrap_windows_stream_wrapping_failure(
     monkeypatch: pytest.MonkeyPatch,
     run_rust_module: ModuleType,
     caplog: pytest.LogCaptureFixture,
-    debug: str | None,
-    expected_log: str | None,
+    case: tuple[str | None, str | None],
 ) -> None:
     """A failed wrap leaves the stream untouched and logs only in debug mode."""
+    debug, expected_log = case
     caplog.set_level(logging.DEBUG)
     original = sys.stderr
     monkeypatch.setattr(sys, "stderr", original)

@@ -9,14 +9,11 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import io
-import logging
 import os
 import re
 import selectors
 import shlex
 import subprocess
-import sys
 import threading
 import time
 import typing as typ
@@ -33,11 +30,13 @@ from coverage_parsers import get_line_coverage_percent_from_lcov
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
+from windows_standard_streams import _configure_windows_standard_streams_on_windows
+
+_configure_windows_standard_streams_on_windows()
 
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     import collections.abc as cabc
 
-logger = logging.getLogger(__name__)
 _cargo_runner_run_cargo = _run_cargo
 
 try:  # runtime import for graceful fallback
@@ -49,65 +48,6 @@ except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
     )
     raise typer.Exit(1) from exc
 
-
-def _log_windows_stream_debug(debug: str | None, message: str, *args: object) -> None:
-    """Emit ``message`` at DEBUG level only when ``debug`` is set."""
-    if debug:
-        logger.debug(message, *args)
-
-
-def _try_reconfigure_windows_stream(
-    stream: object, name: str, debug: str | None
-) -> bool:
-    """Reconfigure ``stream`` to UTF-8 in place, reporting whether it worked."""
-    reconfigure = getattr(stream, "reconfigure", None)
-    if reconfigure is None:
-        return False
-    try:
-        reconfigure(encoding="utf-8", errors="replace")
-    except (
-        AttributeError,
-        ValueError,
-        io.UnsupportedOperation,
-        OSError,
-    ) as exc:
-        _log_windows_stream_debug(debug, "Failed to reconfigure %s: %s", name, exc)
-        return False
-    return True
-
-
-def _try_wrap_windows_stream(stream: object, name: str, debug: str | None) -> None:
-    """Replace ``sys.<name>`` with a UTF-8 wrapper around the stream buffer."""
-    buf = getattr(stream, "buffer", None)
-    if buf is None:
-        _log_windows_stream_debug(debug, "%s has no buffer; leaving as-is", name)
-        return
-    try:
-        wrapped = io.TextIOWrapper(
-            buf,
-            encoding="utf-8",
-            errors="replace",
-            write_through=True,
-        )
-    except (ValueError, OSError) as exc:
-        _log_windows_stream_debug(debug, "Failed to wrap %s: %s", name, exc)
-        return
-    setattr(sys, name, wrapped)
-
-
-def _configure_windows_standard_streams() -> None:
-    """Force UTF-8 encoding on the Windows standard output and error streams."""
-    debug = os.getenv("RUN_RUST_DEBUG")
-    if debug:
-        logging.basicConfig(level=logging.DEBUG)
-    for name in ("stdout", "stderr"):
-        stream = getattr(sys, name)
-        if not _try_reconfigure_windows_stream(stream, name, debug):
-            _try_wrap_windows_stream(stream, name, debug)
-
-
-if os.name == "nt":
-    _configure_windows_standard_streams()
 
 NEXTEST_CONFIG_PATH = Path(".config/nextest.toml")
 NEXTEST_DEFAULT_CONFIG = """[profile.default]
@@ -826,7 +766,53 @@ def main(
     allow_no_tests: typ.Annotated[bool | None, typer.Option()] = None,
     baseline_file: typ.Annotated[Path | None, typer.Option()] = None,
 ) -> None:
-    """Run Rust coverage and publish the coverage result for the action."""
+    """Run Rust coverage and publish its report and ratchet result.
+
+    Parameters
+    ----------
+    output_path : Path or None
+        Coverage report path; falls back to ``INPUT_OUTPUT_PATH``.
+    features : str or None
+        Space- or comma-separated Cargo features to enable.
+    with_default : bool or None
+        Whether to enable Cargo's default features; defaults to true.
+    use_nextest : bool or None
+        Whether to run coverage through cargo-nextest; defaults to true.
+    lang : str or None
+        Coverage language scope, resolved from ``DETECTED_LANG`` when omitted.
+    fmt : str or None
+        Coverage report format, resolved from ``DETECTED_FMT`` when omitted.
+    manifest_path : Path or None
+        Cargo manifest path; falls back to ``DETECTED_CARGO_MANIFEST`` and
+        then ``Cargo.toml``.
+    github_output : Path or None
+        GitHub Actions output file; falls back to ``GITHUB_OUTPUT``.
+    cucumber_rs_features : str or None
+        Path to cucumber-rs feature files.
+    cucumber_rs_args : str or None
+        Additional shell-parsed arguments for the cucumber-rs runner.
+    extra_cargo_args : str or None
+        Shell-parsed Cargo arguments appended to coverage commands. Package
+        selectors replace the default workspace selection.
+    with_cucumber_rs : bool or None
+        Whether to include cucumber-rs scenarios when features are supplied.
+    all_features : bool or None
+        Whether to pass ``--all-features``; incompatible with ``features``.
+    all_targets : bool or None
+        Whether to pass ``--all-targets`` to the coverage command.
+    doctests : bool or None
+        Whether to run workspace documentation tests after coverage.
+    allow_no_tests : bool or None
+        Whether an empty nextest selection may pass without tests.
+    baseline_file : Path or None
+        Optional coverage baseline used by ratchet reporting.
+
+    Returns
+    -------
+    None
+        The report is written to disk and the result is published to the
+        GitHub Actions output file.
+    """
     raw = _RawInputs(
         output_path=output_path,
         features=features,

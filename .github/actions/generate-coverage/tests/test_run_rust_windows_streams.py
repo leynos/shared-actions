@@ -12,6 +12,7 @@ import gc
 import io
 import logging
 import sys
+import types
 import typing as typ
 
 import pytest
@@ -62,6 +63,23 @@ class _FailsOnFlush(io.BytesIO):
     def flush(self) -> None:
         self.flush_calls += 1
         if self.flush_calls == self.failing_call:
+            raise self.error
+        super().flush()
+
+
+class _FailsFromFlush(io.BytesIO):
+    """Byte buffer that keeps failing after a selected flush call."""
+
+    def __init__(self, first_failing_call: int) -> None:
+        super().__init__()
+        self.first_failing_call = first_failing_call
+        self.flush_calls = 0
+        self.fail = True
+        self.error = OSError("simulated persistent flush failure")
+
+    def flush(self) -> None:
+        self.flush_calls += 1
+        if self.fail and self.flush_calls >= self.first_failing_call:
             raise self.error
         super().flush()
 
@@ -188,6 +206,47 @@ def test_try_wrap_windows_stream_preserves_stream_when_flush_fails(
     finally:
         sys.stdout = original_stdout
         old_wrapper.close()
+
+
+def test_failed_detach_does_not_close_the_shared_buffer(
+    run_rust_module: ModuleType,
+) -> None:
+    """Persistent detach failure leaves sole ownership with the original."""
+    original_stdout = sys.stdout
+    buffer = _FailsFromFlush(first_failing_call=2)
+    old_wrapper = io.TextIOWrapper(buffer, encoding="utf-8", write_through=True)
+    try:
+        old_wrapper.write("pending output")
+        sys.stdout = old_wrapper
+        run_rust_module._try_wrap_windows_stream(old_wrapper, "stdout", None)
+        gc.collect()
+
+        assert sys.stdout is old_wrapper
+        assert not buffer.closed
+        assert old_wrapper.buffer is buffer
+    finally:
+        sys.stdout = original_stdout
+        buffer.fail = False
+        old_wrapper.close()
+
+
+def test_importing_run_rust_does_not_configure_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Loading the coverage module leaves process-global streams untouched."""
+    calls: list[str] = []
+    stream_module = types.ModuleType("windows_standard_streams")
+    monkeypatch.setattr(
+        stream_module,
+        "_configure_windows_standard_streams_on_windows",
+        lambda: calls.append("configured"),
+        raising=False,
+    )
+    monkeypatch.setitem(sys.modules, "windows_standard_streams", stream_module)
+
+    load_script_module(monkeypatch, "run_rust")
+
+    assert calls == []
 
 
 def test_try_wrap_windows_stream_without_buffer(

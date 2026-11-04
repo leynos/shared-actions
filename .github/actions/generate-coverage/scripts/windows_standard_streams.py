@@ -50,6 +50,14 @@ def _try_wrap_windows_stream(stream: object, name: str, debug: str | None) -> No
             _log_windows_stream_debug(debug, "Failed to flush %s: %s", name, exc)
             return
 
+    detach = getattr(stream, "detach", None)
+    if callable(detach):
+        try:
+            detach()
+        except (AttributeError, ValueError, io.UnsupportedOperation, OSError) as exc:
+            _log_windows_stream_debug(debug, "Failed to detach %s: %s", name, exc)
+            return
+
     try:
         wrapped = io.TextIOWrapper(
             buf,
@@ -59,29 +67,10 @@ def _try_wrap_windows_stream(stream: object, name: str, debug: str | None) -> No
         )
     except (ValueError, OSError) as exc:
         _log_windows_stream_debug(debug, "Failed to wrap %s: %s", name, exc)
+        if callable(detach):
+            raise
         return
 
-    detach = getattr(stream, "detach", None)
-    if callable(detach):
-        try:
-            detach()
-        except (AttributeError, ValueError, io.UnsupportedOperation, OSError) as exc:
-            try:
-                wrapped.detach()
-            except (
-                AttributeError,
-                ValueError,
-                io.UnsupportedOperation,
-                OSError,
-            ) as cleanup_exc:
-                _log_windows_stream_debug(
-                    debug,
-                    "Failed to discard replacement wrapper for %s: %s",
-                    name,
-                    cleanup_exc,
-                )
-            _log_windows_stream_debug(debug, "Failed to detach %s: %s", name, exc)
-            return
     setattr(sys, name, wrapped)
 
 

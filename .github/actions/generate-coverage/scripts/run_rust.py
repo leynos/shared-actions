@@ -32,8 +32,6 @@ from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
 from windows_standard_streams import _configure_windows_standard_streams_on_windows
 
-_configure_windows_standard_streams_on_windows()
-
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     import collections.abc as cabc
 
@@ -850,4 +848,5 @@ def main(
 
 
 if __name__ == "__main__":
+    _configure_windows_standard_streams_on_windows()
     typer.run(main)

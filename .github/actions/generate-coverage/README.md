@@ -10,16 +10,20 @@ manifest, set `cargo-manifest` to point to a nested `Cargo.toml`. It installs
 the project dependencies plus `slipcover`, `pytest`, and `coverage`
 automatically via `uv` into an isolated throwaway virtual environment
 (`.venv-coverage`) before running the tests, so no system-level Python installs
-are required. Its scripts directory is prepended to `PATH` for the coverage
-process, so child executables created by tests use the same project
-environment. When Rust coverage is required, `cargo-llvm-cov` is installed from
-the repository's tool manifest (`.github/tool-manifest.toml`): the entry names
-the release archive and its SHA-256 digest per target, and the installer
-extracts only the named member. `cargo-nextest` is downloaded directly from its
-pinned official release; both the archive and extracted binary have fixed
-SHA-256 digests. Neither has a Cargo source-build fallback. If both
-configuration files are present, coverage is run for each language and the
-Cobertura reports are merged using `uvx merge-cobertura`.
+are required. A project with a `uv.lock` is synced with `uv sync --locked`, and
+the lock is exported to a constraints file that bounds the tooling install, so
+coverage runs against the same versions the repository builds; see
+[Locked project dependencies](#locked-project-dependencies). Its scripts
+directory is prepended to `PATH` for the coverage process, so child executables
+created by tests use the same project environment. When Rust coverage is
+required, `cargo-llvm-cov` is installed from the repository's tool manifest
+(`.github/tool-manifest.toml`): the entry names the release archive and its
+SHA-256 digest per target, and the installer extracts only the named member.
+`cargo-nextest` is downloaded directly from its pinned official release; both
+the archive and extracted binary have fixed SHA-256 digests. Neither has a
+Cargo source-build fallback. If both configuration files are present, coverage
+is run for each language and the Cobertura reports are merged using
+`uvx merge-cobertura`.
 
 ## Flow
 
@@ -313,7 +317,9 @@ Set `language` explicitly to force the scope and skip that inference:
 - `rust` requires a resolved Cargo manifest (root `Cargo.toml` or
   `cargo-manifest`) and **ignores** a configuration-only `pyproject.toml`.
 - `python` requires a syncable `pyproject.toml` with a `[project]` table (the
-  prerequisite for the action's `uv sync`).
+  prerequisite for the action's `uv sync`). If the project also keeps a
+  `uv.lock`, it must be current with `pyproject.toml`; see
+  [Locked project dependencies](#locked-project-dependencies).
 - `mixed` requires both of the above.
 
 Explicit values fail fast with a clear error when their prerequisites are
@@ -663,6 +669,31 @@ up a Python the project accepts.
     output-path: coverage.xml
     python-version: '3.13'
 ```
+
+### Locked project dependencies
+
+When the project root holds a `uv.lock`, the action syncs the project with
+`uv sync --locked` rather than a plain `uv sync`. A lockfile that no longer
+matches `pyproject.toml` then fails the coverage step with uv's own "lockfile
+needs to be updated" error, instead of quietly resolving and installing a
+dependency set the repository never builds. Regenerate the lock (`uv lock`) and
+commit it: a stale lock is a caller defect, and the action does not rewrite one
+on a runner.
+
+The same lock also bounds the coverage tooling install. `slipcover`, `pytest`,
+`pytest-xdist`, and `coverage` are installed with
+`uv pip install --constraints <lock export>`, where the constraints file is
+`uv export --locked` rendered as requirement pins and written inside the
+throwaway `.venv-coverage`. The tooling install can add a package the project
+does not depend on, but it cannot upgrade or downgrade a package the lock
+already fixes, so the pytest and plugin versions that run are the locked ones
+and not whatever the resolver would otherwise pick to satisfy slipcover. If
+`uv export` succeeds but writes no pins, the step fails rather than installing
+unconstrained tooling.
+
+A project without a `uv.lock` keeps the previous behaviour: a plain `uv sync`
+and an unconstrained tooling install. Keeping no lockfile is the documented
+opt-out, so a caller that has not adopted uv locking needs no change.
 
 ### Parallel Python tests via pytest-xdist
 

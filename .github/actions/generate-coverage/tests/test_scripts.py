@@ -1662,6 +1662,20 @@ def _is_uv_venv_invocation(parts: list[str]) -> bool:
     return len(parts) > 1 and parts[1] == "venv"
 
 
+def _is_uv_export_invocation(parts: list[str]) -> bool:
+    """Return True when the command parts represent a ``uv export`` call."""
+    return len(parts) > 1 and parts[1] == "export"
+
+
+#: The pins a fake ``uv export`` writes. The tooling packages are pinned here
+#: because a constraints file only bounds packages it names.
+_TEST_CONSTRAINTS_TEXT = """\
+pytest==9.1.1
+pytest-xdist==3.8.0
+coverage==7.17.1
+"""
+
+
 @dataclasses.dataclass
 class VenvTestSetup:
     """Scaffolding returned by _setup_coverage_venv_test for venv tests."""
@@ -1670,11 +1684,28 @@ class VenvTestSetup:
     recorded: list[list[str]] = dataclasses.field(default_factory=list)
 
 
+#: The minimal lockfile a locked-sync test needs. Only its presence matters to
+#: ``run_python.py``, which refuses to sync a project without one.
+_LOCKFILE_TEXT = """\
+version = 1
+requires-python = ">=3.12"
+"""
+
+
+def _write_project_lockfile(directory: Path) -> Path:
+    """Write a placeholder ``uv.lock`` into *directory* and return its path."""
+    lockfile = directory / "uv.lock"
+    lockfile.write_text(_LOCKFILE_TEXT, encoding="utf-8")
+    return lockfile
+
+
 def _setup_coverage_venv_test(
     tmp_path: Path,
     run_python_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     python_to_create: str | None = "bin/python",
+    *,
+    lockfile: bool = True,
 ) -> VenvTestSetup:
     """Patch COVERAGE_VENV and run_cmd; return shared test scaffolding.
 
@@ -1683,9 +1714,18 @@ def _setup_coverage_venv_test(
     python_to_create:
         Relative POSIX path inside the venv to create when ``uv venv``
         is recorded. Pass ``None`` to skip creation (reuse scenario).
+    lockfile:
+        Write a ``uv.lock`` beside *tmp_path*'s working directory so the
+        locked-sync path is the one under test. Pass ``False`` to model a
+        caller with no lockfile.
     """
     coverage_venv = tmp_path / ".venv-coverage"
     setup = VenvTestSetup(coverage_venv=coverage_venv)
+    if lockfile:
+        _write_project_lockfile(tmp_path)
+    # The lockfile is found relative to the process's working directory, which
+    # is where the action's coverage step runs.
+    monkeypatch.chdir(tmp_path)
 
     def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
         parts = list(cmd.formulate())  # type: ignore[attr-defined]
@@ -1694,10 +1734,24 @@ def _setup_coverage_venv_test(
             python_path = coverage_venv / python_to_create
             python_path.parent.mkdir(parents=True, exist_ok=True)
             python_path.touch()
+        if _is_uv_export_invocation(parts):
+            output = Path(parts[parts.index("-o") + 1])
+            output.write_text(_TEST_CONSTRAINTS_TEXT, encoding="utf-8")
 
     monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
     return setup
+
+
+def _expected_sync_args(python: Path | str, *, locked: bool) -> list[str]:
+    """Return the ``uv sync`` arguments the coverage venv is built with.
+
+    ``--locked`` is present exactly when the project has a lockfile; ``--inexact``
+    stays in both shapes so a sync never removes the coverage tooling already in
+    the venv.
+    """
+    lock_flag = ["--locked"] if locked else []
+    return ["sync", *lock_flag, "--inexact", "--python", str(python)]
 
 
 def test_ensure_coverage_venv_returns_coverage_python(
@@ -1712,13 +1766,16 @@ def test_ensure_coverage_venv_returns_coverage_python(
     expected_python = (setup.coverage_venv / "bin" / "python").resolve()
 
     assert python == str(expected_python)
-    assert len(setup.recorded) == 3
+    assert len(setup.recorded) == 4
     venv_parts = setup.recorded[0]
     assert Path(venv_parts[0]).stem == "uv"
     assert venv_parts[1:] == ["venv", str(setup.coverage_venv)]
     sync_parts = setup.recorded[1]
-    assert sync_parts[1:] == ["sync", "--inexact", "--python", python]
-    install_parts = setup.recorded[2]
+    assert sync_parts[1:] == _expected_sync_args(python, locked=True)
+    export_parts = setup.recorded[2]
+    assert export_parts[1] == "export"
+    assert "--locked" in export_parts
+    install_parts = setup.recorded[3]
     assert install_parts[1:5] == [
         "pip",
         "install",
@@ -1741,14 +1798,12 @@ def test_ensure_coverage_venv_reuses_existing_coverage_venv(
     python_path.touch()
 
     assert run_python_module._ensure_coverage_venv() == str(python_path.resolve())
-    assert len(setup.recorded) == 2
-    assert setup.recorded[0][1:] == [
-        "sync",
-        "--inexact",
-        "--python",
-        str(python_path.resolve()),
-    ]
-    assert setup.recorded[1][1:5] == [
+    assert len(setup.recorded) == 3
+    assert setup.recorded[0][1:] == _expected_sync_args(
+        python_path.resolve(), locked=True
+    )
+    assert setup.recorded[1][1] == "export"
+    assert setup.recorded[2][1:5] == [
         "pip",
         "install",
         "--python",
@@ -1794,7 +1849,8 @@ def test_ensure_coverage_venv_recovers_from_broken_cache(
     venv_calls = [r for r in setup.recorded if len(r) > 1 and r[1] == "venv"]
     assert len(venv_calls) == 1
     assert python == str((setup.coverage_venv / "bin" / "python").resolve())
-    assert setup.recorded[-2][1:] == ["sync", "--inexact", "--python", python]
+    assert setup.recorded[-3][1:] == _expected_sync_args(python, locked=True)
+    assert setup.recorded[-2][1] == "export"
     assert setup.recorded[-1][1:5] == [
         "pip",
         "install",
@@ -1856,14 +1912,10 @@ def test_ensure_coverage_venv_keeps_symlinked_venv_python_path(
     assert run_python_module._ensure_coverage_venv() == str(expected_python)
 
     assert expected_python != system_python.resolve()
-    assert len(setup.recorded) == 2
-    assert setup.recorded[0][1:] == [
-        "sync",
-        "--inexact",
-        "--python",
-        str(expected_python),
-    ]
-    assert setup.recorded[1][1:5] == [
+    assert len(setup.recorded) == 3
+    assert setup.recorded[0][1:] == _expected_sync_args(expected_python, locked=True)
+    assert setup.recorded[1][1] == "export"
+    assert setup.recorded[2][1:5] == [
         "pip",
         "install",
         "--python",
@@ -1899,16 +1951,12 @@ def _assert_venv_rebuild_commands(
     coverage_venv: Path,
     python_path: Path,
 ) -> None:
-    """Assert the three-command venv rebuild sequence: venv, sync, pip install."""
-    assert len(recorded) == 3
+    """Assert the venv rebuild sequence: venv, locked sync, export, pip install."""
+    assert len(recorded) == 4
     assert recorded[0][1:] == ["venv", str(coverage_venv)]
-    assert recorded[1][1:] == [
-        "sync",
-        "--inexact",
-        "--python",
-        str(python_path.resolve()),
-    ]
-    assert recorded[2][1:5] == [
+    assert recorded[1][1:] == _expected_sync_args(python_path.resolve(), locked=True)
+    assert recorded[2][1] == "export"
+    assert recorded[3][1:5] == [
         "pip",
         "install",
         "--python",
@@ -1990,18 +2038,21 @@ def test_ensure_coverage_venv_targets_venv_python_for_tooling(
 
     assert run_python_module._ensure_coverage_venv() == str(python.resolve())
 
-    assert len(setup.recorded) == 2
-    assert setup.recorded[0][1:] == [
-        "sync",
-        "--inexact",
-        "--python",
-        str(python.resolve()),
-    ]
-    parts = setup.recorded[1]
+    assert len(setup.recorded) == 3
+    assert setup.recorded[0][1:] == _expected_sync_args(python.resolve(), locked=True)
+    parts = setup.recorded[2]
     assert Path(parts[0]).stem == "uv"
     assert parts[1:5] == ["pip", "install", "--python", str(python.resolve())]
     assert "--system" not in parts
     assert set(run_python_module.TOOLING_PACKAGES).issubset(parts)
+    assert "--constraints" in parts, (
+        "tooling must resolve under the lockfile's pinned versions"
+    )
+    constraints = Path(parts[parts.index("--constraints") + 1])
+    assert constraints.parent == setup.coverage_venv.resolve(), (
+        "the lock-derived constraints file belongs to the throwaway venv, not "
+        f"the caller's checkout: {constraints}"
+    )
 
 
 def test_ensure_coverage_venv_sets_uv_project_environment_for_sync(
@@ -2023,6 +2074,9 @@ def test_ensure_coverage_venv_sets_uv_project_environment_for_sync(
         setup.recorded.append(parts)
         if len(parts) > 1 and parts[1] == "sync":
             sync_environment.append(os.environ.get("UV_PROJECT_ENVIRONMENT"))
+        if _is_uv_export_invocation(parts):
+            output = Path(parts[parts.index("-o") + 1])
+            output.write_text(_TEST_CONSTRAINTS_TEXT, encoding="utf-8")
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
     monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
@@ -2031,6 +2085,171 @@ def test_ensure_coverage_venv_sets_uv_project_environment_for_sync(
 
     assert sync_environment == [str(setup.coverage_venv.resolve())]
     assert "UV_PROJECT_ENVIRONMENT" not in os.environ
+
+
+def test_locked_project_sync_refuses_a_stale_lockfile(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A locked project is synced with ``--locked``, not ``--inexact`` alone.
+
+    ``--locked`` is what turns a stale lockfile into a failed run. Without it,
+    ``uv sync`` rewrites the lock (or resolves around it), and coverage then
+    measures an environment the repository's own ``uv sync --locked`` would
+    never have produced. This asserts the flag the rejection depends on, since
+    the fake here cannot model uv's own staleness check.
+    """
+    setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
+
+    run_python_module._ensure_coverage_venv()
+
+    sync_args = setup.recorded[1]
+    assert sync_args[1:3] == ["sync", "--locked"]
+    assert "--inexact" in sync_args, (
+        "--inexact keeps the coverage tooling installed on a reuse run"
+    )
+
+
+def test_project_without_a_lockfile_keeps_the_unconstrained_sync(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller with no lockfile keeps the documented unconstrained behaviour."""
+    setup = _setup_coverage_venv_test(
+        tmp_path, run_python_module, monkeypatch, lockfile=False
+    )
+
+    run_python_module._ensure_coverage_venv()
+
+    sync_args = setup.recorded[1]
+    assert "--locked" not in sync_args
+    assert sync_args[1:3] == ["sync", "--inexact"]
+    assert len(setup.recorded) == 3, (
+        "no lockfile means no export and an unconstrained tooling install"
+    )
+    install_args = setup.recorded[2]
+    assert "--constraints" not in install_args
+
+
+def test_lockfile_export_pins_the_tooling_install(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tooling install resolves under the lockfile's exported pins.
+
+    ``uv pip install`` with only a package list may upgrade pytest or one of
+    its plugins to satisfy slipcover's own requirements, so the versions the
+    lock fixes are replaced by resolver-chosen ones. ``--constraints`` is the
+    uv mechanism that prevents that: it bounds every package the constraints
+    file names without itself asking for anything to be installed.
+    """
+    setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
+
+    run_python_module._ensure_coverage_venv()
+
+    export_args = setup.recorded[2]
+    assert export_args[1] == "export"
+    assert "--locked" in export_args, "the export must also refuse a stale lockfile"
+    install_args = setup.recorded[3]
+    constraints = Path(install_args[install_args.index("--constraints") + 1])
+    assert constraints.parent == setup.coverage_venv.resolve()
+    assert constraints.name == run_python_module.CONSTRAINTS_NAME
+    assert "--no-emit-project" in export_args, (
+        "the project itself is not a constraint on the tooling install"
+    )
+    assert str(constraints) == export_args[export_args.index("-o") + 1], (
+        "the exported file and the constraints path must be the same file"
+    )
+
+
+def test_tooling_install_fails_when_the_lock_export_writes_nothing(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An export that yields no pins aborts before the tooling install.
+
+    ``--constraints`` over an empty file would bound nothing and silently
+    restore the unconstrained behaviour this change removes, so an empty export
+    is refused rather than treated as success.
+    """
+    setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        parts = list(cmd.formulate())  # type: ignore[attr-defined]
+        setup.recorded.append(parts)
+        if len(parts) > 1 and parts[1] == "venv":
+            python = setup.coverage_venv / "bin" / "python"
+            python.parent.mkdir(parents=True)
+            python.touch()
+        if len(parts) > 1 and parts[1] == "export":
+            output = Path(parts[parts.index("-o") + 1])
+            output.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+
+    with pytest.raises(RuntimeError, match="wrote no constraints"):
+        run_python_module._ensure_coverage_venv()
+
+    assert not [
+        parts for parts in setup.recorded if len(parts) > 2 and parts[1] == "pip"
+    ], "tooling must not be installed without the lockfile's pins"
+
+
+def _recorded_install_packages(parts: list[str]) -> set[str]:
+    """Return the package specifiers from a ``uv pip install`` argv."""
+    start = parts.index("install") + 1
+    return {
+        part
+        for part in parts[start:]
+        if part not in {"--python", "--constraints"} and not part.startswith("-")
+    }
+
+
+def test_tooling_packages_cannot_replace_locked_versions(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every tooling specifier is bounded by the lock-derived constraints.
+
+    The action asks for unversioned ``pytest``, ``pytest-xdist`` and
+    ``coverage``. A constraint naming the same package is what keeps the
+    resolver from choosing a different version than the lock already pins.
+    """
+    setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
+    pinned = {"pytest": "9.1.1", "pytest-xdist": "3.8.0", "coverage": "7.17.1"}
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        parts = list(cmd.formulate())  # type: ignore[attr-defined]
+        setup.recorded.append(parts)
+        if len(parts) > 1 and parts[1] == "venv":
+            python = setup.coverage_venv / "bin" / "python"
+            python.parent.mkdir(parents=True)
+            python.touch()
+        if len(parts) > 1 and parts[1] == "export":
+            output = Path(parts[parts.index("-o") + 1])
+            output.write_text(
+                "".join(f"{name}=={version}\n" for name, version in pinned.items()),
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+
+    run_python_module._ensure_coverage_venv()
+
+    install_args = setup.recorded[-1]
+    constraints_arg = install_args[install_args.index("--constraints") + 1]
+    constraints_text = Path(constraints_arg).read_text(encoding="utf-8")
+    requested = _recorded_install_packages(install_args)
+    for name, version in pinned.items():
+        assert name in requested, f"{name} must be requested by the install"
+        assert f"{name}=={version}" in constraints_text, (
+            f"{name} is requested but not pinned by the exported constraints"
+        )
 
 
 def test_coverage_python_cmd_prepares_tools_once(
@@ -2054,9 +2273,14 @@ def test_coverage_python_cmd_prepares_tools_once(
         if len(args) > 1 and args[1] == "venv":
             python_path.parent.mkdir(parents=True)
             python_path.touch()
+        if _is_uv_export_invocation(args):
+            output = Path(args[args.index("-o") + 1])
+            output.write_text(_TEST_CONSTRAINTS_TEXT, encoding="utf-8")
 
     monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    _write_project_lockfile(tmp_path)
+    monkeypatch.chdir(tmp_path)
 
     first = run_python_module._coverage_python_cmd()
     second = run_python_module._coverage_python_cmd()
@@ -2073,19 +2297,18 @@ def test_coverage_python_cmd_prepares_tools_once(
     assert first.env["PATH"] not in stdout, (
         "the composed PATH is unbounded and must stay out of the log"
     )
-    assert len(recorded) == 3
+    assert len(recorded) == 4
     assert recorded[0][1:] == ["venv", str(coverage_venv)]
-    assert recorded[1][1:] == [
-        "sync",
-        "--inexact",
-        "--python",
-        str(python_path.resolve()),
-    ]
-    assert recorded[2][1:5] == [
+    assert recorded[1][1:] == _expected_sync_args(python_path.resolve(), locked=True)
+    assert recorded[3][1:5] == [
         "pip",
         "install",
         "--python",
         str(python_path.resolve()),
+    ]
+    assert recorded[3][5:7] == [
+        "--constraints",
+        str(coverage_venv.resolve() / run_python_module.CONSTRAINTS_NAME),
     ]
 
 
@@ -3290,7 +3513,8 @@ _COVERAGE_SENTINEL_MARKER = "coverage-sentinel.out"
 class _FakeUv:
     """How the fake ``uv`` behaves.
 
-    ``venv_exit`` and ``sync_exit`` make ``uv venv`` or ``uv sync`` fail.
+    ``venv_exit``, ``sync_exit`` and ``export_exit`` make ``uv venv``,
+    ``uv sync`` or ``uv export`` fail.
 
     When *python_log* is given, the coverage interpreter that the fake
     ``uv venv`` creates records every argument it receives on a line of its
@@ -3304,10 +3528,16 @@ class _FakeUv:
     ``venv_python`` lets ``uv venv`` symlink a prepared coverage interpreter
     into the throwaway venv instead of installing an inert stub, so a test can
     observe the argv that ``run_python.py`` hands to the coverage tool.
+
+    ``export_requirements`` is the requirements file the fake ``uv export``
+    writes to the path given after ``-o``. It defaults to a single constraint
+    so the constrained tooling install has something to read.
     """
 
     venv_exit: int = 0
     sync_exit: int = 0
+    export_exit: int = 0
+    export_requirements: str = "pytest==9.1.1\n"
     python_log: Path | None = None
     venv_python: Path | None = None
 
@@ -3344,13 +3574,20 @@ def _sentinel_script(fake: _FakeUv, marker: Path) -> str:
 
 
 def _write_fake_uv(tmp_path: Path, fake: _FakeUv | None = None) -> tuple[Path, Path]:
-    """Write a fake uv executable and return its bin directory and log path."""
+    """Write a fake uv executable and return its bin directory and log path.
+
+    The fake records every invocation's arguments. ``uv export`` writes its
+    configured requirements to the file named after ``-o`` so a locked run has
+    a constraints file to hand to ``uv pip install``.
+    """
     fake = fake or _FakeUv()
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "uv-calls.log"
     install_python = _install_python_script(fake)
     write_sentinel = _sentinel_script(fake, tmp_path / _COVERAGE_SENTINEL_MARKER)
+    export_requirements = tmp_path / "fake-export-requirements.txt"
+    export_requirements.write_text(fake.export_requirements, encoding="utf-8")
     uv = bin_dir / "uv"
     uv.write_text(
         f"""#!/usr/bin/env sh
@@ -3371,6 +3608,24 @@ if [ "$1" = "sync" ]; then
     if [ {fake.sync_exit} -ne 0 ]; then
         echo "uv sync exploded" >&2
         exit {fake.sync_exit}
+    fi
+    exit 0
+fi
+if [ "$1" = "export" ]; then
+    if [ {fake.export_exit} -ne 0 ]; then
+        echo "uv export exploded" >&2
+        exit {fake.export_exit}
+    fi
+    # The output file is the argument after `-o` / `--output-file`.
+    output_file=''
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -o|--output-file) output_file="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+    if [ -n "$output_file" ]; then
+        cat '{export_requirements}' > "$output_file"
     fi
     exit 0
 fi
@@ -3436,9 +3691,17 @@ def _run_integration_script(
     run: _PythonIntegrationRun,
     extra_env: dict[str, str] | None = None,
 ) -> tuple[int, str, str]:
-    """Set up env, chdir, and invoke run_python.py; return (rc, stdout, stderr)."""
+    """Set up env, chdir, and invoke run_python.py; return (rc, stdout, stderr).
+
+    A project without its own lockfile gains a placeholder one, so the default
+    run exercises the locked path. A project that already has a lockfile keeps
+    it: a test comparing that file before and after the run would otherwise
+    compare against a placeholder it never wrote.
+    """
     env = _python_integration_env(run, extra_env)
     run.monkeypatch.chdir(run.tmp_path)
+    if not (run.tmp_path / "uv.lock").is_file():
+        _write_project_lockfile(run.tmp_path)
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
     return run_script(script, env)
 
@@ -3741,6 +4004,79 @@ def test_run_python_integration_uv_failure_modes(
         assert spec.expected_in_stderr in stderr
 
 
+def test_run_python_integration_rejects_a_stale_lockfile(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale lockfile fails the run through uv's own ``--locked`` check.
+
+    This is the end-to-end proof that the locked path refuses staleness: the
+    project here has a real lockfile and a real ``pyproject.toml`` that no
+    longer agrees with it, and the run reaches uv rather than a fake. The lock
+    is left untouched afterwards, because ``--locked`` is what makes uv refuse
+    to rewrite it.
+    """
+    real_uv = shutil.which("uv")
+    assert real_uv is not None, "the test suite requires uv on PATH"
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "pyproject.toml").write_text(
+        '[project]\nname = "stale"\nversion = "0.1.0"\n'
+        'requires-python = ">=3.12"\ndependencies = ["packaging"]\n',
+        encoding="utf-8",
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "uv-calls.log"
+    # Only `uv lock` and `uv venv` are delegated to the real binary; everything
+    # else is recorded and fails, so the lock can be produced once and then
+    # given a pyproject.toml it no longer matches.
+    uv = bin_dir / "uv"
+    uv.write_text(
+        f"""#!/usr/bin/env sh
+printf '%s\\n' "$*" >> '{log}'
+if [ "$1" = "venv" ]; then
+    for venv_dir do :; done
+    mkdir -p "$venv_dir/bin"
+    ln -s '{sys.executable}' "$venv_dir/bin/python"
+    exit 0
+fi
+'{real_uv}' "$@"
+""",
+        encoding="utf-8",
+    )
+    uv.chmod(0o755)
+    monkeypatch.chdir(project)
+    # Produce the lock with the real binary, through plumbum, so no other fake
+    # is involved in the step whose result the test compares afterwards.
+    locked = run_plumbum_command(local[real_uv]["lock", "--offline"], method="run")
+    assert locked.returncode == 0, locked.stderr
+    lockfile = project / "uv.lock"
+    assert lockfile.is_file()
+    lock_before = lockfile.read_text(encoding="utf-8")
+    # A dependency the lock has never seen: `uv sync --locked` must refuse.
+    (project / "pyproject.toml").write_text(
+        '[project]\nname = "stale"\nversion = "0.1.0"\n'
+        'requires-python = ">=3.12"\ndependencies = ["packaging", "iniconfig"]\n',
+        encoding="utf-8",
+    )
+    run = _PythonIntegrationRun(project, shell_stubs, bin_dir, monkeypatch)
+
+    returncode, stdout, stderr = _run_integration_script(run)
+
+    assert returncode != 0, f"stale lock was accepted: {stdout}{stderr}"
+    assert "lockfile" in stderr.lower(), stderr
+    assert lockfile.read_text(encoding="utf-8") == lock_before, (
+        "a refused sync must not rewrite the lockfile"
+    )
+    calls = log.read_text(encoding="utf-8").splitlines()
+    assert any(call.startswith("sync --locked") for call in calls), calls
+    assert not [call for call in calls if call.startswith("pip install")], (
+        "tooling must not be installed after the project sync failed"
+    )
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
 def test_run_python_integration_venv_python_symlink_targets_venv(
     tmp_path: Path,
@@ -3764,6 +4100,17 @@ exit 0
 PY
     chmod +x '{system_python}'
     ln -s '{system_python}' "$2/bin/python"
+    exit 0
+fi
+if [ "$1" = "export" ]; then
+    output_file=''
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -o|--output-file) output_file="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+    [ -n "$output_file" ] && printf 'pytest==9.1.1\\n' > "$output_file"
     exit 0
 fi
 exit 0

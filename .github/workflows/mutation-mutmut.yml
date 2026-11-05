@@ -20,7 +20,7 @@ on:
         type: string
         default: origin/main
       timeout-minutes:
-        description: Job timeout ceiling in minutes.
+        description: Step timeout for the mutation run in minutes.
         type: number
         default: 90
       mutmut-version:
@@ -196,7 +196,7 @@ jobs:
             -- uv run --script "${WORKFLOW_DIR}/workflow_scripts/mutation_run_mutmut.py"
 
       - name: Verify mutation failure diagnostics
-        if: ${{ always() && steps.detect.outputs.has_changes == 'true' && steps.mutation.outcome == 'failure' }}
+        if: ${{ always() && steps.detect.outputs.has_changes == 'true' && contains(fromJSON('["failure","cancelled"]'), steps.mutation.outcome) }}
         shell: bash
         env:
           WORKFLOW_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
@@ -207,7 +207,7 @@ jobs:
             --verify-failure
 
       - name: Upload mutation failure diagnostics
-        if: ${{ always() && steps.detect.outputs.has_changes == 'true' && steps.mutation.outcome == 'failure' }}
+        if: ${{ always() && steps.detect.outputs.has_changes == 'true' && contains(fromJSON('["failure","cancelled"]'), steps.mutation.outcome) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutation-failure-diagnostics-mutmut

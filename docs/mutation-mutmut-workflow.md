@@ -41,16 +41,21 @@ supported by this workflow's first release.
   locally with `uv run mutmut show <name>`. The raw results listing and
   `mutants/mutmut-stats.json` upload as the `mutation-report-mutmut` artefact.
 - **Failed mutation runs:** the workflow wraps `uv` startup and the mutmut
-  baseline in a bounded capture. On failure it uploads the independent
+  baseline in a bounded capture. On failure, it uploads the independent
   `mutation-failure-diagnostics-mutmut` artefact with `stdout.log`,
-  `stderr.log` and `metadata.json`; this does not depend on either results file
-  existing. The existing results/statistics upload still runs separately.
+  `stderr.log` and `metadata.json`. This upload does not depend on the results
+  file or the statistics file existing. The existing results/statistics upload
+  still runs separately.
 - **Diagnostic bound:** each stream retains its first 512 KiB, for at most
   1 MiB of output plus a small metadata file. Later bytes are drained from the
   process but discarded, and the metadata records observed, retained and
   truncated byte counts together with the command exit status. Retaining the
   prefix keeps the earliest startup or baseline diagnostic available when a
   process is noisy.
+- **Pipe completion:** after the mutmut process exits, capture waits up to five
+  seconds for both output pipes to reach EOF. If a descendant keeps a pipe
+  open, the wrapper records incomplete evidence and fails the step after that
+  grace period rather than waiting indefinitely.
 - **Failure contract:** the capture wrapper returns the mutation command's
   non-zero status unchanged. A separate verification step fails with an
   actionable message if required logs or completed metadata are missing, and
@@ -58,7 +63,8 @@ supported by this workflow's first release.
   remains an intentional skip and does not require failure diagnostics.
 - **Cancellation limit:** the runner uses a step timeout so later verification
   and upload steps have an opportunity to run. A hard job cancellation can stop
-  those steps before they execute; the workflow does not guarantee an upload
+  those steps before they execute; the workflow attempts to retain partial
+  diagnostics after a graceful cancellation, but does not guarantee upload
   after hard cancellation.
 
 ## Required permissions
@@ -102,7 +108,7 @@ jobs:
 | `paths`               | `src/`        | Path prefixes containing mutable Python source.                                                                                                                                                                |
 | `window-hours`        | `25`          | Detection window; keep one hour wider than the cadence.                                                                                                                                                        |
 | `base-ref`            | `origin/main` | Reference scanned for changes.                                                                                                                                                                                 |
-| `timeout-minutes`     | `90`          | Job ceiling.                                                                                                                                                                                                   |
+| `timeout-minutes`     | `90`          | Step timeout for the mutation run; the job ceiling is fixed at 360 minutes.                                                                                                                                    |
 | `mutmut-version`      | pinned        | Tool version; the results parser is validated against it.                                                                                                                                                      |
 | `module-prefix-strip` | `src/`        | Prefix removed before module-glob translation.                                                                                                                                                                 |
 | `extra-args`          | (empty)       | Extra `mutmut run` arguments (shell-lexed).                                                                                                                                                                    |

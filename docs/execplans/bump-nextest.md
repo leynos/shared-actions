@@ -1,8 +1,10 @@
 # ExecPlan: validate and document the cargo-nextest 0.9.145 pin
 
+Status: COMPLETE
+
 Branch: `bump-nextest` (worktree `f0322c10-01e4-47d3-991d-1aef0209922e`). PR:
-leynos/shared-actions `#509` (open, `mergeStateStatus=BLOCKED`,
-`reviewDecision=CHANGES_REQUESTED` held by a bot review).
+leynos/shared-actions `#509`, squash-merged to `main` as `37a39836` on
+2026-09-20 with `reviewDecision=APPROVED` and all 40 checks green.
 
 ## Big picture
 
@@ -12,9 +14,9 @@ from 0.9.120 to 0.9.145 to stop the
 flood that a workspace package with a build script produced under Cargo's new
 build-directory layout.
 
-The pin, both checksum tables, and the changelog entry are already committed.
-Three findings remain, all raised by CodeRabbit and none requiring a change to
-action behaviour:
+The pin, both checksum tables, and the changelog entry were committed first.
+This plan then addressed three findings, all raised by CodeRabbit and none
+requiring a change to action behaviour. All three are now resolved:
 
 1. **Testing (unit and behavioural)** — the installer has no end-to-end test
    that validates the *real* pinned release. The existing end-to-end test
@@ -193,11 +195,58 @@ real-artefact happy path; they remove nothing.
 
 ## Open items
 
-- Add a `docs/execplans/bump-nextest.md` "References" note to the PR body at
-  the end, per the original brief.
-- Resolve the `python-tests (macos-15)` flake before merge: it is pre-existing
-  and not branch-caused, but it is a **required** check, so the PR cannot merge
-  until a run goes green. Re-run the job rather than changing any test.
+None. Both items below were closed before the merge.
+
+- ~~Add a `docs/execplans/bump-nextest.md` "References" note to the PR body at
+  the end, per the original brief.~~ Done: the PR body carries a
+  `## References` section linking the Lody session and this plan.
+- ~~Resolve the `python-tests (macos-15)` flake before merge.~~ Done by
+  re-running, not by editing a test, exactly as the item prescribed. On the
+  merged head `9c7c71e3` the job passed in 3m46s. The underlying `cmd_mox`
+  startup race is pre-existing and out of scope here; CodeRabbit agreed it
+  "does not implicate this PR's `cargo-nextest` changes" and it should be
+  tracked as a separate upstream dependency reliability defect.
+
+## Outcomes & Retrospective
+
+Shipped to `main` as squash `37a39836` ("Bump pinned cargo-nextest to 0.9.145
+(#509)"). All three CodeRabbit findings are resolved and CodeRabbit approved;
+the historical `CHANGES_REQUESTED` review was superseded by that approval.
+Codex raised no findings. 40 checks passed, 3 skipped, 0 failed.
+
+What the change delivers:
+
+- the pin moves to 0.9.145, with both checksum tables refreshed and the archive
+  digests taken from each release's own published `.sha256` asset;
+- six new tests validate the pin against the *real* release archive, hermetic
+  because only `urllib.request.urlopen` is redirected;
+- both guides state the pin, why it was chosen, and what a future bump must
+  update.
+
+What went well, and what to carry forward:
+
+- **Independent literals were what made this test worth writing.** The existing
+  end-to-end test derived its digests from synthetic content it had just built,
+  so it could never disagree with the installer. Writing the expected values
+  out as literals is what lets the new module fail on a wrong pin, which the
+  mutation test demonstrated: bumping only `CARGO_NEXTEST_VERSION` to 0.9.146
+  fails two tests, and corrupting only the archive-digest literal fails three.
+- **Checking the suspected obstructions beat reasoning about them.** Two
+  blockers looked fatal on inspection — a 12 MB binary fixture tripping the
+  spelling gate and bloating the repository. Both were dismissed by measurement
+  rather than argument: the gate defaults to `--scope markdown` and so never
+  reads the fixture, and the repository already tracks large fixtures with the
+  bytes held immutable by `-text`. Assuming either would have forced a weaker
+  opt-in test that could not satisfy the CI-gated requirement.
+- **The upstream naming trap is worth remembering.** The release publishes
+  `cargo-nextest-<version>-<target>.sha256` with the archive extension
+  *dropped*, so a 404 on `<archive>.sha256` is not evidence that no checksum
+  exists. It briefly produced a missing-fixture failure here, and is now
+  recorded in the developer guide.
+- **A flake in a required check needs evidence, not a workaround.** Showing the
+  same head SHA both pass and fail, with a different test failing each time,
+  established the macOS `cmd_mox` failure as pre-existing. The correct action
+  was to re-run the job and leave the tests untouched.
 
 ## Progress log
 
@@ -225,3 +274,17 @@ real-artefact happy path; they remove nothing.
   `cargo-nextest-<version>-<target>.sha256` — the archive extension is dropped,
   so it is *not* `<archive>.sha256`. Recorded in the developer guide, since the
   same trap will catch the next person.
+- (review) Posted an evidence-backed disposition of all three findings as PR
+  comment 5752454806, mentioning `@coderabbitai`, without requesting a further
+  review.
+- (gate) Full sweep via `scrutineer`: `check-fmt`, `lint`, `typecheck`, `test`,
+  `markdownlint`, `spelling`, `nixie` all EXIT=0; `make test` 2136 passed / 18
+  skipped in 81.33s, the 18 being pre-existing platform-conditional skips.
+- (ci) Pushed `9c7c71e3`. All required checks green, including the previously
+  flaky `python-tests (macos-15)`; the newly added `coverage` lane passed in
+  7m15s. 40 pass / 3 skip / 0 fail.
+- (review) CodeRabbit confirmed all three findings addressed, then approved:
+  "Comments resolved and changes approved." `reviewDecision=APPROVED`,
+  `mergeStateStatus=CLEAN`.
+- (merge) Posted the top-level `@coderabbitai approve` comment (5752511456),
+  then squash-merged as requested. Branch `bump-nextest` deleted on merge.

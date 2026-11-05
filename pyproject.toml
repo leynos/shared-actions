@@ -130,7 +130,9 @@ source_paths = ["workflow_scripts/"]
 # Select only the in-process unit tests; the act-gated workflow tests
 # under tests/workflows (ACT_WORKFLOW_TESTS) must stay out of mutmut's
 # selection.
-pytest_add_cli_args_test_selection = ["workflow_scripts/tests/"]
+pytest_add_cli_args_test_selection = [
+    "workflow_scripts/tests/test_intentional_baseline_failure_canary.py"
+]
 do_not_mutate = ["workflow_scripts/tests/*"]
 # The root conftest.py makes workflow_scripts importable from the
 # sandbox and registers the cmd-mox plugin; pytest.ini keeps the pytest

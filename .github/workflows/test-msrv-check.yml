@@ -1,0 +1,33 @@
+name: Test msrv-check
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  checks-the-fixture-crate-on-its-msrv:
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The fixture's .cargo/config.toml names a codegen backend, a nightly-only
+      # key that a stable cargo rejects outright. The action drops the config
+      # from this runner's checkout, so the check passes only if it does.
+      - name: Check the fixture crate on its MSRV
+        id: msrv
+        uses: ./.github/actions/msrv-check
+        with:
+          working-directory: .github/actions/msrv-check/tests/fixtures/msrv-crate
+
+      - name: Verify the output and the dropped config
+        env:
+          MSRV: ${{ steps.msrv.outputs.msrv }}
+        run: |
+          [[ "${MSRV}" == "1.85" ]]
+          [[ ! -e .github/actions/msrv-check/tests/fixtures/msrv-crate/.cargo/config.toml ]]

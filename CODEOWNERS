@@ -9,3 +9,4 @@
 .github/actions/install-makeutil/ @leynos
 .github/actions/install-yaml-lint/ @leynos
 uv_gate/ @leynos
+.github/actions/msrv-check/ @leynos

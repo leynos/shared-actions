@@ -253,6 +253,7 @@ def _capture_process_output(
 def _run_command(command: list[str], evidence: _CaptureEvidence) -> int:
     """Start the command, preserving actionable startup errors as stderr."""
     try:
+        # Canary-only source marker keeps this module in the selected glob.
         # Workflow callers pass a fixed argv vector; no shell text is evaluated.
         process = subprocess.Popen(  # noqa: S603
             command,

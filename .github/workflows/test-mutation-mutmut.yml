@@ -15,7 +15,6 @@ jobs:
       id-token: write
     uses: ./.github/workflows/mutation-mutmut.yml
     with:
-      # Prefixes that never match: scheduled runs deterministically take
-      # the skip path regardless of recent repository history.
-      paths: "act-test-no-such-dir/"
-      base-ref: HEAD
+      # Select the small intentional-failure canary in this branch.
+      paths: "workflow_scripts/"
+      base-ref: main

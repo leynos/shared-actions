@@ -36,6 +36,22 @@ def _try_reconfigure_windows_stream(
     return True
 
 
+def _try_stream_operation(
+    operation: object, operation_name: str, name: str, debug: str | None
+) -> bool:
+    """Run an available stream operation, logging failures in debug mode."""
+    if not callable(operation):
+        return True
+    try:
+        operation()
+    except (AttributeError, ValueError, io.UnsupportedOperation, OSError) as exc:
+        _log_windows_stream_debug(
+            debug, "Failed to %s %s: %s", operation_name, name, exc
+        )
+        return False
+    return True
+
+
 def _try_wrap_windows_stream(stream: object, name: str, debug: str | None) -> None:
     """Replace ``sys.<name>`` with a UTF-8 wrapper around the stream buffer."""
     buf = getattr(stream, "buffer", None)
@@ -43,20 +59,13 @@ def _try_wrap_windows_stream(stream: object, name: str, debug: str | None) -> No
         _log_windows_stream_debug(debug, "%s has no buffer; leaving as-is", name)
         return
     flush = getattr(stream, "flush", None)
-    if callable(flush):
-        try:
-            flush()
-        except (AttributeError, ValueError, io.UnsupportedOperation, OSError) as exc:
-            _log_windows_stream_debug(debug, "Failed to flush %s: %s", name, exc)
-            return
+    if not _try_stream_operation(flush, "flush", name, debug):
+        return
 
     detach = getattr(stream, "detach", None)
-    if callable(detach):
-        try:
-            detach()
-        except (AttributeError, ValueError, io.UnsupportedOperation, OSError) as exc:
-            _log_windows_stream_debug(debug, "Failed to detach %s: %s", name, exc)
-            return
+    has_detach = callable(detach)
+    if not _try_stream_operation(detach, "detach", name, debug):
+        return
 
     try:
         wrapped = io.TextIOWrapper(
@@ -67,7 +76,7 @@ def _try_wrap_windows_stream(stream: object, name: str, debug: str | None) -> No
         )
     except (ValueError, OSError) as exc:
         _log_windows_stream_debug(debug, "Failed to wrap %s: %s", name, exc)
-        if callable(detach):
+        if has_detach:
             raise
         return
 

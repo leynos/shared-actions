@@ -35,6 +35,28 @@ To observe success: run the workflow integration tests locally
 manually, and check the job summary for the survivors table and the uploaded
 `mutation-report-*` artefacts.
 
+## Follow-up: optional mutation Rustflags (PR #628)
+
+The original Stages A–F implementation and outstanding Stage G status below
+remain historical. PR #628 is a separately authorized extension of the Cargo
+runner, partially addressing issue #544; it does not complete that issue or the
+pilot rollout. Its grouped Python API is now
+`main(invocation=MutantsInvocation(...), rustflags=...)`; the nine existing
+flat CLI and environment options remain compatible. Argument construction is in
+`mutation_cargo_command.build_arguments`, while `cargo_command` owns literal
+child-only flag replacement and single-line validation.
+
+The review repair adds assertion diagnostics, user/developer contract
+documentation, bounded Hypothesis properties, and safe mode events. Independent
+inspection and local repository gates passed for source receipt
+`2552e7a37bf9c782db015998826eaf8c8c981cef24d738d5be781a6064fb14b6`. Hosted CI
+and review reconciliation remain pending. The existing test-only native `Popen`
+fixture and its narrowly justified S603 exception are retained because a
+complete explicit child environment is required on Windows. Production
+execution continues to use Plumbum. No new invocation/configuration interface
+is introduced by this repair beyond the already authorized optional Rustflags
+input. The safe mode event is an additive diagnostic output.
+
 ## Constraints
 
 - Follow `docs/scripting-standards.md` for all new scripts: Python ≥3.13,
@@ -122,6 +144,14 @@ manually, and check the job summary for the survivors table and the uploaded
 
 ## Progress
 
+- [x] PR #628 local review repair (2026-10-15): independent
+  inspection, repository gates, 95 focused tests, six direct CodeScene reviews
+  scoring 10, and all 11 sensitivity controls passed for that source receipt;
+  each control failed by assertion and restored green.
+- [ ] PR #628 hosted validation and review reconciliation, including the
+  separate Windows CI prerequisite. Local results do not qualify that fix or a
+  future restacked candidate.
+
 - [x] Stage A: mutmut research spike (2026-07-04: empirical against
   mutmut 3.6.0 in a sandbox — see Surprises & Discoveries for exit codes,
   `source_paths` rename, module-glob scoping, and `.meta` results layout;
@@ -159,6 +189,11 @@ manually, and check the job summary for the survivors table and the uploaded
   tool versions confirmed by real runs.
 
 ## Surprises & Discoveries
+
+- PR #628 follow-up (2026-10-15): finite child-process cases prove actual
+  environment behaviour but do not search the accepted string domain. New cheap
+  properties sample Unicode scalar values up to 256 characters without process
+  creation. They complement rather than replace the integration cases.
 
 Seeded from the wireframe implementation (2026-07-04); append new items as work
 proceeds.
@@ -248,6 +283,12 @@ proceeds.
   functions without behaviour change.
 
 ## Decision Log
+
+- 2026-10-15, PR #628 follow-up: retain validation in `cargo_command` and report
+  only `inherited`, `override` or `invalid` at the runner's existing output
+  boundary. This avoids constructor side effects, duplicate validation and
+  logging flag contents. Keep the original plan's completion claims and pilot
+  gap separate from this explicitly authorized extension.
 
 - 2026-07-04: Reusable workflows, not composite actions. Rationale: the
   jobs need `on: workflow_call`, job-level `permissions`, `timeout-minutes`,
@@ -352,6 +393,20 @@ proceeds.
   the mutmut and cargo-summary test modules a descriptive failure message.
 
 ## Outcomes & Retrospective
+
+The PR #628 review repair passed independent inspection and local repository
+gates for that source receipt on 2026-10-15: 95 focused tests, 4,193 passed and
+157 skipped in the full suite, and 116 passed and 7 skipped in doctests. Six
+direct CodeScene reviews scored 10; committed and working deltas covered all
+six eligible Python files without introduced issues. All 11 approved
+sensitivity controls failed by assertion and restored green, with the full
+source inventory and authored fixtures preserved. Delivery and review status
+are tracked in [PR #628](https://github.com/leynos/shared-actions/pull/628).
+
+Hosted CI, review reconciliation and the separate Windows prerequisite remain
+pending. Local checks do not establish Windows acceptance or qualify a later
+restack. Generated properties sample bounded strings; they are not an unbounded
+proof. Stage G, pilot validation and issue #544 remain incomplete.
 
 Stages A–F implemented 2026-07-04 in five commits (plan hardening plus one
 commit per stage). Delivered: two reusable workflows (`mutation-cargo.yml` with

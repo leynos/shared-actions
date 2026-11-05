@@ -12,7 +12,6 @@ import tomllib
 
 from workflow_scripts.tests.skylos_contract_support import (
     _EXPECTED_SKYLOS_DOCUMENTED_WHITELIST_NAMES,
-    _EXPECTED_SKYLOS_ENTRYPOINT_NAMES,
     _EXPECTED_SKYLOS_WHITELIST_NAMES,
     _REPOSITORY_ROOT,
     _SKYLOS_CLI_TOKENS,
@@ -104,13 +103,24 @@ class TestSkylosGateContract:
         entrypoints = _objects(
             dead_code.get("entrypoints", []), subject="Skylos dead-code entry points"
         )
-        entrypoint_names = frozenset(
-            name
-            for entrypoint in entrypoints
-            for name in _text_sequence(
-                entrypoint.get("full_name"), subject="Skylos entry-point names"
-            )
+        assert len(entrypoints) == 1, (
+            "Skylos must retain exactly one reviewed entry-point rule"
         )
-        assert entrypoint_names == _EXPECTED_SKYLOS_ENTRYPOINT_NAMES, (
-            "Skylos entry-point names must preserve the consciously reviewed set"
+        entrypoint = entrypoints[0]
+        assert set(entrypoint) == {"type", "name", "path", "reason"}, (
+            "Skylos import entry point must keep the exact reviewed selector shape"
+        )
+        assert entrypoint["type"] == "import", "the rule must match imports only"
+        assert _text_sequence(
+            entrypoint["name"], subject="mutation runner import names"
+        ) == ("MutantsInvocation", "build_arguments", "cargo_command"), (
+            "Skylos import names must preserve the independently reviewed set"
+        )
+        assert entrypoint["path"] == "workflow_scripts/mutation_run_cargo.py", (
+            "Skylos import entry point must remain confined to the mutation runner"
+        )
+        reason = entrypoint["reason"]
+        assert isinstance(reason, str), "the import entry-point reason must be text"
+        assert reason.strip(), (
+            "the import entry point must document its verified runtime callers"
         )

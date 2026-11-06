@@ -9,14 +9,11 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import io
-import logging
 import os
 import re
 import selectors
 import shlex
 import subprocess
-import sys
 import threading
 import time
 import typing as typ
@@ -33,11 +30,11 @@ from coverage_parsers import get_line_coverage_percent_from_lcov
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
+from windows_standard_streams import _configure_windows_standard_streams_on_windows
 
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     import collections.abc as cabc
 
-logger = logging.getLogger(__name__)
 _cargo_runner_run_cargo = _run_cargo
 
 try:  # runtime import for graceful fallback
@@ -49,39 +46,6 @@ except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
     )
     raise typer.Exit(1) from exc
 
-if os.name == "nt":
-    debug = os.getenv("RUN_RUST_DEBUG")
-    if debug:
-        logging.basicConfig(level=logging.DEBUG)
-    for name in ("stdout", "stderr"):
-        stream = getattr(sys, name)
-        if hasattr(stream, "reconfigure"):
-            try:
-                stream.reconfigure(encoding="utf-8", errors="replace")
-                continue
-            except (
-                AttributeError,
-                ValueError,
-                io.UnsupportedOperation,
-                OSError,
-            ) as exc:  # pragma: no cover - emit debug info when requested
-                if debug:
-                    logger.debug("Failed to reconfigure %s: %s", name, exc)
-        buf = getattr(stream, "buffer", None)
-        if buf is not None:
-            try:
-                wrapped = io.TextIOWrapper(
-                    buf,
-                    encoding="utf-8",
-                    errors="replace",
-                    write_through=True,
-                )
-                setattr(sys, name, wrapped)
-            except (ValueError, OSError) as exc:  # pragma: no cover
-                if debug:
-                    logger.debug("Failed to wrap %s: %s", name, exc)
-        elif debug:
-            logger.debug("%s has no buffer; leaving as-is", name)
 
 NEXTEST_CONFIG_PATH = Path(".config/nextest.toml")
 NEXTEST_DEFAULT_CONFIG = """[profile.default]
@@ -222,6 +186,7 @@ def get_cargo_coverage_cmd(
     all_features: bool = False,
     all_targets: bool = False,
     allow_no_tests: bool = False,
+    extra_cargo_args: cabc.Sequence[str] = (),
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments.
 
@@ -239,11 +204,17 @@ def get_cargo_coverage_cmd(
     it finds nothing to run, lets a crate without tests report zero coverage.
     It is a nextest option, so it is not rendered for a plain ``cargo
     llvm-cov`` run, which already tolerates an empty test set.
+
+    ``extra_cargo_args`` contains already-split Cargo argument tokens. They
+    follow workspace and feature selection and precede the format and output
+    arguments. Package-selection tokens suppress the default ``--workspace``.
     """
     args = ["llvm-cov"]
     if use_nextest:
         args.append("nextest")
-    args += ["--manifest-path", str(manifest_path), "--workspace"]
+    args += ["--manifest-path", str(manifest_path)]
+    if not _selects_packages(extra_cargo_args):
+        args.append("--workspace")
     if use_nextest and allow_no_tests:
         args.append("--no-tests=pass")
     if all_targets:
@@ -253,8 +224,26 @@ def get_cargo_coverage_cmd(
     args += feature_selection_args(
         features, with_default=with_default, all_features=all_features
     )
+    args += extra_cargo_args
     args += [f"--{fmt}", "--output-path", str(out)]
     return args
+
+
+def _parse_extra_cargo_args(raw: str) -> list[str]:
+    """Split caller-supplied Cargo arguments using shell quoting rules."""
+    try:
+        return shlex.split(raw)
+    except ValueError as exc:
+        msg = f"Invalid extra-cargo-args value: {exc}"
+        raise ValueError(msg) from exc
+
+
+def _selects_packages(args: cabc.Sequence[str]) -> bool:
+    """Return whether Cargo arguments select packages explicitly."""
+    return any(
+        arg.startswith("-p") or arg == "--package" or arg.startswith("--package=")
+        for arg in args
+    )
 
 
 def run_doctests(
@@ -376,6 +365,7 @@ def run_cucumber_rs_coverage(
     all_features: bool = False,
     all_targets: bool = False,
     allow_no_tests: bool = False,
+    extra_cargo_args: cabc.Sequence[str] = (),
 ) -> None:
     """Run cucumber.rs coverage and merge results into ``out``."""
     cucumber_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
@@ -389,6 +379,7 @@ def run_cucumber_rs_coverage(
         all_features=all_features,
         all_targets=all_targets,
         allow_no_tests=allow_no_tests,
+        extra_cargo_args=extra_cargo_args,
     )
     c_args += [
         "--",
@@ -521,6 +512,35 @@ def _resolve_bool_input(
     return _env_bool(envvar, default=default, env=env)
 
 
+def _resolve_string_input(
+    value: str | None, envvar: str, env: cabc.Mapping[str, str]
+) -> str:
+    """Resolve a CLI string with an environment-variable fallback."""
+    if value is not None:
+        return value
+    return env.get(envvar, "")
+
+
+def _resolve_manifest_path(
+    manifest_path: Path | None, env: cabc.Mapping[str, str] | None = None
+) -> Path:
+    """Resolve the manifest path from the explicit value or environment."""
+    if manifest_path is not None:
+        return manifest_path
+    source = os.environ if env is None else env
+    detected = source.get("DETECTED_CARGO_MANIFEST", "").strip()
+    return Path(detected or "Cargo.toml")
+
+
+def _parse_extra_cargo_args_or_exit(raw: str) -> list[str]:
+    """Parse extra Cargo arguments or exit with a configuration error."""
+    try:
+        return _parse_extra_cargo_args(raw)
+    except ValueError as exc:
+        typer.echo(f"::error::{exc}", err=True)
+        raise typer.Exit(2) from exc
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class _RawInputs:
     """Inputs exactly as the CLI received them, before environment fallbacks.
@@ -531,15 +551,16 @@ class _RawInputs:
     """
 
     output_path: Path | None
-    features: str
+    features: str | None
     with_default: bool | None
     use_nextest: bool | None
     lang: str | None
     fmt: str | None
     manifest_path: Path | None
     github_output: Path | None
-    cucumber_rs_features: str
-    cucumber_rs_args: str
+    cucumber_rs_features: str | None
+    cucumber_rs_args: str | None
+    extra_cargo_args: str | None
     with_cucumber_rs: bool | None
     all_features: bool | None
     all_targets: bool | None
@@ -571,6 +592,7 @@ class FeatureSelection:
     all_targets: bool
     doctests: bool
     allow_no_tests: bool
+    extra_cargo_args: tuple[str, ...]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -595,10 +617,7 @@ def _resolve_targets(raw: _RawInputs, env: cabc.Mapping[str, str]) -> CoverageTa
     """
     lang = raw.lang or _required_env("DETECTED_LANG", env)
     output_path = raw.output_path or Path(_required_env("INPUT_OUTPUT_PATH", env))
-    manifest_path = raw.manifest_path
-    if manifest_path is None:
-        detected = env.get("DETECTED_CARGO_MANIFEST", "").strip()
-        manifest_path = Path(detected or "Cargo.toml")
+    manifest_path = _resolve_manifest_path(raw.manifest_path, env)
     return CoverageTargets(
         out=_resolve_output_path(output_path, lang),
         lang=lang,
@@ -611,8 +630,12 @@ def _resolve_targets(raw: _RawInputs, env: cabc.Mapping[str, str]) -> CoverageTa
 
 def _resolve_features(raw: _RawInputs, env: cabc.Mapping[str, str]) -> FeatureSelection:
     """Resolve the feature and target selection from inputs and *env*."""
+    extra_cargo_args = _resolve_string_input(
+        raw.extra_cargo_args, "INPUT_EXTRA_CARGO_ARGS", env
+    )
+
     return FeatureSelection(
-        features=raw.features or env.get("INPUT_FEATURES", ""),
+        features=_resolve_string_input(raw.features, "INPUT_FEATURES", env),
         with_default=_resolve_bool_input(
             raw.with_default, "INPUT_WITH_DEFAULT_FEATURES", default=True, env=env
         ),
@@ -631,6 +654,7 @@ def _resolve_features(raw: _RawInputs, env: cabc.Mapping[str, str]) -> FeatureSe
         allow_no_tests=_resolve_bool_input(
             raw.allow_no_tests, "INPUT_ALLOW_NO_TESTS", default=False, env=env
         ),
+        extra_cargo_args=tuple(_parse_extra_cargo_args_or_exit(extra_cargo_args)),
     )
 
 
@@ -642,12 +666,39 @@ def _resolve_cucumber(
         enabled=_resolve_bool_input(
             raw.with_cucumber_rs, "INPUT_WITH_CUCUMBER_RS", default=False, env=env
         ),
-        features=raw.cucumber_rs_features or env.get("INPUT_CUCUMBER_RS_FEATURES", ""),
-        args=raw.cucumber_rs_args or env.get("INPUT_CUCUMBER_RS_ARGS", ""),
+        features=_resolve_string_input(
+            raw.cucumber_rs_features, "INPUT_CUCUMBER_RS_FEATURES", env
+        ),
+        args=_resolve_string_input(raw.cucumber_rs_args, "INPUT_CUCUMBER_RS_ARGS", env),
     )
 
 
-def _run_coverage(
+def _run_optional_cucumber_coverage(
+    targets: CoverageTargets,
+    selection: FeatureSelection,
+    cucumber: CucumberSelection,
+    cargo_env: cabc.Mapping[str, str],
+) -> None:
+    """Run cucumber.rs coverage only when enabled and configured."""
+    if cucumber.requested:
+        run_cucumber_rs_coverage(
+            targets.out,
+            targets.fmt,
+            selection.features,
+            manifest_path=targets.manifest_path,
+            cargo_env=cargo_env,
+            with_default=selection.with_default,
+            use_nextest=selection.use_nextest,
+            cucumber_rs_features=cucumber.features,
+            cucumber_rs_args=cucumber.args,
+            all_features=selection.all_features,
+            all_targets=selection.all_targets,
+            allow_no_tests=selection.allow_no_tests,
+            extra_cargo_args=selection.extra_cargo_args,
+        )
+
+
+def _run_primary_coverage(
     targets: CoverageTargets,
     selection: FeatureSelection,
     cucumber: CucumberSelection,
@@ -667,6 +718,7 @@ def _run_coverage(
         all_features=selection.all_features,
         all_targets=selection.all_targets,
         allow_no_tests=selection.allow_no_tests,
+        extra_cargo_args=selection.extra_cargo_args,
     )
     config_context = (
         ensure_nextest_config() if selection.use_nextest else contextlib.nullcontext()
@@ -678,21 +730,7 @@ def _run_coverage(
             env_overrides=cargo_env,
             env_unsets=_CARGO_COVERAGE_ENV_UNSETS,
         )
-        if cucumber.requested:
-            run_cucumber_rs_coverage(
-                targets.out,
-                targets.fmt,
-                selection.features,
-                manifest_path=targets.manifest_path,
-                cargo_env=cargo_env,
-                with_default=selection.with_default,
-                use_nextest=selection.use_nextest,
-                cucumber_rs_features=cucumber.features,
-                cucumber_rs_args=cucumber.args,
-                all_features=selection.all_features,
-                all_targets=selection.all_targets,
-                allow_no_tests=selection.allow_no_tests,
-            )
+        _run_optional_cucumber_coverage(targets, selection, cucumber, cargo_env)
     if selection.doctests:
         run_doctests(
             selection.features,
@@ -706,7 +744,7 @@ def _run_coverage(
 
 def main(
     output_path: typ.Annotated[Path | None, typer.Option()] = None,
-    features: typ.Annotated[str, typer.Option()] = "",
+    features: typ.Annotated[str | None, typer.Option()] = None,
     *,
     with_default: typ.Annotated[bool | None, typer.Option()] = None,
     use_nextest: typ.Annotated[bool | None, typer.Option()] = None,
@@ -714,8 +752,9 @@ def main(
     fmt: typ.Annotated[str | None, typer.Option()] = None,
     manifest_path: typ.Annotated[Path | None, typer.Option()] = None,
     github_output: typ.Annotated[Path | None, typer.Option()] = None,
-    cucumber_rs_features: typ.Annotated[str, typer.Option()] = "",
-    cucumber_rs_args: typ.Annotated[str, typer.Option()] = "",
+    cucumber_rs_features: typ.Annotated[str | None, typer.Option()] = None,
+    cucumber_rs_args: typ.Annotated[str | None, typer.Option()] = None,
+    extra_cargo_args: typ.Annotated[str | None, typer.Option()] = None,
     with_cucumber_rs: typ.Annotated[bool | None, typer.Option()] = None,
     all_features: typ.Annotated[bool | None, typer.Option()] = None,
     all_targets: typ.Annotated[bool | None, typer.Option()] = None,
@@ -723,7 +762,53 @@ def main(
     allow_no_tests: typ.Annotated[bool | None, typer.Option()] = None,
     baseline_file: typ.Annotated[Path | None, typer.Option()] = None,
 ) -> None:
-    """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
+    """Run Rust coverage and publish its report and ratchet result.
+
+    Parameters
+    ----------
+    output_path : Path or None
+        Coverage report path; falls back to ``INPUT_OUTPUT_PATH``.
+    features : str or None
+        Space- or comma-separated Cargo features to enable.
+    with_default : bool or None
+        Whether to enable Cargo's default features; defaults to true.
+    use_nextest : bool or None
+        Whether to run coverage through cargo-nextest; defaults to true.
+    lang : str or None
+        Coverage language scope, resolved from ``DETECTED_LANG`` when omitted.
+    fmt : str or None
+        Coverage report format, resolved from ``DETECTED_FMT`` when omitted.
+    manifest_path : Path or None
+        Cargo manifest path; falls back to ``DETECTED_CARGO_MANIFEST`` and
+        then ``Cargo.toml``.
+    github_output : Path or None
+        GitHub Actions output file; falls back to ``GITHUB_OUTPUT``.
+    cucumber_rs_features : str or None
+        Path to cucumber-rs feature files.
+    cucumber_rs_args : str or None
+        Additional shell-parsed arguments for the cucumber-rs runner.
+    extra_cargo_args : str or None
+        Shell-parsed Cargo arguments appended to coverage commands. Package
+        selectors replace the default workspace selection.
+    with_cucumber_rs : bool or None
+        Whether to include cucumber-rs scenarios when features are supplied.
+    all_features : bool or None
+        Whether to pass ``--all-features``; incompatible with ``features``.
+    all_targets : bool or None
+        Whether to pass ``--all-targets`` to the coverage command.
+    doctests : bool or None
+        Whether to run workspace documentation tests after coverage.
+    allow_no_tests : bool or None
+        Whether an empty nextest selection may pass without tests.
+    baseline_file : Path or None
+        Optional coverage baseline used by ratchet reporting.
+
+    Returns
+    -------
+    None
+        The report is written to disk and the result is published to the
+        GitHub Actions output file.
+    """
     raw = _RawInputs(
         output_path=output_path,
         features=features,
@@ -735,6 +820,7 @@ def main(
         github_output=github_output,
         cucumber_rs_features=cucumber_rs_features,
         cucumber_rs_args=cucumber_rs_args,
+        extra_cargo_args=extra_cargo_args,
         with_cucumber_rs=with_cucumber_rs,
         all_features=all_features,
         all_targets=all_targets,
@@ -755,11 +841,12 @@ def main(
     )
     targets.out.parent.mkdir(parents=True, exist_ok=True)
 
-    stdout = _run_coverage(targets, selection, cucumber)
+    stdout = _run_primary_coverage(targets, selection, cucumber)
     percent = _compute_coverage_percent(targets.fmt, targets.out, stdout)
     previous = read_previous_coverage(targets.baseline_file)
     _report_coverage(percent, previous, targets.github_output, targets.out)
 
 
 if __name__ == "__main__":
+    _configure_windows_standard_streams_on_windows()
     typer.run(main)

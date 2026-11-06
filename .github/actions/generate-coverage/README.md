@@ -113,7 +113,7 @@ still enough:
 ```
 
 ```yaml
-- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
   with:
     output-path: coverage.xml
     format: cobertura
@@ -156,6 +156,7 @@ Known limitations:
 | with-cucumber-rs      | Run cucumber-rs scenarios under coverage                                                                                                                                                                                                            | no       | `false`                     |
 | cucumber-rs-features  | Path to cucumber feature files                                                                                                                                                                                                                      | no       |                             |
 | cucumber-rs-args      | Extra arguments for cucumber                                                                                                                                                                                                                        | no       |                             |
+| extra-cargo-args      | Shell-parsed arguments passed to `cargo llvm-cov`; package selectors suppress the default `--workspace`.                                                                                                                                            | no       |                             |
 | pytest-workers        | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism.                                                                                                                    | no       | `auto`                      |
 | python-source         | Optional comma-separated Python source scope passed unchanged to Slipcover as one `--source` argument.                                                                                                                                              | no       |                             |
 | python-version        | Interpreter for the Python coverage venv. Empty uses `UV_PYTHON`, then `.python-version`, then the `python3` on `PATH`. Its major.minor keys the Python ratchet baseline.                                                                           | no       |                             |
@@ -324,7 +325,7 @@ Use `language: rust` for a Rust repository that keeps a tooling-only
 `lcov`):
 
 ```yaml
-- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
   with:
     language: rust
     output-path: lcov.info
@@ -508,6 +509,9 @@ cargo is spawned, naming the source that supplied it.
 ## Example
 
 ```yaml
+- name: Check out the repository
+  uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
 - uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
@@ -515,7 +519,7 @@ cargo is spawned, naming the source that supplied it.
 ```
 
 ```yaml
-- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
   with:
     output-path: coverage.xml
     format: cobertura
@@ -586,6 +590,44 @@ Disable cargo-nextest:
     output-path: coverage.xml
     use-cargo-nextest: false
 ```
+
+Exclude crates from Rust workspace coverage:
+
+```yaml
+- name: Check out the repository
+  uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+- uses: ./.github/actions/generate-coverage
+  with:
+    output-path: coverage.xml
+    extra-cargo-args: >-
+      --exclude rustc-proxy
+      --exclude dylint-ui-fixture
+```
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
+  with:
+    output-path: coverage.xml
+    extra-cargo-args: >-
+      --exclude rustc-proxy
+      --exclude dylint-ui-fixture
+```
+
+Measure a single crate instead of the whole workspace:
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@7573e891bbc12dfa78d06559e251925a4eec3663
+  with:
+    output-path: coverage.xml
+    extra-cargo-args: --package coverage-helper
+```
+
+The action passes `--workspace` by default so that `--exclude` has a package
+set to refine. When `extra-cargo-args` contains a package selector (`-p`,
+`-p<crate>`, `--package`, or `--package=<crate>`), the default `--workspace` is
+omitted so the selection narrows the run. Without that suppression, Cargo would
+build and report the whole workspace regardless of `--package`.
 
 Run pytest serially (disable pytest-xdist):
 

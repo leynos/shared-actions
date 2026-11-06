@@ -110,6 +110,20 @@ action and the evolution of its supporting scripts.
   relying on an unpinned or stale binary already present on the runner. Both
   the fast (reuse) and install paths are covered by behavioural tests that
   execute the extracted step body against fake binaries and installers.
+- *2026-08-05* — `generate-coverage` gained an optional `extra-cargo-args`
+  input, declared in `action.yml` and forwarded to the Rust step as
+  `INPUT_EXTRA_CARGO_ARGS`. `run_rust.py` tokenizes the value once with
+  `shlex.split` (`_parse_extra_cargo_args`), preserving shell quoting;
+  malformed input is reported as "Invalid extra-cargo-args value" and exits
+  with code 2 before Cargo starts (`_parse_extra_cargo_args_or_exit`). The
+  command builder uses `--workspace` by default so `--exclude` has a package
+  set to refine, but omits `--workspace` when parsed arguments select packages
+  (`-p`, `-p<crate>`, `--package`, or `--package=<crate>`, detected by
+  `_selects_packages`). Cargo treats `--workspace` as all workspace members, so
+  leaving it alongside `--package` would over-report instead of narrowing
+  coverage. The same parsed tokens reach the optional cucumber-rs coverage run,
+  applying consistently to both invocations. Empty input preserves the previous
+  command exactly.
 - *2026-09-06* — `cargo-llvm-cov` is installed from the repository tool
   manifest (`.github/tool-manifest.toml`) at 0.9.0, and the "Ensure
   cargo-binstall" step is gone: nothing in the action shells out to

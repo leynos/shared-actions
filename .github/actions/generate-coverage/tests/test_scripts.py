@@ -17,14 +17,16 @@ import shutil
 import sys
 import typing as typ
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import yaml
-from _coverage_test_support import _exit_code, _load_module
+from _coverage_test_support import _exit_code
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from lxml import etree
 from plumbum import local
+from script_loader import load_script_module
 
 from cmd_utils_importer import import_cmd_utils
 from test_support.cmd_mox_stub_adapter import Call, DefaultResponse
@@ -80,7 +82,7 @@ def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
 @pytest.fixture
 def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """Return a freshly loaded ``run_rust`` module for testing."""
-    return _load_module(monkeypatch, "run_rust")
+    return load_script_module(monkeypatch, "run_rust")
 
 
 def _make_fake_cargo(
@@ -228,6 +230,7 @@ class RustCoverageConfig:
     features: str = ""
     with_default_features: bool = True
     manifest_path: str = "Cargo.toml"
+    extra_cargo_args: str = ""
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -276,6 +279,7 @@ def _run_rust_coverage_test(
         ),
         "INPUT_USE_CARGO_NEXTEST": "true" if config.use_nextest else "false",
         "DETECTED_CARGO_MANIFEST": config.manifest_path,
+        "INPUT_EXTRA_CARGO_ARGS": config.extra_cargo_args,
         "GITHUB_OUTPUT": str(gh),
     }
 
@@ -361,6 +365,7 @@ def test_run_rust_success(
             use_nextest=False,
             features="fast",
             with_default_features=False,
+            extra_cargo_args="--exclude rustc-proxy",
         ),
         monkeypatch=monkeypatch,
     )
@@ -373,6 +378,8 @@ def test_run_rust_success(
         "--no-default-features",
         "--features",
         "fast",
+        "--exclude",
+        "rustc-proxy",
         "--lcov",
         "--output-path",
         str(out),
@@ -803,7 +810,7 @@ def test_run_cargo_windows(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """``_run_cargo`` streams output correctly on Windows."""
-    mod = _load_module(monkeypatch, "run_rust")
+    mod = load_script_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
 
     def fake_echo(line: str, *, err: bool = False, nl: bool = True) -> None:
@@ -823,7 +830,7 @@ def test_run_cargo_windows_closes_streams(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` closes captured streams on success."""
-    mod = _load_module(monkeypatch, "run_rust")
+    mod = load_script_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
@@ -858,7 +865,7 @@ def test_run_cargo_passes_env_overrides(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` merges env overrides into the spawned cargo process."""
-    mod = _load_module(monkeypatch, "run_rust")
+    mod = load_script_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *_a, **_k: None)
     monkeypatch.setenv("RUN_RUST_INHERITED", "present")
@@ -884,7 +891,7 @@ def test_run_cargo_unix_pump_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` aborts when the pump loop outlives the wait timeout."""
-    mod = _load_module(monkeypatch, "run_rust")
+    mod = load_script_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "posix")
     messages: list[tuple[str, bool]] = []
 
@@ -975,7 +982,7 @@ def test_run_cargo_invalid_timeout_does_not_spawn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Invalid wait-timeout values fail before cargo is spawned."""
-    mod = _load_module(monkeypatch, "run_rust")
+    mod = load_script_module(monkeypatch, "run_rust")
     messages: list[tuple[str, bool]] = []
 
     def fake_echo(message: str, *, err: bool = False, nl: bool = True) -> None:
@@ -1000,45 +1007,6 @@ def test_run_cargo_invalid_timeout_does_not_spawn(
     ) in messages
 
 
-def _make_cucumber_spy(
-    calls: list[dict[str, object]],
-) -> typ.Callable[..., None]:
-    """Return a ``run_cucumber_rs_coverage`` spy that records its call arguments."""
-
-    def _spy(
-        out: Path,
-        fmt: str,
-        features: str,
-        *,
-        manifest_path: Path,
-        cargo_env: typ.Mapping[str, str],
-        with_default: bool,
-        use_nextest: bool,
-        cucumber_rs_features: str,
-        cucumber_rs_args: str,
-        all_features: bool = False,
-        all_targets: bool = False,
-        allow_no_tests: bool = False,
-    ) -> None:
-        calls.append(
-            {
-                "out": out,
-                "fmt": fmt,
-                "features": features,
-                "manifest_path": manifest_path,
-                "cargo_env": dict(cargo_env),
-                "with_default": with_default,
-                "use_nextest": use_nextest,
-                "cucumber_rs_features": cucumber_rs_features,
-                "cucumber_rs_args": cucumber_rs_args,
-                "all_features": all_features,
-                "all_targets": all_targets,
-            }
-        )
-
-    return _spy
-
-
 def test_main_reuses_cargo_env_for_cucumber(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1052,7 +1020,6 @@ def test_main_reuses_cargo_env_for_cucumber(
     cargo_env = {"CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm"}
     env_calls: list[Path] = []
     run_cargo_env_calls: list[typ.Mapping[str, str] | None] = []
-    cucumber_calls: list[dict[str, object]] = []
 
     def fake_get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:
         env_calls.append(manifest_path)
@@ -1068,7 +1035,7 @@ def test_main_reuses_cargo_env_for_cucumber(
         run_cargo_env_calls.append(env_overrides)
         return "Coverage: 100%"
 
-    cucumber_spy = _make_cucumber_spy(cucumber_calls)
+    cucumber_spy = mock.Mock()
 
     monkeypatch.setattr(
         run_rust_module, "get_cargo_coverage_env", fake_get_cargo_coverage_env
@@ -1088,14 +1055,18 @@ def test_main_reuses_cargo_env_for_cucumber(
         github_output=github_output,
         cucumber_rs_features="tests/features",
         cucumber_rs_args="--tag fast",
+        extra_cargo_args="--exclude rustc-proxy",
         with_cucumber_rs=True,
         baseline_file=None,
     )
 
     assert env_calls == [manifest_path]
     assert run_cargo_env_calls == [cargo_env]
-    assert len(cucumber_calls) == 1
-    assert cucumber_calls[0]["cargo_env"] == cargo_env
+    assert run_cargo_env_calls[0] is cargo_env
+    cucumber_call = cucumber_spy.call_args
+    assert cucumber_call is not None
+    assert cucumber_call.kwargs["cargo_env"] is cargo_env
+    assert cucumber_call.kwargs["extra_cargo_args"] == ("--exclude", "rustc-proxy")
 
 
 def test_run_cargo_windows_nonzero_exit(
@@ -1104,7 +1075,7 @@ def test_run_cargo_windows_nonzero_exit(
     """``_run_cargo`` raises on non-zero exit code on Windows."""
     import typer as real_typer
 
-    mod = _load_module(monkeypatch, "run_rust")
+    mod = load_script_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(mod.typer, "Exit", real_typer.Exit)
@@ -1146,7 +1117,7 @@ def test_run_cargo_windows_pump_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` enforces the wait timeout on Windows pump threads."""
-    mod = _load_module(monkeypatch, "run_rust")
+    mod = load_script_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     messages: list[tuple[str, bool]] = []
 
@@ -1175,7 +1146,7 @@ def test_run_cargo_windows_pump_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` re-raises exceptions from pump threads on Windows."""
-    mod = _load_module(monkeypatch, "run_rust")
+    mod = load_script_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
@@ -1201,7 +1172,7 @@ def test_run_cargo_windows_none_stdout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` fails when stdout is missing on Windows."""
-    mod = _load_module(monkeypatch, "run_rust")
+    mod = load_script_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
@@ -1219,7 +1190,7 @@ def test_run_cargo_windows_none_stderr(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` fails when stderr is missing on Windows."""
-    mod = _load_module(monkeypatch, "run_rust")
+    mod = load_script_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
@@ -1237,7 +1208,7 @@ def test_run_cargo_stream_close_error_suppressed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Errors closing streams are suppressed during cleanup."""
-    mod = _load_module(monkeypatch, "run_rust")
+    mod = load_script_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
@@ -1295,6 +1266,7 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
         "INPUT_WITH_CUCUMBER_RS": "true",
         "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
         "INPUT_CUCUMBER_RS_ARGS": "--tag fast",
+        "INPUT_EXTRA_CARGO_ARGS": "--exclude rustc-proxy",
         "GITHUB_OUTPUT": str(gh),
     }
 
@@ -1304,12 +1276,25 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
 
     calls = shell_stubs.calls_of("cargo")
     assert len(calls) == 2
+    assert calls[0].argv == [
+        "llvm-cov",
+        "--manifest-path",
+        "rust-toy-app/Cargo.toml",
+        "--workspace",
+        "--exclude",
+        "rustc-proxy",
+        "--lcov",
+        "--output-path",
+        str(out),
+    ]
     cuc_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
     expected_second = [
         "llvm-cov",
         "--manifest-path",
         "rust-toy-app/Cargo.toml",
         "--workspace",
+        "--exclude",
+        "rustc-proxy",
         "--lcov",
         "--output-path",
         str(cuc_file),
@@ -1587,7 +1572,7 @@ def test_lcov_permission_error(
 @pytest.fixture
 def run_python_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """Return a freshly loaded ``run_python`` module for testing."""
-    return _load_module(monkeypatch, "run_python")
+    return load_script_module(monkeypatch, "run_python")
 
 
 def _coverage_python(run_python_module: ModuleType) -> str:

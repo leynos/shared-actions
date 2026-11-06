@@ -71,6 +71,10 @@ _MUTATION_REASON: typ.Final[str] = (
 #: Linux jobs that must stay on a GitHub-hosted runner, each with the
 #: reason. A job absent from this mapping must run on Ubicloud.
 HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
+    ("coverage-main.yml", "coverage-upload"): (
+        "Coverage upload on main blocks no one's work, so it does not need a "
+        "paid Ubicloud runner."
+    ),
     (
         "test-export-ubicloud-cache-credentials.yml",
         "refuses-a-github-hosted-runner",

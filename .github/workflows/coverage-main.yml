@@ -25,7 +25,9 @@ concurrency:
 jobs:
   coverage-upload:
     timeout-minutes: 30
-    runs-on: ubicloud-standard-2
+    # Coverage upload on main blocks no one's work, so it runs on a
+    # GitHub-hosted runner rather than a paid Ubicloud one.
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     env:

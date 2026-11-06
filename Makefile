@@ -1,4 +1,4 @@
-.PHONY: all clean help makeutil test test-act doctest lint lint-whitaker \
+.PHONY: all clean help makeutil test test-act doctest lint lint-clippy lint-whitaker \
 	markdownlint nixie fmt check-fmt typecheck spelling skylos-allow
 
 export GITHUB_ACTION_PATH ?= $(CURDIR)
@@ -150,9 +150,13 @@ lint: ## Check code and actions, including dead production code
 	$(UV) tool run ruff check
 	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) \
 		-exec $(ACTION_VALIDATOR) {} \;
+	$(MAKE) lint-clippy
 	$(MAKE) lint-whitaker
 	$(SKYLOS) $(SKYLOS_PRODUCTION_TARGETS) --exclude $(SKYLOS_EXCLUDE_FOLDERS) --category dead_code \
 		--gate --format concise --no-upload --no-provenance --no-grep-verify
+
+lint-clippy: ## Run Clippy on rust-toy-app with warnings denied
+	cd rust-toy-app && cargo clippy --all-targets --all-features -- -D warnings
 
 lint-whitaker: ## Run the Whitaker Dylint suite on rust-toy-app with warnings denied
 	cd rust-toy-app && RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features

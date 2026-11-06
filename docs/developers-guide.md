@@ -802,6 +802,17 @@ Gate G3 is decided "Revise": efficiency is computed against `nproc`, the label
 is kept for cost, and steal is reported separately and never counted as busy.
 The formula needs no correction.
 
+## The toy app's nested cargo build
+
+`rust-toy-app/tests/manpage_generation.rs` runs `cargo build --frozen`: the
+crate commits its `Cargo.lock`, and the build must not resolve or fetch while
+it holds the package-cache lock, so the dependencies have to be in the cache
+already. `.config/nextest.toml` bounds that test with a serial
+`nested-cargo-builds` group, a 60-second slow-timeout terminating after ten
+periods, and a 30-minute global timeout. No workflow runs nextest today
+(`use-cargo-nextest: 'false'`); the file records the bound for anyone who does,
+via `--config-file ../.config/nextest.toml` from the crate directory.
+
 ## `setup-rust` and the mold linker
 
 `install-mold` installs a pinned mold release on Linux runners so that the

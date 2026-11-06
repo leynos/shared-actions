@@ -22,11 +22,11 @@ fn main() -> std::io::Result<()> {
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
     let out_dir = env::var("OUT_DIR")
         .map(PathBuf::from)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(std::io::Error::other)?;
     let target =
-        env::var("TARGET").map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        env::var("TARGET").map_err(std::io::Error::other)?;
     let profile =
-        env::var("PROFILE").map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        env::var("PROFILE").map_err(std::io::Error::other)?;
 
     // Prefer the explicit target directory set by cross / CARGO_TARGET_DIR.
     // Fall back to deriving the root from OUT_DIR's ancestor structure.
@@ -62,17 +62,17 @@ fn main() -> std::io::Result<()> {
 /// optional target triple component.
 fn derive_target_root(out_dir: &Path, target: &str, profile: &str) -> std::io::Result<PathBuf> {
     let structure_error = || {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("unexpected OUT_DIR structure: {}", out_dir.display()),
-        )
+        std::io::Error::other(format!(
+            "unexpected OUT_DIR structure: {}",
+            out_dir.display()
+        ))
     };
     let profile_dir = out_dir.ancestors().nth(3).ok_or_else(structure_error)?;
     if profile_dir.file_name().and_then(|name| name.to_str()) != Some(profile) {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("unexpected OUT_DIR profile: {}", out_dir.display()),
-        ));
+        return Err(std::io::Error::other(format!(
+            "unexpected OUT_DIR profile: {}",
+            out_dir.display()
+        )));
     }
     let profile_parent = profile_dir.parent().ok_or_else(structure_error)?;
     if profile_parent.file_name().and_then(|name| name.to_str()) == Some(target) {

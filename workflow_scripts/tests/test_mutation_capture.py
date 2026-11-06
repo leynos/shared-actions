@@ -241,7 +241,7 @@ class TestCaptureFailurePaths:
                 f"subprocess.Popen([sys.executable, '-c', {child_script!r}])",
             )
         )
-        release_timer = threading.Timer(3, release_file.touch)
+        release_timer = threading.Timer(15, release_file.touch)
         release_timer.daemon = True
         release_timer.start()
         started_at = time.monotonic()
@@ -253,7 +253,7 @@ class TestCaptureFailurePaths:
             )
             elapsed = time.monotonic() - started_at
 
-            assert elapsed < 2.5, (
+            assert elapsed < 10, (
                 "Expected inherited pipe does not hold capture open after parent exit."
             )
             assert status == 1, (

@@ -347,7 +347,7 @@ def capture_command(
         with contextlib.ExitStack() as stream_stack:
             stream_files: dict[str, typ.BinaryIO] = {
                 name: stream_stack.enter_context(
-                    (output_dir / f"{name}.log").open("wb", buffering=0)
+                    (output_dir / f"{name}.log").open("wb")
                 )
                 for name in ("stdout", "stderr")
             }

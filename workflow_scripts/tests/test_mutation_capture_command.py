@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import sys
-import typing as typ
+from pathlib import Path
+
+from plumbum import local
 
 from workflow_scripts import mutation_capture
 
-if typ.TYPE_CHECKING:
-    from pathlib import Path
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 class TestCaptureCommand:
@@ -137,4 +138,61 @@ class TestCaptureCommand:
         )
         assert metadata["exit_code"] == 127, (
             "Expected unstartable command is retained as startup diagnostic."
+        )
+
+    def test_cli_preserves_failure_status_and_writes_evidence(
+        self, tmp_path: Path
+    ) -> None:
+        """The command-line entry point propagates failure and writes evidence."""
+        output_dir = tmp_path / "diagnostics"
+        script = (
+            "import sys; print('cli stdout'); "
+            "print('cli stderr', file=sys.stderr); raise SystemExit(7)"
+        )
+        cli = local[sys.executable][
+            "-m",
+            "workflow_scripts.mutation_capture",
+            "--output-dir",
+            str(output_dir),
+            "--",
+            sys.executable,
+            "-c",
+            script,
+        ]
+
+        returncode, stdout, stderr = cli.run(retcode=None, cwd=REPOSITORY_ROOT)
+
+        assert returncode == 7, (
+            "Expected the CLI preserves failure status and writes evidence."
+        )
+        assert "cli stdout" in stdout, (
+            "Expected the CLI keeps the wrapped command output visible."
+        )
+        assert "cli stderr" in stderr, (
+            "Expected the CLI keeps the wrapped command output visible."
+        )
+        assert (output_dir / "stdout.log").read_text() == "cli stdout\n", (
+            "Expected the CLI retains both diagnostic streams."
+        )
+        assert (output_dir / "stderr.log").read_text() == "cli stderr\n", (
+            "Expected the CLI retains both diagnostic streams."
+        )
+        metadata = json.loads((output_dir / "metadata.json").read_text())
+        assert metadata["state"] == "complete", (
+            "Expected the CLI writes complete metadata for a failed command."
+        )
+        assert metadata["exit_code"] == 7, (
+            "Expected the CLI records the original failure status."
+        )
+
+        verify_code, _, verify_stderr = local[sys.executable][
+            "-m",
+            "workflow_scripts.mutation_capture",
+            "--output-dir",
+            str(output_dir),
+            "--verify-failure",
+        ].run(retcode=None, cwd=REPOSITORY_ROOT)
+
+        assert verify_code == 0, (
+            f"Expected complete failure evidence to verify: {verify_stderr}"
         )

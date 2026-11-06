@@ -1,0 +1,48 @@
+name: Test mutation-cargo Setup Rust post hook
+
+on:
+  pull_request:
+    paths:
+      - ".github/actions/setup-rust/**"
+      - ".github/workflows/mutation-cargo.yml"
+      - ".github/workflows/test-mutation-cargo-post-hook.yml"
+      - "workflow_scripts/tests/test_mutation_workflow_shape.py"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  post-hook:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: workflow-src
+          persist-credentials: false
+
+      - name: Isolate the cargo cache key
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'version = 4\n# mutation-cargo-post-hook-smoke\n' \
+            > workflow-src/Cargo.lock
+
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@62733fd653cc577f9858645d9a3e4daf90998c55
+        with:
+          cache-provider: 'github'
+          install-binstall: 'false'
+          use-sccache: 'false'
+          save-cache: 'true'
+
+      - name: Relocate workflow source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv -- "${GITHUB_WORKSPACE}/workflow-src" "${RUNNER_TEMP}/workflow-src"
+          test ! -e "${GITHUB_WORKSPACE}/workflow-src"
+          test -f "${RUNNER_TEMP}/workflow-src/.github/actions/setup-rust/action.yml"

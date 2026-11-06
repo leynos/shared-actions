@@ -103,6 +103,11 @@ HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ("mutation-cargo.yml", "mutants"): _MUTATION_REASON,
     ("mutation-cargo.yml", "summarize"): _MUTATION_REASON,
     ("mutation-mutmut.yml", "mutants"): _MUTATION_REASON,
+    ("test-mutation-cargo-post-hook.yml", "post-hook"): (
+        "This job verifies the GitHub-hosted Actions post phase after the "
+        "workflow checkout is relocated. Running it on Ubicloud would exercise "
+        "a different runner environment rather than the boundary under test."
+    ),
     ("dependabot-automerge.yml", "automerge"): (
         "A delayed-comment lane that waits on other checks rather than "
         "computing anything, and never blocks a developer."

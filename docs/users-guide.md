@@ -1508,6 +1508,20 @@ prebuilt binary before `setup-commands`; its `mdtablefix-version` defaults to
 checksum. The input defaults to off. See the
 [mutation workflow guide](mutation-cargo-workflow.md#installing-mdtablefix).
 
+A caller whose `mutmut run` fails also receives a
+`mutation-failure-diagnostics-mutmut` artefact holding `stdout.log`,
+`stderr.log` and `metadata.json`. The capture covers `uv` startup and the
+mutmut baseline, so a failure before the results listing or statistics file
+exists still leaves evidence. Each stream keeps its first 512 KiB;
+`metadata.json` records the bytes observed, retained and truncated together
+with the command's exit status. The diagnostic upload is independent of the
+`mutation-report-mutmut` results upload and treats missing evidence as a
+failure. Because the mutmut step uses a step timeout, a graceful cancellation
+still reaches verification and upload; a hard job cancellation can stop the job
+before those steps run, and diagnostics are then best-effort. A run with no
+relevant changes remains an intentional skip and produces no failure
+diagnostics.
+
 ## The problem
 
 The nested `actions-rust-lang/setup-rust-toolchain` action exports

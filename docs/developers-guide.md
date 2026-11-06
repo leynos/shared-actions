@@ -2823,6 +2823,14 @@ Internals for maintainers:
   `mutation_summarize_cargo.py` (merges shard `outcomes.json` artefacts and
   renders the job summary), and `mutation_run_mutmut.py` (module-glob scoping,
   results parsing, and summary in one pass — mutmut has no shard support).
+- The mutmut workflow runs its outer command through
+  `mutation_capture.py`, so failures during `uv` startup or the original-source
+  baseline leave bounded stdout/stderr evidence even when mutmut never writes
+  results or statistics. Each stream keeps its first 512 KiB; metadata records
+  the exit status and truncation counts. Failure diagnostics upload separately
+  from the optional result files, while a verification step makes missing or
+  incomplete evidence an explicit failure. A hard job cancellation can still
+  prevent verification and upload from running; no upload is guaranteed then.
 - Tool version pins default in the workflows because both report
   formats are unstable; a version bump must be paired with a parser check
   (`outcomes.json` fields for cargo-mutants; the `mutmut results --all true`

@@ -9,9 +9,12 @@ with function-scoped fixtures such as ``tmp_path``.
 
 from __future__ import annotations
 
+import io
+
 from hypothesis import given
 from hypothesis import strategies as st
 
+from workflow_scripts import mutation_capture
 from workflow_scripts import mutation_detect_changes as detect
 from workflow_scripts import mutation_run_mutmut as run_mutmut
 from workflow_scripts import mutation_summarize_cargo as summarize
@@ -130,3 +133,32 @@ def test_scoped_matrix_strips_target_dir_prefix(files: list[str]) -> None:
     for relative in entries[0].files.split():
         assert not relative.startswith("extra/")
         assert relative.startswith("src/")
+
+
+@given(
+    max_bytes=st.integers(min_value=1, max_value=4096),
+    stdout_chunks=st.lists(st.binary(max_size=1024), max_size=20),
+    stderr_chunks=st.lists(st.binary(max_size=1024), max_size=20),
+)
+def test_capture_retains_independent_bounded_stream_prefixes(
+    max_bytes: int,
+    stdout_chunks: list[bytes],
+    stderr_chunks: list[bytes],
+) -> None:
+    """Each stream keeps its own prefix with exact byte accounting."""
+    streams = {name: io.BytesIO() for name in ("stdout", "stderr")}
+    evidence = mutation_capture._CaptureEvidence(max_bytes, streams)
+
+    for chunk in stdout_chunks:
+        evidence._record_chunk("stdout", chunk)
+    for chunk in stderr_chunks:
+        evidence._record_chunk("stderr", chunk)
+
+    for name, chunks in (("stdout", stdout_chunks), ("stderr", stderr_chunks)):
+        expected = b"".join(chunks)
+        assert streams[name].getvalue() == expected[:max_bytes]
+        assert evidence.counts[name]["bytes_seen"] == len(expected)
+        assert evidence.counts[name]["bytes_saved"] == min(len(expected), max_bytes)
+        assert evidence.counts[name]["truncated_bytes"] == max(
+            0, len(expected) - max_bytes
+        )

@@ -1,0 +1,24 @@
+# cargo-nextest configuration for the repository's Rust test crates.
+#
+# Scope: `rust-toy-app` is the only Rust crate with tests, and one of them,
+# `manpage_generation`, starts a child `cargo build`. Nothing in the workflows
+# runs nextest today (`use-cargo-nextest: 'false'`), so this file records the
+# bound for anyone who does, from the repository root or with
+# `--config-file .config/nextest.toml` from the crate.
+
+[profile.default]
+# Surface hangs without failing legitimately slow tests. Warn after 60 s and
+# terminate a test that has run for five warning periods (300 s).
+slow-timeout = { period = "60s", terminate-after = 5 }
+# The whole run; strictly above the largest per-test allowance (600 s, below).
+global-timeout = "30m"
+
+[test-groups.nested-cargo-builds]
+# Tests that start a child cargo run one at a time, so a cold build is bounded
+# by its own allowance and not by contention for the package-cache lock.
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'binary(=manpage_generation)'
+test-group = "nested-cargo-builds"
+slow-timeout = { period = "60s", terminate-after = 10 }

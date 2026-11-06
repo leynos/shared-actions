@@ -87,6 +87,8 @@ fn run_with_python(script: &str, runtime: &str, module_dir: &Path) -> bool {
     }
 }
 
+/// Reports whether the named container runtime (for example `docker`) is available to the
+/// action's helpers, using the probe described above.
 pub fn runtime_available(name: &str) -> bool {
     let module_dir = runtime_module_dir();
     let script = r#"

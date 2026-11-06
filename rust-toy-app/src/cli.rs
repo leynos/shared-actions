@@ -1,6 +1,7 @@
 //! Command-line interface for `rust-toy-app`. Provides argument parsing and behaviour.
 use clap::{Parser, CommandFactory};
 
+/// Arguments of the toy app: an optional name to greet.
 #[derive(Parser, Debug)]
 #[command(name = "rust-toy-app", about = "A toy app for E2E tests.", version, author)]
 pub struct Cli {

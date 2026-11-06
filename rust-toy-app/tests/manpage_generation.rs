@@ -1,3 +1,5 @@
+//! Checks that the build script writes the toy app's manual page.
+
 mod common;
 
 use assert_cmd::prelude::*;

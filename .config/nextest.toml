@@ -3,8 +3,10 @@
 # Scope: `rust-toy-app` is the only Rust crate with tests, and one of them,
 # `manpage_generation`, starts a child `cargo build`. Nothing in the workflows
 # runs nextest today (`use-cargo-nextest: 'false'`), so this file records the
-# bound for anyone who does, from the repository root or with
-# `--config-file .config/nextest.toml` from the crate.
+# bound for anyone who does. nextest loads `.config/nextest.toml` from the
+# workspace root it finds, which for the standalone `rust-toy-app` crate is the
+# crate directory, not this file; from `rust-toy-app/` run
+# `cargo nextest run --config-file ../.config/nextest.toml`.
 
 [profile.default]
 # Surface hangs without failing legitimately slow tests. Warn after 60 s and

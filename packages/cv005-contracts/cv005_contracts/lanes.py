@@ -73,10 +73,25 @@ def pull_request_lane_violations(
         for name, step in lanes
         if not is_false(inputs_of(step).get("publish-artefact"))
     ]
-    return found + [
+    found += [
         f"{name}: generate-coverage may not set publish-baseline"
         for name, step in lanes
         if "publish-baseline" in inputs_of(step)
+    ]
+    return found + _build_only_violations(lanes)
+
+
+def _build_only_violations(lanes: list[tuple[str, dict[str, object]]]) -> list[str]:
+    """Refuse `build-only` on a lane.
+
+    The input exempts a step from the generator rules, so a lane that could
+    set it would measure with no ratchet and no pairing. A warm-up belongs to
+    the publisher.
+    """
+    return [
+        f"{name}: generate-coverage may not set build-only"
+        for name, step in lanes
+        if "build-only" in inputs_of(step)
     ]
 
 

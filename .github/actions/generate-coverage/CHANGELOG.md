@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add the pieces for splitting main coverage across runner providers: a
+  `publish-baseline: never` value (no restore, ratchet or save), a
+  `baseline-artefact-name` input that hands the measured figures on from a
+  successful trunk push, a `build-only` input that compiles the instrumented
+  test binaries without running them, and the companion
+  `publish-coverage-baseline` action that ratchets and saves the handed-over
+  figures. Defaults leave every existing caller unchanged.
+
 - Never archive or reuse an interpreter-bound uv script environment. `uv run`
   builds each PEP 723 script environment under `environments-v2`, bound to the
   interpreter that built it. A cache restored on a runner whose Python patch

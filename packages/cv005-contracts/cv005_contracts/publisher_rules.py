@@ -10,6 +10,7 @@ import typing as typ
 
 from .expressions import ConditionError, missing_terms
 from .publisher import (
+    BASELINE_ACTION,
     COVERAGE_ACTION,
     PERMITTED_TRIGGERS,
     PINNED_COMMIT,
@@ -17,12 +18,14 @@ from .publisher import (
     UPLOAD_ACTION,
     action_steps,
     availability_ids,
+    generates_coverage,
+    invokes,
     pin_of,
     upload_guard,
     upload_step,
 )
 from .reach import TRUNK_FILTERS
-from .reading import jobs, texts, trigger_filters, triggers
+from .reading import jobs, steps, texts, trigger_filters, triggers
 
 if typ.TYPE_CHECKING:
     from .loading import Document
@@ -150,6 +153,100 @@ def condition_violations(document: Document) -> list[str]:
         for step in action_steps(document, UPLOAD_ACTION)
         if "continue-on-error" in step
     ]
+
+
+def baseline_publisher_violations(document: Document) -> list[str]:
+    """Require a baseline publisher wherever a generator hands its figures on.
+
+    A generator with `publish-baseline: never` neither ratchets nor saves, so
+    without a publisher the baseline would stop advancing without any job
+    failing. Some other job must `needs` the generator's job and run
+    `publish-coverage-baseline` on the artefact the generator names.
+
+    Parameters
+    ----------
+    document : Document
+        The publisher workflow document.
+
+    Returns
+    -------
+    list[str]
+        Every generator that hands over with no publisher to receive it.
+
+    """
+    return [
+        f"job {name} generates coverage with publish-baseline: never but no job "
+        "that needs it runs publish-coverage-baseline on the "
+        "baseline-artefact-name it sets"
+        for name, job in jobs(document).items()
+        for step in steps(job)
+        if _hands_over(step) and not _is_received(document, name, step)
+    ]
+
+
+def _hands_over(step: dict[str, object]) -> bool:
+    """Return whether a measuring step declines to publish its baseline."""
+    return generates_coverage(step) and _input(step, "publish-baseline") == "never"
+
+
+#: The baseline paths a generator and its publisher must agree on. They are
+#: part of a cache entry's version, so a publisher saving other paths saves an
+#: entry the pull-request lanes cannot restore.
+BASELINE_PATH_INPUTS: typ.Final[dict[str, str]] = {
+    "baseline-rust-file": ".coverage-baseline.rust",
+    "baseline-python-file": ".coverage-baseline.python",
+}
+
+
+def _is_received(document: Document, producer: str, step: dict[str, object]) -> bool:
+    """Return whether `step`'s hand-over has a sound publisher after it."""
+    artefact = _input(step, "baseline-artefact-name")
+    return bool(artefact) and any(
+        _accepts(step, receiver)
+        for receiver in _receivers(document, producer, artefact)
+    )
+
+
+def _receivers(
+    document: Document, producer: str, artefact: object
+) -> list[dict[str, object]]:
+    """Return the publisher steps in jobs needing `producer` for `artefact`."""
+    return [
+        step
+        for name, job in jobs(document).items()
+        if name != producer and producer in _needs(job)
+        for step in steps(job)
+        if invokes(step, BASELINE_ACTION) and _input(step, "artefact-name") == artefact
+    ]
+
+
+def _accepts(generator: dict[str, object], receiver: dict[str, object]) -> bool:
+    """Return whether a receiver always runs, fails the job, and fits the paths.
+
+    A step with an `if` or `continue-on-error` could leave the baseline
+    unchanged under a green run, and one saving other paths saves an entry no
+    lane restores.
+    """
+    return not _skipping_keys(receiver) and all(
+        _path(generator, key) == _path(receiver, key) for key in BASELINE_PATH_INPUTS
+    )
+
+
+def _path(step: dict[str, object], name: str) -> object:
+    """Return a baseline path input, or the action's default when it is unset."""
+    return _input(step, name) or BASELINE_PATH_INPUTS[name]
+
+
+def _input(step: dict[str, object], name: str) -> object:
+    """Return one `with` input of a step, or None when it has no such input."""
+    inputs = step.get("with")
+    return inputs.get(name) if isinstance(inputs, dict) else None
+
+
+def _needs(job: dict[str, object]) -> list[object]:
+    """Return a job's `needs` as a list, which YAML allows to be a scalar."""
+    needed = job.get("needs") or []
+    return needed if isinstance(needed, list) else [needed]
 
 
 def _skipping_keys(holder: dict[str, object]) -> list[str]:

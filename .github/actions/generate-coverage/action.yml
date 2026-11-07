@@ -87,9 +87,34 @@ inputs:
       push to any other branch, read the baseline without advancing it. Use
       "always" when a repository's merges fire no push event, or when its trunk
       is not called main; the calling workflow is then responsible for
-      restricting the job to its trunk.
+      restricting the job to its trunk. "never" makes this job neither read
+      nor save a baseline and run no ratchet: use it where the job runs on a
+      runner whose cache store the pull-request lanes cannot read, so a check
+      here could never fail. Pair it with `baseline-artefact-name` and the
+      `publish-coverage-baseline` action on a job that shares the pull-request
+      lanes' cache store.
     required: false
     default: auto
+  baseline-artefact-name:
+    description: >-
+      Hand the measured coverage figures on as a workflow artefact of this
+      name, for the `publish-coverage-baseline` action to ratchet and save.
+      Honoured only with `publish-baseline: never`, `with-ratchet: true` and a
+      successful run of a push to refs/heads/main, so a failed run or a
+      dispatch never hands a figure on. Empty (the default) hands nothing on.
+    required: false
+    default: ''
+  build-only:
+    description: >-
+      Compile the instrumented test binaries and stop: no tests run, and no
+      report, ratchet, baseline or coverage artefact is produced. The build
+      uses the environment `cargo llvm-cov show-env` prints and the target
+      directory `cargo llvm-cov` builds in, with the same feature and target
+      selection, so its compiler-cache entries are the ones a later coverage
+      run reads. `cargo llvm-cov --no-run` is not used: it means "report
+      without running". `output-path` is still required but unused.
+    required: false
+    default: "false"
   artefact-name-suffix:
     description: Optional suffix appended to the coverage artefact name
     required: false
@@ -178,9 +203,9 @@ runs:
         # a baseline that silently stopped advancing.
         set -euo pipefail
         case "$GC_PUBLISH_BASELINE" in
-          auto|always) ;;
+          auto|always|never) ;;
           *)
-            echo "::error title=Invalid publish-baseline::expected auto or always, got '"'"'${GC_PUBLISH_BASELINE}'"'"'" >&2
+            echo "::error title=Invalid publish-baseline::expected auto, always or never, got '"'"'${GC_PUBLISH_BASELINE}'"'"'" >&2
             exit 1
             ;;
         esac
@@ -245,7 +270,7 @@ runs:
       shell: bash
     - name: Restore baselines
       id: restore-baselines
-      if: inputs.with-ratchet == 'true'
+      if: inputs.with-ratchet == 'true' && inputs.publish-baseline != 'never' && inputs.build-only != 'true'
       # The restore sub-action, not the full `actions/cache` action: the full
       # action also registers a post-job save on its primary key, which the
       # "Save baselines" step below already writes. Both firing on the same
@@ -264,7 +289,7 @@ runs:
         key: ratchet-baseline-${{ runner.os }}-${{ steps.interpreter.outputs.baseline-segment }}${{ github.run_id }}
         restore-keys: ratchet-baseline-${{ runner.os }}-${{ steps.interpreter.outputs.baseline-segment }}
     - name: Ensure baseline files
-      if: inputs.with-ratchet == 'true'
+      if: inputs.with-ratchet == 'true' && inputs.publish-baseline != 'never' && inputs.build-only != 'true'
       run: |
         if [ ! -f "${{ inputs.baseline-rust-file }}" ]; then
           mkdir -p "$(dirname '${{ inputs.baseline-rust-file }}')"
@@ -316,6 +341,7 @@ runs:
         INPUT_ALL_TARGETS: ${{ inputs.all-targets }}
         INPUT_ALLOW_NO_TESTS: ${{ inputs.allow-no-tests }}
         INPUT_DOCTESTS: ${{ inputs.doctests }}
+        INPUT_BUILD_ONLY: ${{ inputs.build-only }}
         INPUT_USE_CARGO_NEXTEST: ${{ inputs.use-cargo-nextest }}
         INPUT_WITH_CUCUMBER_RS: ${{ inputs.with-cucumber-rs }}
         INPUT_CUCUMBER_RS_FEATURES: ${{ inputs.cucumber-rs-features }}
@@ -411,7 +437,7 @@ runs:
         fi
 
     - id: python
-      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
+      if: inputs.build-only != 'true' && (steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed')
       run: uv run --script "${{ github.action_path }}/scripts/run_python.py"
       env:
         DETECTED_LANG: ${{ steps.detect.outputs.lang }}
@@ -422,7 +448,7 @@ runs:
         INPUT_PYTEST_WORKERS: ${{ inputs.pytest-workers }}
         INPUT_PYTHON_SOURCE: ${{ inputs.python-source }}
       shell: bash
-    - if: steps.detect.outputs.lang == 'mixed'
+    - if: inputs.build-only != 'true' && steps.detect.outputs.lang == 'mixed'
       run: uv run --script "${{ github.action_path }}/scripts/merge_cobertura.py"
       env:
         RUST_FILE: ${{ steps.rust.outputs.file }}
@@ -430,7 +456,7 @@ runs:
         OUTPUT_PATH: ${{ inputs.output-path }}
       shell: bash
     - name: Ratchet coverage
-      if: inputs.with-ratchet == 'true'
+      if: inputs.with-ratchet == 'true' && inputs.publish-baseline != 'never' && inputs.build-only != 'true'
       run: |
         set -euo pipefail
         ratchet() {
@@ -471,6 +497,7 @@ runs:
       # publish-baseline: always and restricts the job itself.
       if: >-
         success() && inputs.with-ratchet == 'true' &&
+        inputs.publish-baseline != 'never' && inputs.build-only != 'true' &&
         (inputs.publish-baseline == 'always' ||
         (github.event_name == 'push' && github.ref == 'refs/heads/main'))
       # v6.1.0
@@ -535,6 +562,45 @@ runs:
             "- baseline save: $save_outcome" >> "$GITHUB_STEP_SUMMARY"
         fi
 
+    - name: Collect baseline hand-over
+      id: handover
+      if: >-
+        success() && inputs.with-ratchet == 'true' &&
+        inputs.publish-baseline == 'never' && inputs.build-only != 'true' &&
+        inputs.baseline-artefact-name != '' &&
+        github.event_name == 'push' && github.ref == 'refs/heads/main'
+      shell: bash
+      env:
+        GC_HANDOVER_DIR: ${{ runner.temp }}/coverage-baseline-handover
+        GC_LANG: ${{ steps.detect.outputs.lang }}
+        GC_RUST_PERCENT: ${{ steps.rust.outputs.percent }}
+        GC_PYTHON_PERCENT: ${{ steps.python.outputs.percent }}
+        GC_SEGMENT: ${{ steps.interpreter.outputs.baseline-segment }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$GC_HANDOVER_DIR"
+        printf '%s\n' "$GC_LANG" > "$GC_HANDOVER_DIR/lang"
+        printf '%s\n' "$GC_SEGMENT" > "$GC_HANDOVER_DIR/segment"
+        # An empty figure would reach the publishing job as a bare Typer parse
+        # error; fail here, where the cause is known.
+        if [[ "$GC_LANG" == "rust" || "$GC_LANG" == "mixed" ]]; then
+          [[ -n "$GC_RUST_PERCENT" ]] || { echo "::error::Rust coverage percent is empty" >&2; exit 1; }
+          printf '%s\n' "$GC_RUST_PERCENT" > "$GC_HANDOVER_DIR/rust.percent"
+        fi
+        if [[ "$GC_LANG" == "python" || "$GC_LANG" == "mixed" ]]; then
+          [[ -n "$GC_PYTHON_PERCENT" ]] || { echo "::error::Python coverage percent is empty" >&2; exit 1; }
+          printf '%s\n' "$GC_PYTHON_PERCENT" > "$GC_HANDOVER_DIR/python.percent"
+        fi
+        echo "path=$GC_HANDOVER_DIR" >> "$GITHUB_OUTPUT"
+    - name: Upload baseline hand-over
+      if: steps.handover.outcome == 'success'
+      # The pin "Archive coverage" below uses.
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: ${{ inputs.baseline-artefact-name }}
+        path: ${{ steps.handover.outputs.path }}
+        retention-days: 1
+        if-no-files-found: error
     - id: out
       # Run even after a *later* failure (for example a ratchet gate that
       # trips) so the coverage outputs are still computed. Without this the
@@ -545,7 +611,7 @@ runs:
       # raise "Coverage format is required" — a second failure of exactly the
       # kind this guard removes. Skipping `out` there lets the archive's
       # name fallback carry the upload while the real detection error surfaces.
-      if: ${{ always() && steps.detect.outputs.fmt != '' }}
+      if: ${{ always() && steps.detect.outputs.fmt != '' && inputs.build-only != 'true' }}
       # The two hyphenated inputs reach the script as explicit command-line
       # arguments, which they must: those are the values it composes the
       # artefact name from.
@@ -589,7 +655,7 @@ runs:
       # that must not publish the report at all sets `publish-artefact: false`,
       # because the file the action generates is otherwise readable by any step
       # in the job.
-      if: always() && inputs.publish-artefact == 'true'
+      if: always() && inputs.publish-artefact == 'true' && inputs.build-only != 'true'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         # Fall back to a run-scoped name when `out` could not compute one (for

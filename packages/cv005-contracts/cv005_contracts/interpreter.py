@@ -16,7 +16,13 @@ import re
 import typing as typ
 
 from .parity import generator_env, inputs_of, python_key
-from .publisher import COVERAGE_ACTION, action_steps, invokes, position
+from .publisher import (
+    COVERAGE_ACTION,
+    action_steps,
+    generator_steps,
+    invokes,
+    position,
+)
 from .reading import jobs, steps
 
 if typ.TYPE_CHECKING:
@@ -83,7 +89,7 @@ def interpreter_violations(
 
 def _publisher_violations(publisher: Document, interpreter: str) -> list[str]:
     """Judge the publisher's generators, which must exist."""
-    generators = action_steps(publisher, COVERAGE_ACTION)
+    generators = generator_steps(publisher)
     problems = [
         problem
         for step in generators

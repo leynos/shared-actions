@@ -103,7 +103,10 @@ def test_archive_step_honours_the_publication_opt_out() -> None:
     masking fix above is unaffected.
     """
     archive = _step_by_name("Archive coverage")
-    assert str(archive["if"]) == ("always() && inputs.publish-artefact == 'true'"), (
+    # `build-only` runs produce no report, so there is nothing to archive.
+    assert str(archive["if"]) == (
+        "always() && inputs.publish-artefact == 'true' && inputs.build-only != 'true'"
+    ), (
         "the archive step must upload only when always() holds and the caller "
         "did not opt out; any other expression either ignores the opt-out or "
         "inverts it"

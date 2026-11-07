@@ -16,6 +16,10 @@ from _action_manifest import ACTION_PATH, manifest_steps, step_by_name
 
 
 def _script(name: str) -> str:
+    """Return the ``run`` body of the named workflow step.
+
+    Raises ``AssertionError`` if that body is not a string.
+    """
     run = step_by_name(name)["run"]
     assert isinstance(run, str), "expected: isinstance(run, str)"
     return run

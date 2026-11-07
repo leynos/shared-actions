@@ -138,6 +138,7 @@ def test_a_failed_lookup_finds_nothing_whatever_it_prints(
     """A non-zero ``uv python find`` is a miss even when it wrote a path."""
 
     def failing_find(_command: list[str]) -> tuple[int, str]:
+        """Return exit status 2 with a path, as a failed ``uv python find`` does."""
         return 2, "/usr/bin/python3\n"
 
     assert resolver.find_interpreter("3.13", failing_find) is None
@@ -197,6 +198,10 @@ def test_resolve_fails_when_an_installed_interpreter_stays_missing(
     """An install that uv then cannot find fails rather than guessing a path."""
 
     def install_succeeds_find_fails(command: list[str]) -> tuple[int, str]:
+        """Succeed for ``uv python install`` and fail every other command.
+
+        Any other command returns exit status 2 with no output.
+        """
         return (0, "") if command[:3] == ["uv", "python", "install"] else (2, "")
 
     with pytest.raises(resolver.ResolutionError, match="could not find it"):

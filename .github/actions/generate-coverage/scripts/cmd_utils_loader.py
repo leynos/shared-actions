@@ -21,6 +21,7 @@ class RepoRootNotFoundError(RuntimeError):
     """Repository root not found."""
 
     def __init__(self, searched: str) -> None:
+        """Record the searched locations and build the error message."""
         self.searched = searched
         super().__init__(f"{ERROR_REPO_ROOT_NOT_FOUND}; searched: {searched}")
 
@@ -35,6 +36,12 @@ class CmdUtilsImportError(RuntimeError):
         *,
         original_exception: Exception | None = None,
     ) -> None:
+        """Build the error message from the path, symbol and cause.
+
+        When ``symbol`` is given, the message names it as missing from ``path``.
+        When ``original_exception`` is given, its type and message are appended as
+        the cause.
+        """
         detail = f"'{symbol}' not found in {path}" if symbol is not None else str(path)
         cause = (
             f" (cause: {type(original_exception).__name__}: {original_exception})"
@@ -81,6 +88,11 @@ def load_cmd_utils() -> ModuleType:
 
 @cache
 def _get_cmd_utils() -> ModuleType:
+    """Return the cached ``cmd_utils`` module, loading it on first call.
+
+    Only successful loads are cached. An exception from ``load_cmd_utils``
+    propagates and the load is retried on the next call.
+    """
     return load_cmd_utils()
 
 

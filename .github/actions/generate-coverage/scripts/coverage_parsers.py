@@ -59,6 +59,11 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
         raise typer.Exit(1) from exc
 
     def num_or_zero(expr: str) -> int:
+        """Return an XPath expression's numeric value as an int, or 0.
+
+        The expression is wrapped in ``number()``. Returns 0 if the query raises or
+        the result is NaN. Otherwise the value is truncated towards zero.
+        """
         try:
             n = typ.cast("float", root.xpath(f"number({expr})"))
         except Exception:  # noqa: BLE001 - defensive
@@ -67,6 +72,11 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
             return 0 if math.isnan(n) else int(n)
 
     def lines_from_detail() -> tuple[int, int]:
+        """Return ``(covered, total)`` line counts from the per-class line detail.
+
+        Counts the ``//class/lines/line`` elements, and those whose ``hits`` is above
+        zero. Returns ``(0, 0)`` if an XPath query raises.
+        """
         try:
             total = int(typ.cast("float", root.xpath("count(//class/lines/line)")))
             covered = int(
@@ -103,6 +113,12 @@ def get_line_coverage_percent_from_lcov(lcov_file: Path) -> str:
         raise typer.Exit(1) from exc
 
     def total(tag: str) -> int:
+        """Sum the integer values of every lcov record with the given tag.
+
+        Matches lines of the form ``TAG:<digits>`` in the file text. If conversion
+        raises ``ValueError``, the malformed data is reported and the process exits
+        with status 1.
+        """
         values = re.findall(rf"^{tag}:(\d+)$", text, flags=re.MULTILINE)
         try:
             return sum(int(v) for v in values)

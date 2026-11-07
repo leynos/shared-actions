@@ -30,6 +30,7 @@ def run_scenario(tmp_path: Path) -> ScenarioRunner:
     """Return a callable running one scenario under a fresh directory."""
 
     def _run(scenario: InstallScenario) -> InstallRun:
+        """Run one install scenario in a ``case`` directory under ``tmp_path``."""
         return run_install_scenario(tmp_path / "case", scenario)
 
     return _run

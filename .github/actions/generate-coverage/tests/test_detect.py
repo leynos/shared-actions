@@ -38,6 +38,12 @@ def setup_project(
         files: dict[str, str] | None = None,
         initial_output: str | None = None,
     ) -> tuple[Path, Path]:
+        """Create a project directory and output file, then make it current.
+
+        Each ``files`` entry is written beneath the project directory, creating
+        parent directories as needed. ``gh.txt`` starts empty unless
+        ``initial_output`` is given. Returns ``(project_dir, out)``.
+        """
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         for rel_path, content in (files or {}).items():

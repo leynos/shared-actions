@@ -53,6 +53,12 @@ def _responses(
     served = [0]
 
     def fake_read(url: str, token: str | None) -> bytes:
+        """Return the manifest for ``.json`` URLs, or the next queued release listing.
+
+        Each other call consumes one page. The last page repeats once the queue is
+        exhausted, and a queued exception is raised instead of returned. The token is
+        ignored.
+        """
         if url.endswith(".json"):
             return json.dumps(MANIFEST).encode()
         index = min(served[0], len(pages) - 1)

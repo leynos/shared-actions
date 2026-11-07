@@ -104,6 +104,7 @@ class _ThreadRecordCounter(logging.Handler):
     """
 
     def __init__(self, owner: int) -> None:
+        """Start with no records, keeping only those from thread ``owner``."""
         super().__init__()
         self._owner = owner
         self.records: list[logging.LogRecord] = []

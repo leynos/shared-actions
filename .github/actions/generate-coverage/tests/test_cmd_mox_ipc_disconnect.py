@@ -77,6 +77,7 @@ class _ThreadFinished:
     __slots__ = ("_done", "_flagged", "_lock", "_originals")
 
     def __init__(self) -> None:
+        """Start with an unset event, no flagged threads and no saved originals."""
         self._done = threading.Event()
         self._flagged: set[int] = set()
         self._lock = threading.Lock()
@@ -95,6 +96,7 @@ class _ThreadFinished:
         self._originals = {"process": process, "thread": thread_entry}
 
         def process_with_mark(server: object, raw: bytes) -> object:
+            """Flag the current thread if ``raw`` contains the marker, then delegate."""
             if _MARKER in raw:
                 with signal._lock:
                     signal._flagged.add(threading.get_ident())
@@ -105,6 +107,11 @@ class _ThreadFinished:
             request: object,
             client_address: object,
         ) -> None:
+            """Run the thread entry, then set ``_done`` if this thread was flagged.
+
+            The flag is checked in a ``finally`` block, so the event is set even when
+            the request raises.
+            """
             try:
                 thread_entry(server, request, client_address)
             finally:
@@ -164,6 +171,7 @@ class _AlwaysFails:
     """Stand-in writer that raises *error* on every write."""
 
     def __init__(self, error: BaseException) -> None:
+        """Store the exception to raise on every write."""
         self._error = error
 
     def write(self, data: bytes) -> int:
@@ -178,6 +186,7 @@ class _Recorder:
     """Stand-in writer that accumulates written bytes."""
 
     def __init__(self) -> None:
+        """Start with no bytes recorded."""
         self.data = b""
 
     def write(self, data: bytes) -> int:
@@ -233,12 +242,16 @@ def test_guard_forwards_flush_to_the_wrapped_stream() -> None:
     """
 
     class _Stream:
+        """Stub stream that records whether ``flush`` was called."""
+
         flushed = False
 
         def write(self, data: bytes) -> int:
+            """Report the whole buffer as written."""
             return len(data)
 
         def flush(self) -> None:
+            """Record that the stream was flushed."""
             self.flushed = True
 
     stream = _Stream()
@@ -253,7 +266,10 @@ def test_guard_forwards_other_stream_attributes() -> None:
     sentinel = object()
 
     class _Stream:
+        """Stub stream that reports writes and keeps no state."""
+
         def write(self, data: bytes) -> int:
+            """Report the whole buffer as written."""
             return len(data)
 
         def flush(self) -> None:
@@ -283,6 +299,7 @@ def test_abandoned_client_does_not_print_a_server_traceback(
     guarded_setup = handler.setup
 
     def unguarded_setup(self: object) -> None:
+        """Set up the handler as upstream does, with no disconnect guard."""
         # The upstream implementation: attach the raw writer with no guard.
         socketserver.StreamRequestHandler.setup(self)  # type: ignore[arg-type]
 

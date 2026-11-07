@@ -49,21 +49,31 @@ def run_rust(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 
 
 def _load(path: Path) -> dict[str, typ.Any]:
+    """Parse a YAML file, asserting that its top level is a mapping."""
     loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert isinstance(loaded, dict)
     return loaded
 
 
 def _steps(path: Path) -> list[dict[str, typ.Any]]:
+    """Return the ``runs.steps`` list from an action YAML file."""
     return _load(path)["runs"]["steps"]
 
 
 def _step(path: Path, name: str) -> dict[str, typ.Any]:
+    """Return the single step with the given ``name``.
+
+    Raises ``ValueError`` from the unpacking if zero or several steps match.
+    """
     (match,) = [step for step in _steps(path) if step.get("name") == name]
     return match
 
 
 def _condition(step: dict[str, typ.Any]) -> str:
+    """Return the step's ``if`` expression with whitespace collapsed.
+
+    A step without an ``if`` key yields an empty string.
+    """
     return " ".join(str(step.get("if", "")).split())
 
 
@@ -96,6 +106,7 @@ def test_validator_accepts_never_and_still_refuses_a_typo() -> None:
     probe = f"GC_PUBLISH_BASELINE=$1\n{script}"
 
     def run(value: str) -> int:
+        """Run the validator script with ``value`` and return its exit status."""
         return subprocess.run(  # noqa: S603,TID251 - fixed argv, test-only
             ["bash", "-c", probe, "probe", value],  # noqa: S607
             capture_output=True,
@@ -310,6 +321,7 @@ def test_build_only_drops_the_variables_a_real_run_never_sets(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
+        """Record each call's arguments and env overrides, then return canned output."""
         calls.append((args, dict(env_overrides or {})))
         return printed
 
@@ -397,6 +409,11 @@ def test_an_empty_profile_name_is_not_rebased(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
+        """Return a ``show-env`` listing with an empty profile name.
+
+        For any other call, the environment overrides are recorded in ``seen`` and
+        empty output is returned.
+        """
         if args[:2] == ["llvm-cov", "show-env"]:
             return "LLVM_PROFILE_FILE=''\nCARGO_LLVM_COV_TARGET_DIR=/w/target\n"
         seen.update(env_overrides or {})
@@ -459,6 +476,11 @@ def _stub_show_env(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
+        """Return the stubbed ``show-env`` output.
+
+        For any other call, the environment overrides are recorded in ``seen`` and
+        empty output is returned.
+        """
         if args[:2] == ["llvm-cov", "show-env"]:
             return printed
         seen.update(env_overrides or {})

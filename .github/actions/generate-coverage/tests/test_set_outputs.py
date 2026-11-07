@@ -88,12 +88,14 @@ def test_build_artefact_name_normalizes_components(
     assert result == "cobertura-coverage-linux-3-ubuntu-x86_64-nightly-build"
 
 
-def test_detect_runner_labels_fallbacks(  # noqa: D103 - docstring via fixture name
+def test_detect_runner_labels_fallbacks(
     monkeypatch: pytest.MonkeyPatch, set_outputs_module: ModuleType
 ) -> None:
+    """Use the supplied runner labels, lowercased, when platform lookup fails."""
     module = set_outputs_module
 
     def raise_oserror() -> str:
+        """Raise ``OSError`` to simulate an unavailable platform lookup."""
         message = "platform unavailable"
         raise OSError(message)
 

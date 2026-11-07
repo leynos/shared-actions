@@ -264,6 +264,7 @@ class TestEmptyRunEndToEnd:
 
     @staticmethod
     def _write_inventory(tmp_path: Path, entries: str) -> None:
+        """Write *entries* to the mutants.json inventory under *tmp_path*."""
         inventory = tmp_path / "mutants.out" / "mutants.json"
         inventory.parent.mkdir(parents=True, exist_ok=True)
         inventory.write_text(entries, encoding="utf-8")

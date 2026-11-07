@@ -64,6 +64,8 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     # only tier that covers that without inventing a new one.
     ("ci.yml", "act-workflows"): "coverage",
     ("coverage-main.yml", "coverage-upload"): "coverage",
+    # Restores, compares and saves two small files; it compiles nothing.
+    ("coverage-main.yml", "coverage-baseline"): "install",
     ("rust-toy-app.yml", "build-release"): "build",
     ("test-determine-release-modes.yml", "test-determine-modes"): "assertion",
     ("test-export-cargo-metadata.yml", "test-export-metadata"): "assertion",

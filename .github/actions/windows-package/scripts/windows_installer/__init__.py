@@ -183,7 +183,10 @@ def _normalize_identifier(prefix: str, value: str, used: set[str]) -> str:
 
 
 def _normalize_directory_name(value: str) -> str:
-    """Return a Windows-safe directory name, defaulting to ``Application``."""
+    """Return the name with reserved path characters replaced by underscores.
+
+    A blank name becomes ``Application``. Reserved device names are not changed.
+    """
     cleaned = value.strip()
     if not cleaned:
         return "Application"
@@ -360,7 +363,7 @@ def _parse_upgrade_code(
     chosen_product: str,
     chosen_manufacturer: str,
 ) -> UUID:
-    """Return the upgrade code UUID, deriving one when none is supplied.
+    """Return the upgrade code UUID, deriving one when none or "" is supplied.
 
     Raise TemplateError if the supplied code is not a valid UUID.
     """

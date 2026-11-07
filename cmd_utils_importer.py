@@ -28,7 +28,7 @@ class CmdUtilsDiscoveryError(RuntimeError):
 
 
 def _action_path() -> Path:
-    """Return the resolved ``GITHUB_ACTION_PATH`` directory.
+    """Return the resolved ``GITHUB_ACTION_PATH`` path.
 
     Raise CmdUtilsDiscoveryError if the variable is unset or the path does not
     exist.

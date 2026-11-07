@@ -220,7 +220,7 @@ class StubManager:
         *,
         default: DefaultResponse,
     ) -> typ.Callable[[Invocation], Response]:
-        """Return a handler that answers each invocation from ``variants``."""
+        """Return a handler that answers from ``variants``, else from ``default``."""
         # Collect (match pattern, response spec) pairs so replay can scan quickly.
         prepared, default_spec = self._prepare_variants(variants, default)
 

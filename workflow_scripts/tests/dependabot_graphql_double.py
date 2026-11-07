@@ -321,7 +321,7 @@ def build_graphql(
     def handler(
         _token: str, query: str, variables: dict[str, JsonValue]
     ) -> dict[str, JsonValue]:
-        """Answer a mutation from the record, or serve the requested commit page."""
+        """Record and answer a mutation, or serve the requested commit page."""
         mutation = mutation_response(query, variables, calls)
         if mutation is not None:
             return mutation

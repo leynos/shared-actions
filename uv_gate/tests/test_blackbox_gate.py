@@ -535,6 +535,7 @@ def test_a_failing_device_query_is_a_refusal_not_a_traceback(harness: Harness) -
     """An OSError from the device comparison becomes a GateError."""
 
     def failing(_path: Path) -> int:
+        """Raise PermissionError to simulate a failing device query."""
         message = "stat failed"
         raise PermissionError(message)
 
@@ -664,6 +665,7 @@ def test_a_lookup_failure_for_uv_is_a_refusal(
     """An OSError while looking for uv becomes a GateError, not a traceback."""
 
     def fail(*_args: object, **_kwargs: object) -> str:
+        """Raise PermissionError to simulate a failing uv lookup."""
         message = "denied"
         raise PermissionError(message)
 
@@ -678,6 +680,7 @@ def test_resolving_the_uv_path_can_fail_cleanly(
     """A uv whose real path cannot be resolved is refused as well."""
 
     def fail(_self: Path, *_args: object, **_kwargs: object) -> Path:
+        """Raise OSError to simulate a uv path that cannot be resolved."""
         message = "loop"
         raise OSError(message)
 

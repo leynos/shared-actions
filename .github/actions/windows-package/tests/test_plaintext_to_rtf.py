@@ -13,6 +13,7 @@ MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "plaintext_to_rt
 
 
 def _load_script() -> types.ModuleType:
+    """Load plaintext_to_rtf.py as a fresh module object."""
     spec = importlib.util.spec_from_file_location(
         "windows_package_plaintext_to_rtf",
         MODULE_PATH,

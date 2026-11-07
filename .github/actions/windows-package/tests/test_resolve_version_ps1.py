@@ -99,6 +99,7 @@ def script_runner(
     def run_with_env(
         env_vars: dict[str, str],
     ) -> tuple[RunResult, Path]:
+        """Run the script with ``env_vars`` and return the result and output path."""
         output_file = tmp_path / "output.txt"
         env = os.environ.copy()
         env["GITHUB_OUTPUT"] = str(output_file)

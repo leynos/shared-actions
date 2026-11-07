@@ -73,6 +73,7 @@ def _enable_cmd_mox_replay_idempotence() -> None:
     original_replay = CmdMoxController.replay
 
     def _replay_with_phase_guard(self: CmdMoxController) -> None:
+        """Skip ``replay()`` when the controller is already in replay phase."""
         phase = getattr(self, "phase", None)
         if phase == Phase.REPLAY:
             return
@@ -113,6 +114,7 @@ class _DisconnectTolerantWriter:
     __slots__ = ("_wrapped",)
 
     def __init__(self, wrapped: _WritableStream) -> None:
+        """Store the stream that writes are forwarded to."""
         self._wrapped = wrapped
 
     def write(self, data: bytes) -> int:
@@ -182,6 +184,7 @@ def _enable_cmd_mox_ipc_disconnect_tolerance() -> None:
         return
 
     def setup_with_disconnect_guard(self: _RequestHandler) -> None:
+        """Run the original setup and wrap ``wfile`` in the tolerant writer."""
         original_setup(self)
         self.wfile = _DisconnectTolerantWriter(self.wfile)
 
@@ -246,6 +249,7 @@ def _enable_cmd_mox_empty_probe_tolerance() -> None:
     def parse_without_a_probe_fault(
         raw: bytes,
     ) -> tuple[dict[str, object], str] | None:
+        """Return ``None`` for an empty read, otherwise defer to the original parser."""
         # Zero bytes is the readiness probe, not malformed input.
         if not raw:
             return None
@@ -353,6 +357,7 @@ def _register_cross_version_stub(
         last = outputs[-1] if outputs else "cross 0.2.5\n"
 
         def _handler(_invocation: object) -> tuple[str, str, int]:
+            """Return the next queued stdout, then keep returning the last one."""
             data = outputs.popleft() if outputs else last
             return data, "", 0
 

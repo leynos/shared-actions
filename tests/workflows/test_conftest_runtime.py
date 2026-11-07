@@ -279,6 +279,7 @@ def test_probe_honours_configured_act_command(monkeypatch: pytest.MonkeyPatch) -
     seen_environ: list[object] = []
 
     def command_available(command: str, *, environ: object = None) -> bool:
+        """Record the command and its environment, and report it unavailable."""
         seen.append(command)
         seen_environ.append(environ)
         return False
@@ -322,6 +323,7 @@ def test_docker_host_failure_paths(
         docker_host = f"unix://{socket_path}"
 
         def _raise_oserror(*_args: object, **_kwargs: object) -> None:
+            """Raise OSError to simulate an unreachable Docker socket."""
             msg = "test unreachable docker socket"
             raise OSError(msg)
 
@@ -344,7 +346,10 @@ def test_skip_marker_uses_act_runtime_probe(monkeypatch: pytest.MonkeyPatch) -> 
     """Marked workflow tests are skipped when the act runtime probe is unavailable."""
 
     class MarkedItem:
+        """Test item stub that carries the ``skip_unless_act`` marker."""
+
         def __init__(self) -> None:
+            """Record the ``skip_unless_act`` marker in ``keywords``."""
             self.keywords = {"skip_unless_act": object()}
 
     status = conftest.ActRuntimeStatus(
@@ -373,7 +378,10 @@ def test_the_lane_refuses_to_pass_without_a_runtime(
     """
 
     class MarkedItem:
+        """Test item stub that carries the ``skip_unless_act`` marker."""
+
         def __init__(self) -> None:
+            """Record the ``skip_unless_act`` marker in ``keywords``."""
             self.keywords = {"skip_unless_act": object()}
 
     status = conftest.ActRuntimeStatus(

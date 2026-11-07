@@ -120,6 +120,7 @@ class TestTheProductionPathReachesTheRule:
         def handler(
             _token: str, query: str, variables: dict[str, object]
         ) -> dict[str, object]:
+            """Answer arming, or return a pull request whose commit list is missing."""
             if "enablePullRequestAutoMerge" in query:
                 return {"enablePullRequestAutoMerge": {"pullRequest": {"number": 7}}}
             node = pull_request_node(Branch(pages=[[]]), [[]], 0)
@@ -333,6 +334,7 @@ class TestEveryMergeNamesTheAuditedHead:
         def handler(
             _token: str, query: str, variables: dict[str, object]
         ) -> dict[str, object]:
+            """Return a pull request with no head, and fail if arming is attempted."""
             if "enablePullRequestAutoMerge" in query:
                 message = "arming must not be attempted without a head"
                 raise AssertionError(message)
@@ -480,6 +482,7 @@ def test_the_read_path_uses_the_query_it_is_given() -> None:
     def _query(
         _token: str, query: str, _variables: dict[str, object]
     ) -> dict[str, object]:
+        """Serve one page per fetch, in order, and record each query."""
         page_index = len(asked)
         asked.append(query)
         return {

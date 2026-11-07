@@ -24,6 +24,7 @@ INSTALL_WIX_CLI_SCRIPT_PATH = MODULE_DIR / "install_wix_cli.ps1"
 
 
 def _load_module(path: Path, name: str) -> types.ModuleType:
+    """Load the Python file at ``path`` as a module named ``name``."""
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:  # pragma: no cover - defensive guard
         msg = f"cannot load module from {path}"
@@ -191,6 +192,7 @@ def test_generate_wxs_cli_requires_version_when_env_missing(tmp_path: Path) -> N
 
 
 def _run_pwsh(command: str, env: dict[str, str]) -> RunResult:
+    """Run ``command`` under ``pwsh`` with ``env`` and return the result."""
     pwsh = shutil.which("pwsh")
     pwsh_cmd = local[pwsh]["-NoLogo", "-NoProfile", "-Command", command]
     return run_cmd(pwsh_cmd, method="run", env=env)

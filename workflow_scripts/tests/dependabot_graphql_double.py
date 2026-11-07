@@ -221,6 +221,7 @@ class _ServedBranch:
         pages: cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]],
         later_pages: cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]] | None,
     ) -> None:
+        """Hold the page set for the first fetch and the optional later set."""
         self._pages = pages
         self._later_pages = later_pages
         self._fetches = 0
@@ -320,6 +321,7 @@ def build_graphql(
     def handler(
         _token: str, query: str, variables: dict[str, JsonValue]
     ) -> dict[str, JsonValue]:
+        """Record and answer a mutation, or serve the requested commit page."""
         mutation = mutation_response(query, variables, calls)
         if mutation is not None:
             return mutation

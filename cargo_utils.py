@@ -86,6 +86,7 @@ class ManifestError(Exception):
     """
 
     def __init__(self, path: Path, message: str) -> None:
+        """Store the manifest ``path`` and pass ``message`` to the base exception."""
         super().__init__(message)
         self.path = path
 

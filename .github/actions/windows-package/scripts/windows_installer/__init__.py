@@ -124,6 +124,7 @@ class DirectoryNode:
     __slots__ = ("_children_by_name", "children", "components", "id", "name")
 
     def __init__(self, identifier: str, name: str) -> None:
+        """Set the identifier and name, with empty child and component lists."""
         self.id = identifier
         self.name = name
         self.components: list[Component] = []
@@ -162,6 +163,10 @@ class TemplateOptions(typ.NamedTuple):
 
 
 def _normalize_identifier(prefix: str, value: str, used: set[str]) -> str:
+    """Return a unique upper-case WiX identifier derived from ``value``.
+
+    The chosen identifier is added to ``used``.
+    """
     candidate = _IDENTIFIER_RE.sub("_", value).strip("_")
     if not candidate:
         candidate = prefix
@@ -178,6 +183,10 @@ def _normalize_identifier(prefix: str, value: str, used: set[str]) -> str:
 
 
 def _normalize_directory_name(value: str) -> str:
+    """Return the name with reserved path characters replaced by underscores.
+
+    A blank name becomes ``Application``. Reserved device names are not changed.
+    """
     cleaned = value.strip()
     if not cleaned:
         return "Application"
@@ -185,6 +194,7 @@ def _normalize_directory_name(value: str) -> str:
 
 
 def _split_destination(value: str | None, fallback_name: str) -> tuple[str, ...]:
+    """Split ``value`` on path separators, defaulting to ``fallback_name``."""
     if value is None or not value.strip():
         return (fallback_name,)
     parts = [part for part in re.split(r"[\\/]", value.strip()) if part]
@@ -194,6 +204,10 @@ def _split_destination(value: str | None, fallback_name: str) -> tuple[str, ...]
 
 
 def _program_files_directory(architecture: str) -> str:
+    """Map ``architecture`` to its WiX Program Files folder identifier.
+
+    Raise TemplateError for unsupported architectures.
+    """
     normalized = architecture.lower()
     if normalized in {"x86", "ia32"}:
         return "ProgramFilesFolder"
@@ -204,11 +218,16 @@ def _program_files_directory(architecture: str) -> str:
 
 
 def _as_windows_path(path: Path) -> str:
+    """Return the resolved ``path`` with forward slashes as backslashes.
+
+    Raise FileNotFoundError if the path does not exist.
+    """
     resolved = path.resolve(strict=True)
     return str(resolved).replace("/", "\\")
 
 
 def _flatten_components(node: DirectoryNode) -> list[Component]:
+    """Return the components of ``node`` and of all its descendants."""
     items = list(node.components)
     for child in node.children:
         items.extend(_flatten_components(child))
@@ -252,6 +271,7 @@ def parse_file_specification(spec: str) -> FileSpecification:
 
 
 def _resolve_file(spec: FileSpecification) -> FileSpecification:
+    """Return ``spec`` with its source resolved strictly to an absolute path."""
     return FileSpecification(
         source=spec.source.resolve(strict=True), destination=spec.destination
     )
@@ -260,6 +280,12 @@ def _resolve_file(spec: FileSpecification) -> FileSpecification:
 def _build_directory_tree(
     files: tuple[FileSpecification, ...], install_dir_name: str, upgrade_code: UUID
 ) -> DirectoryNode:
+    """Build the directory tree and components for ``files``.
+
+    Intermediate directories come from each destination. Each component gets
+    a deterministic GUID derived from ``upgrade_code`` and its destination.
+    Raise TemplateError if a destination has fewer than two parts.
+    """
     used_ids: set[str] = {"INSTALLFOLDER"}
     used_components: set[str] = set()
     root = DirectoryNode("INSTALLFOLDER", install_dir_name)
@@ -318,6 +344,7 @@ def _resolve_product_metadata(
     description: str | None,
     install_dir_name: str | None,
 ) -> tuple[str, str, str, str]:
+    """Resolve the product name, manufacturer, description and install directory."""
     chosen_product = _resolve_product_name(product_name, app_filename)
     chosen_manufacturer = _resolve_manufacturer_name(manufacturer)
     chosen_description = _resolve_product_description(description, chosen_product)
@@ -336,6 +363,10 @@ def _parse_upgrade_code(
     chosen_product: str,
     chosen_manufacturer: str,
 ) -> UUID:
+    """Return the upgrade code UUID, deriving one when none or "" is supplied.
+
+    Raise TemplateError if the supplied code is not a valid UUID.
+    """
     if isinstance(upgrade_code, UUID):
         return upgrade_code
     if upgrade_code:
@@ -353,6 +384,10 @@ def _adjust_file_destinations(
     *,
     chosen_install_dir: str,
 ) -> list[FileSpecification]:
+    """Prefix each destination with ``chosen_install_dir`` when it is missing.
+
+    Raise TemplateError if a destination is empty.
+    """
     adjusted_files: list[FileSpecification] = []
     for spec in files:
         destination = spec.destination

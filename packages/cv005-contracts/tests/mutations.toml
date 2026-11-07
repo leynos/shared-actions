@@ -899,9 +899,23 @@ expect = "test_a_skipped_baseline_publisher_is_refused"
 [[mutation]]
 id = "P9d3 a baseline publisher on other paths accepted"
 file = "cv005_contracts/publisher_rules.py"
-old = "        _input(generator, key) == _input(receiver, key) for key in BASELINE_PATH_INPUTS\n"
+old = "        _path(generator, key) == _path(receiver, key) for key in BASELINE_PATH_INPUTS\n"
 new = "        True for key in BASELINE_PATH_INPUTS\n"
 expect = "test_a_baseline_publisher_on_other_paths_is_refused"
+
+[[mutation]]
+id = "P9d4 an unset baseline path has no default"
+file = "cv005_contracts/publisher_rules.py"
+old = "    return _input(step, name) or BASELINE_PATH_INPUTS[name]\n"
+new = "    return _input(step, name)\n"
+expect = "test_explicit_default_paths_match_omitted_ones"
+
+[[mutation]]
+id = "P9h a numeric build-only exempts a step"
+file = "cv005_contracts/publisher.py"
+old = "    build_only = value is True or value == \"true\"\n"
+new = "    build_only = value in (True, \"true\")\n"
+expect = "test_a_numeric_build_only_is_still_a_generator"
 
 [[mutation]]
 id = "P9f a lane may set build-only"

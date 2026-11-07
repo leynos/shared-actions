@@ -192,10 +192,10 @@ def _hands_over(step: dict[str, object]) -> bool:
 #: The baseline paths a generator and its publisher must agree on. They are
 #: part of a cache entry's version, so a publisher saving other paths saves an
 #: entry the pull-request lanes cannot restore.
-BASELINE_PATH_INPUTS: typ.Final[tuple[str, ...]] = (
-    "baseline-rust-file",
-    "baseline-python-file",
-)
+BASELINE_PATH_INPUTS: typ.Final[dict[str, str]] = {
+    "baseline-rust-file": ".coverage-baseline.rust",
+    "baseline-python-file": ".coverage-baseline.python",
+}
 
 
 def _is_received(document: Document, producer: str, step: dict[str, object]) -> bool:
@@ -228,8 +228,13 @@ def _accepts(generator: dict[str, object], receiver: dict[str, object]) -> bool:
     lane restores.
     """
     return not _skipping_keys(receiver) and all(
-        _input(generator, key) == _input(receiver, key) for key in BASELINE_PATH_INPUTS
+        _path(generator, key) == _path(receiver, key) for key in BASELINE_PATH_INPUTS
     )
+
+
+def _path(step: dict[str, object], name: str) -> object:
+    """Return a baseline path input, or the action's default when it is unset."""
+    return _input(step, name) or BASELINE_PATH_INPUTS[name]
 
 
 def _input(step: dict[str, object], name: str) -> object:

@@ -726,7 +726,11 @@ def build_instrumented_tests(
             env_unsets=tuple(SHOW_ENV_LEAKS),
         )
     )
-    env, target_dir = build_environment(printed, use_nextest=selection.use_nextest)
+    try:
+        env, target_dir = build_environment(printed, use_nextest=selection.use_nextest)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
     env.update(get_cargo_coverage_env(targets.manifest_path))
     args = get_build_only_cmd(
         selection.features,

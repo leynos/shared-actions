@@ -151,10 +151,10 @@ def generates_coverage(step: dict[str, object]) -> bool:
 
     """
     inputs = step.get("with") or {}
-    build_only = isinstance(inputs, dict) and inputs.get("build-only") in (
-        True,
-        "true",
-    )
+    value = inputs.get("build-only") if isinstance(inputs, dict) else None
+    # Not `value in (True, "true")`: YAML's integer 1 equals True in Python,
+    # but GitHub passes it to the action as "1", which does not build only.
+    build_only = value is True or value == "true"
     return invokes(step, COVERAGE_ACTION) and not build_only
 
 

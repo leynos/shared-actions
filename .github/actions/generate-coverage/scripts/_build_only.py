@@ -67,7 +67,22 @@ def build_environment(
     its value is part of what the compiler sees. ``show-env`` names profiles
     as nextest runs do, with a 32-character module signature; a plain
     ``cargo llvm-cov`` run uses the default one, so it is matched here.
+
+    Raises
+    ------
+    ValueError
+        If ``show-env`` reports a build directory other than the target
+        directory, as a configured ``build.build-dir`` would: the build would
+        then need a matching directory this mode does not set.
     """
+    build_dir = printed.get("CARGO_LLVM_COV_BUILD_DIR")
+    if build_dir is not None and build_dir != printed.get("CARGO_LLVM_COV_TARGET_DIR"):
+        msg = (
+            "build-only does not support a separate Cargo build directory "
+            "(build.build-dir); cargo-llvm-cov reports "
+            f"{build_dir!r} apart from its target directory"
+        )
+        raise ValueError(msg)
     env = {key: value for key, value in printed.items() if key not in SHOW_ENV_LEAKS}
     target_dir = (
         Path(printed.get("CARGO_LLVM_COV_TARGET_DIR", "target"))

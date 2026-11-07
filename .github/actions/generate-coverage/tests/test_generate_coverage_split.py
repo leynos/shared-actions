@@ -520,3 +520,19 @@ def test_an_overridden_cargo_directory_is_refused_not_ignored(
         run_rust.build_instrumented_tests(
             _targets(run_rust, tmp_path), _selection(run_rust)
         )
+
+
+def test_a_separate_build_directory_is_refused_not_ignored(
+    run_rust: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A configured build.build-dir moves cargo-llvm-cov's build; this mode cannot."""
+    _stub_show_env(
+        run_rust,
+        monkeypatch,
+        "CARGO_LLVM_COV_TARGET_DIR=/w/target\nCARGO_LLVM_COV_BUILD_DIR=/w/build\n",
+    )
+
+    with pytest.raises(run_rust.typer.Exit):
+        run_rust.build_instrumented_tests(
+            _targets(run_rust, tmp_path), _selection(run_rust)
+        )

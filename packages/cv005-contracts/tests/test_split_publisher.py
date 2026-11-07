@@ -183,3 +183,24 @@ def test_a_baseline_publisher_on_the_generators_paths_is_accepted() -> None:
     texts = tree(coverage_main=publisher.rstrip("\n") + "\n" + moved)
 
     assert not any("runs publish-coverage-baseline" in f for f in violations(texts))
+
+
+def test_explicit_default_paths_match_omitted_ones() -> None:
+    """Both spell the same path, so the publisher may state what the generator omits."""
+    explicit = BASELINE_JOB + "          baseline-rust-file: .coverage-baseline.rust\n"
+
+    texts = tree(coverage_main=_handing_over(job=explicit))
+
+    assert not any("runs publish-coverage-baseline" in f for f in violations(texts))
+
+
+def test_a_numeric_build_only_is_still_a_generator() -> None:
+    """YAML's 1 equals True in Python but reaches the action as "1"."""
+    numeric = WARMUP.replace("build-only: 'true'", "build-only: 1")
+    assert numeric != WARMUP
+
+    found = violations(tree(coverage_main=_publisher_with(numeric)))
+
+    assert any("must set with-ratchet: 'true' on exactly one" in f for f in found), (
+        found
+    )

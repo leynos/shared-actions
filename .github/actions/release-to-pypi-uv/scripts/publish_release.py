@@ -39,7 +39,7 @@ def _ensure_python_runtime() -> None:
 
 
 def _extend_sys_path() -> None:
-    """Prepend the action's scripts directories to ``sys.path`` when they exist."""
+    """Prepend the scripts directory and an ancestor to ``sys.path`` if they exist."""
     candidates: list[Path] = []
     if action_path_env := os.getenv("GITHUB_ACTION_PATH"):
         action_path = Path(action_path_env).resolve()

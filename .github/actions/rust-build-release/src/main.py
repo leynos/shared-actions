@@ -110,7 +110,13 @@ class _CommandWrapper:
         self._display_name = display_name
 
     def formulate(self) -> cabc.Sequence[str]:
-        """Return the wrapped command line with the display name first."""
+        """Return the command line with the display name as its first element.
+
+        The display name replaces the first element only when the wrapped
+        command returns a non-empty list; an empty list stays empty. If
+        ``formulate()`` is unavailable or raises, only the display name is
+        returned.
+        """
         formulate_callable = getattr(self._command, "formulate", None)
         if not callable(formulate_callable):
             typer.echo(
@@ -487,7 +493,11 @@ def _configure_cross_container_engine(
 def _restore_container_engine(
     previous_engine: str | None, *, applied_engine: str | None
 ) -> None:
-    """Restore ``CROSS_CONTAINER_ENGINE`` to its previous value, or unset it."""
+    """Restore ``CROSS_CONTAINER_ENGINE`` to its previous value, or unset it.
+
+    Unset the variable only when ``previous_engine`` is ``None`` and
+    ``applied_engine`` is set. Leave it unchanged when both are ``None``.
+    """
     if previous_engine is None:
         if applied_engine is not None:
             # Always remove the variable when no prior value existed so callers

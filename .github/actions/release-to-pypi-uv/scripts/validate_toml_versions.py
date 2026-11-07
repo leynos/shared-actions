@@ -53,7 +53,11 @@ TRUTHY_STRINGS = {"true", "1", "yes", "y", "on"}
 def _iter_files(
     pattern: str, *, skip_parts: typ.Collection[str] | None = None
 ) -> typ.Iterable[Path]:
-    """Yield existing files matching ``pattern`` outside the skipped directories."""
+    """Yield existing files matching ``pattern`` whose path parts avoid skips.
+
+    A file is skipped when any path part, including its file name, is in
+    ``skip_parts``.
+    """
     root = Path()
     skip = set(SKIP_PARTS if skip_parts is None else skip_parts)
     for path in sorted(
@@ -84,7 +88,11 @@ def _parse_bool(value: str | None) -> bool:
 
 
 def _load_toml(path: Path) -> dict[str, object]:
-    """Parse ``path`` as TOML, raising ``RuntimeError`` on read or parse failure."""
+    """Parse ``path`` as TOML.
+
+    Raise ``RuntimeError`` on an ``OSError`` or a TOML parse failure. Invalid
+    UTF-8 raises ``UnicodeDecodeError`` instead.
+    """
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:

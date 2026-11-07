@@ -79,7 +79,7 @@ class _GithubRetryWait(wait_base):
         self._rng = _JITTER if rng is None else rng
 
     def __call__(self, retry_state: RetryCallState) -> float:
-        """Return the delay before the next attempt, honouring Retry-After."""
+        """Return the delay before the next attempt, capping any Retry-After delay."""
         outcome = getattr(retry_state, "outcome", None)
         if outcome is not None and getattr(outcome, "failed", False):
             exception = outcome.exception()
@@ -267,7 +267,10 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
 
 
 def _validate_release(tag: str, data: dict[str, object]) -> str:
-    """Return the release name, or raise if it is a draft or prerelease."""
+    """Return the release name, or the tag when the name is missing or empty.
+
+    Raise ``GithubReleaseError`` if the release is a draft or prerelease.
+    """
     draft = data.get("draft")
     prerelease = data.get("prerelease")
     name = data.get("name") or tag

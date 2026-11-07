@@ -19,13 +19,33 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Check for a baseline hand-over
+      id: gate
+      # The measuring job hands a figure over only from a push to the trunk,
+      # so any other run, such as a dispatch, has nothing to publish. Decided
+      # here rather than in the calling job's `if`, which the CV-005 rules
+      # refuse on a publisher job: the job must always run on a push.
+      shell: bash
+      env:
+        GC_EVENT: ${{ github.event_name }}
+        GC_REF: ${{ github.ref }}
+      run: |
+        set -euo pipefail
+        if [[ "$GC_EVENT" == 'push' && "$GC_REF" == 'refs/heads/main' ]]; then
+          echo 'active=true' >> "$GITHUB_OUTPUT"
+        else
+          echo 'active=false' >> "$GITHUB_OUTPUT"
+          echo '::notice title=publish-coverage-baseline::not a push to the trunk; nothing to publish'
+        fi
     - name: Download baseline hand-over
+      if: steps.gate.outputs.active == 'true'
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: ${{ inputs.artefact-name }}
         path: ${{ runner.temp }}/coverage-baseline-handover
     - name: Read baseline hand-over
       id: handover
+      if: steps.gate.outputs.active == 'true'
       shell: bash
       env:
         GC_HANDOVER_DIR: ${{ runner.temp }}/coverage-baseline-handover
@@ -39,6 +59,7 @@ runs:
         echo "segment=$segment" >> "$GITHUB_OUTPUT"
         echo "lang=$lang" >> "$GITHUB_OUTPUT"
     - name: Setup uv
+      if: steps.gate.outputs.active == 'true'
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
       with:
         version: '0.12.19'
@@ -47,12 +68,14 @@ runs:
         # settings in generate-coverage for why no environment is saved.
         prune-cache: true
     - name: Prune restored uv cache
+      if: steps.gate.outputs.active == 'true'
       # A cache restored by the calling workflow shares this directory, so
       # prune before the first `uv run --script` regardless of who restored.
       shell: bash
       run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
     - name: Restore baselines
       id: restore-baselines
+      if: steps.gate.outputs.active == 'true'
       # The same restore, over the same path list, as generate-coverage's:
       # the path list is part of a cache entry's version, so a save over any
       # other list would be invisible to the pull-request restore.
@@ -65,6 +88,7 @@ runs:
         key: ratchet-baseline-${{ runner.os }}-${{ steps.handover.outputs.segment }}${{ github.run_id }}
         restore-keys: ratchet-baseline-${{ runner.os }}-${{ steps.handover.outputs.segment }}
     - name: Ensure baseline files
+      if: steps.gate.outputs.active == 'true'
       shell: bash
       env:
         GC_RUST_FILE: ${{ inputs.baseline-rust-file }}
@@ -82,6 +106,7 @@ runs:
           fi
         done
     - name: Ratchet coverage
+      if: steps.gate.outputs.active == 'true'
       # The comparison generate-coverage runs in-job elsewhere: it fails when
       # the figure falls more than its one-point tolerance below the restored
       # baseline, holds the baseline inside the band, and advances it when the
@@ -114,7 +139,9 @@ runs:
       # Run-id-suffixed key, as generate-coverage saves: cache entries are
       # immutable, and the pull-request restore recovers the newest entry
       # through the shared prefix. Trunk pushes only, as there.
-      if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: >-
+        success() && steps.gate.outputs.active == 'true' &&
+        github.event_name == 'push' && github.ref == 'refs/heads/main'
       # v6.1.0
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
@@ -126,7 +153,7 @@ runs:
       # The same stable `name=value` lines generate-coverage prints, from the
       # same closed vocabulary, so one log scraper reads both. No key, path or
       # run identifier appears.
-      if: ${{ always() }}
+      if: ${{ always() && steps.gate.outputs.active == 'true' }}
       shell: bash
       env:
         GC_RESTORE_OUTCOME: ${{ steps.restore-baselines.outcome }}

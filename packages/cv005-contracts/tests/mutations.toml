@@ -857,9 +857,23 @@ expect = "test_each_lane_leg_pairs_with_a_publisher_leg"
 [[mutation]]
 id = "P9 a job measuring nothing must still ratchet"
 file = "cv005_contracts/parity.py"
-old = "        if any(invokes(step, COVERAGE_ACTION) for step in steps(job))\n"
+old = "        if any(generates_coverage(step) for step in steps(job))\n"
 new = "        if True\n"
 expect = "test_a_second_publisher_job_ratchets_its_own_platform"
+
+[[mutation]]
+id = "P9b a build-only step is held to the ratchet rule"
+file = "cv005_contracts/publisher.py"
+old = "    return invokes(step, COVERAGE_ACTION) and not build_only\n"
+new = "    return invokes(step, COVERAGE_ACTION)\n"
+expect = "test_a_build_only_job_is_not_a_second_generator"
+
+[[mutation]]
+id = "P9c the hand-over artefact name counts as a measured difference"
+file = "cv005_contracts/parity.py"
+old = "        \"baseline-artefact-name\",\n"
+new = ""
+expect = "test_the_hand_over_inputs_do_not_differ_a_lane_from_the_publisher"
 
 [[mutation]]
 id = "P10 a publisher measuring nothing accepted"

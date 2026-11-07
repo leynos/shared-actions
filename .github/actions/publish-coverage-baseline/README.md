@@ -45,7 +45,6 @@ concurrency:
 jobs:
   baseline:
     needs: coverage
-    if: github.event_name == 'push'
     runs-on: ubicloud-standard-2
     steps:
       - uses: leynos/shared-actions/.github/actions/publish-coverage-baseline@<sha>
@@ -54,4 +53,7 @@ jobs:
 ```
 
 The job needs no checkout: the action restores the baseline files into the
-workspace and saves them from there.
+workspace and saves them from there. It needs no `if` either, and a publisher
+job under the CV-005 rules may not carry one: the action's first step checks
+for a push to the trunk and every later step runs only then, so a dispatch
+leaves the job green with nothing published.

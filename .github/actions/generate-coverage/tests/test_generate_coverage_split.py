@@ -410,3 +410,18 @@ def test_an_empty_profile_name_is_not_rebased(
     run_rust.build_instrumented_tests(targets, _selection(run_rust))
 
     assert seen["LLVM_PROFILE_FILE"] == ""
+
+
+def test_the_publisher_gates_itself_so_the_calling_job_needs_no_condition() -> None:
+    """CV-005 refuses an `if` on a publisher job, so the action decides.
+
+    Every step after the gate runs only when it found a trunk push, which is
+    the only run that has a hand-over to publish.
+    """
+    steps = _steps(PUBLISH_YML)
+    gate = steps[0]
+    assert gate["id"] == "gate"
+    for step in steps[1:]:
+        assert "steps.gate.outputs.active == 'true'" in _condition(step), (
+            f"{step['name']!r} would run without a hand-over"
+        )

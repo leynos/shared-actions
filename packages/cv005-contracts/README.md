@@ -98,6 +98,11 @@ the retired checksum names.
 - **Coverage lanes.**
   - Each job measuring coverage, in a lane or the publisher, ratchets
     exactly one of its legs. The action keys the baseline by job.
+  - A step with `build-only: true` measures nothing, so it is not a
+    generator: it owes no ratchet and is not compared with any lane. A
+    publisher may use one in a cache warm-up job. The publisher's own
+    `publish-baseline: never` and `baseline-artefact-name` are not part of
+    what a lane is compared on.
   - Lanes publish no artefact and never set `publish-baseline`.
     The upload rule reads the runner that holds the report: the lane job's own
     steps, the local composite actions that job runs (directly or through other

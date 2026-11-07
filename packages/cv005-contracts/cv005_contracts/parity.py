@@ -21,8 +21,8 @@ from .publisher import (
     COVERAGE_ACTION,
     PINNED_COMMIT,
     UPLOAD_ACTION,
-    action_steps,
-    invokes,
+    generates_coverage,
+    generator_steps,
     pin_of,
     upload_step,
 )
@@ -40,6 +40,7 @@ if typ.TYPE_CHECKING:
 LANE_LOCAL_INPUTS: typ.Final[frozenset[str]] = frozenset(
     {
         "artefact-name-suffix",
+        "baseline-artefact-name",
         "publish-artefact",
         "publish-baseline",
     }
@@ -251,7 +252,7 @@ def ratchet_violations(
             [
                 leg_id(label, name, step, index)
                 for index, step in enumerate(steps(job))
-                if invokes(step, COVERAGE_ACTION)
+                if generates_coverage(step)
                 and (
                     is_true(inputs_of(step).get("with-ratchet"))
                     or leg_id(label, name, step, index) in resolved
@@ -260,7 +261,7 @@ def ratchet_violations(
             alternatives or {},
         )
         for name, job in jobs(document).items()
-        if any(invokes(step, COVERAGE_ACTION) for step in steps(job))
+        if any(generates_coverage(step) for step in steps(job))
     }
     return [
         f"{label}: job {name} must set with-ratchet: 'true' on exactly one "
@@ -310,7 +311,7 @@ def publisher_lane_violations(
         Every violation of the shared-selection and shared-pin rules.
 
     """
-    generators = action_steps(publisher, COVERAGE_ACTION)
+    generators = generator_steps(publisher)
     if not generators:
         return ["the publisher must generate coverage; found no generate-coverage step"]
     measured = [selection(publisher, step) for step in generators]

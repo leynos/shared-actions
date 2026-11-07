@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import typing as typ
 
-from .publisher import COVERAGE_ACTION, invokes
+from .publisher import generates_coverage
 from .reading import jobs, steps
 
 if typ.TYPE_CHECKING:
@@ -63,5 +63,5 @@ def generator_legs(file: str, document: Document) -> list[Leg]:
         Leg(leg_id(file, job_id, step, index), document, job, step)
         for job_id, job in jobs(document).items()
         for index, step in enumerate(steps(job))
-        if invokes(step, COVERAGE_ACTION)
+        if generates_coverage(step)
     ]

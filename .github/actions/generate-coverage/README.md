@@ -345,7 +345,7 @@ drop in coverage would silently lower the baseline. Three jobs avoid that:
    no ratchet, saves nothing, and on a successful push to `refs/heads/main`
    uploads the figures as the named artefact.
 2. **Baseline**, on the runner that shares the pull-request lanes' store, with
-   `needs: <coverage job>` and an `if` limiting it to pushes: the
+   `needs: <coverage job>` and no `if` of its own: the
    `publish-coverage-baseline` action. It restores the current baseline,
    ratchets the handed-over figure with the same comparison this action uses,
    and saves only if that passed. A figure more than the ratchet's one-point

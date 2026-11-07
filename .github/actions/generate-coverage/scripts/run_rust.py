@@ -546,6 +546,7 @@ class _RawInputs:
     doctests: bool | None
     allow_no_tests: bool | None
     baseline_file: Path | None
+    build_only: bool | None = None
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -571,6 +572,7 @@ class FeatureSelection:
     all_targets: bool
     doctests: bool
     allow_no_tests: bool
+    build_only: bool = False
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -631,6 +633,9 @@ def _resolve_features(raw: _RawInputs, env: cabc.Mapping[str, str]) -> FeatureSe
         allow_no_tests=_resolve_bool_input(
             raw.allow_no_tests, "INPUT_ALLOW_NO_TESTS", default=False, env=env
         ),
+        build_only=_resolve_bool_input(
+            raw.build_only, "INPUT_BUILD_ONLY", default=False, env=env
+        ),
     )
 
 
@@ -645,6 +650,96 @@ def _resolve_cucumber(
         features=raw.cucumber_rs_features or env.get("INPUT_CUCUMBER_RS_FEATURES", ""),
         args=raw.cucumber_rs_args or env.get("INPUT_CUCUMBER_RS_ARGS", ""),
     )
+
+
+#: Variables ``cargo llvm-cov show-env`` prints that must not reach a build
+#: meant to share compiler-cache entries with ``cargo llvm-cov nextest``. The
+#: real run leaves them out of the compiler's environment, and sccache hashes
+#: the ``CARGO_*`` variables it sees, so one stray variable turns every hit
+#: into a miss. The target directory travels as ``--target-dir`` instead.
+_SHOW_ENV_LEAKS = frozenset(
+    {
+        "CARGO_LLVM_COV_SHOW_ENV",
+        "CARGO_LLVM_COV_TARGET_DIR",
+        "CARGO_LLVM_COV_BUILD_DIR",
+    }
+)
+
+#: Directory, under cargo-llvm-cov's target directory, where its own runs build.
+_LLVM_COV_TARGET_SUBDIR = "llvm-cov-target"
+
+
+def parse_show_env(output: str) -> dict[str, str]:
+    """Return the ``KEY=value`` pairs printed by ``cargo llvm-cov show-env``."""
+    pairs: dict[str, str] = {}
+    for line in output.splitlines():
+        key, sep, value = line.partition("=")
+        if not sep or not key.isidentifier():
+            continue
+        words = shlex.split(value)
+        pairs[key] = words[0] if words else ""
+    return pairs
+
+
+def get_build_only_cmd(
+    features: str,
+    *,
+    manifest_path: Path,
+    target_dir: Path,
+    selection: FeatureSelection,
+) -> list[str]:
+    """Return the cargo arguments that compile the test binaries and stop.
+
+    ``cargo llvm-cov``'s own ``--no-run`` means "report without running", so
+    this uses the underlying runner's flag, over the same workspace, target
+    and feature selection as ``get_cargo_coverage_cmd``.
+    """
+    args = ["nextest", "run"] if selection.use_nextest else ["test"]
+    args += [
+        "--no-run",
+        "--manifest-path",
+        str(manifest_path),
+        "--target-dir",
+        str(target_dir),
+        "--workspace",
+    ]
+    if selection.all_targets:
+        args.append("--all-targets")
+    args += feature_selection_args(
+        features,
+        with_default=selection.with_default,
+        all_features=selection.all_features,
+    )
+    return args
+
+
+def build_instrumented_tests(
+    targets: CoverageTargets, selection: FeatureSelection
+) -> None:
+    """Compile the instrumented test binaries without running or reporting.
+
+    Uses the environment ``cargo llvm-cov show-env`` prints and the target
+    directory ``cargo llvm-cov`` builds in, so the compiler-cache entries it
+    writes are the ones a later ``cargo llvm-cov nextest`` run reads.
+    """
+    printed = parse_show_env(_run_cargo(["llvm-cov", "show-env"], env_unsets=()))
+    env = {key: value for key, value in printed.items() if key not in _SHOW_ENV_LEAKS}
+    target_dir = (
+        Path(printed.get("CARGO_LLVM_COV_TARGET_DIR", "target"))
+        / _LLVM_COV_TARGET_SUBDIR
+    )
+    # cargo-llvm-cov's own runs write profiles beside their binaries, so the
+    # variable is rebased there; its value is part of what the compiler sees.
+    if "LLVM_PROFILE_FILE" in env:
+        env["LLVM_PROFILE_FILE"] = str(target_dir / Path(env["LLVM_PROFILE_FILE"]).name)
+    env.update(get_cargo_coverage_env(targets.manifest_path))
+    args = get_build_only_cmd(
+        selection.features,
+        manifest_path=targets.manifest_path,
+        target_dir=target_dir,
+        selection=selection,
+    )
+    _run_cargo(args, env_overrides=env, env_unsets=_CARGO_COVERAGE_ENV_UNSETS)
 
 
 def _run_coverage(
@@ -722,6 +817,7 @@ def main(
     doctests: typ.Annotated[bool | None, typer.Option()] = None,
     allow_no_tests: typ.Annotated[bool | None, typer.Option()] = None,
     baseline_file: typ.Annotated[Path | None, typer.Option()] = None,
+    build_only: typ.Annotated[bool | None, typer.Option()] = None,
 ) -> None:
     """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
     raw = _RawInputs(
@@ -741,6 +837,7 @@ def main(
         doctests=doctests,
         allow_no_tests=allow_no_tests,
         baseline_file=baseline_file,
+        build_only=build_only,
     )
     # The one place ambient process state is read; the resolvers below are
     # functions of their arguments.
@@ -753,6 +850,9 @@ def main(
         with_default=selection.with_default,
         all_features=selection.all_features,
     )
+    if selection.build_only:
+        build_instrumented_tests(targets, selection)
+        return
     targets.out.parent.mkdir(parents=True, exist_ok=True)
 
     stdout = _run_coverage(targets, selection, cucumber)

@@ -133,33 +133,35 @@ Known limitations:
 ## Inputs
 
 <!-- markdownlint-disable MD013 -->
-| Name                  | Description                                                                                                                                                                                                                                         | Required | Default                     |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------- |
-| features              | Enable Cargo (Rust) features; space- or comma-separated.                                                                                                                                                                                            | no       |                             |
-| with-default-features | Enable default Cargo features (Rust)                                                                                                                                                                                                                | no       | `true`                      |
-| all-features          | Pass `--all-features`. Supersedes `with-default-features`; rejected alongside a non-empty `features` list.                                                                                                                                          | no       | `false`                     |
-| all-targets           | Pass `--all-targets` so benches, examples, and every test target run under coverage.                                                                                                                                                                | no       | `false`                     |
-| doctests              | Run `cargo test --doc --workspace` after the instrumented run, uninstrumented.                                                                                                                                                                      | no       | `false`                     |
-| language              | Coverage language scope: `auto`, `rust`, `python`, or `mixed`. `auto` keeps manifest-based detection; explicit values force the scope and fail fast when its prerequisites are missing. See below.                                                  | no       | `auto`                      |
-| cargo-manifest        | Optional path to Cargo.toml if root Cargo.toml is missing                                                                                                                                                                                           | no       |                             |
-| use-cargo-nextest     | Use cargo-nextest for Rust coverage runs (default); set to `false` to use `cargo llvm-cov` directly                                                                                                                                                 | no       | `true`                      |
-| allow-no-tests        | Let a workspace with no tests report zero coverage. nextest exits 4 when it finds nothing to run, so this passes `--no-tests=pass`. Only with nextest; a repository that has tests should leave it off, or an empty test selection passes silently. | no       | `false`                     |
-| output-path           | Output file path                                                                                                                                                                                                                                    | yes      |                             |
-| format                | Formats: `lcov`*, `cobertura`, `coveragepy`*                                                                                                                                                                                                        | no       | `cobertura`                 |
-| with-ratchet          | Fail if coverage drops more than 1pp below baseline                                                                                                                                                                                                 | no       | `false`                     |
-| cargo-wait-timeout    | Seconds cargo may run before the watchdog kills it                                                                                                                                                                                                  | no       | `1800`                      |
-| publish-baseline      | When the baseline may be published: `auto` or `always`                                                                                                                                                                                              | no       | `auto`                      |
-| artefact-name-suffix  | Additional suffix appended to the uploaded coverage artefact                                                                                                                                                                                        | no       |                             |
-| publish-artefact      | Upload the generated coverage report as a workflow artefact; `false` suppresses the upload                                                                                                                                                          | no       | `true`                      |
-| baseline-rust-file    | Rust baseline path                                                                                                                                                                                                                                  | no       | `.coverage-baseline.rust`   |
-| baseline-python-file  | Python baseline path                                                                                                                                                                                                                                | no       | `.coverage-baseline.python` |
-| with-cucumber-rs      | Run cucumber-rs scenarios under coverage                                                                                                                                                                                                            | no       | `false`                     |
-| cucumber-rs-features  | Path to cucumber feature files                                                                                                                                                                                                                      | no       |                             |
-| cucumber-rs-args      | Extra arguments for cucumber                                                                                                                                                                                                                        | no       |                             |
-| pytest-workers        | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism.                                                                                                                    | no       | `auto`                      |
-| python-source         | Optional comma-separated Python source scope passed unchanged to Slipcover as one `--source` argument.                                                                                                                                              | no       |                             |
-| python-version        | Interpreter for the Python coverage venv. Empty uses `UV_PYTHON`, then `.python-version`, then the `python3` on `PATH`. Its major.minor keys the Python ratchet baseline.                                                                           | no       |                             |
-| cache-provider        | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner.                                                                                                                                                | no       | `github`                    |
+| Name                   | Description                                                                                                                                                                                                                                         | Required | Default                     |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------- |
+| features               | Enable Cargo (Rust) features; space- or comma-separated.                                                                                                                                                                                            | no       |                             |
+| with-default-features  | Enable default Cargo features (Rust)                                                                                                                                                                                                                | no       | `true`                      |
+| all-features           | Pass `--all-features`. Supersedes `with-default-features`; rejected alongside a non-empty `features` list.                                                                                                                                          | no       | `false`                     |
+| all-targets            | Pass `--all-targets` so benches, examples, and every test target run under coverage.                                                                                                                                                                | no       | `false`                     |
+| doctests               | Run `cargo test --doc --workspace` after the instrumented run, uninstrumented.                                                                                                                                                                      | no       | `false`                     |
+| language               | Coverage language scope: `auto`, `rust`, `python`, or `mixed`. `auto` keeps manifest-based detection; explicit values force the scope and fail fast when its prerequisites are missing. See below.                                                  | no       | `auto`                      |
+| cargo-manifest         | Optional path to Cargo.toml if root Cargo.toml is missing                                                                                                                                                                                           | no       |                             |
+| use-cargo-nextest      | Use cargo-nextest for Rust coverage runs (default); set to `false` to use `cargo llvm-cov` directly                                                                                                                                                 | no       | `true`                      |
+| allow-no-tests         | Let a workspace with no tests report zero coverage. nextest exits 4 when it finds nothing to run, so this passes `--no-tests=pass`. Only with nextest; a repository that has tests should leave it off, or an empty test selection passes silently. | no       | `false`                     |
+| output-path            | Output file path                                                                                                                                                                                                                                    | yes      |                             |
+| format                 | Formats: `lcov`*, `cobertura`, `coveragepy`*                                                                                                                                                                                                        | no       | `cobertura`                 |
+| with-ratchet           | Fail if coverage drops more than 1pp below baseline                                                                                                                                                                                                 | no       | `false`                     |
+| cargo-wait-timeout     | Seconds cargo may run before the watchdog kills it                                                                                                                                                                                                  | no       | `1800`                      |
+| publish-baseline       | When the baseline may be published: `auto`, `always`, or `never` (no restore, ratchet or save; see "Splitting main coverage across runner providers")                                                                                               | no       | `auto`                      |
+| baseline-artefact-name | With `publish-baseline: never`: hand the figures on as an artefact of this name, from a successful push to `refs/heads/main` only                                                                                                                   | no       | empty                       |
+| build-only             | Compile the instrumented test binaries and stop: no run, report, ratchet, baseline or coverage artefact                                                                                                                                             | no       | `false`                     |
+| artefact-name-suffix   | Additional suffix appended to the uploaded coverage artefact                                                                                                                                                                                        | no       |                             |
+| publish-artefact       | Upload the generated coverage report as a workflow artefact; `false` suppresses the upload                                                                                                                                                          | no       | `true`                      |
+| baseline-rust-file     | Rust baseline path                                                                                                                                                                                                                                  | no       | `.coverage-baseline.rust`   |
+| baseline-python-file   | Python baseline path                                                                                                                                                                                                                                | no       | `.coverage-baseline.python` |
+| with-cucumber-rs       | Run cucumber-rs scenarios under coverage                                                                                                                                                                                                            | no       | `false`                     |
+| cucumber-rs-features   | Path to cucumber feature files                                                                                                                                                                                                                      | no       |                             |
+| cucumber-rs-args       | Extra arguments for cucumber                                                                                                                                                                                                                        | no       |                             |
+| pytest-workers         | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism.                                                                                                                    | no       | `auto`                      |
+| python-source          | Optional comma-separated Python source scope passed unchanged to Slipcover as one `--source` argument.                                                                                                                                              | no       |                             |
+| python-version         | Interpreter for the Python coverage venv. Empty uses `UV_PYTHON`, then `.python-version`, then the `python3` on `PATH`. Its major.minor keys the Python ratchet baseline.                                                                           | no       |                             |
+| cache-provider         | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner.                                                                                                                                                | no       | `github`                    |
 <!-- markdownlint-enable MD013 -->
 
 \* `lcov` is only supported for Rust projects, while `coveragepy` is only
@@ -330,6 +332,36 @@ Use `language: rust` for a Rust repository that keeps a tooling-only
     output-path: lcov.info
     format: lcov
 ```
+
+## Splitting main coverage across runner providers
+
+Ubicloud keeps its own cache store, so anything a GitHub-hosted job saves never
+reaches an Ubicloud pull-request lane, and a ratchet check on the hosted job
+could never fail: its restore always misses, the baseline reads as 0, and a
+drop in coverage would silently lower the baseline. Three jobs avoid that:
+
+1. **Coverage**, on a GitHub-hosted runner: `publish-baseline: never`,
+   `with-ratchet: true` and `baseline-artefact-name: <name>`. It measures, runs
+   no ratchet, saves nothing, and on a successful push to `refs/heads/main`
+   uploads the figures as the named artefact.
+2. **Baseline**, on the runner that shares the pull-request lanes' store, with
+   `needs: <coverage job>` and an `if` limiting it to pushes: the
+   `publish-coverage-baseline` action. It restores the current baseline,
+   ratchets the handed-over figure with the same comparison this action uses,
+   and saves only if that passed. A lower figure fails the job and saves
+   nothing. It compiles nothing.
+3. **Cache warm-up**, on that same runner: this action with `build-only: true`
+   and the same `features`, `all-features`, `all-targets` and
+   `use-cargo-nextest` as the pull-request lane, so its compiler-cache entries
+   are the ones the lane reads. Set `output-path` to any value; it is required
+   but unused.
+
+`build-only` compiles with `cargo nextest run --no-run` (or
+`cargo test --no-run` without nextest) under the environment
+`cargo llvm-cov show-env` prints and in the target directory `cargo llvm-cov`
+builds in. It does not use `cargo llvm-cov --no-run`, which means "report
+without running". The Baseline job and the warm-up cover Linux only: the cache
+key names `runner.os`.
 
 ## When the baseline is published
 

@@ -670,14 +670,27 @@ _LLVM_COV_TARGET_SUBDIR = "llvm-cov-target"
 
 
 def parse_show_env(output: str) -> dict[str, str]:
-    """Return the ``KEY=value`` pairs printed by ``cargo llvm-cov show-env``."""
+    """Return the ``KEY=value`` pairs printed by ``cargo llvm-cov show-env``.
+
+    Each value is read with shell quoting, so a quoted value holding spaces is
+    one word; an unquoted value holding spaces has its words rejoined with
+    single spaces. Lines that are not a ``KEY=value`` pair are ignored.
+
+    Raises
+    ------
+    ValueError
+        If a value has unbalanced quotes, naming the key it belongs to.
+    """
     pairs: dict[str, str] = {}
     for line in output.splitlines():
         key, sep, value = line.partition("=")
         if not sep or not key.isidentifier():
             continue
-        words = shlex.split(value)
-        pairs[key] = words[0] if words else ""
+        try:
+            pairs[key] = " ".join(shlex.split(value))
+        except ValueError as exc:
+            msg = f"cannot parse the value of {key} printed by cargo llvm-cov show-env"
+            raise ValueError(msg) from exc
     return pairs
 
 
@@ -730,8 +743,9 @@ def build_instrumented_tests(
     )
     # cargo-llvm-cov's own runs write profiles beside their binaries, so the
     # variable is rebased there; its value is part of what the compiler sees.
-    if "LLVM_PROFILE_FILE" in env:
-        env["LLVM_PROFILE_FILE"] = str(target_dir / Path(env["LLVM_PROFILE_FILE"]).name)
+    profile_name = Path(env.get("LLVM_PROFILE_FILE", "")).name
+    if profile_name:
+        env["LLVM_PROFILE_FILE"] = str(target_dir / profile_name)
     env.update(get_cargo_coverage_env(targets.manifest_path))
     args = get_build_only_cmd(
         selection.features,

@@ -348,8 +348,10 @@ drop in coverage would silently lower the baseline. Three jobs avoid that:
    `needs: <coverage job>` and an `if` limiting it to pushes: the
    `publish-coverage-baseline` action. It restores the current baseline,
    ratchets the handed-over figure with the same comparison this action uses,
-   and saves only if that passed. A lower figure fails the job and saves
-   nothing. It compiles nothing.
+   and saves only if that passed. A figure more than the ratchet's one-point
+   tolerance below the baseline fails the job and saves nothing. It compiles
+   nothing. Run it under a never-overlapping concurrency group, so publications
+   happen in push order.
 3. **Cache warm-up**, on that same runner: this action with `build-only: true`
    and the same `features`, `all-features`, `all-targets` and
    `use-cargo-nextest` as the pull-request lane, so its compiler-cache entries

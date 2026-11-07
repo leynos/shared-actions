@@ -9,9 +9,23 @@ README.
 It compiles nothing and measures nothing. It downloads the hand-over artefact,
 restores the current baseline with the same key prefix and path list the
 pull-request lanes restore, compares with `ratchet_coverage.py` from
-`generate-coverage`, and saves only if the comparison passed. A lower figure
-fails the job and saves nothing. The save runs only on a push to
+`generate-coverage`, and saves only if the comparison passed. The comparison is
+the ratchet's: a figure more than its one-point tolerance below the baseline
+fails the job and saves nothing; one inside the band passes and holds the
+baseline; one above the band advances it. The save runs only on a push to
 `refs/heads/main`.
+
+A missing baseline, such as a first run or an evicted cache, starts at 0, as in
+`generate-coverage`: the first figure becomes the baseline. The job says so in
+a notice. It also prints the `metric ratchet-cache.restore` and
+`metric ratchet-cache.save` lines `generate-coverage` prints.
+
+## Serialization
+
+The job restores, compares and saves in one run, so two overlapping runs could
+each restore the same baseline and save in the opposite order. Give the
+workflow a concurrency group that never cancels and never overlaps, as the
+example does, so publications happen in push order.
 
 ## Inputs
 
@@ -24,14 +38,19 @@ fails the job and saves nothing. The save runs only on a push to
 ## Example
 
 ```yaml
-baseline:
-  needs: coverage
-  if: github.event_name == 'push'
-  runs-on: ubicloud-standard-2
-  steps:
-    - uses: leynos/shared-actions/.github/actions/publish-coverage-baseline@<sha>
-      with:
-        artefact-name: coverage-baseline
+concurrency:
+  group: coverage-main-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    needs: coverage
+    if: github.event_name == 'push'
+    runs-on: ubicloud-standard-2
+    steps:
+      - uses: leynos/shared-actions/.github/actions/publish-coverage-baseline@<sha>
+        with:
+          artefact-name: coverage-baseline
 ```
 
 The job needs no checkout: the action restores the baseline files into the

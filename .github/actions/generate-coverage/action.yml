@@ -581,10 +581,14 @@ runs:
         mkdir -p "$GC_HANDOVER_DIR"
         printf '%s\n' "$GC_LANG" > "$GC_HANDOVER_DIR/lang"
         printf '%s\n' "$GC_SEGMENT" > "$GC_HANDOVER_DIR/segment"
+        # An empty figure would reach the publishing job as a bare Typer parse
+        # error; fail here, where the cause is known.
         if [[ "$GC_LANG" == "rust" || "$GC_LANG" == "mixed" ]]; then
+          [[ -n "$GC_RUST_PERCENT" ]] || { echo "::error::Rust coverage percent is empty" >&2; exit 1; }
           printf '%s\n' "$GC_RUST_PERCENT" > "$GC_HANDOVER_DIR/rust.percent"
         fi
         if [[ "$GC_LANG" == "python" || "$GC_LANG" == "mixed" ]]; then
+          [[ -n "$GC_PYTHON_PERCENT" ]] || { echo "::error::Python coverage percent is empty" >&2; exit 1; }
           printf '%s\n' "$GC_PYTHON_PERCENT" > "$GC_HANDOVER_DIR/python.percent"
         fi
         echo "path=$GC_HANDOVER_DIR" >> "$GITHUB_OUTPUT"

@@ -189,10 +189,19 @@ def test_save_is_visible_to_the_pull_request_restore() -> None:
     )
 
 
-def test_a_lower_figure_fails_and_leaves_the_baseline_untouched(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("current", "fails"),
+    [("70.00", True), ("79.00", False), ("78.99", True)],
+)
+def test_a_figure_beyond_the_tolerance_fails_and_leaves_the_baseline_alone(
+    tmp_path: Path, current: str, *, fails: bool
 ) -> None:
-    """Run the comparison the publishing job runs: a drop exits non-zero."""
+    """Run the comparison the publishing job runs, on both sides of the band.
+
+    A figure more than the ratchet's one-point tolerance below the baseline
+    exits non-zero and writes nothing; one inside the band passes and holds
+    the baseline, as it does in the pull-request lanes.
+    """
     baseline = tmp_path / ".coverage-baseline.rust"
     baseline.write_text("80.00")
     # The script the publishing job's own step names, resolved from its
@@ -209,21 +218,22 @@ def test_a_lower_figure_fails_and_leaves_the_baseline_untouched(
             "--baseline-file",
             str(baseline),
             "--current",
-            "70.00",
+            current,
         ],
         capture_output=True,
         text=True,
         check=False,
     )
 
-    assert result.returncode != 0
+    assert (result.returncode != 0) is fails
     assert baseline.read_text() == "80.00"
 
 
 # -- the build-only job -----------------------------------------------------
 
 
-def _selection(run_rust: ModuleType, **overrides: bool | str) -> object:
+def _selection(run_rust: ModuleType, **overrides: bool | str) -> typ.Any:  # noqa: ANN401
+    """Build a ``FeatureSelection`` for a build-only run, with *overrides*."""
     values: dict[str, bool | str] = {
         "features": "",
         "with_default": True,
@@ -353,3 +363,50 @@ def test_main_in_build_only_mode_writes_no_report(
     )
 
     assert not github_output.exists()
+
+
+def test_show_env_rejects_unbalanced_quotes_naming_the_key(
+    run_rust: ModuleType,
+) -> None:
+    """A malformed value is a clear error, not a bare shlex traceback."""
+    with pytest.raises(ValueError, match="value of BROKEN"):
+        run_rust.parse_show_env("BROKEN='unterminated\n")
+
+
+def test_show_env_rejoins_an_unquoted_value_holding_spaces(
+    run_rust: ModuleType,
+) -> None:
+    """The words after the first are kept, not silently dropped."""
+    assert run_rust.parse_show_env("A=one two  three\n") == {"A": "one two three"}
+
+
+def test_an_empty_profile_name_is_not_rebased(
+    run_rust: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An empty LLVM_PROFILE_FILE must not become the bare target directory."""
+    seen: dict[str, str] = {}
+
+    def fake_run_cargo(
+        args: list[str],
+        *,
+        env_overrides: typ.Mapping[str, str] | None = None,
+        env_unsets: typ.Iterable[str] = (),
+    ) -> str:
+        if args[:2] == ["llvm-cov", "show-env"]:
+            return "LLVM_PROFILE_FILE=''\nCARGO_LLVM_COV_TARGET_DIR=/w/target\n"
+        seen.update(env_overrides or {})
+        return ""
+
+    monkeypatch.setattr(run_rust, "_run_cargo", fake_run_cargo)
+    targets = run_rust.CoverageTargets(
+        out=tmp_path / "unused",
+        lang="rust",
+        fmt="cobertura",
+        manifest_path=tmp_path / "Cargo.toml",
+        github_output=tmp_path / "gh",
+        baseline_file=None,
+    )
+
+    run_rust.build_instrumented_tests(targets, _selection(run_rust))
+
+    assert seen["LLVM_PROFILE_FILE"] == ""

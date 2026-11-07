@@ -327,6 +327,10 @@ class TestTheProofOrchestration:
         def run_case(
             runner: Path, root: Path, *, budget: str, sleep_seconds: float
         ) -> Outcome:
+            """Return *termination* for the BUDGET run and a refusal otherwise.
+
+            The refusal for *broken_refusal* is returned with a zero return code.
+            """
             del runner, root, sleep_seconds
             if budget == str(BUDGET):
                 return termination

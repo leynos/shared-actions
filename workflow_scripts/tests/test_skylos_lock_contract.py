@@ -36,6 +36,7 @@ class TestSkylosLockContract:
         attempts = 0
 
         def locking(_file_descriptor: int, mode: int, byte_count: int) -> None:
+            """Record each call and fail the first non-blocking attempt as held."""
             nonlocal attempts
             assert byte_count == 1, "Windows Skylos locks must cover exactly one byte"
             calls.append(mode)
@@ -78,6 +79,7 @@ class TestSkylosLockContract:
         """Only Windows lock-contention errors may be retried."""
 
         def locking(_file_descriptor: int, _mode: int, _byte_count: int) -> None:
+            """Fail every call with a non-contention error."""
             raise OSError(errno.EBADF, "invalid lock descriptor")
 
         fake_msvcrt = types.ModuleType("msvcrt")
@@ -101,6 +103,7 @@ class TestSkylosLockContract:
         selected: list[typ.BinaryIO] = []
 
         def windows_lock(lock_file: typ.BinaryIO) -> nullcontext[None]:
+            """Record the lock file and return a no-op context manager."""
             selected.append(lock_file)
             return nullcontext()
 

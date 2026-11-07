@@ -28,12 +28,15 @@ class _FailingOutput:
 
     @property
     def buffer(self) -> _FailingOutput:
+        """Return this stream as its own binary buffer."""
         return self
 
     def write(self, value: bytes) -> int:
+        """Fail every write with an OSError."""
         raise OSError(self.error_message)
 
     def flush(self) -> None:
+        """Fail every flush with an OSError."""
         raise OSError(self.error_message)
 
 
@@ -44,9 +47,11 @@ class _FailingInput:
     close_error = "pipe close failed"
 
     def read(self, size: int) -> bytes:
+        """Fail every read with an OSError."""
         raise OSError(self.read_error)
 
     def close(self) -> None:
+        """Fail every close with an OSError."""
         raise OSError(self.close_error)
 
 
@@ -56,9 +61,11 @@ class _FailingFile:
     error_message = "disk full"
 
     def write(self, value: bytes) -> int:
+        """Fail every write with an OSError."""
         raise OSError(self.error_message)
 
     def flush(self) -> None:
+        """Fail every flush with an OSError."""
         raise OSError(self.error_message)
 
 
@@ -69,11 +76,13 @@ class _FailingCloseStack(contextlib.ExitStack):
     _should_fail_close = False
 
     def pop_all(self) -> _FailingCloseStack:
+        """Transfer the callbacks to a new stack that fails on close."""
         transferred = typ.cast("_FailingCloseStack", super().pop_all())
         transferred._should_fail_close = True
         return transferred
 
     def close(self) -> None:
+        """Close the stack, then raise OSError once if it was marked to fail."""
         should_fail = self._should_fail_close
         self._should_fail_close = False
         super().close()
@@ -93,6 +102,7 @@ def failing_metadata_write(monkeypatch: pytest.MonkeyPatch) -> None:
     """Replace metadata writes with a disk-full failure."""
 
     def fail_write(path: Path, metadata: dict[str, object]) -> None:
+        """Raise OSError in place of writing the metadata file."""
         error_message = "metadata disk full"
         raise OSError(error_message)
 

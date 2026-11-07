@@ -365,6 +365,14 @@ builds in. It does not use `cargo llvm-cov --no-run`, which means "report
 without running". The Baseline job and the warm-up cover Linux only: the cache
 key names `runner.os`.
 
+`build-only` refuses `CARGO_LLVM_COV_TARGET_DIR`, `CARGO_LLVM_COV_BUILD_DIR` and
+`CARGO_BUILD_BUILD_DIR` in the environment, and a build directory that
+`cargo llvm-cov show-env` reports apart from its target directory, because a
+build in other directories warms nothing. One case is not detected: a
+`build.build-dir` configured to the same path as the target directory, for
+which a coverage run sets its own build directory and the warm-up does not.
+Leave `build.build-dir` unset in a repository that uses `build-only`.
+
 ## When the baseline is published
 
 In the default `auto` mode the save runs only on a `push` to `refs/heads/main`.

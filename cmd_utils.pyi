@@ -68,9 +68,11 @@ class SupportsWithEnv(SupportsFormulate, typ.Protocol):
 def coerce_run_result(result: RunResult | cabc.Sequence[object]) -> RunResult:
     """Normalize *result* into a :class:`RunResult`."""
     ...
+
 def process_error_to_run_result(exc: ProcessExecutionError) -> RunResult:
     """Convert ``exc`` into a :class:`RunResult` for consistent handling."""
     ...
+
 def process_error_to_subprocess(
     exc: ProcessExecutionError | ProcessTimedOut,
     command: SupportsFormulate,
@@ -79,6 +81,7 @@ def process_error_to_subprocess(
 ) -> CalledProcessError | TimeoutExpired:
     """Map plumbum exceptions to their :mod:`subprocess` counterparts."""
     ...
+
 def run_cmd(
     cmd: object,
     *,

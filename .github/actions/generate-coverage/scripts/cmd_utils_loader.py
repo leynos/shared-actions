@@ -39,8 +39,8 @@ class CmdUtilsImportError(RuntimeError):
         """Build the error message from the path, symbol and cause.
 
         When ``symbol`` is given, the message names it as missing from ``path``.
-        When ``original_exception`` is given, its type and message are appended as
-        the cause.
+        When ``original_exception`` is given and truthy, its type and message are
+        appended as the cause.
         """
         detail = f"'{symbol}' not found in {path}" if symbol is not None else str(path)
         cause = (

@@ -1027,7 +1027,7 @@ def _make_cucumber_spy(
         all_targets: bool = False,
         allow_no_tests: bool = False,
     ) -> None:
-        """Append the keyword arguments of one cucumber coverage call to ``calls``.
+        """Append the arguments of one cucumber coverage call to ``calls``.
 
         ``allow_no_tests`` is accepted but not recorded.
         """

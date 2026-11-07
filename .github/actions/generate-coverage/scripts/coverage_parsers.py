@@ -62,7 +62,8 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
         """Return an XPath expression's numeric value as an int, or 0.
 
         The expression is wrapped in ``number()``. Returns 0 if the query raises or
-        the result is NaN. Otherwise the value is truncated towards zero.
+        the result is NaN. Otherwise the value is truncated towards zero. An
+        infinite result raises ``OverflowError`` from ``int()``.
         """
         try:
             n = typ.cast("float", root.xpath(f"number({expr})"))

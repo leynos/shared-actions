@@ -105,7 +105,7 @@ def _fake_musl_libc(_library_name: str) -> object:
     """Create a libc stub that lacks the GNU version symbol."""
 
     class _FakeLibc:
-        """Libc stub whose every attribute lookup fails."""
+        """Libc stub that raises ``AttributeError`` for any missing attribute."""
 
         def __getattr__(self, name: str) -> object:
             """Raise ``AttributeError`` for every attribute name."""

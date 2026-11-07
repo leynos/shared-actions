@@ -36,7 +36,10 @@ def _fake_libc(*, include_version: bool = True) -> object:
     """Create a libc stub for ``_is_musl`` unit tests."""
 
     class _FakeLibc:
+        """Libc stub that exposes ``gnu_get_libc_version``."""
+
         def gnu_get_libc_version(self) -> str:
+            """Return the GNU libc version ``2.31``, or an empty string if disabled."""
             return "2.31" if include_version else ""
 
     return lambda _library_name: _FakeLibc()
@@ -102,7 +105,10 @@ def _fake_musl_libc(_library_name: str) -> object:
     """Create a libc stub that lacks the GNU version symbol."""
 
     class _FakeLibc:
+        """Libc stub that raises ``AttributeError`` for any missing attribute."""
+
         def __getattr__(self, name: str) -> object:
+            """Raise ``AttributeError`` for every attribute name."""
             raise AttributeError(name)
 
     return _FakeLibc()
@@ -129,6 +135,7 @@ def test_is_musl_propagates_cdll_errors(install_nextest_module: ModuleType) -> N
     """Load failures from the libc probe are propagated to callers."""
 
     def raise_oserror(_library_name: str) -> object:
+        """Simulate a libc load failure by raising ``OSError``."""
         message = "boom"
         raise OSError(message)
 
@@ -212,6 +219,7 @@ def test_install_nextest_skips_when_verified(
     called: dict[str, bool] = {"verify": False}
 
     def fake_verify(path: Path, sha: str) -> object:
+        """Check the arguments, record the call and return a matching digest."""
         assert path == binary
         assert sha == expected
         called["verify"] = True
@@ -222,6 +230,7 @@ def test_install_nextest_skips_when_verified(
         )
 
     def fail_install(*_args: object) -> None:
+        """Raise ``AssertionError``, failing the test if the installer runs."""
         raise AssertionError
 
     asset = install_nextest_module.CARGO_NEXTEST_RELEASE_ASSETS["linux-x86_64-gnu"]
@@ -321,6 +330,7 @@ def test_download_requests_the_expected_release_url(
     captured: dict[str, object] = {}
 
     def capture_urlopen(request: object, timeout: float | None = None) -> typ.IO[bytes]:
+        """Record the requested URL and timeout, then return an archive body."""
         captured["url"] = request.full_url
         captured["timeout"] = timeout
         return io.BytesIO(b"archive")
@@ -356,6 +366,7 @@ def test_install_nextest_download_failure(
     asset = install_nextest_module.CARGO_NEXTEST_RELEASE_ASSETS["linux-x86_64-gnu"]
 
     def fail_urlopen(*_args: object, **_kwargs: object) -> None:
+        """Simulate a network failure by raising ``URLError``."""
         message = "simulated failure"
         raise install_nextest_module.urllib.error.URLError(message)
 
@@ -386,6 +397,7 @@ def test_install_nextest_download_rejects_oversized_archive(
     oversized_payload = b"x" * 4096
 
     def fake_urlopen(*_args: object, **_kwargs: object) -> io.BytesIO:
+        """Return a response body larger than the configured cap."""
         return io.BytesIO(oversized_payload)
 
     monkeypatch.setattr(install_nextest_module.urllib.request, "urlopen", fake_urlopen)

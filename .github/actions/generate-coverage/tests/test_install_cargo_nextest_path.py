@@ -89,9 +89,11 @@ def _install_stubs(
     host_asset = _host_release_asset(module)
 
     def fake_download(_asset: object, destination: Path) -> None:
+        """Write the stub archive payload to ``destination``, ignoring the asset."""
         destination.write_bytes(archive_payload)
 
     def fake_extract(_archive: Path, _asset: object, destination: Path) -> None:
+        """Write the installed payload to ``destination``, ignoring the archive."""
         destination.write_bytes(installed_payload)
 
     monkeypatch.setattr(module, "_download_archive", fake_download)
@@ -204,6 +206,7 @@ def test_reused_binary_in_cargo_home_exports_its_directory_to_path(
     )
 
     def fail_install(*_args: object) -> None:
+        """Raise ``AssertionError``, failing the test if the installer runs."""
         raise AssertionError
 
     monkeypatch.setattr(nextest_module, "install_cargo_nextest", fail_install)

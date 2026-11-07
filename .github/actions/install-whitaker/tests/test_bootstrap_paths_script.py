@@ -30,6 +30,11 @@ require_posix_host()
 
 
 def _run(*args: str, stdin: str = "", **env: str) -> subprocess.CompletedProcess[str]:
+    """Run the bootstrap-paths script with ``args`` and return the completed process.
+
+    ``env`` entries overlay the ambient environment, and ``stdin`` is sent as text.
+    A non-zero exit status does not raise.
+    """
     return subprocess.run(  # noqa: S603,TID251 - run the script under test.
         [bash_executable(), str(SCRIPT), *args],
         input=stdin,

@@ -242,7 +242,10 @@ def _fake_libc(*, include_version: bool = True) -> object:
     """Create a libc stub for ``_is_musl`` unit tests."""
 
     class _FakeLibc:
+        """Libc stub that exposes ``gnu_get_libc_version``."""
+
         def gnu_get_libc_version(self) -> str:
+            """Return the GNU libc version ``2.31``, or an empty string if disabled."""
             return "2.31" if include_version else ""
 
     return lambda _library_name: _FakeLibc()
@@ -546,6 +549,7 @@ def _run_rust_main_variant(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
+        """Record the cargo arguments and environment, then return 100% coverage."""
         recorded["args"] = args
         recorded["env_overrides"] = dict(env_overrides or {})
         recorded["env_unsets"] = tuple(env_unsets)
@@ -807,6 +811,7 @@ def test_run_cargo_windows(
     monkeypatch.setattr(mod.os, "name", "nt")
 
     def fake_echo(line: str, *, err: bool = False, nl: bool = True) -> None:
+        """Print ``line`` to stderr or stdout, with the newline set by ``nl``."""
         print(line, end="\n" if nl else "", file=sys.stderr if err else sys.stdout)
 
     monkeypatch.setattr(mod.typer, "echo", fake_echo)
@@ -889,6 +894,7 @@ def test_run_cargo_unix_pump_timeout(
     messages: list[tuple[str, bool]] = []
 
     def fake_echo(message: str, *, err: bool = False, nl: bool = True) -> None:
+        """Record ``message`` and whether it went to stderr, ignoring ``nl``."""
         _ = nl
         messages.append((message, err))
 
@@ -979,6 +985,7 @@ def test_run_cargo_invalid_timeout_does_not_spawn(
     messages: list[tuple[str, bool]] = []
 
     def fake_echo(message: str, *, err: bool = False, nl: bool = True) -> None:
+        """Record ``message`` and whether it went to stderr, ignoring ``nl``."""
         _ = nl
         messages.append((message, err))
 
@@ -1020,6 +1027,10 @@ def _make_cucumber_spy(
         all_targets: bool = False,
         allow_no_tests: bool = False,
     ) -> None:
+        """Append the arguments of one cucumber coverage call to ``calls``.
+
+        ``allow_no_tests`` is accepted but not recorded.
+        """
         calls.append(
             {
                 "out": out,
@@ -1055,6 +1066,7 @@ def test_main_reuses_cargo_env_for_cucumber(
     cucumber_calls: list[dict[str, object]] = []
 
     def fake_get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:
+        """Record the manifest path and return the canned cargo environment."""
         env_calls.append(manifest_path)
         return cargo_env
 
@@ -1064,6 +1076,10 @@ def test_main_reuses_cargo_env_for_cucumber(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
+        """Record the environment overrides and return 100% coverage.
+
+        The arguments and environment unsets are ignored.
+        """
         _ = (args, env_unsets)
         run_cargo_env_calls.append(env_overrides)
         return "Coverage: 100%"
@@ -1151,6 +1167,7 @@ def test_run_cargo_windows_pump_timeout(
     messages: list[tuple[str, bool]] = []
 
     def fake_echo(message: str, *, err: bool = False, nl: bool = True) -> None:
+        """Record ``message`` and whether it went to stderr, ignoring ``nl``."""
         _ = nl
         messages.append((message, err))
 
@@ -1575,6 +1592,7 @@ def test_lcov_permission_error(
     lcov.write_text("LF:1\nLH:1\n")
 
     def bad_read_text(*_: object, **__: object) -> str:
+        """Raise ``PermissionError`` in place of reading any file."""
         message = "nope"
         raise PermissionError(message)
 
@@ -1688,6 +1706,11 @@ def _setup_coverage_venv_test(
     setup = VenvTestSetup(coverage_venv=coverage_venv)
 
     def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        """Record the command and create the venv Python for a ``uv venv`` call.
+
+        The Python file is created only when ``python_to_create`` is set. Other
+        commands are only recorded.
+        """
         parts = list(cmd.formulate())  # type: ignore[attr-defined]
         setup.recorded.append(parts)
         if python_to_create is not None and _is_uv_venv_invocation(parts):
@@ -2019,6 +2042,7 @@ def test_ensure_coverage_venv_sets_uv_project_environment_for_sync(
     sync_environment: list[str | None] = []
 
     def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        """Record the command, and ``UV_PROJECT_ENVIRONMENT`` for each ``uv sync``."""
         parts = list(cmd.formulate())  # type: ignore[attr-defined]
         setup.recorded.append(parts)
         if len(parts) > 1 and parts[1] == "sync":
@@ -2049,6 +2073,7 @@ def test_coverage_python_cmd_prepares_tools_once(
     recorded: list[list[str]] = []
 
     def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        """Record the command, creating the venv Python on a ``uv venv`` call."""
         args = list(cmd.formulate())  # type: ignore[attr-defined]
         recorded.append(args)
         if len(args) > 1 and args[1] == "venv":
@@ -2331,6 +2356,7 @@ def test_an_unresolvable_entry_is_a_validation_error(
     """
 
     def failing_resolve(self: Path, *_args: object, **_kwargs: object) -> Path:
+        """Raise the configured error from ``Path.resolve``, whatever the path."""
         raise error
 
     monkeypatch.setattr(run_python_module.Path, "resolve", failing_resolve)
@@ -2682,6 +2708,7 @@ def test_main_translates_invalid_workers_into_typer_exit(
     github_output = tmp_path / "gh.txt"
 
     def fake_run_cmd(*_args: object, **_kwargs: object) -> None:
+        """Fail the test if a command is run, as worker validation should stop first."""
         pytest.fail("run_cmd must not be invoked when worker validation fails")
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
@@ -2707,6 +2734,7 @@ def test_main_rejects_invalid_source_before_coverage_subprocess(
     github_output = tmp_path / "gh.txt"
 
     def fake_run_cmd(*_args: object, **_kwargs: object) -> None:
+        """Fail the test if a command is run, as source validation should stop first."""
         pytest.fail("run_cmd must not be invoked when source validation fails")
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
@@ -2733,6 +2761,7 @@ def test_main_judges_containment_against_the_working_directory(
     monkeypatch.chdir(project)
 
     def fake_run_cmd(*_args: object, **_kwargs: object) -> None:
+        """Fail the test if a command is run, as source validation should stop first."""
         pytest.fail("run_cmd must not be invoked when source validation fails")
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
@@ -2757,6 +2786,7 @@ def test_tmp_coveragepy_xml_invokes_venv_python(
     recorded: dict[str, list[str]] = {}
 
     def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        """Record the command and write a ``<coverage/>`` document to ``xml_path``."""
         recorded["cmd"] = list(cmd.formulate())  # type: ignore[attr-defined]
         xml_path.write_text("<coverage/>", encoding="utf-8")
 
@@ -2788,6 +2818,7 @@ def test_run_python_cobertura_passes_out_flag(
     recorded: list[tuple[list[str], str | None]] = []
 
     def fake_run_cmd(cmd: object, *_args: object, **kwargs: object) -> None:
+        """Record each command with its ``method`` keyword, or ``None`` if absent."""
         recorded.append(
             (list(cmd.formulate()), typ.cast("str | None", kwargs.get("method")))
         )  # type: ignore[attr-defined]
@@ -2848,6 +2879,7 @@ def _run_main_with_inputs(
     recorded: list[list[str]] = []
 
     def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        """Record the command and return without running it."""
         recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
@@ -3057,7 +3089,8 @@ def test_run_python_coveragepy_empty_xml(
     monkeypatch.chdir(tmp_path)
 
     def fake_run_cmd(*_: object, **__: object) -> None:
-        return None
+        """Accept any command and do nothing."""
+        return
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
     python = _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
@@ -3067,6 +3100,10 @@ def test_run_python_coveragepy_empty_xml(
     def fake_tmp_coveragepy_xml(
         _out: Path, _interpreter: str = ""
     ) -> typ.Iterator[Path]:
+        """Yield an XML path holding a zero-line report, and remove it on exit.
+
+        The coverage Python command's executable is appended to ``captured_python``.
+        """
         captured_python.append(
             next(iter(run_python_module._coverage_python_cmd().formulate()))
         )
@@ -3112,12 +3149,16 @@ def test_main_echoes_previous_coverage_when_baseline_present(
     coverage_file.write_text("payload", encoding="utf-8")
 
     def fake_run_cmd(_cmd: object, **_kw: object) -> None:
-        pass
+        """Accept any command and do nothing."""
 
     @contextlib.contextmanager
     def fake_tmp_coveragepy_xml(
         out: Path, _interpreter: str = ""
     ) -> typ.Iterator[Path]:
+        """Yield an ``.xml`` path beside ``out`` holding one covered line.
+
+        The file is removed when the context exits, and ``_interpreter`` is ignored.
+        """
         xml = out.with_suffix(".xml")
         xml.write_text(
             "<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8"
@@ -3128,6 +3169,7 @@ def test_main_echoes_previous_coverage_when_baseline_present(
             xml.unlink(missing_ok=True)
 
     def fake_read_previous_coverage(_baseline: Path | None) -> float | None:
+        """Return a fixed previous coverage of 42.0, ignoring the baseline."""
         return 42.0
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
@@ -3166,7 +3208,8 @@ def test_run_python_coveragepy_malformed_xml_exits(
     monkeypatch.chdir(tmp_path)
 
     def fake_run_cmd(*_: object, **__: object) -> None:
-        return None
+        """Accept any command and do nothing."""
+        return
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
     python = _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
@@ -3176,6 +3219,11 @@ def test_run_python_coveragepy_malformed_xml_exits(
     def fake_tmp_coveragepy_xml(
         _out: Path, _interpreter: str = ""
     ) -> typ.Iterator[Path]:
+        """Yield an ``.xml`` path holding an unclosed ``<coverage>`` element.
+
+        The coverage Python command's executable is appended to ``captured_python``,
+        and the file is removed when the context exits.
+        """
         captured_python.append(
             next(iter(run_python_module._coverage_python_cmd().formulate()))
         )
@@ -3220,6 +3268,7 @@ def test_cobertura_permission_error(
     xml.write_text("<coverage/>")
 
     def raise_permission_error(*_: object, **__: object) -> object:
+        """Raise ``PermissionError`` in place of any call."""
         message = "denied"
         raise PermissionError(message)
 

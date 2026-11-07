@@ -85,6 +85,10 @@ def archive_factory(tmp_path: Path) -> typ.Callable[[str], Path]:
     """Return a factory writing the sample archive under a chosen name."""
 
     def factory(name: str) -> Path:
+        """Write the sample archive to ``name`` under ``tmp_path`` and return its path.
+
+        Parent directories are created as needed.
+        """
         archive = tmp_path / name
         archive.parent.mkdir(parents=True, exist_ok=True)
         archive.write_bytes(ARCHIVE_BYTES)

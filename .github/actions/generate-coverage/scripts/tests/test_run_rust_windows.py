@@ -35,9 +35,11 @@ run_rust = cargo_runner_module
 class _SupportsKillWait(typ.Protocol):
     """Minimal protocol for processes that expose kill/wait."""
 
-    def kill(self) -> None: ...
+    def kill(self) -> None:
+        """Terminate the process."""
 
-    def wait(self, timeout: float | None = ...) -> int: ...
+    def wait(self, timeout: float | None = ...) -> int:
+        """Wait for the process to exit and return its exit code."""
 
 
 class _RunRustModule(typ.Protocol):
@@ -58,19 +60,25 @@ run_rust_typed: _RunRustModule = typ.cast("_RunRustModule", run_rust)
 
 
 class _DummyProc:
+    """Fake process that records ``kill`` and ``wait`` calls."""
+
     def __init__(self) -> None:
+        """Start with no kill recorded and no wait timeouts."""
         self.killed = False
         self.wait_timeouts: list[float | None] = []
 
     def poll(self) -> None:
-        return None
+        """Return ``None`` to report the process as still running."""
+        return
 
     def kill(self) -> None:  # pragma: no cover - exercised only on failure
+        """Record that the process was killed."""
         self.killed = True
 
     def wait(
         self, timeout: float | None = None
     ) -> int:  # pragma: no cover - failure path
+        """Record the timeout passed in and return exit code 0."""
         self.wait_timeouts.append(timeout)
         return 0
 

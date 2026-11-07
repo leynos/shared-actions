@@ -80,6 +80,7 @@ class _ArchiveHandler(http.server.BaseHTTPRequestHandler):
     path_served: typ.ClassVar[str] = ""
 
     def do_GET(self) -> None:
+        """Serve the archive at the expected path and reply 404 for any other path."""
         if self.path != self.path_served:
             self.send_error(404)
             return

@@ -119,6 +119,7 @@ class ToolResolutionError(Exception):
     """
 
     def __init__(self, kind: str, message: str) -> None:
+        """Record the failure ``kind`` alongside the human-readable message."""
         super().__init__(message)
         self.kind = kind
 
@@ -275,6 +276,7 @@ class _ArchiveTooLargeError(Exception):
     """Raised when a downloaded archive exceeds ``_MAX_ARCHIVE_BYTES``."""
 
     def __init__(self, bytes_read: int) -> None:
+        """Record the number of bytes read when the archive limit was exceeded."""
         super().__init__(
             f"archive exceeded {_MAX_ARCHIVE_BYTES} bytes (read {bytes_read})"
         )

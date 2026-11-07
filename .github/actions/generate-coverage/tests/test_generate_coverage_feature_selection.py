@@ -274,6 +274,7 @@ def test_doctest_command_omits_all_targets(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
+        """Record the cargo arguments and return empty output."""
         recorded["args"] = args
         return ""
 
@@ -316,6 +317,7 @@ def _run_main_capturing_cargo(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
+        """Record the cargo arguments and return a 100% coverage line."""
         calls.append(args)
         return "Coverage: 100%"
 
@@ -413,6 +415,7 @@ def test_main_forwards_the_selection_to_both_commands(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
+        """Record the cargo arguments and return a 100% coverage line."""
         calls.append(args)
         return "Coverage: 100%"
 
@@ -458,6 +461,7 @@ def test_main_forwards_a_narrow_selection_to_the_doc_tests(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
+        """Record the cargo arguments and return a 100% coverage line."""
         calls.append(args)
         return "Coverage: 100%"
 
@@ -507,6 +511,7 @@ def test_main_rejects_a_conflicting_selection_before_running_cargo(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:  # pragma: no cover - must never be reached
+        """Record the cargo arguments. The test asserts that none are recorded."""
         calls.append(args)
         return "Coverage: 100%"
 
@@ -626,6 +631,11 @@ def test_cucumber_command_carries_the_whole_workspace_flags(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
+        """Record the cargo arguments and return a 100% coverage line.
+
+        When the cucumber output path is among the arguments, a four-line, fully
+        covered lcov report is written to that path.
+        """
         calls.append(args)
         if str(cucumber_output) in args:
             cucumber_output.write_text("LF:4\nLH:4\nend_of_record\n")
@@ -673,6 +683,11 @@ def test_cucumber_command_omits_the_flags_when_not_requested(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
+        """Record the cargo arguments and return a 100% coverage line.
+
+        When the cucumber output path is among the arguments, a four-line, fully
+        covered lcov report is written to that path.
+        """
         calls.append(args)
         if str(cucumber_output) in args:
             cucumber_output.write_text("LF:4\nLH:4\nend_of_record\n")

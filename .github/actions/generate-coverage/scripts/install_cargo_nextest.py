@@ -212,6 +212,7 @@ class _ArchiveTooLargeError(Exception):
     """Raised when a downloaded archive exceeds ``_MAX_ARCHIVE_BYTES``."""
 
     def __init__(self, bytes_read: int) -> None:
+        """Record the number of bytes read when the archive limit was exceeded."""
         super().__init__(
             f"archive exceeded {_MAX_ARCHIVE_BYTES} bytes (read {bytes_read})"
         )

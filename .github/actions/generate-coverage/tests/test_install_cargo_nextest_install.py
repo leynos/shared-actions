@@ -77,6 +77,7 @@ class _NextestInstallStubs:
     """Stub the download and extract steps for one failure mode."""
 
     def __init__(self, module: ModuleType, failure: str | None) -> None:
+        """Store the module and failure mode, with no extraction recorded yet."""
         self._module = module
         self._failure = failure
         self.extracted = False
@@ -147,6 +148,7 @@ def _invoke_nextest_install(
         else:
 
             def invoke() -> None:
+                """Call ``install_cargo_nextest`` with the planned asset and digest."""
                 module.install_cargo_nextest(plan.asset, plan.binary_digest)
 
         if plan.failure is None:
@@ -486,6 +488,7 @@ def test_install_cargo_nextest_end_to_end_from_local_archive(
         _request: object,
         timeout: float | None = None,
     ) -> typ.IO[bytes]:
+        """Return the fixture archive as a binary file for any request."""
         return archive.open("rb")
 
     monkeypatch.setattr(install_nextest_module.urllib.request, "urlopen", fake_urlopen)
@@ -625,10 +628,12 @@ def test_install_cargo_nextest_pins_expected_release_per_platform(
     captured: dict[str, object] = {}
 
     def fake_download(asset: object, target: Path) -> None:
+        """Record the asset and write a stub archive to ``target``."""
         captured["asset"] = asset
         target.write_bytes(b"stub-archive")
 
     def fake_extract(_archive: Path, _asset: object, target: Path) -> None:
+        """Write a stub binary to ``target``, ignoring the archive."""
         target.write_bytes(b"stub-binary")
 
     monkeypatch.setattr(
@@ -722,6 +727,7 @@ def test_install_cargo_nextest_metrics_for_successful_install(
     )
 
     def fake_urlopen(_request: object, timeout: float | None = None) -> typ.IO[bytes]:
+        """Return the fixture archive as a binary file for any request."""
         return archive.open("rb")
 
     monkeypatch.setattr(install_nextest_module.urllib.request, "urlopen", fake_urlopen)

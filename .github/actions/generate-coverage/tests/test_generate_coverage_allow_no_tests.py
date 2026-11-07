@@ -120,6 +120,10 @@ def _run_main_capturing_cargo(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
+        """Record the cargo arguments and return a 100% coverage line.
+
+        The environment overrides and unsets are ignored.
+        """
         calls.append(args)
         return "Coverage: 100%"
 

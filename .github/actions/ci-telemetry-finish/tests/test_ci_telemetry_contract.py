@@ -23,6 +23,7 @@ FENCE = re.compile(r"```yaml\n(.*?)```", re.DOTALL)
 
 
 def _manifest(directory: Path) -> dict[str, typ.Any]:
+    """Return the parsed ``action.yml`` in *directory*."""
     return yaml.safe_load((directory / "action.yml").read_text(encoding="utf-8"))
 
 

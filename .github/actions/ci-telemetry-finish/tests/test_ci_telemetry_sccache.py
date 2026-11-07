@@ -34,6 +34,7 @@ FINISH_ACTION = ACTION_DIR / "action.yml"
 
 
 def _load(name: str) -> dict[str, typ.Any]:
+    """Load a JSON fixture from the sccache fixtures directory."""
     return json.loads((SCCACHE_FIXTURES / name).read_text(encoding="utf-8"))
 
 
@@ -246,17 +247,21 @@ def _probes(
     calls: list[str] = []
 
     def which(_name: str) -> str | None:
+        """Report sccache as on PATH only when *binary* is set."""
         return "/usr/bin/sccache" if binary else None
 
     def reachable(env: typ.Mapping[str, str]) -> bool:
+        """Log the probe and report whether the server is listening."""
         calls.append(f"reachable:{env.get('SCCACHE_SERVER_PORT', '')}")
         return listening
 
     def read_file(path: str) -> typ.Any:  # noqa: ANN401
+        """Log the read and return the injected report-file outcome."""
         calls.append(f"read:{path}")
         return file or S.Outcome(S.ABSENT)
 
     def run_stats() -> typ.Any:  # noqa: ANN401
+        """Log the run and return the injected stats outcome."""
         calls.append("run")
         return run or S.Outcome(S.FAILED)
 
@@ -264,6 +269,7 @@ def _probes(
 
 
 def _ok(document: object) -> typ.Any:  # noqa: ANN401
+    """Wrap *document* in a successful outcome."""
     return S.Outcome(S.OK, document)
 
 
@@ -390,6 +396,7 @@ def test_the_server_probe_uses_sccaches_port(
     seen: list[int] = []
 
     def refuse(address: tuple[str, int], _timeout: float) -> typ.Any:  # noqa: ANN401
+        """Record the port, then raise ``OSError`` as a refused connection would."""
         seen.append(address[1])
         raise OSError
 
@@ -443,6 +450,7 @@ class TestRunStats:
     """``run_stats`` calls the sccache on PATH, and says how it failed."""
 
     def _stub(self, tmp_path: Path, body: str) -> Path:
+        """Write an executable ``sccache`` stub running *body*; return its directory."""
         stub = tmp_path / "sccache"
         stub.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
         stub.chmod(stub.stat().st_mode | stat.S_IEXEC)

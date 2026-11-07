@@ -77,6 +77,7 @@ def null_fields() -> dict[str, typ.Any]:
 
 
 def _problem(kind: str) -> dict[str, typ.Any]:
+    """Return a null record with ``sccache_test_problem`` set to *kind*."""
     return {**null_fields(), "sccache_test_problem": kind}
 
 
@@ -217,6 +218,12 @@ def judge(
 
 
 def _ratio_message(record: typ.Mapping[str, typ.Any], thresholds: Thresholds) -> str:
+    """Describe a test-phase hit ratio that is below the minimum.
+
+    The ratio is recomputed from the hit and miss counts when both are present
+    and their sum is non-zero. Otherwise, including when both are zero, the
+    recorded ratio is quoted.
+    """
     counted = _attempts(record)
     seen = (
         f"{counted[0] / counted[1]:.5f} ({counted[0]} hits in {counted[1]} attempts"
@@ -231,6 +238,7 @@ def _ratio_message(record: typ.Mapping[str, typ.Any], thresholds: Thresholds) ->
 
 
 def _disk_message(record: typ.Mapping[str, typ.Any], thresholds: Thresholds) -> str:
+    """Describe the least free disk space as below the configured minimum."""
     return (
         f"least free disk {record.get('min_free_disk_mib')} MiB is below "
         f"{thresholds.min_free_disk_mib} MiB"

@@ -293,6 +293,7 @@ class ChecksumMismatchError(RuntimeError):
     """Raised when nfpm checksum validation fails."""
 
     def __init__(self, expected: str, actual: str) -> None:
+        """Name the *expected* and *actual* digests in the message."""
         super().__init__(
             f"nfpm checksum mismatch: expected {expected} but computed {actual}"
         )
@@ -302,6 +303,7 @@ class ChecksumDownloadError(RuntimeError):
     """Raised when the nfpm checksum manifest cannot be downloaded."""
 
     def __init__(self, url: str) -> None:
+        """Keep *url* and name it in the error message."""
         self.url = url
         super().__init__(f"failed to download nfpm checksums from {url}")
 
@@ -310,6 +312,7 @@ class ChecksumReadError(RuntimeError):
     """Raised when the nfpm checksum manifest cannot be read from disk."""
 
     def __init__(self, url: str) -> None:
+        """Keep *url* and name it in the error message."""
         self.url = url
         super().__init__(f"failed to read nfpm checksums from {url}")
 
@@ -318,6 +321,7 @@ class ChecksumManifestEntryMissingError(RuntimeError):
     """Raised when the nfpm manifest does not contain the expected asset entry."""
 
     def __init__(self, url: str, asset: str) -> None:
+        """Keep *url* and *asset*, and name both in the error message."""
         self.url = url
         self.asset = asset
         super().__init__(f"nfpm checksum manifest missing entry for {asset} from {url}")

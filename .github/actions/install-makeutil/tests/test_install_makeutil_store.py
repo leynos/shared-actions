@@ -48,6 +48,7 @@ class TestDigest:
         target.write_bytes(_DATA)
 
         def _failing(self: Path, *_args: object) -> typ.NoReturn:
+            """Raise ``OSError`` in place of ``Path.read_bytes``."""
             message = "simulated read failure"
             raise OSError(message)
 
@@ -103,20 +104,27 @@ class TestInstall:
         real_fdopen = os.fdopen
 
         class _FailingHandle:
+            """Stand-in for an ``fdopen`` handle whose write always fails."""
+
             def __init__(self, handle: typ.IO[bytes]) -> None:
+                """Keep the real *handle* so that it can be closed."""
                 self._handle = handle
 
             def __enter__(self) -> typ.Self:
+                """Return the handle as the context manager value."""
                 return self
 
             def __exit__(self, *_exc_info: object) -> None:
+                """Close the wrapped handle without suppressing exceptions."""
                 self._handle.close()
 
             def write(self, _data: bytes) -> int:
+                """Raise ``OSError``, as a failing write would."""
                 message = "simulated write failure"
                 raise OSError(message)
 
         def _failing_chmod(self: Path, *_args: object) -> typ.NoReturn:
+            """Raise ``OSError`` in place of ``Path.chmod``."""
             message = "simulated chmod failure"
             raise OSError(message)
 

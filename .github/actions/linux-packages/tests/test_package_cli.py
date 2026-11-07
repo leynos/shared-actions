@@ -49,15 +49,18 @@ class _FakeBoundCommand:
     """Minimal plumbum-like command proxy for unit tests."""
 
     def __init__(self, name: str, args: tuple[object, ...] = ()) -> None:
+        """Store the command *name* and the arguments bound so far."""
         self._name = name
         self._args = tuple(args)
 
     def __getitem__(self, args: object) -> _FakeBoundCommand:
+        """Return a new command with *args* appended to the bound ones."""
         if not isinstance(args, tuple):
             args = (args,)
         return _FakeBoundCommand(self._name, self._args + tuple(args))
 
     def formulate(self) -> list[str]:
+        """Return the argv, rendering paths in POSIX form."""
         result = [self._name]
         for arg in self._args:
             if isinstance(arg, Path):
@@ -71,6 +74,7 @@ class _FakeLocal:
     """Lightweight shim emulating ``plumbum.local`` for unit tests."""
 
     def __getitem__(self, name: str) -> _FakeBoundCommand:
+        """Return a command proxy for *name*."""
         return _FakeBoundCommand(name)
 
 
@@ -80,6 +84,7 @@ def _make_fake_run_cmd(
     """Return a ``run_cmd`` stub that emulates the nfpm download flow."""
 
     def fake_run_cmd(cmd: _FakeBoundCommand, *args: object, **kwargs: object) -> str:
+        """Emulate ``uname``, ``curl``, ``tar`` and ``install``; fail on others."""
         argv = [str(part) for part in cmd.formulate()]
         name = Path(argv[0]).name
         if name == "uname":
@@ -109,7 +114,10 @@ def test_app_config_handles_missing_attribute(monkeypatch: pytest.MonkeyPatch) -
     """Script initialization tolerates ``App`` implementations without ``config``."""
 
     class ConfiglessApp:
+        """Stand-in for ``App`` that has no ``config`` attribute."""
+
         def __init__(self) -> None:
+            """Start with no registered functions."""
             self.registered: list[types.FunctionType] = []
 
         def default(
@@ -117,9 +125,11 @@ def test_app_config_handles_missing_attribute(monkeypatch: pytest.MonkeyPatch) -
             func: types.FunctionType | None = None,
             **kwargs: object,
         ) -> types.FunctionType:  # type: ignore[override]
+            """Register *func*, or return a decorator that registers its target."""
             if func is None:
 
                 def decorator(fn: types.FunctionType) -> types.FunctionType:
+                    """Register *fn* and return it unchanged."""
                     self.registered.append(fn)
                     return fn
 
@@ -143,6 +153,7 @@ def test_app_config_handles_none_initial_value(monkeypatch: pytest.MonkeyPatch) 
     original_init = cyclopts.App.__init__
 
     def init_with_none(self: cyclopts.App, *args: object, **kwargs: object) -> None:
+        """Call the real ``App`` initialiser, then set ``config`` to ``None``."""
         original_init(self, *args, **kwargs)
         self.config = None  # type: ignore[attr-defined]
 
@@ -258,12 +269,14 @@ def test_ensure_executable_permissions_returns_none_when_stat_unavailable(
     original_chmod = packaging_module.Path.chmod
 
     def failing_stat(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:  # type: ignore[override]
+        """Raise ``OSError`` for *binary*, else defer to the real ``stat``."""
         if self == binary:
             message = "stat unavailable"
             raise OSError(message)
         return original_stat(self, follow_symlinks=follow_symlinks)
 
     def failing_chmod(self: Path, mode: int) -> None:  # type: ignore[override]
+        """Fail the test if *binary* is chmodded, else defer to the real chmod."""
         if self == binary:
             pytest.fail("chmod should not be attempted when stat fails")
         original_chmod(self, mode)
@@ -382,6 +395,7 @@ def test_main_uses_cached_mode_from_permission_helper(
     call_counts: dict[Path, int] = defaultdict(int)
 
     def monitored_stat(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:  # type: ignore[override]
+        """Count each ``stat`` call per path, then defer to the real call."""
         call_counts[self] += 1
         return original_stat(self, follow_symlinks=follow_symlinks)
 
@@ -463,14 +477,21 @@ def test_main_uses_default_paths_for_blank_inputs(
     commands: list[list[str]] = []
 
     class FakeBoundCommand:
+        """Command proxy that formulates the argv it was given."""
+
         def __init__(self, args: tuple[str, ...]) -> None:
+            """Store the argv tuple."""
             self._args = list(args)
 
         def formulate(self) -> list[str]:
+            """Return the argv as a list."""
             return list(self._args)
 
     class FakeCommand:
+        """Command stand-in whose subscript builds a ``FakeBoundCommand``."""
+
         def __getitem__(self, args: tuple[str, ...]) -> FakeBoundCommand:
+            """Return a ``FakeBoundCommand`` for the given argv."""
             return FakeBoundCommand(args)
 
     fake_nfpm = FakeCommand()

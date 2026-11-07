@@ -224,6 +224,7 @@ def test_main_handles_missing_manifest(
         *,
         path: PathType | None = None,
     ) -> None:
+        """Record the title and message, discarding the path."""
         del path  # unused, required by signature
         recorded_errors.append((title, message))
 
@@ -266,6 +267,7 @@ def test_main_handles_invalid_export_to_env(
         *,
         path: PathType | None = None,
     ) -> None:
+        """Record the title and message, discarding the path."""
         del path  # unused, required by signature
         recorded_errors.append((title, message))
 

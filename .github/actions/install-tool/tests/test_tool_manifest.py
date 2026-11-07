@@ -43,6 +43,7 @@ TRIPLES = frozenset(SUPPORTED_RUNNERS.values())
 
 
 def _identifiers() -> list[str]:
+    """Return the name of every entry in the tool manifest."""
     return [str(entry["name"]) for entry in manifest_entries()]
 
 

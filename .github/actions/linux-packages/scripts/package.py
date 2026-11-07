@@ -107,6 +107,7 @@ app.config = (*tuple(existing_config), _env_config)
 
 
 def _fail(message: str, *, code: int = 2) -> typ.NoReturn:
+    """Print *message* to stderr and exit with status *code*."""
     print(f"error: {message}", file=sys.stderr)
     raise SystemExit(code)
 
@@ -148,6 +149,7 @@ def _ensure_executable_permissions(path: Path) -> int | None:
 
 
 def _represent_octal_int(dumper: yaml.Dumper, data: OctalInt) -> yaml.ScalarNode:
+    """Represent *data* as a YAML int in zero-padded octal."""
     width = getattr(data, "_octal_width", 4)
     return dumper.represent_scalar(
         "tag:yaml.org,2002:int", format(int(data), f"0{width}o")
@@ -241,6 +243,11 @@ def build_man_entries(
 
 
 def _normalize_list(values: list[str] | None, *, default: list[str]) -> list[str]:
+    """Split *values*, or *default* when ``None``, into unique non-empty tokens.
+
+    Tokens are separated by whitespace or commas and keep their first-seen
+    order.
+    """
     entries: list[str] = []
     source = values if values is not None else default
     for item in source:

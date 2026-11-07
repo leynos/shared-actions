@@ -30,6 +30,7 @@ FINISH_ACTION = ACTION_DIR / "action.yml"
 
 
 def _record(**changes: object) -> dict[str, object]:
+    """Return a calibration record with *changes* applied over the defaults."""
     base: dict[str, object] = {
         "nproc": 4,
         "cpu_busy_cores_avg": 1.0,
@@ -147,15 +148,18 @@ class _Worker:
     instances: typ.ClassVar[list[_Worker]] = []
 
     def __init__(self, target: object, args: tuple[float]) -> None:
+        """Record the target and arguments, and register this worker."""
         self.target = target
         self.args = args
         self.events: list[str] = []
         _Worker.instances.append(self)
 
     def start(self) -> None:
+        """Record that the worker was started."""
         self.events.append("start")
 
     def join(self) -> None:
+        """Record that the worker was joined."""
         self.events.append("join")
 
 
@@ -282,6 +286,7 @@ WORKFLOW = (
 
 
 def _calibration_steps() -> list[dict[str, typ.Any]]:
+    """Return the steps of the ``calibrate`` job in its workflow file."""
     document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     return document["jobs"]["calibrate"]["steps"]
 

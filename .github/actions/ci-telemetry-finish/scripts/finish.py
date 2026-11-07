@@ -42,6 +42,11 @@ def state_dir() -> Path:
 
 
 def _read_cpu(text: str) -> list[int]:
+    """Return the aggregate ``cpu`` counters from ``/proc/stat`` text.
+
+    The list is zero-padded to ``CPU_FIELDS`` entries. Raise ``ValueError``
+    when there is no aggregate ``cpu`` line.
+    """
     for line in text.splitlines():
         parts = line.split()
         if parts and parts[0] == "cpu":
@@ -52,6 +57,10 @@ def _read_cpu(text: str) -> list[int]:
 
 
 def _read_meminfo(text: str) -> tuple[int, int]:
+    """Return the ``MemTotal`` and ``MemAvailable`` values from ``/proc/meminfo``.
+
+    Raise ``KeyError`` when either field is missing.
+    """
     found: dict[str, int] = {}
     for line in text.splitlines():
         key, _, rest = line.partition(":")

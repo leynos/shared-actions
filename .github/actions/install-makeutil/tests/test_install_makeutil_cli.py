@@ -231,6 +231,7 @@ class TestResolveSubcommand:
         env = _fake_env(tmp_path)
 
         def _failing_resolve(self: Path, *_args: object, **_kwargs: object) -> Path:
+            """Raise ``OSError`` in place of ``Path.resolve``."""
             message = "simulated resolution failure"
             raise OSError(message)
 

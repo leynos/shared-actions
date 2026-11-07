@@ -198,6 +198,7 @@ def test_main_rejects_invalid_check_tag_value(
     captured_errors: list[tuple[str, str]] = []
 
     def record_error(title: str, message: str, *, path: Path | None = None) -> None:
+        """Record the title and message; the path is not kept."""
         captured_errors.append((title, message))
 
     monkeypatch.setattr(ensure, "_emit_error", record_error)
@@ -295,6 +296,7 @@ def test_main_aborts_when_crate_name_missing_or_blank(
     recorded_errors: list[tuple[str, str, Path | None]] = []
 
     def record_error(title: str, message: str, *, path: Path | None = None) -> None:
+        """Record the title, message and path of each error."""
         recorded_errors.append((title, message, path))
 
     monkeypatch.setattr(ensure, "_emit_error", record_error)

@@ -155,10 +155,7 @@ INTERROGATE_VERSION ?= 1.7.0
 INTERROGATE_TARGETS ?= .github packages tests test_support uv_gate workflow_scripts actions_common.py bool_utils.py cargo_utils.py cmd_utils.py cmd_utils.pyi cmd_utils_importer.py composite_fragments.py conftest.py
 # Level 2 prints a MISSED row per undocumented definition, which the
 # `interrogate` target fails on: the rounded percentage alone passes a lone gap.
-# `-O` skips `@overload` stubs. The regex skips the overloads of `run_validated`
-# in rust-build-release, which Ruff forbids documenting (D418) and which
-# Interrogate cannot recognise through that module's `typ` alias of `typing`.
-INTERROGATE_FLAGS ?= -vv --ext pyi -O --ignore-regex '^run_validated$$' --fail-under 100
+INTERROGATE_FLAGS ?= -vv --ext pyi --fail-under 100
 INTERROGATE = $(UV) tool run \
 	--from 'interrogate==$(INTERROGATE_VERSION)' interrogate
 

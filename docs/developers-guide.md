@@ -226,10 +226,9 @@ target, so every pull request rejects unexplained production dead code.
 Python definition without a docstring (and on any `MISSED` row, since the
 percentage is rounded). The target runs `interrogate` at the version in
 `INTERROGATE_VERSION` over `INTERROGATE_TARGETS`, so add a new Python directory
-or root module to that list. `-O` skips `@overload` stubs, and one
-`--ignore-regex` skips the overloads of `run_validated`, which Ruff forbids
-documenting. `tests/workflow_contracts/test_interrogate_gate.py` asserts the
-wiring.
+or root module to that list. Interrogate counts `@overload` stubs, so document
+them; Ruff's `D418` is ignored for `rust-build-release/src/utils.py` for that
+reason. `tests/workflow_contracts/test_interrogate_gate.py` asserts the wiring.
 
 ### Skylos dead-code policy
 

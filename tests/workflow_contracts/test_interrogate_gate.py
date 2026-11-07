@@ -10,7 +10,7 @@ also run the target against a stub tool, so a deleted flag, a dropped
 prerequisite or a guard that stops failing breaks a test rather than silently
 restoring the gap.
 
-Run via ``make test-workflow-contracts``.
+Run via ``make test``.
 """
 
 from __future__ import annotations
@@ -110,28 +110,9 @@ def test_the_flags_demand_a_full_exact_report() -> None:
     relax the gate or blind the MISSED guard.
     """
     flags = _variable("INTERROGATE_FLAGS").split()
-    # `-O` skips `@overload` stubs and the one regex skips the overloads of
-    # `run_validated`, which Ruff forbids documenting (D418) and which
-    # Interrogate cannot see through the `typ` alias of `typing`.
-    expected = [
-        "-vv",
-        "-O",
-        "--ignore-regex",
-        "'^run_validated$$'",
-        "--fail-under",
-        "100",
-    ]
+    expected = ["-vv", "--fail-under", "100"]
     if _tracked("*.pyi"):
-        expected = [
-            "-vv",
-            "--ext",
-            "pyi",
-            "-O",
-            "--ignore-regex",
-            "'^run_validated$$'",
-            "--fail-under",
-            "100",
-        ]
+        expected = ["-vv", "--ext", "pyi", "--fail-under", "100"]
     assert flags == expected, (
         f"INTERROGATE_FLAGS must be exactly {expected}, not {flags}"
     )

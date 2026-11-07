@@ -53,6 +53,7 @@ exit 1
 
 
 def _stub_binary(tmp_path: Path, name: str = "widget", source: str = STUB) -> Path:
+    """Write *source* as an executable *name* under *tmp_path*; return its path."""
     path = tmp_path / name
     path.write_text(source, encoding="utf-8")
     path.chmod(0o755)
@@ -142,6 +143,7 @@ def _source_dir(tmp_path: Path) -> Path:
 
 
 def _context(tmp_path: Path, **overrides: dict[str, str]) -> Context:
+    """Return a ``Context`` whose named sections are updated from *overrides*."""
     context = Context(
         inputs={"tool": "widget", "version": "1.2.3", "bin-dir": str(tmp_path / "bin")},
         runner={"os": "Linux", "arch": "X64", "temp": str(tmp_path / "temp")},
@@ -157,6 +159,7 @@ def _context(tmp_path: Path, **overrides: dict[str, str]) -> Context:
 def _resolved(
     archive: Path, member: str, extension: str, **overrides: str
 ) -> dict[str, str]:
+    """Return a resolved-step mapping for *archive*, updated from *overrides*."""
     resolved = {
         "triple": "x86_64-unknown-linux-gnu",
         "url": archive.as_uri(),
@@ -452,6 +455,7 @@ class TestVerification:
     """The installed binary has the last word."""
 
     def _verified(self, tmp_path: Path, source: str = STUB, **overrides: str) -> Result:
+        """Run the verify step against a stub binary built from *source*."""
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir(exist_ok=True)
         _stub_binary(bin_dir, source=source)

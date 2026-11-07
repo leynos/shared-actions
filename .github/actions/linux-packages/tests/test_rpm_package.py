@@ -22,6 +22,11 @@ RPM_BASE_IMAGE = "docker.io/library/rockylinux:9"
 
 
 def _parse_rpm_info(output: str) -> dict[str, str]:
+    """Parse ``key: value`` lines from rpm query output into a dict.
+
+    Lines without a colon are skipped; a later duplicate key replaces an
+    earlier one.
+    """
     info: dict[str, str] = {}
     for line in output.splitlines():
         if ":" not in line:

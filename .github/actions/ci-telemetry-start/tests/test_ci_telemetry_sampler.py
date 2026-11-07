@@ -24,6 +24,7 @@ FINISH_SUMMARISE = (
 
 
 def _load(name: str, path: Path) -> ModuleType:
+    """Import the file at *path* as *name*, registering it in ``sys.modules``."""
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None
     assert spec.loader is not None
@@ -121,9 +122,12 @@ def test_start_records_the_shape_the_machine_presents(
     spawned: list[list[str]] = []
 
     class _Child:
+        """Stand-in for a process handle whose pid is 4242."""
+
         pid = 4242
 
     def _popen(command: list[str], **_kwargs: object) -> _Child:
+        """Record the command and return a child handle, ignoring other options."""
         spawned.append(command)
         return _Child()
 
@@ -187,6 +191,8 @@ def test_a_failed_first_sample_still_starts_the_loop(
     spawned: list[int] = []
 
     class _Child:
+        """Stand-in for a process handle whose pid is 77."""
+
         pid = 77
 
     monkeypatch.setattr(
@@ -209,6 +215,7 @@ def test_a_sampler_that_cannot_be_spawned_leaves_no_pid_file(
     monkeypatch.setattr(SAMPLER, "classify", lambda _system, _root=None: "proc-stat")
 
     def refuse(*_args: object, **_kwargs: object) -> None:
+        """Raise ``OSError``, as ``Popen`` does when no process can be spawned."""
         message = "no processes"
         raise OSError(message)
 
@@ -242,12 +249,14 @@ def test_run_loop_skips_a_failed_sample_and_keeps_sampling(
     ticks: list[float] = []
 
     def fake_sample(_disk: str) -> str:
+        """Return the next queued sample, raising it instead if it is an error."""
         item = next(results)
         if isinstance(item, Exception):
             raise item
         return item
 
     def fake_sleep(seconds: float) -> None:
+        """Record the sleep; raise ``KeyboardInterrupt`` on the fourth call."""
         ticks.append(seconds)
         if len(ticks) > 3:
             raise KeyboardInterrupt

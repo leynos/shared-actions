@@ -206,6 +206,7 @@ def identity(env: typ.Mapping[str, str]) -> dict[str, typ.Any]:
 
 
 def _round(value: float | None, places: int) -> float | None:
+    """Round *value* to *places* digits, passing ``None`` through."""
     return None if value is None else round(value, places)
 
 
@@ -329,6 +330,7 @@ def summary_rows(record: typ.Mapping[str, typ.Any]) -> list[tuple[str, str]]:
     """Return the human summary as ``(measure, value)`` rows."""
 
     def show(key: str, unit: str = "") -> str:
+        """Return *key* from *record* as text with *unit* appended, or ``n/a``."""
         value = record.get(key)
         return "n/a" if value is None else f"{value}{unit}"
 

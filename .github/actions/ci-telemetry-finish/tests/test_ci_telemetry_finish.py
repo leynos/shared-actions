@@ -36,6 +36,7 @@ FINAL_SAMPLE = "\t".join(
 
 
 def _state(tmp_path: Path, *, pid: str | None) -> Path:
+    """Write a state directory with fixture samples and an optional PID file."""
     directory = tmp_path / "ci-telemetry"
     directory.mkdir()
     (directory / "meta.json").write_text(json.dumps(META), encoding="utf-8")
@@ -47,6 +48,7 @@ def _state(tmp_path: Path, *, pid: str | None) -> Path:
 
 
 def _dead_pid() -> str:
+    """Return the PID of a child process that has already exited."""
     child = subprocess.Popen([sys.executable, "-c", "pass"])
     child.wait()
     return str(child.pid)
@@ -100,6 +102,7 @@ def test_no_meta_file_gives_a_not_started_record(tmp_path: Path) -> None:
 def _run(
     script: Path, runner_temp: Path, **extra: str
 ) -> subprocess.CompletedProcess[str]:
+    """Run *script* with ``RUNNER_TEMP`` set, passing ``start`` to the start script."""
     env = {**os.environ, "RUNNER_TEMP": str(runner_temp), **extra}
     return subprocess.run(  # noqa: S603,TID251 - the scripts under test.
         [sys.executable, str(script), *(["start"] if script == START_SCRIPT else [])],
@@ -158,6 +161,7 @@ def test_finish_exits_zero_on_unreadable_state(tmp_path: Path) -> None:
 
 
 def _meta_file(tmp_path: Path, text: str) -> Path:
+    """Write *text* as ``meta.json`` in a new state directory and return it."""
     directory = tmp_path / "ci-telemetry"
     directory.mkdir()
     (directory / "meta.json").write_text(text, encoding="utf-8")
@@ -224,6 +228,7 @@ def test_a_process_that_cannot_be_inspected_is_reported_as_such(
     directory = _state(tmp_path, pid="4242")
 
     def deny(_self: Path) -> bytes:
+        """Raise ``PermissionError`` in place of ``Path.read_bytes``."""
         raise PermissionError
 
     monkeypatch.setattr(F.Path, "read_bytes", deny)
@@ -252,6 +257,7 @@ def test_a_failure_inside_finish_still_prints_one_degraded_marker(
     monkeypatch.setenv("GITHUB_RUN_ID", "9")
 
     def boom(_directory: Path, _env: object) -> dict[str, object]:
+        """Raise ``RuntimeError`` in place of ``finish``."""
         message = "boom"
         raise RuntimeError(message)
 

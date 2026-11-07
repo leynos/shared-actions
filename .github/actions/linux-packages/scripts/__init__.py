@@ -12,6 +12,7 @@ class ScriptImportError(ImportError):
     """Raised when a sibling module cannot be loaded."""
 
     def __init__(self, module: str, package_path: Path) -> None:
+        """Name *module* and the package path in the error message."""
         super().__init__(f"Unable to load module {module!r} from {package_path}")
 
 

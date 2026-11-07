@@ -9,12 +9,17 @@ import yaml
 
 
 def _load_action() -> dict[str, object]:
+    """Load the linux-packages ``action.yml`` as a dict."""
     action = Path(__file__).resolve().parents[1] / "action.yml"
     text = action.read_text(encoding="utf-8")
     return yaml.safe_load(text)
 
 
 def _find_repo_root(start: Path) -> Path:
+    """Return the first directory from *start* upwards that holds ``.git``.
+
+    Raise ``AssertionError`` when none does.
+    """
     for candidate in (start, *start.parents):
         git_path = candidate / ".git"
         if git_path.is_dir() or git_path.is_file():

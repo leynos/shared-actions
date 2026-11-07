@@ -27,6 +27,7 @@ class _StubHttpsHandler(urllib.request.BaseHandler):
     """Serve canned HTTPS responses keyed by URL, recording every request."""
 
     def __init__(self, responses: dict[str, tuple[int, str, bytes]]) -> None:
+        """Store the canned responses and start an empty request log."""
         self._responses = responses
         self.requested: list[str] = []
 
@@ -57,6 +58,7 @@ class TestHttpsOnly:
         """
 
         def no_request() -> typ.NoReturn:
+            """Fail the test if any request is made."""
             msg = "no request must be made for a non-HTTPS URL"
             raise AssertionError(msg)
 
@@ -102,7 +104,10 @@ class TestHttpsOnlyRedirects:
         seen: list[str] = []
 
         class _Opener:
+            """Opener that records the URL, then fails the download."""
+
             def open(self, request: urllib.request.Request, **_kwargs: object) -> None:
+                """Record the request URL, then raise ``URLError``."""
                 seen.append(request.full_url)
                 message = "stop here"
                 raise urllib.error.URLError(message)
@@ -129,18 +134,26 @@ class TestHttpClientExceptions:
         """
 
         class _RaisingResponse:
+            """Response whose ``read`` fails with ``IncompleteRead``."""
+
             def __enter__(self) -> typ.Self:
+                """Return the response as the context manager value."""
                 return self
 
             def __exit__(self, *_exc_info: object) -> None:
-                return None
+                """Exit without suppressing any exception."""
+                return
 
             def read(self, _size: int) -> bytes:
+                """Raise ``IncompleteRead``, as a body cut short would."""
                 partial = b""
                 raise http.client.IncompleteRead(partial)
 
         class _FakeOpener:
+            """Opener whose responses fail on ``read``."""
+
             def open(self, *_args: object, **_kwargs: object) -> _RaisingResponse:
+                """Return a ``_RaisingResponse``, ignoring the request."""
                 return _RaisingResponse()
 
         monkeypatch.setattr(makeutil_verify, "_https_only_opener", _FakeOpener)
@@ -166,18 +179,26 @@ class TestBounds:
         requested: list[int] = []
 
         class _Response:
+            """Response whose ``read`` returns a byte, or one past the cap if large."""
+
             def __enter__(self) -> typ.Self:
+                """Return the response as the context manager value."""
                 return self
 
             def __exit__(self, *_exc_info: object) -> None:
-                return None
+                """Exit without suppressing any exception."""
+                return
 
             def read(self, size: int) -> bytes:
+                """Record *size*; return an oversized body if *size* exceeds the cap."""
                 requested.append(size)
                 return b"x" * (limit + 1) if size > limit else b"x"
 
         class _Opener:
+            """Opener that hands out the fake response."""
+
             def open(self, *_args: object, **_kwargs: object) -> _Response:
+                """Return a new fake response, ignoring the request."""
                 return _Response()
 
         monkeypatch.setattr(makeutil_verify, "_https_only_opener", _Opener)
@@ -194,7 +215,10 @@ class TestBounds:
         seen: dict[str, object] = {}
 
         class _Opener:
+            """Opener that records its keyword arguments, then fails."""
+
             def open(self, _request: object, **kwargs: object) -> None:
+                """Record the keyword arguments, then raise ``URLError``."""
                 seen.update(kwargs)
                 message = "stop here"
                 raise urllib.error.URLError(message)

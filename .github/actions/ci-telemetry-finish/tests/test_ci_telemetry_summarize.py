@@ -65,10 +65,12 @@ class _Cpu(typ.NamedTuple):
 
 
 def _cpu(*args: float, **named: float) -> dict[str, float]:
+    """Return the CPU figures of ``_Cpu(*args, **named)`` as record fields."""
     return _Cpu(*args, **named).figures()
 
 
 def _memdisk(peak_mib: int = 4000, disk_mib: int = 20000) -> dict[str, int]:
+    """Return memory and disk figures, with *peak_mib* and *disk_mib* overridable."""
     return {
         "peak_memory_mib": peak_mib,
         "mem_total_mib": 16000,
@@ -139,6 +141,7 @@ CASES: dict[str, tuple[int, float, dict[str, typ.Any]]] = {
 
 
 def _record(name: str) -> dict[str, typ.Any]:
+    """Build the record for fixture *name* with fixed metadata and end time."""
     text = (FIXTURES / f"{name}.tsv").read_text(encoding="utf-8")
     return S.build_record(
         meta=META,

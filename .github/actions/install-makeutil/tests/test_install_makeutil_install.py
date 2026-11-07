@@ -48,6 +48,7 @@ def _fake_downloader(
     resolved_sidecar = sidecar if sidecar is not None else _sidecar_for(binary)
 
     def _download(url: str) -> bytes:
+        """Return canned bytes for the binary or sidecar URL, else fail the test."""
         if url == _BINARY_URL:
             return binary
         if url == _SIDECAR_URL:
@@ -147,6 +148,7 @@ class TestFailureScenarios:
         target = tmp_path / "bin" / "makeutil"
 
         def _failing_downloader(_url: str) -> bytes:
+            """Raise ``DownloadError``, as an unreachable release would."""
             message = "connection refused"
             raise DownloadError(message)
 
@@ -162,6 +164,7 @@ class TestFailureScenarios:
         target = tmp_path / "bin" / "makeutil"
 
         def _download(url: str) -> bytes:
+            """Serve the binary, and fail with ``DownloadError`` for any other URL."""
             if url == _BINARY_URL:
                 return _BINARY
             message = "sidecar not found"
@@ -213,6 +216,7 @@ class TestExistingExecutableSurvivesFailures:
         target = _seed_cache(tmp_path, self._OLD, mode=0o700)
 
         def _failing_downloader(_url: str) -> bytes:
+            """Raise ``DownloadError``, as an unreachable release would."""
             message = "connection refused"
             raise DownloadError(message)
 
@@ -273,29 +277,35 @@ class _MemoryStore:
     location = Path("/memory/makeutil")
 
     def __init__(self, data: bytes | None = None, *, fails_on: str = "") -> None:
+        """Hold *data* and arm *fails_on* to fail that one operation."""
         self.data = data
         self.is_executable = False
         self._fails_on = fails_on
 
     def _maybe_fail(self, operation: str) -> None:
+        """Raise ``StoreError`` if *operation* is the armed failure."""
         if operation == self._fails_on:
             message = f"simulated {operation} failure"
             raise StoreError(message)
 
     def digest(self) -> str | None:
+        """Return the SHA-256 of the held data, or ``None`` when there is none."""
         self._maybe_fail("digest")
         return None if self.data is None else sha256_hex(self.data)
 
     def make_executable(self) -> None:
+        """Mark the store executable, failing if armed for this operation."""
         self._maybe_fail("make_executable")
         self.is_executable = True
 
     def install(self, data: bytes) -> None:
+        """Hold *data* and mark it executable, failing if armed for install."""
         self._maybe_fail("install")
         self.data = data
         self.is_executable = True
 
     def discard(self) -> None:
+        """Forget the held data."""
         self.data = None
 
 

@@ -9,11 +9,14 @@ class UnsupportedTargetError(ValueError):
     """Raised when a target triple cannot be mapped to a packaging architecture."""
 
     def __init__(self, target: str) -> None:
+        """Keep *target* and name it in the error message."""
         super().__init__(f"unsupported target triple: {target}")
         self.target = target
 
 
 class _TargetArch(typ.NamedTuple):
+    """Packaging architecture labels for one target family: nfpm and deb."""
+
     nfpm: str
     deb: str
 
@@ -54,6 +57,10 @@ _TARGET_MAPPINGS: tuple[tuple[tuple[str, ...], _TargetArch], ...] = (
 
 
 def _match_target(target: str) -> _TargetArch:
+    """Return the architecture whose prefix matches *target*, ignoring case.
+
+    Raise ``UnsupportedTargetError`` when no prefix matches.
+    """
     lowered = target.lower()
     for prefixes, arch in _TARGET_MAPPINGS:
         if lowered.startswith(prefixes):

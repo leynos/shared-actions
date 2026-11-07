@@ -89,6 +89,7 @@ class _UnresolvedError(Exception):
     """
 
     def __init__(self, kind: str, message: str) -> None:
+        """Record the failure *kind* and *message*, passing the message up."""
         super().__init__(message)
         self.kind = kind
         self.message = message

@@ -102,6 +102,7 @@ def _emit_error(title: str, message: str, *, path: Path | None = None) -> None:
     """Print an error in the format expected by GitHub Actions."""
 
     def _esc(value: str) -> str:
+        """Escape ``%``, CR and LF for a GitHub Actions workflow command."""
         return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
     metadata_parts: list[str] = []

@@ -214,6 +214,7 @@ class TestResolveBinDir:
         """
 
         def _failing_resolve(self: Path, *_args: object, **_kwargs: object) -> Path:
+            """Raise *failure* in place of ``Path.resolve``."""
             message = "simulated resolution failure"
             raise failure(message)
 

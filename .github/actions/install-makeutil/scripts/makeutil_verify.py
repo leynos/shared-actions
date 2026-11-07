@@ -185,6 +185,7 @@ class _InstallStoppedError(Exception):
     """
 
     def __init__(self, result: InstallResult) -> None:
+        """Store *result* and use its message as the exception text."""
         super().__init__(result.message)
         self.result = result
 

@@ -62,6 +62,7 @@ class StubManager:
     """Adapter exposing a shellstub-like API backed by :mod:`cmd_mox`."""
 
     def __init__(self, controller: CmdMox) -> None:
+        """Wrap ``controller``, with no cached environment and no replay yet."""
         self._controller = controller
         self._env_cache: dict[str, str] | None = None
         self._replayed = False
@@ -130,6 +131,12 @@ class StubManager:
     # Internal helpers
     # ------------------------------------------------------------------
     def _ensure_replay(self) -> None:
+        """Replay the controller once and cache the environment for the shims.
+
+        The cmd_mox package's parent directory is prepended to ``PYTHONPATH``
+        when it is missing. If cmd_mox cannot be imported, the copied
+        environment is cached unchanged.
+        """
         if self._replayed:
             return
         self._controller.replay()
@@ -149,6 +156,7 @@ class StubManager:
         self._replayed = True
 
     def _to_call(self, invocation: Invocation) -> Call:
+        """Convert a cmd_mox ``Invocation`` into a ``Call`` record."""
         return Call(
             argv=list(invocation.args),
             stdin=invocation.stdin,
@@ -212,10 +220,12 @@ class StubManager:
         *,
         default: DefaultResponse,
     ) -> typ.Callable[[Invocation], Response]:
+        """Return a handler that answers each invocation from ``variants``."""
         # Collect (match pattern, response spec) pairs so replay can scan quickly.
         prepared, default_spec = self._prepare_variants(variants, default)
 
         def handler(invocation: Invocation) -> Response:
+            """Return the first matching variant response, else the default."""
             # Return the first prepared response whose argv matches the invocation.
             matched = self._match_invocation(invocation, prepared)
             # Otherwise fall back to the default response determined above.

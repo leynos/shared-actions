@@ -43,6 +43,7 @@ _ensure_text = typ.cast(
 
 
 def _python_command(*args: str) -> object:
+    """Return a plumbum command for the test interpreter, with ``args`` if given."""
     command = local[sys.executable]
     return command[list(args)] if args else command
 

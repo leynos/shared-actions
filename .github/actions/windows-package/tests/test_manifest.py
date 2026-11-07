@@ -11,6 +11,7 @@ WORKFLOW_PATH = Path(__file__).resolve().parents[3] / "workflows" / "rust-toy-ap
 
 
 def _load_action_manifest() -> dict[str, object]:
+    """Load and parse the composite action manifest as YAML."""
     return yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
 
 

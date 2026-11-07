@@ -26,6 +26,7 @@ class DummySandbox:
     def __init__(
         self, root: Path, calls: list[tuple[tuple[str, ...], int | None]]
     ) -> None:
+        """Create ``root`` and record calls into the shared ``calls`` list."""
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
         self._calls = calls
@@ -59,6 +60,7 @@ class RaisingSandbox(DummySandbox):
     """Sandbox variant that raises the configured error for specific commands."""
 
     def __init__(self, context: SandboxContext) -> None:
+        """Wrap the sandbox described by ``context`` and keep its failure."""
         super().__init__(context.root, context.calls)
         self._failure = context.failure
 

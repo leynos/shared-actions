@@ -82,6 +82,7 @@ def _build_live_execution_mock(
     def handler(
         _token: str, query: str, _variables: dict[str, object]
     ) -> dict[str, object]:
+        """Count enable and merge mutations and answer the PR query otherwise."""
         if "enablePullRequestAutoMerge" in query:
             calls["enable"] += 1
             return {
@@ -239,6 +240,7 @@ class TestRequestGraphql:
         connect_error = httpx.ConnectError("Connection failed")
 
         def raise_error(*_args: object, **_kwargs: object) -> typ.NoReturn:
+            """Raise the prepared connection error for any POST."""
             raise connect_error
 
         monkeypatch.setattr(httpx.Client, "post", raise_error)
@@ -252,6 +254,7 @@ class TestRequestGraphql:
         call_count = 0
 
         def mock_post(*_args: object, **_kwargs: object) -> httpx.Response:
+            """Count the call and return a 400 response."""
             nonlocal call_count
             call_count += 1
             return httpx.Response(400, text="Bad Request")
@@ -267,6 +270,7 @@ class TestRequestGraphql:
         """Non-JSON responses cause a failure."""
 
         def mock_post(*_args: object, **_kwargs: object) -> httpx.Response:
+            """Return a 200 response whose body is not JSON."""
             return httpx.Response(200, content=b"not json")
 
         monkeypatch.setattr(httpx.Client, "post", mock_post)
@@ -278,6 +282,7 @@ class TestRequestGraphql:
         """GraphQL errors in response cause a failure."""
 
         def mock_post(*_args: object, **_kwargs: object) -> httpx.Response:
+            """Return a 200 response carrying a GraphQL error list."""
             return httpx.Response(
                 200, json={"errors": [{"message": "Something went wrong"}]}
             )
@@ -617,6 +622,7 @@ def test_retries_until_merge_state_known(
     def fake_request(
         _token: str, query: str, _variables: dict[str, object]
     ) -> dict[str, object]:
+        """Answer the first PR fetch as unknown and later fetches as mergeable."""
         if "enablePullRequestAutoMerge" in query:
             return {"enablePullRequestAutoMerge": {"pullRequest": {"number": 21}}}
         calls["fetch"] += 1

@@ -18,6 +18,7 @@ class CmdUtilsDiscoveryError(RuntimeError):
     """Raised when :mod:`cmd_utils` cannot be located or imported."""
 
     def __init__(self, message: str, *, searched: list[Path] | None = None) -> None:
+        """Record the ``searched`` paths and include them in the message when given."""
         details = message
         if searched:
             joined = " -> ".join(str(path) for path in searched)
@@ -27,6 +28,11 @@ class CmdUtilsDiscoveryError(RuntimeError):
 
 
 def _action_path() -> Path:
+    """Return the resolved ``GITHUB_ACTION_PATH`` directory.
+
+    Raise CmdUtilsDiscoveryError if the variable is unset or the path does not
+    exist.
+    """
     try:
         raw_path = os.environ[ENV_VAR_NAME]
     except KeyError as exc:  # pragma: no cover - defensive guard
@@ -40,6 +46,11 @@ def _action_path() -> Path:
 
 
 def _candidate_module_paths() -> tuple[list[Path], Path]:
+    """Find ``cmd_utils.py`` in the action path or one of its parents.
+
+    Return the paths searched and the first regular, non-symlink match. Raise
+    CmdUtilsDiscoveryError if none is found.
+    """
     action_path = _action_path()
     searched: list[Path] = []
     for directory in (action_path, *action_path.parents):

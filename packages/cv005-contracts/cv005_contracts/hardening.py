@@ -243,6 +243,7 @@ def _report_holders(
     holders: dict[tuple[str, str], tuple[list[dict[str, object]], set[str]]] = {}
 
     def file(key: tuple[str, str], held: list[dict[str, object]], report: str) -> None:
+        """Add ``report`` under ``key``, creating the entry from ``held`` if absent."""
         holders.setdefault(key, (held, set()))[1].add(report)
 
     for name, leg in located:

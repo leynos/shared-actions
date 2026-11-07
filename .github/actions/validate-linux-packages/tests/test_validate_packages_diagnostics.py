@@ -37,12 +37,15 @@ def _is_python_fallback_command(command: tuple[str, ...], path: str) -> bool:
 def _make_exec_with_context(
     sandbox: DummySandbox, validate_packages_module: ModuleType
 ) -> typ.Callable[..., str]:
+    """Return a wrapper that runs commands through ``_exec_with_diagnostics``."""
+
     def _exec(
         *args: str,
         context: str,
         timeout: int | None = None,
         diagnostics_fn: typ.Callable[[BaseException | None], str | None] | None = None,
     ) -> str:
+        """Run ``args`` in the sandbox via ``_exec_with_diagnostics``."""
         return validate_packages_module._exec_with_diagnostics(
             sandbox, args, context, timeout, diagnostics_fn
         )
@@ -55,6 +58,7 @@ def _create_test_package(
     monkeypatch: pytest.MonkeyPatch,
     validate_packages_module: ModuleType,
 ) -> Path:
+    """Write a fake ``.deb`` file and patch its inspection and architecture."""
     package = tmp_path / "rust-toy-app_1.2.3-1_amd64.deb"
     package.write_bytes(b"payload")
     metadata = _build_metadata(validate_packages_module)
@@ -77,6 +81,11 @@ def _create_raising_sandbox(
     validate_packages_module: ModuleType,
     calls: list[tuple[tuple[str, ...], int | None]],
 ) -> RaisingSandbox:
+    """Return a sandbox that fails with ``failure_command``.
+
+    For a ``test -x`` command, the python os.access fallback for the same
+    path also fails.
+    """
     process_error = ProcessExecutionError(
         ["test", "-x", "/usr/bin/rust-toy-app"],
         1,
@@ -99,7 +108,10 @@ def _create_raising_sandbox(
     if failure_command[:2] == ("test", "-x"):
 
         class ExecutableFailureSandbox(RaisingSandbox):
+            """Sandbox that also fails the python os.access fallback probe."""
+
             def exec(self, *args: str, timeout: int | None = None) -> str:
+                """Record and fail the python fallback probe; delegate others."""
                 command = tuple(args)
                 if _is_python_fallback_command(command, path):
                     self._calls.append((command, timeout))
@@ -125,6 +137,7 @@ def _run_validation(
     validate_packages_module: ModuleType,
     sandbox: RaisingSandbox,
 ) -> str:
+    """Run ``validate_deb_package`` and return the message it raises."""
     expected = validate_packages_module.ExpectedMetadata(
         name="rust-toy-app",
         version="1.2.3",
@@ -145,6 +158,7 @@ def _run_validation(
 
 
 def _build_metadata(validate_packages_module: ModuleType) -> object:
+    """Return ``DebMetadata`` for ``rust-toy-app`` with two installed files."""
     return validate_packages_module.DebMetadata(
         name="rust-toy-app",
         version="1.2.3-1",
@@ -162,6 +176,7 @@ def _exercise_install_failure(
     validate_packages_module: ModuleType,
     failure_command: tuple[str, ...],
 ) -> tuple[str, list[tuple[tuple[str, ...], int | None]]]:
+    """Run validation against a raising sandbox and return message and calls."""
     package = _create_test_package(tmp_path, monkeypatch, validate_packages_module)
     calls: list[tuple[tuple[str, ...], int | None]] = []
     sandbox = _create_raising_sandbox(
@@ -214,6 +229,10 @@ def _assert_failure(
     monkeypatch: pytest.MonkeyPatch,
     validate_packages_module: ModuleType,
 ) -> None:
+    """Assert the failure message and diagnostic commands for a scenario.
+
+    Path scenarios must include the diagnostics. Other scenarios must not.
+    """
     message, calls = _exercise_install_failure(
         tmp_path, monkeypatch, validate_packages_module, scenario.command
     )
@@ -276,10 +295,14 @@ def sandbox_with_python_fallback(
     calls: list[tuple[tuple[str, ...], int | None]] = []
 
     class FallbackSandbox(DummySandbox):
+        """Sandbox where ``test -x`` on the fallback path fails."""
+
         def __init__(self) -> None:
+            """Create the sandbox under ``sandbox-fallback`` with shared calls."""
             super().__init__(tmp_path / "sandbox-fallback", calls)
 
         def exec(self, *args: str, timeout: int | None = None) -> str:
+            """Fail ``test -x`` on the fallback path; delegate other commands."""
             if tuple(args) == ("test", "-x", path):
                 command = tuple(args)
                 calls.append((command, timeout))
@@ -311,10 +334,14 @@ def sandbox_with_double_failure(
     calls: list[tuple[tuple[str, ...], int | None]] = []
 
     class DoubleFailureSandbox(DummySandbox):
+        """Sandbox where both ``test -x`` and the python fallback fail."""
+
         def __init__(self) -> None:
+            """Create the sandbox under ``sandbox-double-failure`` with shared calls."""
             super().__init__(tmp_path / "sandbox-double-failure", calls)
 
         def exec(self, *args: str, timeout: int | None = None) -> str:
+            """Record each command; fail the path's ``test -x`` and fallback probes."""
             command = tuple(args)
             calls.append((command, timeout))
             if command == ("test", "-x", path):

@@ -435,6 +435,7 @@ def test_needs_copy_mode_never_touches_the_filesystem() -> None:
     seen: list[pathlib.Path] = []
 
     def device(path: pathlib.Path) -> int:
+        """Record ``path`` and return device 1."""
         seen.append(path)
         return 1
 
@@ -450,6 +451,7 @@ def test_probe_link_paths_turns_an_oserror_into_a_refusal(
     """A path that cannot be inspected is a GateError, not a traceback."""
 
     def fail(_self: Path) -> bool:
+        """Raise PermissionError to simulate an uninspectable path."""
         message = "denied"
         raise PermissionError(message)
 
@@ -483,6 +485,7 @@ def test_a_failing_git_shim_is_a_refusal(
     """If the shim directory cannot be made, the context is refused and closed."""
 
     def fail(*_args: object, **_kwargs: object) -> str:
+        """Raise OSError to simulate a shim directory that cannot be created."""
         message = "no space"
         raise OSError(message)
 
@@ -505,6 +508,7 @@ def test_a_shim_that_fails_after_its_directory_exists_is_cleaned_up(
     monkeypatch.setattr(uv_gate.tempfile, "mkdtemp", lambda **_kw: str(made))
 
     def fail(_self: Path, _target: object) -> None:
+        """Raise OSError to simulate a symlink that cannot be created."""
         message = "no symlinks"
         raise OSError(message)
 

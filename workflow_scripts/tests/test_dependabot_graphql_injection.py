@@ -51,6 +51,7 @@ def _poison_module_global(monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(
         _token: str, _query: str, _variables: dict[str, object]
     ) -> dict[str, object]:
+        """Raise UnexpectedLiveClientError for any call to the module-global client."""
         message = (
             "the live path reached for the module-global request_graphql "
             "instead of the GraphQL call it was given"

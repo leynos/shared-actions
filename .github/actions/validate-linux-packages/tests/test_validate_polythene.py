@@ -34,25 +34,34 @@ def validate_polythene_module() -> object:
 
 
 class _FakeCommand:
+    """Fake plumbum command that records its argv when called."""
+
     def __init__(self, argv: tuple[str, ...], calls: list[tuple[str, ...]]) -> None:
+        """Store the argv tuple and the shared call log."""
         self.argv = argv
         self._calls = calls
 
     def __call__(self) -> str:
+        """Append argv to the call log and return an empty string."""
         self._calls.append(self.argv)
         return ""
 
     def __getitem__(self, value: str | tuple[str, ...]) -> _FakeCommand:
+        """Return a new command with ``value`` appended to argv."""
         if not isinstance(value, tuple):
             value = (value,)
         return _FakeCommand(self.argv + value, self._calls)
 
 
 class _FakeLocal:
+    """Fake ``local`` that builds ``_FakeCommand`` objects from argv."""
+
     def __init__(self, calls: list[tuple[str, ...]]) -> None:
+        """Store the shared call log."""
         self._calls = calls
 
     def __getitem__(self, value: str | tuple[str, ...]) -> _FakeCommand:
+        """Return a fake command for ``value`` that shares the call log."""
         if not isinstance(value, tuple):
             value = (value,)
         return _FakeCommand(value, self._calls)
@@ -76,6 +85,7 @@ def test_polythene_session_exec_respects_timeouts(
     calls: list[tuple[tuple[str, ...], int | None]] = []
 
     def _capture(command: object, *, timeout: int | None = None) -> str:
+        """Record the command argv and timeout and return ``"ok"``."""
         argv = tuple(getattr(command, "argv", ()))
         calls.append((argv, timeout))
         return "ok"
@@ -110,6 +120,7 @@ def test_polythene_session_exec_omits_isolation_when_unset(
     calls: list[tuple[tuple[str, ...], int | None]] = []
 
     def _capture(command: object, *, timeout: int | None = None) -> str:
+        """Record the command argv and timeout and return ``"ok"``."""
         argv = tuple(getattr(command, "argv", ()))
         calls.append((argv, timeout))
         return "ok"
@@ -139,6 +150,7 @@ def test_polythene_rootfs_yields_configured_session(
     cleanup_calls: list[tuple[str, ...]] = []
 
     def _run_text(command: object, *, timeout: int | None = None) -> str:
+        """Record the call; return a session uid for ``pull``, else empty output."""
         argv = tuple(getattr(command, "argv", ()))
         run_calls.append((argv, timeout))
         return "session-uid\n" if "pull" in argv else ""
@@ -185,6 +197,7 @@ def test_polythene_rootfs_honours_environment_isolation_override(
     run_calls: list[tuple[tuple[str, ...], int | None]] = []
 
     def _run_text(command: object, *, timeout: int | None = None) -> str:
+        """Record the call; return a session uid for ``pull``, else empty output."""
         argv = tuple(getattr(command, "argv", ()))
         run_calls.append((argv, timeout))
         return "session-uid\n" if "pull" in argv else ""
@@ -219,6 +232,7 @@ def test_polythene_rootfs_rejects_empty_identifier(
     monkeypatch.setattr(validate_polythene_module, "local", _FakeLocal([]))
 
     def _pull_empty(command: object, *, timeout: int | None = None) -> str:
+        """Return a blank line in place of the pulled identifier."""
         return "\n"
 
     monkeypatch.setattr(validate_polythene_module, "run_text", _pull_empty)
@@ -355,6 +369,7 @@ def test_polythene_rootfs_surfaces_missing_dependencies(
     )
 
     def _run_text(command: object, *, timeout: int | None = None) -> str:
+        """Return a session uid for ``pull``; otherwise raise a chained error."""
         argv = tuple(getattr(command, "argv", ()))
         if "pull" in argv:
             return "session-uid\n"
@@ -403,6 +418,7 @@ def test_polythene_rootfs_wraps_process_execution_error(
     )
 
     def _run_text(command: object, *, timeout: int | None = None) -> str:
+        """Return a session uid for ``pull``; otherwise raise a chained error."""
         argv = tuple(getattr(command, "argv", ()))
         if "pull" in argv:
             return "session-uid\n"

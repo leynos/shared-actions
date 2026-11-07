@@ -87,6 +87,7 @@ class SupportsFormulate(typ.Protocol):
     """Objects that expose a shell representation via ``formulate``."""
 
     def formulate(self) -> cabc.Sequence[str]:  # pragma: no cover - protocol
+        """Return the command as its sequence of argument strings."""
         ...
 
 
@@ -97,6 +98,7 @@ class SupportsCall(SupportsFormulate, typ.Protocol):
     def __call__(
         self, *args: object, **kwargs: object
     ) -> object:  # pragma: no cover - protocol
+        """Invoke the command with the given arguments."""
         ...
 
 
@@ -107,6 +109,7 @@ class SupportsRun(SupportsFormulate, typ.Protocol):
     def run(
         self, *args: object, **run_kwargs: object
     ) -> object:  # pragma: no cover - protocol
+        """Execute the command through plumbum's ``run`` method."""
         ...
 
 
@@ -115,6 +118,7 @@ class SupportsRunFg(SupportsFormulate, typ.Protocol):
     """Commands that expose :meth:`run_fg` for foreground execution."""
 
     def run_fg(self, **run_kwargs: object) -> object:  # pragma: no cover - protocol
+        """Execute the command in the foreground through ``run_fg``."""
         ...
 
 
@@ -123,6 +127,7 @@ class SupportsAnd(SupportsFormulate, typ.Protocol):
     """Commands that can be combined with ``FG`` using ``&``."""
 
     def __and__(self, other: object) -> object:  # pragma: no cover - protocol
+        """Combine the command with ``other`` using ``&``."""
         ...
 
 
@@ -131,6 +136,7 @@ class SupportsWithEnv(SupportsFormulate, typ.Protocol):
     """Commands that support environment overrides via :meth:`with_env`."""
 
     def with_env(self, **env: str) -> SupportsWithEnv:  # pragma: no cover - protocol
+        """Return the command with ``env`` overrides applied."""
         ...
 
 
@@ -258,6 +264,7 @@ def run_cmd(
 
 
 def _call_handler(command: SupportsFormulate, run_kwargs: dict[str, object]) -> object:
+    """Call ``command`` with ``run_kwargs``; raise TypeError if it is not callable."""
     if not isinstance(command, SupportsCall):
         msg = "Command does not support call semantics"
         raise TypeError(msg)
@@ -267,6 +274,11 @@ def _call_handler(command: SupportsFormulate, run_kwargs: dict[str, object]) -> 
 def _run_handler(
     command: SupportsFormulate, run_kwargs: dict[str, object]
 ) -> RunResult:
+    """Run ``command`` through ``run()`` and return a normalized ``RunResult``.
+
+    A ``TimeoutError`` is converted to ``ProcessTimedOut``. Raise TypeError if
+    the command has no ``run`` method.
+    """
     if not isinstance(command, SupportsRun):
         msg = "Command does not support run()"
         raise TypeError(msg)
@@ -297,6 +309,10 @@ def _run_handler(
 def _run_fg_handler(
     command: SupportsFormulate, run_kwargs: dict[str, object]
 ) -> object:
+    """Run ``command`` in the foreground through ``run_fg`` or ``& FG``.
+
+    Keyword arguments are accepted only when the command provides ``run_fg``.
+    """
     if isinstance(command, SupportsRunFg):
         return command.run_fg(**run_kwargs)
     if run_kwargs:

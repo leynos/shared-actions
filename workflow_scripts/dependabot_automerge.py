@@ -439,6 +439,7 @@ def _refresh_merge_state(
     reads = 1
 
     def _reads() -> int:
+        """Return the number of merge-state reads made so far."""
         return reads
 
     with measured(Operation.REFRESH, attempts=_reads):

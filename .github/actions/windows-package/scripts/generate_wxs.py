@@ -63,6 +63,7 @@ _SELF_MODULE.__dict__.update(globals())
 
 
 def _parse_additional_files(values: list[str] | None) -> list[FileSpecification]:
+    """Parse each non-blank entry of ``values`` into a file specification."""
     return [
         parse_file_specification(stripped)
         for spec in (values or [])

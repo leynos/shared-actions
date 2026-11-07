@@ -43,6 +43,7 @@ def _patch_run_validated_timeout(
         allowed_names: tuple[str, ...],
         **kwargs: object,
     ) -> RunOutput:
+        """Time out matching probes, or return the configured success result."""
         _ = (allowed_names, kwargs)
         cmd = [executable, *args]
         should_timeout = predicate(args) if predicate is not None else True
@@ -90,6 +91,7 @@ def test_runtime_available_requires_allowed_executable(
     harness.patch_shutil_which(lambda name: "/usr/bin/docker")
 
     def fake_ensure(path: str, allowed: tuple[str, ...]) -> str:
+        """Reject every path as an unexpected executable."""
         raise runtime_module.UnexpectedExecutableError(path)
 
     harness.patch_attr("ensure_allowed_executable", fake_ensure)
@@ -129,6 +131,7 @@ def test_runtime_available_oserror_does_not_warn(
     messages = echo_recorder(runtime_module)
 
     def fake_run(*_: object, **__: object) -> RunOutput:
+        """Raise ``OSError`` for every probe."""
         message = "simulated OSError"
         raise OSError(message)
 
@@ -158,6 +161,7 @@ def test_podman_without_cap_sys_admin_is_unavailable(
         text: bool = False,
         **_: object,
     ) -> RunOutput:
+        """Report podman capabilities without CAP_SYS_ADMIN for ``--format`` probes."""
         _ = allowed_names
         if "--format" in args:
             data = json.dumps({"capabilities": "CAP_NET_ADMIN"})
@@ -189,6 +193,7 @@ def test_podman_with_cap_sys_admin_is_available(
         text: bool = False,
         **_: object,
     ) -> RunOutput:
+        """Report podman capabilities with CAP_SYS_ADMIN for ``--format`` probes."""
         _ = allowed_names
         if "--format" in args:
             data = json.dumps({"capabilities": ["CAP_SYS_ADMIN"]})

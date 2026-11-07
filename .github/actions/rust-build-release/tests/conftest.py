@@ -122,6 +122,7 @@ def isolated_rust_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _ensure_dependency(name: str, attribute: str | None = None) -> None:
+    """Skip the calling test when module *name* or its *attribute* is missing."""
     try:
         module = importlib.import_module(name)
     except ModuleNotFoundError:  # pragma: no cover - environment guard
@@ -136,6 +137,11 @@ def _load_module(
     *,
     deps: cabc.Sequence[tuple[str, str | None]] = (),
 ) -> ModuleType:
+    """Load ``SRC_DIR/filename`` as *module_name* after checking *deps*.
+
+    The sibling modules cross_manager, runtime, toolchain and utils are
+    removed from ``sys.modules`` before loading.
+    """
     prepend_to_syspath(SRC_DIR)
     for sibling in ("cross_manager", "runtime", "toolchain", "utils"):
         sys.modules.pop(sibling, None)
@@ -155,6 +161,7 @@ class ModuleHarness:
     """Utility wrapper around a loaded module for patching helpers."""
 
     def __init__(self, module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Store the wrapped module and monkeypatch, with an empty call log."""
         self.module = module
         self.monkeypatch = monkeypatch
         self.calls: list[list[str]] = []
@@ -166,6 +173,7 @@ class ModuleHarness:
         """Patch ``run_cmd`` to record calls and execute an optional side effect."""
 
         def fake(cmd: SupportsFormulate) -> object | None:
+            """Record the formulated command and return any side effect result."""
             formulated = list(cmd.formulate())
             if formulated:
                 formulated[0] = Path(formulated[0]).name
@@ -198,17 +206,26 @@ HarnessFactory = cabc.Callable[[ModuleType], ModuleHarness]
 
 
 class _DummyCommand:
+    """Minimal stand-in for a plumbum command with a name and environment."""
+
     def __init__(self, name: str = "dummy") -> None:
+        """Store the command name and start with an empty environment."""
         self._name = name
         self.env: dict[str, str] = {}
 
     def formulate(self) -> list[str]:
+        """Return the command as an argv list holding only its name."""
         return [self._name]
 
     def __call__(self, *_args: object, **_kwargs: object) -> None:
-        return None
+        """Accept any arguments and do nothing, returning None."""
+        return
 
     def with_env(self, *args: object, **kwargs: str) -> _DummyCommand:
+        """Return a copy whose environment merges the given mappings and keywords.
+
+        Positional arguments must be mappings; anything else raises TypeError.
+        """
         env_from_args: dict[str, str] = {}
         for arg in args:
             if not isinstance(arg, cabc.Mapping):
@@ -242,6 +259,7 @@ DummyCommandFactory = cabc.Callable[..., _DummyCommand]
 def _cross_decision(
     main_module: ModuleType, *, use_cross: bool, requires_container: bool = False
 ) -> CrossDecision:
+    """Build a ``_CrossDecision`` with cross enabled or disabled as requested."""
     return main_module._CrossDecision(  # type: ignore[attr-defined]
         cross_path="/usr/bin/cross" if use_cross else None,
         cross_version="0.2.5",
@@ -261,6 +279,7 @@ def dummy_command_factory() -> DummyCommandFactory:
     """Return a factory that builds dummy command objects for tests."""
 
     def factory(name: str = "dummy") -> _DummyCommand:
+        """Build a ``_DummyCommand`` named *name*, defaulting to ``"dummy"``."""
         return _DummyCommand(name)
 
     return factory
@@ -273,6 +292,7 @@ def cross_decision_factory() -> CrossDecisionFactory:
     def factory(
         main_module: ModuleType, *, use_cross: bool, requires_container: bool = False
     ) -> CrossDecision:
+        """Build a cross decision through ``_cross_decision``."""
         return _cross_decision(
             main_module, use_cross=use_cross, requires_container=requires_container
         )
@@ -287,9 +307,11 @@ def echo_recorder(
     """Return a helper that patches ``typer.echo`` and records messages."""
 
     def install(module: ModuleType) -> list[tuple[str, bool]]:
+        """Patch ``module.typer.echo`` to record messages and return the list."""
         messages: list[tuple[str, bool]] = []
 
         def fake_echo(message: str, *, err: bool = False) -> None:
+            """Append the message and its ``err`` flag to the recorded list."""
             messages.append((message, err))
 
         monkeypatch.setattr(module.typer, "echo", fake_echo)
@@ -303,6 +325,7 @@ def module_harness(monkeypatch: pytest.MonkeyPatch) -> HarnessFactory:
     """Return a factory that wraps a module with a harness and recorder."""
 
     def factory(module: ModuleType) -> ModuleHarness:
+        """Wrap *module* in a ``ModuleHarness``, patching ``run_cmd`` if present."""
         harness = ModuleHarness(module, monkeypatch)
         if hasattr(module, "run_cmd"):
             harness.patch_run_cmd()
@@ -424,6 +447,7 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
     """Return a helper that ensures the requested toolchain is installed."""
 
     def _ensure(toolchain_version: str, host_target: str) -> None:
+        """Install the toolchain through rustup when it is not already present."""
         rustup_path = shutil.which("rustup")
         rustup_bin = _validate_rustup_binary(rustup_path)
         rustup_env = _setup_rust_environment(rustup_bin)

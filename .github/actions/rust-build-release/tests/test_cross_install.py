@@ -36,6 +36,7 @@ def test_installs_cross_when_missing(
     cross_checks = [None, cross_path]
 
     def fake_which(name: str) -> str | None:
+        """Report ``cross`` as missing once, then present; other names are absent."""
         if name == "cross":
             return cross_checks.pop(0) if cross_checks else cross_path
         return None
@@ -67,9 +68,11 @@ def test_cross_install_failure_non_windows(
     harness.patch_platform("linux")
 
     def fake_which(name: str) -> str | None:
+        """Report ``cross`` as missing and resolve every other name to rustup."""
         return None if name == "cross" else "/usr/bin/rustup"
 
     def fail_install(cmd: list[str]) -> None:
+        """Raise a ``ProcessExecutionError`` simulating a failed install."""
         raise cross_module.ProcessExecutionError(cmd, 1, "", "install failed")
 
     harness.patch_shutil_which(fake_which)
@@ -96,6 +99,7 @@ def test_upgrades_outdated_cross(
     )
 
     def fake_which(name: str) -> str | None:
+        """Return the stub path for ``cross`` and None for other names."""
         return cross_path if name == "cross" else None
 
     harness.patch_shutil_which(fake_which)
@@ -128,6 +132,7 @@ def test_uses_cached_cross(
     cross_path = _register_cross_version_stub(cmd_mox)
 
     def fake_which(name: str) -> str | None:
+        """Return the stub path for ``cross`` and None for other names."""
         return cross_path if name == "cross" else None
 
     harness.patch_shutil_which(fake_which)
@@ -153,6 +158,7 @@ def test_installs_prebuilt_cross_on_windows(
     cross_checks = [None, cross_path]
 
     def fake_which(name: str) -> str | None:
+        """Report ``cross`` as missing once, then present; other names are absent."""
         if name == "cross":
             return cross_checks.pop(0) if cross_checks else cross_path
         return None
@@ -163,6 +169,7 @@ def test_installs_prebuilt_cross_on_windows(
     release_call_args: list[str] = []
 
     def fake_release(version: str) -> bool:
+        """Record the requested version and report a successful release install."""
         release_call_args.append(version)
         return True
 
@@ -195,7 +202,10 @@ def test_install_cross_release_validates_binary(
     payload_hash = hashlib.sha256(payload).hexdigest()
 
     class FakeBinaryResponse:
+        """Stand-in for a download response that yields the archive bytes."""
+
         def __enter__(self) -> FakeBinaryResponse:
+            """Enter the context and return this response."""
             return self
 
         def __exit__(
@@ -204,13 +214,18 @@ def test_install_cross_release_validates_binary(
             exc: object,
             traceback: object,
         ) -> bool:
+            """Leave the context without suppressing exceptions."""
             return False
 
         def read(self) -> bytes:
+            """Return the archive payload."""
             return payload
 
     class FakeTextResponse:
+        """Stand-in for a download response that yields the checksum line."""
+
         def __enter__(self) -> FakeTextResponse:
+            """Enter the context and return this response."""
             return self
 
         def __exit__(
@@ -219,19 +234,25 @@ def test_install_cross_release_validates_binary(
             exc: object,
             traceback: object,
         ) -> bool:
+            """Leave the context without suppressing exceptions."""
             return False
 
         def read(self) -> bytes:
+            """Return the checksum line for the archive payload."""
             return f"{payload_hash}  cross-x86_64-pc-windows-msvc.zip".encode()
 
     def fake_urlopen(url: str) -> FakeBinaryResponse | FakeTextResponse:
+        """Return the checksum response for ``.sha256`` URLs, else the archive."""
         assert url.startswith("https://github.com/cross-rs/cross/releases/download/")
         return FakeTextResponse() if url.endswith(".sha256") else FakeBinaryResponse()
 
     temp_dir = tmp_path / "tmp"
 
     class FakeTempDir:
+        """Stand-in for ``tempfile.TemporaryDirectory`` yielding a fixed path."""
+
         def __enter__(self) -> str:
+            """Create the fixed temporary directory and return its path."""
             temp_dir.mkdir(parents=True, exist_ok=True)
             return str(temp_dir)
 
@@ -241,6 +262,7 @@ def test_install_cross_release_validates_binary(
             exc: object,
             traceback: object,
         ) -> bool:
+            """Leave the context without suppressing exceptions."""
             return False
 
     run_calls: list[list[str]] = []
@@ -255,6 +277,7 @@ def test_install_cross_release_validates_binary(
         text: bool = False,
         **_: object,
     ) -> subprocess.CompletedProcess[str]:
+        """Record the command and return a successful ``cross 0.2.5`` result."""
         _ = allowed_names
         cmd = [executable, *args]
         run_calls.append(cmd)
@@ -296,26 +319,37 @@ def test_install_cross_release_rejects_hash_mismatch(
     bad_hash = (int(good_hash, 16) ^ 1).to_bytes(32, "big").hex()
 
     class FakeBinaryResponse:
+        """Stand-in for a download response that yields the archive bytes."""
+
         def __enter__(self) -> FakeBinaryResponse:
+            """Enter the context and return this response."""
             return self
 
         def __exit__(self, exc_type: object, exc: object, traceback: object) -> bool:
+            """Leave the context without suppressing exceptions."""
             return False
 
         def read(self) -> bytes:
+            """Return the archive payload."""
             return payload
 
     class FakeTextResponse:
+        """Stand-in for a download response that yields the checksum line."""
+
         def __init__(self, hash_value: str) -> None:
+            """Store the checksum value to report."""
             self.hash_value = hash_value
 
         def __enter__(self) -> FakeTextResponse:
+            """Enter the context and return this response."""
             return self
 
         def __exit__(self, exc_type: object, exc: object, traceback: object) -> bool:
+            """Leave the context without suppressing exceptions."""
             return False
 
         def read(self) -> bytes:
+            """Return a checksum line for the stored value."""
             return f"{self.hash_value}  cross-x86_64-pc-windows-msvc.zip".encode()
 
     responses = {
@@ -327,7 +361,10 @@ def test_install_cross_release_rejects_hash_mismatch(
     home_dir = tmp_path / "home"
 
     class FakeTempDir:
+        """Stand-in for ``tempfile.TemporaryDirectory`` yielding a fixed path."""
+
         def __enter__(self) -> str:
+            """Create the fixed temporary directory and return its path."""
             temp_dir.mkdir(parents=True, exist_ok=True)
             return str(temp_dir)
 
@@ -337,9 +374,11 @@ def test_install_cross_release_rejects_hash_mismatch(
             exc: object,
             traceback: object,
         ) -> bool:
+            """Leave the context without suppressing exceptions."""
             return False
 
     def fake_urlopen(url: str) -> FakeBinaryResponse | FakeTextResponse:
+        """Return the hash response for ``.sha256`` URLs, else the archive."""
         assert url.startswith("https://github.com/cross-rs/cross/releases/download/")
         return responses["hash" if url.endswith(".sha256") else "archive"]
 
@@ -375,6 +414,7 @@ def test_installs_cross_without_container_runtime(
     cross_checks = [None, cross_path]
 
     def fake_which(name: str) -> str | None:
+        """Return the cross and rustup stubs, and hide docker and podman."""
         if name == "cross":
             return cross_checks.pop(0) if cross_checks else cross_path
         if name in {"docker", "podman"}:
@@ -416,11 +456,13 @@ def test_falls_back_to_git_when_crates_io_unavailable(
     cross_checks = [None, cross_path]
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
+        """Fail the first recorded install so the git fallback runs."""
         if len(harness.calls) == 1:
             raise cross_module.ProcessExecutionError(cmd, 1, "", "")
         return
 
     def fake_which(name: str) -> str | None:
+        """Return the stub path for ``cross`` and None for other names."""
         if name == "cross":
             return cross_checks.pop(0) if cross_checks else cross_path
         return None
@@ -461,6 +503,7 @@ def test_falls_back_to_cargo_when_runtime_unusable(
     rustup_path = "/usr/bin/rustup"
 
     def fake_which(name: str) -> str | None:
+        """Report docker, cross and rustup as present and other names as absent."""
         if name == "docker":
             return docker_path
         if name == "cross":
@@ -483,6 +526,7 @@ def test_falls_back_to_cargo_when_runtime_unusable(
         text: bool = False,
         **_: object,
     ) -> subprocess.CompletedProcess[str]:
+        """Fail the docker probe and answer toolchain and cross queries."""
         _ = allowed_names
         cmd = [executable, *args]
         if executable == docker_path:
@@ -510,6 +554,7 @@ def test_returns_none_when_install_fails_on_windows(
     harness = module_harness(cross_module)
 
     def failing_run_cmd(cmd: list[str]) -> None:
+        """Raise a ``ProcessExecutionError`` for every install attempt."""
         raise cross_module.ProcessExecutionError(cmd, 1, "", "install failed")
 
     harness.patch_run_cmd(failing_run_cmd)

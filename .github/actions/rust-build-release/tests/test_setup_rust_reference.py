@@ -37,11 +37,13 @@ _USES_PATTERN = re.compile(
 
 
 def _load_setup_rust_step() -> dict[str, object]:
+    """Return the ``Setup Rust toolchain`` step from the loaded action manifest."""
     steps: list[dict[str, object]] = load_action_manifest()["runs"]["steps"]
     return find_step(steps, "Setup Rust toolchain")
 
 
 def _pinned_sha() -> str:
+    """Return the commit SHA the nested setup-rust step is pinned to."""
     uses = _load_setup_rust_step().get("uses")
     assert isinstance(uses, str)
     match = _USES_PATTERN.fullmatch(uses)

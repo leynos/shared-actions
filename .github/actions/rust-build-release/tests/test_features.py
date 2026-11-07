@@ -325,6 +325,7 @@ class TestMainFeaturesIntegration:
                 manifest_arg: Path,
                 features_arg: str,
             ) -> object:
+                """Record the cross build arguments and return a dummy cross command."""
                 captured["decision"] = decision_arg
                 captured["target"] = target_arg
                 captured["manifest"] = manifest_arg
@@ -337,6 +338,7 @@ class TestMainFeaturesIntegration:
             def fake_cargo(
                 _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
             ) -> object:
+                """Record the cargo build arguments and return a dummy cargo command."""
                 captured["target"] = target_arg
                 captured["manifest"] = manifest_arg
                 captured["features"] = features_arg
@@ -372,6 +374,7 @@ class TestFeaturesEnvVar:
         def fake_cargo(
             _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
         ) -> object:
+            """Record the features argument and return a dummy cargo command."""
             captured["features"] = features_arg
             return context.dummy_command_factory("cargo-build")
 
@@ -411,6 +414,7 @@ class TestHandleCrossContainerErrorFeatures:
         def fake_cargo(
             _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
         ) -> object:
+            """Record the cargo build arguments and return a fallback command."""
             captured["target"] = target_arg
             captured["manifest"] = manifest_arg
             captured["features"] = features_arg

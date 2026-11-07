@@ -228,7 +228,7 @@ percentage is rounded). The target runs `interrogate` at the version in
 `INTERROGATE_VERSION` over `INTERROGATE_TARGETS`, so add a new Python directory
 or root module to that list. `-O` skips `@overload` stubs, and one
 `--ignore-regex` skips the overloads of `run_validated`, which Ruff forbids
-documenting. `tests/workflow_contracts/interrogate_gate_test.py` asserts the
+documenting. `tests/workflow_contracts/test_interrogate_gate.py` asserts the
 wiring.
 
 ### Skylos dead-code policy

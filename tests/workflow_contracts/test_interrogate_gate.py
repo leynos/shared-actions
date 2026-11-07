@@ -57,7 +57,7 @@ def _tracked(*patterns: str) -> list[str]:
     the virtual environments CI creates beside the sources. Names are read from
     NUL-separated output, so a path containing whitespace stays whole.
     """
-    output = subprocess.run(  # noqa: S603 - fixed argv, no shell
+    output = subprocess.run(  # noqa: S603,TID251 - fixed argv, no shell
         ["git", "-C", str(ROOT), "ls-files", "-z", *patterns],  # noqa: S607 - git
         capture_output=True,
         text=True,
@@ -67,8 +67,14 @@ def _tracked(*patterns: str) -> list[str]:
 
 
 def _python_directories() -> set[Path]:
-    """Return the directories that hold Python source or stubs Git tracks."""
-    return {Path(name).parent for name in _tracked("*.py", "*.pyi")}
+    """Return the directories that hold Python source or stubs Git tracks.
+
+    A module in the repository root stands for itself: scanning `.` would also
+    walk the virtual environments and caches there, so the targets name each
+    root module instead.
+    """
+    paths = [Path(name) for name in _tracked("*.py", "*.pyi")]
+    return {path if path.parent == Path() else path.parent for path in paths}
 
 
 def test_lint_depends_on_interrogate() -> None:
@@ -107,7 +113,14 @@ def test_the_flags_demand_a_full_exact_report() -> None:
     # `-O` skips `@overload` stubs and the one regex skips the overloads of
     # `run_validated`, which Ruff forbids documenting (D418) and which
     # Interrogate cannot see through the `typ` alias of `typing`.
-    expected = ["-vv", "-O", "--ignore-regex", "'^run_validated$$'", "--fail-under", "100"]
+    expected = [
+        "-vv",
+        "-O",
+        "--ignore-regex",
+        "'^run_validated$$'",
+        "--fail-under",
+        "100",
+    ]
     if _tracked("*.pyi"):
         expected = [
             "-vv",
@@ -119,7 +132,9 @@ def test_the_flags_demand_a_full_exact_report() -> None:
             "--fail-under",
             "100",
         ]
-    assert flags == expected, f"INTERROGATE_FLAGS must be exactly {expected}, not {flags}"
+    assert flags == expected, (
+        f"INTERROGATE_FLAGS must be exactly {expected}, not {flags}"
+    )
 
 
 def test_every_python_directory_is_a_target() -> None:
@@ -139,7 +154,11 @@ def test_ci_installs_uv_before_it_runs_make_lint() -> None:
     checked = 0
     for name, job in workflow["jobs"].items():
         steps = job.get("steps", [])
-        lint = [i for i, s in enumerate(steps) if str(s.get("run", "")).strip() == "make lint"]
+        lint = [
+            i
+            for i, s in enumerate(steps)
+            if str(s.get("run", "")).strip() == "make lint"
+        ]
         if not lint:
             continue
         uv = [i for i, s in enumerate(steps) if "setup-uv" in str(s.get("uses", ""))]
@@ -160,7 +179,7 @@ def _run_target(tmp_path: Path, script: str) -> subprocess.CompletedProcess[str]
     stub.chmod(0o755)
     make = shutil.which("make")
     assert make
-    return subprocess.run(  # noqa: S603 - fixed argv, no shell
+    return subprocess.run(  # noqa: S603,TID251 - fixed argv, no shell
         [make, "-C", str(ROOT), "interrogate", f"INTERROGATE={stub}"],
         capture_output=True,
         text=True,
@@ -179,7 +198,12 @@ def test_the_target_passes_the_configured_flags_and_targets(tmp_path: Path) -> N
     """The tool receives exactly the configured flags, then the targets."""
     _run_target(tmp_path, "exit 0\n")
     received = (tmp_path / "args.txt").read_text(encoding="utf-8").split()
-    expected = _variable("INTERROGATE_FLAGS").split() + _variable("INTERROGATE_TARGETS").split()
+    # Make turns `$$` into `$` and the shell strips the quotes around a value.
+    flags = [
+        flag.replace("$$", "$").strip("'")
+        for flag in _variable("INTERROGATE_FLAGS").split()
+    ]
+    expected = flags + _variable("INTERROGATE_TARGETS").split()
     assert received == expected
 
 

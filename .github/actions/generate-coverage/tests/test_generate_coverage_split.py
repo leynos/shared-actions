@@ -499,7 +499,12 @@ def test_a_plain_cargo_build_names_profiles_as_the_plain_run_does(
 
 
 @pytest.mark.parametrize(
-    "name", ["CARGO_LLVM_COV_TARGET_DIR", "CARGO_LLVM_COV_BUILD_DIR"]
+    "name",
+    [
+        "CARGO_LLVM_COV_TARGET_DIR",
+        "CARGO_LLVM_COV_BUILD_DIR",
+        "CARGO_BUILD_BUILD_DIR",
+    ],
 )
 def test_an_overridden_cargo_directory_is_refused_not_ignored(
     run_rust: ModuleType,

@@ -189,21 +189,46 @@ def _hands_over(step: dict[str, object]) -> bool:
     return generates_coverage(step) and _input(step, "publish-baseline") == "never"
 
 
+#: The baseline paths a generator and its publisher must agree on. They are
+#: part of a cache entry's version, so a publisher saving other paths saves an
+#: entry the pull-request lanes cannot restore.
+BASELINE_PATH_INPUTS: typ.Final[tuple[str, ...]] = (
+    "baseline-rust-file",
+    "baseline-python-file",
+)
+
+
 def _is_received(document: Document, producer: str, step: dict[str, object]) -> bool:
-    """Return whether a named artefact of `step` has a publisher after it."""
+    """Return whether `step`'s hand-over has a sound publisher after it."""
     artefact = _input(step, "baseline-artefact-name")
-    return bool(artefact) and _has_baseline_publisher(document, producer, artefact)
+    return bool(artefact) and any(
+        _accepts(step, receiver)
+        for receiver in _receivers(document, producer, artefact)
+    )
 
 
-def _has_baseline_publisher(
+def _receivers(
     document: Document, producer: str, artefact: object
-) -> bool:
-    """Return whether a job needing `producer` publishes `artefact`'s baseline."""
-    return any(
-        invokes(step, BASELINE_ACTION) and _input(step, "artefact-name") == artefact
+) -> list[dict[str, object]]:
+    """Return the publisher steps in jobs needing `producer` for `artefact`."""
+    return [
+        step
         for name, job in jobs(document).items()
         if name != producer and producer in _needs(job)
         for step in steps(job)
+        if invokes(step, BASELINE_ACTION) and _input(step, "artefact-name") == artefact
+    ]
+
+
+def _accepts(generator: dict[str, object], receiver: dict[str, object]) -> bool:
+    """Return whether a receiver always runs, fails the job, and fits the paths.
+
+    A step with an `if` or `continue-on-error` could leave the baseline
+    unchanged under a green run, and one saving other paths saves an entry no
+    lane restores.
+    """
+    return not _skipping_keys(receiver) and all(
+        _input(generator, key) == _input(receiver, key) for key in BASELINE_PATH_INPUTS
     )
 
 

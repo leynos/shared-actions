@@ -703,7 +703,11 @@ def build_instrumented_tests(
     # other directories would warm nothing. Refuse rather than diverge.
     overridden = sorted(
         name
-        for name in ("CARGO_LLVM_COV_TARGET_DIR", "CARGO_LLVM_COV_BUILD_DIR")
+        for name in (
+            "CARGO_LLVM_COV_TARGET_DIR",
+            "CARGO_LLVM_COV_BUILD_DIR",
+            "CARGO_BUILD_BUILD_DIR",
+        )
         if os.environ.get(name)
     )
     if overridden:

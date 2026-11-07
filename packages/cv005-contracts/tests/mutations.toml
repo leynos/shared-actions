@@ -885,9 +885,23 @@ expect = "test_a_baseline_publisher_that_does_not_need_the_generator_is_refused"
 [[mutation]]
 id = "P9e a baseline publisher may take any artefact"
 file = "cv005_contracts/publisher_rules.py"
-old = "        invokes(step, BASELINE_ACTION) and _input(step, \"artefact-name\") == artefact\n"
-new = "        invokes(step, BASELINE_ACTION)\n"
+old = "        if invokes(step, BASELINE_ACTION) and _input(step, \"artefact-name\") == artefact\n"
+new = "        if invokes(step, BASELINE_ACTION)\n"
 expect = "test_a_baseline_publisher_on_another_artefact_is_refused"
+
+[[mutation]]
+id = "P9d2 a skippable baseline publisher accepted"
+file = "cv005_contracts/publisher_rules.py"
+old = "    return not _skipping_keys(receiver) and all(\n"
+new = "    return all(\n"
+expect = "test_a_skipped_baseline_publisher_is_refused"
+
+[[mutation]]
+id = "P9d3 a baseline publisher on other paths accepted"
+file = "cv005_contracts/publisher_rules.py"
+old = "        _input(generator, key) == _input(receiver, key) for key in BASELINE_PATH_INPUTS\n"
+new = "        True for key in BASELINE_PATH_INPUTS\n"
+expect = "test_a_baseline_publisher_on_other_paths_is_refused"
 
 [[mutation]]
 id = "P9f a lane may set build-only"

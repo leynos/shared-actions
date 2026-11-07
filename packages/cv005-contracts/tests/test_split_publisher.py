@@ -135,3 +135,51 @@ def test_a_build_only_step_must_share_the_commit_pin() -> None:
     found = violations(tree(coverage_main=_publisher_with(other)))
 
     assert any("must share one commit pin" in f for f in found), found
+
+
+def test_a_skipped_baseline_publisher_is_refused() -> None:
+    """A step that can be skipped leaves the baseline unchanged under green."""
+    skipped = BASELINE_JOB.replace(
+        f"      - uses: {SHARED}/publish-coverage-baseline@{PIN}\n",
+        "      - if: ${{ false }}\n"
+        f"        uses: {SHARED}/publish-coverage-baseline@{PIN}\n",
+    )
+    assert skipped != BASELINE_JOB
+
+    found = violations(tree(coverage_main=_handing_over(job=skipped)))
+
+    assert any("runs publish-coverage-baseline" in f for f in found), found
+
+
+def test_a_baseline_publisher_that_excuses_its_failure_is_refused() -> None:
+    """`continue-on-error` would turn a tripped ratchet into a green run."""
+    excused = BASELINE_JOB.replace(
+        "        with:\n          artefact-name",
+        "        continue-on-error: true\n        with:\n          artefact-name",
+    )
+    assert excused != BASELINE_JOB
+
+    found = violations(tree(coverage_main=_handing_over(job=excused)))
+
+    assert any("runs publish-coverage-baseline" in f for f in found), found
+
+
+def test_a_baseline_publisher_on_other_paths_is_refused() -> None:
+    """The paths are part of the cache version, so lanes would never restore."""
+    moved = BASELINE_JOB + "          baseline-rust-file: elsewhere/.rust\n"
+
+    found = violations(tree(coverage_main=_handing_over(job=moved)))
+
+    assert any("runs publish-coverage-baseline" in f for f in found), found
+
+
+def test_a_baseline_publisher_on_the_generators_paths_is_accepted() -> None:
+    """Custom paths are fine when both sides name the same ones."""
+    publisher = PUBLISHER.replace(
+        "          with-ratchet: 'true'\n",
+        HAND_OVER + "          baseline-rust-file: elsewhere/.rust\n",
+    )
+    moved = BASELINE_JOB + "          baseline-rust-file: elsewhere/.rust\n"
+    texts = tree(coverage_main=publisher.rstrip("\n") + "\n" + moved)
+
+    assert not any("runs publish-coverage-baseline" in f for f in violations(texts))

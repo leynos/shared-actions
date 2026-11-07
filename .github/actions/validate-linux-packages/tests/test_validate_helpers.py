@@ -81,7 +81,10 @@ def test_get_command_returns_stub(
     module = validate_helpers_module
 
     class _Local(dict):
+        """Stand-in for plumbum's ``local`` mapping, backed by a dict."""
+
         def __getitem__(self, key: str) -> object:
+            """Return the command for ``key``, raising ``KeyError`` when absent."""
             if key not in self:
                 raise KeyError(key)
             return super().__getitem__(key)

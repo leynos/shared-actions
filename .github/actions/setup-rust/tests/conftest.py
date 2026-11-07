@@ -74,6 +74,7 @@ def run_install_step(tmp_path: Path) -> InstallStepRunner:
         present: typ.Iterable[str] = ("clang", "ld.lld"),
         fail_on: str | None = None,
     ) -> InstallRun:
+        """Run the install fragment and return its result, outputs and sudo calls."""
         bash = requires_bash()
         stubs_dir = tmp_path / "stubs"
         tool_dir = tmp_path / "tools"

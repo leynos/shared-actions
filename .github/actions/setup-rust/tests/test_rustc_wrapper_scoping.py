@@ -155,6 +155,7 @@ class TestDecliningAnInheritedWrapper:
         environment.pop("RUSTC_WORKSPACE_WRAPPER", None)
 
         def build(prefix: str) -> int:
+            """Run a build behind ``prefix`` and return the wrapper call count."""
             log.write_text("", encoding="utf-8")
             subprocess.run(  # noqa: S603,TID251 - exercise the documented pattern.
                 ["bash", "-c", f"{prefix}cargo build -q --offline"],  # noqa: S607

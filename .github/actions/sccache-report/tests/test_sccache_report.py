@@ -57,6 +57,7 @@ Runner = typ.Callable[..., "Run"]
 
 
 def _step() -> dict[str, typ.Any]:
+    """Return the ``Report sccache statistics`` step from the shipped action."""
     steps = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))["runs"]["steps"]
     return next(step for step in steps if step["name"] == STEP)
 
@@ -101,6 +102,7 @@ def run_report(tmp_path: Path) -> typ.Callable[..., Run]:
     stub.chmod(0o755)
 
     def run(*, with_stub: bool = True, **env: str) -> Run:
+        """Run the shipped script with optional stub and ``env`` overrides."""
         bash = _bash()
         # Without the stub, only the shell's own tools are on PATH, so a real
         # sccache on the host cannot answer.
@@ -138,6 +140,7 @@ def run_report(tmp_path: Path) -> typ.Callable[..., Run]:
 
 
 def _calls(run: Run) -> str:
+    """Return the stub sccache's call log, or an empty string if none."""
     path = run.home / "bin" / "calls.log"
     return path.read_text(encoding="utf-8") if path.exists() else ""
 

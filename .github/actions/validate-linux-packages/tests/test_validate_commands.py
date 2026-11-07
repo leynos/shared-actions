@@ -51,12 +51,16 @@ def validation_error() -> type[Exception]:
 
 
 class _DummyCommand:
+    """Stand-in command that returns canned stdout and records timeouts."""
+
     def __init__(self, stdout: object, *, argv: tuple[str, ...] = ("tool",)) -> None:
+        """Store the canned ``stdout`` and the ``argv`` the command reports."""
         self._stdout = stdout
         self.argv = argv
         self.run_calls: list[dict[str, object]] = []
 
     def run(self, *, timeout: int | None = None) -> tuple[int, object, object]:
+        """Record the timeout and return success with the canned stdout."""
         self.run_calls.append({"timeout": timeout})
         return 0, self._stdout, ""
 
@@ -80,9 +84,12 @@ def test_run_text_raises_for_process_error(
     """Non-zero exit codes raise ValidationError with details."""
 
     class _FailingCommand:
+        """Stand-in command whose ``run`` raises ``ProcessExecutionError``."""
+
         argv = ("tool", "--flag")
 
         def run(self, *, timeout: int | None = None) -> tuple[int, object, object]:
+            """Raise ``ProcessExecutionError`` with exit code 2."""
             raise ProcessExecutionError(self.argv, 2, "", "boom")
 
     with pytest.raises(validation_error) as excinfo:
@@ -98,9 +105,12 @@ def test_run_text_wraps_unexpected_errors(
     """Unexpected exceptions are surfaced as ValidationError."""
 
     class _BrokenCommand:
+        """Stand-in command whose ``run`` raises an unexpected error."""
+
         argv = ("tool",)
 
         def run(self, *, timeout: int | None = None) -> tuple[int, object, object]:
+            """Raise a ``RuntimeError`` instead of running the command."""
             message = "boom"
             raise RuntimeError(message)
 
@@ -117,10 +127,14 @@ def test_run_text_formats_command_when_argv_missing(
     """Process errors without argv fall back to the command representation."""
 
     class _FailingCommand:
+        """Stand-in command without ``argv`` whose ``run`` raises an error."""
+
         def __repr__(self) -> str:
+            """Return the placeholder text used in error messages."""
             return "<dummy-command>"
 
         def run(self, *, timeout: int | None = None) -> tuple[int, object, object]:
+            """Raise ``ProcessExecutionError`` with exit code 1 and no argv."""
             raise ProcessExecutionError((), 1, "", "boom")
 
     with pytest.raises(validation_error) as excinfo:

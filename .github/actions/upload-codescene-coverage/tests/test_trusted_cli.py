@@ -207,7 +207,10 @@ def test_download_digest_mismatch_is_rejected(
     release = _resolve(_DEFAULT_RESOLUTION)
 
     class Response(io.BytesIO):
+        """In-memory download response reporting the manifest archive URL."""
+
         def __enter__(self) -> Response:
+            """Enter the response context and return the response itself."""
             return self
 
         def __exit__(
@@ -216,14 +219,19 @@ def test_download_digest_mismatch_is_rejected(
             exc_val: BaseException | None,
             exc_tb: TracebackType | None,
         ) -> None:
+            """Close the response on exit from its context."""
             _ = (exc_type, exc_val, exc_tb)
             self.close()
 
         def geturl(self) -> str:
+            """Return the manifest archive URL as the final URL."""
             return release.archive_url
 
     class Opener:
+        """Stand-in opener whose responses carry the wrong bytes."""
+
         def open(self, *_: object, **__: object) -> Response:
+            """Return a response holding the wrong bytes, whatever the request."""
             return Response(b"wrong")
 
     monkeypatch.setattr(installer, "_download_opener", Opener)
@@ -286,6 +294,7 @@ def test_version_mismatch_and_failure_are_rejected(
     calls: list[tuple[list[str], dict[str, object]]] = []
 
     def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Record the command and return the next scripted process result."""
         calls.append((command, kwargs))
         return next(results)
 

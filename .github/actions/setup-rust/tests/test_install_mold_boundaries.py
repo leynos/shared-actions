@@ -29,6 +29,7 @@ def _runner(
     def run(
         argv: cabc.Sequence[str], timeout: float
     ) -> subprocess.CompletedProcess[str]:
+        """Return the canned result, or raise ``raises`` when one is set."""
         del timeout
         if raises is not None:
             raise raises
@@ -73,6 +74,7 @@ def test_a_response_cut_short_is_a_download_failure(tmp_path: Path) -> None:
 
     @contextlib.contextmanager
     def truncated(url: str, timeout: float) -> cabc.Iterator[typ.BinaryIO]:
+        """Raise ``IncompleteRead`` on entry, as a cut-short response does."""
         del url, timeout
         received = b"partial"
         raise http.client.IncompleteRead(received, 100)
@@ -102,6 +104,7 @@ def _main(tmp_path: Path, served: object, *extra: str) -> cabc.Callable[[], int]
     ticks = iter((100.0, 101.5))
 
     def call() -> int:
+        """Run ``main`` with this test's arguments and the fixed clock."""
         return install_mold.main(
             [
                 "--mold-version",
@@ -185,6 +188,7 @@ def test_an_unreadable_cache_fails_with_one_category(
     )
 
     def refuse(*_args: object, **_kwargs: object) -> object:
+        """Raise ``PermissionError``, as an unreadable cache would."""
         raise PermissionError(13, "Permission denied")
 
     monkeypatch.setattr(install_mold, "cache_state", refuse)

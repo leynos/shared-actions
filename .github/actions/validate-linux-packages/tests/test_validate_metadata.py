@@ -59,6 +59,7 @@ def test_validate_script_executes_run(monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[object] = []
 
     def _marker() -> None:
+        """Record that the CLI ``run`` hook was called."""
         called.append(object())
 
     monkeypatch.setattr(module, "run", _marker)
@@ -91,6 +92,7 @@ def test_inspect_deb_package_parses_metadata(
     }
 
     def _dpkg_handler(invocation: object) -> tuple[str, str, int]:
+        """Return the canned ``dpkg-deb`` output for the invoked arguments."""
         args = tuple(getattr(invocation, "args", ()))
         stdout = dpkg_expectations.pop(args, None)
         if stdout is None:
@@ -145,6 +147,7 @@ def test_inspect_rpm_package_parses_metadata(
     }
 
     def _rpm_handler(invocation: object) -> tuple[str, str, int]:
+        """Return the canned ``rpm`` output for the invoked arguments."""
         args = tuple(getattr(invocation, "args", ()))
         stdout = rpm_expectations.pop(args, None)
         if stdout is None:

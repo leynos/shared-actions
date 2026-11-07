@@ -110,7 +110,10 @@ def test_download_verified_accepts_the_approved_final_url(
     content = b"approved archive"
 
     class Response(io.BytesIO):
+        """In-memory download response reporting the manifest archive URL."""
+
         def __enter__(self) -> Response:
+            """Enter the response context and return the response itself."""
             return self
 
         def __exit__(
@@ -119,14 +122,19 @@ def test_download_verified_accepts_the_approved_final_url(
             exc_val: BaseException | None,
             exc_tb: TracebackType | None,
         ) -> None:
+            """Close the response on exit from its context."""
             _ = (exc_type, exc_val, exc_tb)
             self.close()
 
         def geturl(self) -> str:
+            """Return the manifest archive URL as the final URL."""
             return release.archive_url
 
     class Opener:
+        """Stand-in opener whose responses carry the test archive bytes."""
+
         def open(self, *_: object, **__: object) -> Response:
+            """Return a response holding the test archive bytes."""
             return Response(content)
 
     monkeypatch.setattr(installer, "_download_opener", Opener)
@@ -146,6 +154,7 @@ def test_version_startup_error_is_an_install_error(
     startup_error = "not executable"
 
     def fail(*_: object, **__: object) -> None:
+        """Raise ``OSError``, as a missing or non-executable binary would."""
         raise OSError(startup_error)
 
     monkeypatch.setattr(installer.subprocess, "run", fail)

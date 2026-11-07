@@ -414,7 +414,10 @@ def test_installs_cross_without_container_runtime(
     cross_checks = [None, cross_path]
 
     def fake_which(name: str) -> str | None:
-        """Return the cross and rustup stubs, and hide docker and podman."""
+        """Return None on the first ``cross`` lookup, then the stub path.
+
+        Return the rustup stub for ``rustup``, and None for docker and podman.
+        """
         if name == "cross":
             return cross_checks.pop(0) if cross_checks else cross_path
         if name in {"docker", "podman"}:
@@ -462,7 +465,10 @@ def test_falls_back_to_git_when_crates_io_unavailable(
         return
 
     def fake_which(name: str) -> str | None:
-        """Return the stub path for ``cross`` and None for other names."""
+        """Return None on the first ``cross`` lookup, then the stub path.
+
+        Return None for every other name.
+        """
         if name == "cross":
             return cross_checks.pop(0) if cross_checks else cross_path
         return None

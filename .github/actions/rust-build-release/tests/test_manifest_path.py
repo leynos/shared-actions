@@ -249,7 +249,10 @@ def test_main_passes_manifest_to_builder(
         def fake_cargo(
             _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
         ) -> object:
-            """Record the cargo build arguments and return a dummy cargo command."""
+            """Record the target, manifest and features, ignoring ``_spec``.
+
+            Return a dummy cargo command.
+            """
             captured["target"] = target_arg
             captured["manifest"] = manifest_arg
             captured["features"] = features_arg
@@ -492,7 +495,10 @@ def test_handle_cross_container_error_passes_manifest_to_fallback(
     def fake_cargo(
         _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
     ) -> object:
-        """Record the cargo build arguments and return a fallback dummy command."""
+        """Record the target, manifest and features, ignoring ``_spec``.
+
+        Return a fallback dummy command.
+        """
         captured["target"] = target_arg
         captured["manifest"] = manifest_arg
         captured["features"] = features_arg

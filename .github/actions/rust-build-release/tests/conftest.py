@@ -173,7 +173,10 @@ class ModuleHarness:
         """Patch ``run_cmd`` to record calls and execute an optional side effect."""
 
         def fake(cmd: SupportsFormulate) -> object | None:
-            """Record the formulated command and return any side effect result."""
+            """Replace the executable path with its basename, then record the command.
+
+            Return the side effect result, or None when there is no side effect.
+            """
             formulated = list(cmd.formulate())
             if formulated:
                 formulated[0] = Path(formulated[0]).name

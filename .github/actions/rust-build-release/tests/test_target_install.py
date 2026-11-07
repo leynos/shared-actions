@@ -67,7 +67,10 @@ def test_skips_target_install_when_cross_available(
     app_env.patch_shutil_which(fake_which)
 
     def fake_run(cmd: object) -> None:
-        """Fail ``rustup target add`` and record other commands and their env."""
+        """Fail ``rustup target add`` and keep the latest other command and env.
+
+        Each non-failing call overwrites the previous command and environment.
+        """
         parts = list(cmd.formulate())
         env = getattr(cmd, "env", {})
         if Path(parts[0]).name == "rustup" and parts[1:3] == ["target", "add"]:
@@ -736,7 +739,11 @@ def test_windows_host_probes_container_for_non_windows_targets(
         text: bool = False,
         **_: object,
     ) -> subprocess.CompletedProcess[str]:
-        """Answer rustup queries for a Windows target, with empty output otherwise."""
+        """Return a Windows MSVC toolchain for ``toolchain list``.
+
+        Return a fake ``rustc`` path for ``which rustc``, and empty output
+        for other calls.
+        """
         _ = allowed_names
         cmd = [executable, *args]
         if executable == "/usr/bin/rustup" and args[:2] == ["toolchain", "list"]:

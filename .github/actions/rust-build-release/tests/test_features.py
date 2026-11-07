@@ -338,7 +338,10 @@ class TestMainFeaturesIntegration:
             def fake_cargo(
                 _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
             ) -> object:
-                """Record the cargo build arguments and return a dummy cargo command."""
+                """Record the target, manifest and features, ignoring ``_spec``.
+
+                Return a dummy cargo command.
+                """
                 captured["target"] = target_arg
                 captured["manifest"] = manifest_arg
                 captured["features"] = features_arg
@@ -414,7 +417,10 @@ class TestHandleCrossContainerErrorFeatures:
         def fake_cargo(
             _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
         ) -> object:
-            """Record the cargo build arguments and return a fallback command."""
+            """Record the target, manifest and features, ignoring ``_spec``.
+
+            Return a fallback command.
+            """
             captured["target"] = target_arg
             captured["manifest"] = manifest_arg
             captured["features"] = features_arg

@@ -174,24 +174,25 @@ def baseline_publisher_violations(document: Document) -> list[str]:
         Every generator that hands over with no publisher to receive it.
 
     """
-    found: list[str] = []
-    for name, job in jobs(document).items():
-        for step in steps(job):
-            inputs = step.get("with") or {}
-            if not (
-                generates_coverage(step)
-                and isinstance(inputs, dict)
-                and inputs.get("publish-baseline") == "never"
-            ):
-                continue
-            artefact = inputs.get("baseline-artefact-name")
-            if not artefact or not _has_baseline_publisher(document, name, artefact):
-                found.append(
-                    f"job {name} generates coverage with publish-baseline: never "
-                    "but no job that needs it runs publish-coverage-baseline on "
-                    "the baseline-artefact-name it sets"
-                )
-    return found
+    return [
+        f"job {name} generates coverage with publish-baseline: never but no job "
+        "that needs it runs publish-coverage-baseline on the "
+        "baseline-artefact-name it sets"
+        for name, job in jobs(document).items()
+        for step in steps(job)
+        if _hands_over(step) and not _is_received(document, name, step)
+    ]
+
+
+def _hands_over(step: dict[str, object]) -> bool:
+    """Return whether a measuring step declines to publish its baseline."""
+    return generates_coverage(step) and _input(step, "publish-baseline") == "never"
+
+
+def _is_received(document: Document, producer: str, step: dict[str, object]) -> bool:
+    """Return whether a named artefact of `step` has a publisher after it."""
+    artefact = _input(step, "baseline-artefact-name")
+    return bool(artefact) and _has_baseline_publisher(document, producer, artefact)
 
 
 def _has_baseline_publisher(

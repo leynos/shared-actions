@@ -257,10 +257,12 @@ class _MetadataValidators:
 
     @staticmethod
     def prefix(attr: str, prefix: str, label: str) -> typ.Callable[[MetaT], None]:
-        """Return a validator requiring non-blank ``attr`` to start with ``prefix``."""
+        """Return a validator requiring ``attr``'s non-empty string
+        representation to start with ``prefix``.
+        """
 
         def _validator(meta: MetaT) -> None:
-            """Raise when a non-blank attribute lacks the prefix."""
+            """Raise when a non-empty string representation lacks the prefix."""
             value = getattr(meta, attr)
             text = "" if value is None else str(value)
             if text and not text.startswith(prefix):

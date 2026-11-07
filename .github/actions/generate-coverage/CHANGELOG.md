@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fix the interpreter step failing on Windows with "No interpreter found at
+  path". Git Bash's `command -v python3` prints the interpreter without its
+  `.exe`, and uv refuses a path to a file that does not exist. The step now
+  adds the `.exe` when only that file exists.
+
 - Add the pieces for splitting main coverage across runner providers: a
   `publish-baseline: never` value (no restore, ratchet or save), a
   `baseline-artefact-name` input that hands the measured figures on from a

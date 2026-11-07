@@ -337,3 +337,40 @@ def test_an_unreadable_python_version_file_is_a_resolution_error(
             resolver.choose_interpreter({}, version_file)
     finally:
         version_file.chmod(0o600)
+
+
+def test_a_path_interpreter_without_its_extension_gains_it(
+    resolver: ModuleType, tmp_path: Path
+) -> None:
+    """Git Bash prints ``python3`` for ``python3.exe``; uv needs the real file."""
+    (tmp_path / "python3.exe").write_text("", encoding="utf-8")
+    bare = str(tmp_path / "python3")
+
+    choice = resolver.choose_interpreter({"GC_PATH_PYTHON": bare}, tmp_path / "none")
+
+    assert choice == resolver.Choice(f"{bare}.exe", "PATH")
+
+
+def test_a_path_interpreter_that_exists_is_left_alone(
+    resolver: ModuleType, tmp_path: Path
+) -> None:
+    """The suffix is a fallback; it never replaces a path that already resolves."""
+    (tmp_path / "python3").write_text("", encoding="utf-8")
+    (tmp_path / "python3.exe").write_text("", encoding="utf-8")
+    bare = str(tmp_path / "python3")
+
+    choice = resolver.choose_interpreter({"GC_PATH_PYTHON": bare}, tmp_path / "none")
+
+    assert choice == resolver.Choice(bare, "PATH")
+
+
+def test_a_path_interpreter_falls_back_to_python_exe_beside_it(
+    resolver: ModuleType, tmp_path: Path
+) -> None:
+    """The setup-python layout has python.exe where Git Bash found a bare name."""
+    (tmp_path / "python.exe").write_text("", encoding="utf-8")
+    bare = str(tmp_path / "python3")
+
+    choice = resolver.choose_interpreter({"GC_PATH_PYTHON": bare}, tmp_path / "none")
+
+    assert choice == resolver.Choice(str(tmp_path / "python.exe"), "PATH")

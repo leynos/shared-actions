@@ -112,12 +112,35 @@ def choose_interpreter(
         return Choice(entry, ".python-version")
     on_path = env.get("GC_PATH_PYTHON", "").strip()
     if on_path:
-        return Choice(on_path, "PATH")
+        return Choice(_with_executable_suffix(on_path), "PATH")
     msg = (
         "no interpreter for the coverage venv: set the python-version input, "
         "UV_PYTHON or .python-version, or put python3 on PATH"
     )
     raise ResolutionError(msg)
+
+
+def _with_executable_suffix(path: str) -> str:
+    """Return the interpreter file ``path`` names, adding ``.exe`` when needed.
+
+    Git Bash's ``command -v python3`` prints a Windows interpreter without its
+    extension, and uv refuses a path to a file that does not exist ("No
+    interpreter found at path"), so the step failed on every Windows runner.
+    A path that is a file is returned as is; otherwise ``path.exe`` is tried,
+    then ``python.exe`` beside it, which is the layout ``actions/setup-python``
+    installs; if neither exists the path comes back unchanged.
+
+    Examples
+    --------
+    >>> _with_executable_suffix("/nonexistent/python3")
+    '/nonexistent/python3'
+    """
+    if Path(path).is_file():
+        return path
+    for candidate in (f"{path}.exe", str(Path(path).with_name("python.exe"))):
+        if Path(candidate).is_file():
+            return candidate
+    return path
 
 
 def find_interpreter(spec: str, run: Runner) -> Path | None:

@@ -27,16 +27,21 @@ def test_build_component_invokes_pkgbuild(
     pkgroot.mkdir(parents=True, exist_ok=True)
 
     class FakeCommand:
+        """Stub for ``pkgbuild`` that records arguments and writes the output."""
+
         def __init__(self) -> None:
+            """Start with no recorded calls and no output path."""
             self.calls: list[list[str]] = []
             self.output: Path | None = None
 
         def __getitem__(self, args: tuple[str, ...]) -> FakeCommand:
+            """Record the arguments and take the last one as the output path."""
             self.calls.append(list(args))
             self.output = Path(args[-1])
             return self
 
         def __call__(self) -> None:
+            """Write a stub component package to the recorded output path."""
             if self.output is None:
                 pytest.fail("pkgbuild command invoked without an output path")
             self.output.parent.mkdir(parents=True, exist_ok=True)

@@ -36,6 +36,7 @@ def load_module(monkeypatch: pytest.MonkeyPatch) -> cabc.Callable[[str], object]
     """Return a loader that imports a script module with fresh state."""
 
     def _load(name: str) -> object:
+        """Import the named script from the scripts directory as a new module."""
         module_name = f"macos_package_{name}"
         script_path = SCRIPTS_DIR / f"{name}.py"
         if not script_path.exists():
@@ -63,6 +64,7 @@ def assert_permissions() -> cabc.Callable[[Path, int], None]:
     """Return a helper that validates staged file permissions."""
 
     def _assert_permissions(path: Path, expected: int) -> None:
+        """Fail unless ``path`` has the expected mode, or access on Windows."""
         mode = path.stat().st_mode & 0o777
         if sys.platform == "win32":
             # Windows only tracks the read-only attribute, so best-effort verify

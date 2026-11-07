@@ -53,6 +53,7 @@ class GithubReleaseRetryError(GithubReleaseError):
     """Raised to indicate that the request should be retried."""
 
     def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        """Store the optional ``Retry-After`` delay with the error message."""
         super().__init__(message)
         self.retry_after = retry_after
 
@@ -69,6 +70,7 @@ class _GithubRetryWait(wait_base):
         jitter_factor: float,
         rng: _UniformGenerator | None = None,
     ) -> None:
+        """Store clamped backoff settings and the random source for jitter."""
         super().__init__()
         self._initial_delay = max(initial_delay, 0.0)
         self._backoff_factor = max(backoff_factor, 1.0)
@@ -77,6 +79,7 @@ class _GithubRetryWait(wait_base):
         self._rng = _JITTER if rng is None else rng
 
     def __call__(self, retry_state: RetryCallState) -> float:
+        """Return the delay before the next attempt, honouring Retry-After."""
         outcome = getattr(retry_state, "outcome", None)
         if outcome is not None and getattr(outcome, "failed", False):
             exception = outcome.exception()
@@ -102,6 +105,7 @@ class _GithubRetryWait(wait_base):
 
 
 def _retry_wait_strategy() -> wait_base:
+    """Return the wait strategy configured with the action's backoff constants."""
     return _GithubRetryWait(
         initial_delay=_INITIAL_DELAY,
         backoff_factor=_BACKOFF_FACTOR,
@@ -157,6 +161,7 @@ def _parse_retry_after_header(value: str | None) -> float | None:
 
 
 def _handle_http_response_error(response: httpx.Response, tag: str) -> typ.NoReturn:
+    """Raise the error or retry signal matching the HTTP response status."""
     status = response.status_code
     detail = _extract_error_detail(response)
 
@@ -204,6 +209,7 @@ def _handle_http_response_error(response: httpx.Response, tag: str) -> typ.NoRet
 
 
 def _request_release(repo: str, tag: str, token: str) -> dict[str, object]:
+    """Fetch the release metadata for ``tag`` once, without retrying."""
     url = httpx.URL(f"https://api.github.com/repos/{repo}/releases/tags/{tag}")
     if url.scheme != "https":  # pragma: no cover - defensive guard
         message = f"Unsupported URL scheme '{url.scheme}' for GitHub API request."
@@ -244,10 +250,12 @@ def _request_release(repo: str, tag: str, token: str) -> dict[str, object]:
     reraise=True,
 )
 def _fetch_release_with_retry(repo: str, tag: str, token: str) -> dict[str, object]:
+    """Fetch the release metadata, retrying transient failures."""
     return _request_release(repo, tag, token)
 
 
 def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
+    """Fetch release metadata, raising ``GithubReleaseError`` on failure."""
     try:
         return _fetch_release_with_retry(repo, tag, token)
     except GithubReleaseRetryError as exc:
@@ -259,6 +267,7 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
 
 
 def _validate_release(tag: str, data: dict[str, object]) -> str:
+    """Return the release name, or raise if it is a draft or prerelease."""
     draft = data.get("draft")
     prerelease = data.get("prerelease")
     name = data.get("name") or tag

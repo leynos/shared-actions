@@ -53,6 +53,7 @@ TRUTHY_STRINGS = {"true", "1", "yes", "y", "on"}
 def _iter_files(
     pattern: str, *, skip_parts: typ.Collection[str] | None = None
 ) -> typ.Iterable[Path]:
+    """Yield existing files matching ``pattern`` outside the skipped directories."""
     root = Path()
     skip = set(SKIP_PARTS if skip_parts is None else skip_parts)
     for path in sorted(
@@ -67,6 +68,7 @@ def _iter_files(
 
 
 def _parse_skip_directories(raw: str | None) -> set[str]:
+    """Split a comma- or newline-separated list of directory names into a set."""
     if not raw:
         return set()
     normalized = raw.replace(",", "\n")
@@ -74,6 +76,7 @@ def _parse_skip_directories(raw: str | None) -> set[str]:
 
 
 def _parse_bool(value: str | None) -> bool:
+    """Return True when ``value`` is one of the recognised truthy strings."""
     if value is None:
         return False
     normalized = value.strip().lower()
@@ -81,6 +84,7 @@ def _parse_bool(value: str | None) -> bool:
 
 
 def _load_toml(path: Path) -> dict[str, object]:
+    """Parse ``path`` as TOML, raising ``RuntimeError`` on read or parse failure."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:

@@ -57,6 +57,7 @@ def _normalize_prefix(root: Path, install_prefix: str) -> Path:
 
 
 def _stage_binary(binary_path: Path, destination_prefix: Path, name: str) -> None:
+    """Copy the binary into ``bin`` under the prefix and make it executable."""
     dest = destination_prefix / "bin" / name
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(binary_path, dest)
@@ -64,6 +65,7 @@ def _stage_binary(binary_path: Path, destination_prefix: Path, name: str) -> Non
 
 
 def _man_section(manpage_path: Path) -> str:
+    """Return the manual section named by the file, defaulting to ``1``."""
     name = manpage_path.name.removesuffix(".gz")
     if "." in name:
         section = name.rsplit(".", 1)[-1]
@@ -73,6 +75,7 @@ def _man_section(manpage_path: Path) -> str:
 
 
 def _stage_manpage(manpage_path: Path, destination_prefix: Path, name: str) -> None:
+    """Copy the manpage under ``share/man``, gzip-compressing it when needed."""
     section = _man_section(manpage_path)
     man_dir = destination_prefix / "share" / "man" / f"man{section}"
     man_dir.mkdir(parents=True, exist_ok=True)
@@ -93,6 +96,7 @@ def _stage_manpage(manpage_path: Path, destination_prefix: Path, name: str) -> N
 
 
 def _stage_license(license_path: Path, destination_prefix: Path, name: str) -> None:
+    """Copy the licence to ``share/doc/<name>/LICENSE`` with mode 0644."""
     doc_dir = destination_prefix / "share" / "doc" / name
     doc_dir.mkdir(parents=True, exist_ok=True)
     dest_license = doc_dir / "LICENSE"

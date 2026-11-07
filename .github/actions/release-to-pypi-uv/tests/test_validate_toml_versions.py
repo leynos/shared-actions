@@ -463,6 +463,7 @@ version = "1.0.0"
         self: Path,
         pattern: str,
     ) -> typ.Iterator[Path]:
+        """Assert the pattern and return the two paths in reverse order."""
         _ = self
         assert pattern == "**/pyproject.toml"
         return iter((second, first))

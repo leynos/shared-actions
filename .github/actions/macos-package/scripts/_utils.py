@@ -40,6 +40,7 @@ def configure_app() -> App:
 
 
 def _emit_error(message: str) -> None:
+    """Write ``message`` to stderr followed by a newline."""
     sys.stderr.write(f"{message}\n")
 
 

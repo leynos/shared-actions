@@ -54,6 +54,7 @@ def test_publish_index_behaviour(
     calls: list[list[str]] = []
 
     def fake_run_cmd(cmd: object, **_: object) -> None:
+        """Record the normalised command line instead of running it."""
         formulated = list(cmd.formulate())
         calls.append(_normalize_invocation(formulated))
 
@@ -89,9 +90,12 @@ def test_publish_run_cmd_error(
     """Propagate errors raised by ``run_cmd`` during publishing."""
 
     class DummyError(Exception):
+        """Error raised by the fake ``run_cmd`` to simulate a failed publish."""
+
         pass
 
     def fake_run_cmd(cmd: object, **__: object) -> None:
+        """Raise ``DummyError`` instead of running the command."""
         message = "uv publish failed"
         raise DummyError(message)
 
@@ -108,6 +112,7 @@ def test_cli_proxies_to_main(
     received: dict[str, str] = {}
 
     def fake_main(*, index: str) -> None:
+        """Record the ``index`` passed to ``main``."""
         received["index"] = index
 
     monkeypatch.setattr(publish_module, "main", fake_main)
@@ -124,6 +129,7 @@ def test_cli_runner_default_index(
     calls: list[list[str]] = []
 
     def fake_run_cmd(cmd: object, **_: object) -> None:
+        """Record the normalised command line instead of running it."""
         formulated = list(cmd.formulate())
         calls.append(_normalize_invocation(formulated))
 
@@ -146,6 +152,7 @@ def test_cli_runner_respects_env_index(
     calls: list[list[str]] = []
 
     def fake_run_cmd(cmd: object, **_: object) -> None:
+        """Record the normalised command line instead of running it."""
         formulated = list(cmd.formulate())
         calls.append(_normalize_invocation(formulated))
 

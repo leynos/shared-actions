@@ -19,9 +19,15 @@ if typ.TYPE_CHECKING:  # pragma: no cover - typing only
     import cmd_utils
 
     class _SupportsFormulate(typ.Protocol):
-        def formulate(self) -> cabc.Sequence[str]: ...
+        """Structural type for commands that can report their argument list."""
+
+        def formulate(self) -> cabc.Sequence[str]:
+            """Return the command's argument list as a sequence of strings."""
+            ...
 
     class _RunCmd(typ.Protocol):
+        """Structural type for the ``run_cmd`` callable."""
+
         def __call__(
             self,
             cmd: _SupportsFormulate,
@@ -29,7 +35,9 @@ if typ.TYPE_CHECKING:  # pragma: no cover - typing only
             method: RunMethod = "call",
             env: cabc.Mapping[str, str] | None = None,
             **run_kwargs: object,
-        ) -> object: ...
+        ) -> object:
+            """Run ``cmd`` with the given method and environment."""
+            ...
 
     run_cmd = typ.cast("_RunCmd", cmd_utils.run_cmd)
     coerce_run_result = cmd_utils.coerce_run_result
@@ -42,6 +50,7 @@ class UnexpectedExecutableError(ValueError):
     """Raised when an executable does not match the allowed names."""
 
     def __init__(self, executable: str | os.PathLike[str]) -> None:
+        """Build the error message from the rejected ``executable``."""
         super().__init__(f"unexpected executable: {executable}")
 
 

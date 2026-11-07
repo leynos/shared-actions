@@ -21,6 +21,7 @@ from .publisher import (
     COVERAGE_ACTION,
     PINNED_COMMIT,
     UPLOAD_ACTION,
+    action_steps,
     generates_coverage,
     generator_steps,
     pin_of,
@@ -316,7 +317,13 @@ def publisher_lane_violations(
         return ["the publisher must generate coverage; found no generate-coverage step"]
     measured = [selection(publisher, step) for step in generators]
     lanes = _lane_legs(closure)
-    pinned = [*generators, upload_step(publisher), *(leg.step for _, leg in lanes)]
+    # A build-only step is held to the pin too, though it is no generator: an
+    # older pin would not know the input and would measure instead.
+    pinned = [
+        *action_steps(publisher, COVERAGE_ACTION),
+        upload_step(publisher),
+        *(leg.step for _, leg in lanes),
+    ]
     pins = {pin_of(step) for step in pinned}
     return (
         ratchet_violations(publisher, "the publisher")

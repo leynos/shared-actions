@@ -698,18 +698,31 @@ def build_instrumented_tests(
     directory ``cargo llvm-cov`` builds in, so the compiler-cache entries it
     writes are the ones a later ``cargo llvm-cov nextest`` run reads.
     """
+    # A coverage run honours these overrides and this mode derives its
+    # directories from cargo-llvm-cov's defaults, so a build that quietly used
+    # other directories would warm nothing. Refuse rather than diverge.
+    overridden = sorted(
+        name
+        for name in ("CARGO_LLVM_COV_TARGET_DIR", "CARGO_LLVM_COV_BUILD_DIR")
+        if os.environ.get(name)
+    )
+    if overridden:
+        typer.echo(
+            f"build-only does not support {', '.join(overridden)}; unset it so the "
+            "build shares cargo-llvm-cov's directories",
+            err=True,
+        )
+        raise typer.Exit(1)
     # The manifest is passed so a nested workspace resolves as it does for the
-    # coverage run, and the leaking variables are scrubbed from the inherited
-    # environment as well as from what is printed: an inherited
-    # CARGO_LLVM_COV_TARGET_DIR would otherwise move the build away from the
-    # directory a coverage run uses, and this mode does not honour that override.
+    # coverage run, and the remaining leaking variable is scrubbed from the
+    # inherited environment as well as from what is printed.
     printed = parse_show_env(
         _run_cargo(
             ["llvm-cov", "show-env", "--manifest-path", str(targets.manifest_path)],
             env_unsets=tuple(SHOW_ENV_LEAKS),
         )
     )
-    env, target_dir = build_environment(printed)
+    env, target_dir = build_environment(printed, use_nextest=selection.use_nextest)
     env.update(get_cargo_coverage_env(targets.manifest_path))
     args = get_build_only_cmd(
         selection.features,

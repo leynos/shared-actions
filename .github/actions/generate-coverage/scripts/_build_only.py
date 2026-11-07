@@ -57,12 +57,16 @@ def parse_show_env(output: str) -> dict[str, str]:
     return pairs
 
 
-def build_environment(printed: typ.Mapping[str, str]) -> tuple[dict[str, str], Path]:
+def build_environment(
+    printed: typ.Mapping[str, str], *, use_nextest: bool
+) -> tuple[dict[str, str], Path]:
     """Return the build's environment and target directory from ``show-env``.
 
     The variables in ``SHOW_ENV_LEAKS`` are dropped, and the profile file is
     rebased into the target directory ``cargo llvm-cov`` builds in, because
-    its value is part of what the compiler sees.
+    its value is part of what the compiler sees. ``show-env`` names profiles
+    as nextest runs do, with a 32-character module signature; a plain
+    ``cargo llvm-cov`` run uses the default one, so it is matched here.
     """
     env = {key: value for key, value in printed.items() if key not in SHOW_ENV_LEAKS}
     target_dir = (
@@ -70,6 +74,8 @@ def build_environment(printed: typ.Mapping[str, str]) -> tuple[dict[str, str], P
         / LLVM_COV_TARGET_SUBDIR
     )
     profile_name = Path(env.get("LLVM_PROFILE_FILE", "")).name
+    if profile_name and not use_nextest:
+        profile_name = profile_name.replace("%32m", "%m")
     if profile_name:
         env["LLVM_PROFILE_FILE"] = str(target_dir / profile_name)
     return env, target_dir

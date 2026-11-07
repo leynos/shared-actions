@@ -445,3 +445,73 @@ def test_plain_cargo_build_matches_the_coverage_run_target_selection(
 
     assert "--tests" in args
     assert "--all-targets" not in args
+
+
+def _stub_show_env(
+    run_rust: ModuleType, monkeypatch: pytest.MonkeyPatch, printed: str
+) -> dict[str, str]:
+    """Stub cargo so ``show-env`` prints *printed*; return the build's env."""
+    seen: dict[str, str] = {}
+
+    def fake_run_cargo(
+        args: list[str],
+        *,
+        env_overrides: typ.Mapping[str, str] | None = None,
+        env_unsets: typ.Iterable[str] = (),
+    ) -> str:
+        if args[:2] == ["llvm-cov", "show-env"]:
+            return printed
+        seen.update(env_overrides or {})
+        return ""
+
+    monkeypatch.setattr(run_rust, "_run_cargo", fake_run_cargo)
+    return seen
+
+
+def _targets(run_rust: ModuleType, tmp_path: Path) -> typ.Any:  # noqa: ANN401
+    """Build a ``CoverageTargets`` for a build-only run."""
+    return run_rust.CoverageTargets(
+        out=tmp_path / "unused",
+        lang="rust",
+        fmt="cobertura",
+        manifest_path=tmp_path / "Cargo.toml",
+        github_output=tmp_path / "gh",
+        baseline_file=None,
+    )
+
+
+def test_a_plain_cargo_build_names_profiles_as_the_plain_run_does(
+    run_rust: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """show-env's nextest-style `%32m` would differ from a plain run's `%m`."""
+    seen = _stub_show_env(
+        run_rust,
+        monkeypatch,
+        "LLVM_PROFILE_FILE='/w/target/p-%p-%32m.profraw'\n"
+        "CARGO_LLVM_COV_TARGET_DIR=/w/target\n",
+    )
+
+    run_rust.build_instrumented_tests(
+        _targets(run_rust, tmp_path), _selection(run_rust, use_nextest=False)
+    )
+
+    assert seen["LLVM_PROFILE_FILE"].endswith("p-%p-%m.profraw")
+
+
+@pytest.mark.parametrize(
+    "name", ["CARGO_LLVM_COV_TARGET_DIR", "CARGO_LLVM_COV_BUILD_DIR"]
+)
+def test_an_overridden_cargo_directory_is_refused_not_ignored(
+    run_rust: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    name: str,
+) -> None:
+    """A coverage run honours the override; a build that did not warms nothing."""
+    _stub_show_env(run_rust, monkeypatch, "")
+    monkeypatch.setenv(name, "/elsewhere")
+
+    with pytest.raises(run_rust.typer.Exit):
+        run_rust.build_instrumented_tests(
+            _targets(run_rust, tmp_path), _selection(run_rust)
+        )

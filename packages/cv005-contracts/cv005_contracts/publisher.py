@@ -23,6 +23,9 @@ UPLOAD_ACTION: typ.Final[str] = (
 COVERAGE_ACTION: typ.Final[str] = (
     "leynos/shared-actions/.github/actions/generate-coverage"
 )
+BASELINE_ACTION: typ.Final[str] = (
+    "leynos/shared-actions/.github/actions/publish-coverage-baseline"
+)
 PINNED_COMMIT: typ.Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{40}$")
 TOKEN_INPUT: typ.Final[str] = "${{ secrets.CS_ACCESS_TOKEN }}"  # noqa: S105 - an expression naming the secret, not one.
 #: The check step's id where the upload guard names none to follow.

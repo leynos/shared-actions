@@ -222,6 +222,15 @@ The lint architecture has four tiers, recorded in
 `make lint` stops at the first failing tier. The CI lint step runs the same
 target, so every pull request rejects unexplained production dead code.
 
+`make lint` first runs `make interrogate`, which needs `uv` and fails on any
+Python definition without a docstring (and on any `MISSED` row, since the
+percentage is rounded). The target runs `interrogate` at the version in
+`INTERROGATE_VERSION` over `INTERROGATE_TARGETS`, so add a new Python directory
+or root module to that list. `-O` skips `@overload` stubs, and one
+`--ignore-regex` skips the overloads of `run_validated`, which Ruff forbids
+documenting. `tests/workflow_contracts/interrogate_gate_test.py` asserts the
+wiring.
+
 ### Skylos dead-code policy
 
 Skylos `4.33.2` scans action implementations, workflow helpers, root modules,

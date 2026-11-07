@@ -148,6 +148,7 @@ def test_validate_rpm_package_skips_using_metadata_architecture(
     caplog.set_level("INFO")
 
     def _fail_sandbox() -> typ.ContextManager[object]:
+        """Fail the test if the sandbox is entered."""
         message = "sandbox used"
         raise AssertionError(message)
 
@@ -190,6 +191,7 @@ def test_validate_rpm_package_rejects_unexpected_architecture(
     )
 
     def _fail_sandbox() -> typ.ContextManager[object]:
+        """Fail the test if the sandbox is entered."""
         message = "sandbox used"
         raise AssertionError(message)
 

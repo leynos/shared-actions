@@ -109,6 +109,7 @@ def test_a_property_on_the_shared_settings_outlives_any_deadline() -> None:
     @settings(HYPOTHESIS_SETTINGS, max_examples=2, database=None)
     @given(st.integers())
     def property_slower_than_the_default_deadline(_value: int) -> None:
+        """Sleep past Hypothesis's default deadline on every example."""
         time.sleep(slow_example_seconds)
 
     property_slower_than_the_default_deadline()

@@ -48,6 +48,8 @@ _CORR_ID_CONTEXT_KEY = "__corr_id"
 
 @dataclasses.dataclass(slots=True)
 class _RenderAttempt:
+    """Pair a source template with the text it rendered to."""
+
     template: str
     rendered: str
 
@@ -66,6 +68,8 @@ class StageResult:
 
 @dataclasses.dataclass(slots=True, frozen=True)
 class StageEnv:
+    """Bundle the staging config, staging directory and template context."""
+
     config: StagingConfig
     staging_dir: Path
     context: dict[str, typ.Any]
@@ -90,6 +94,8 @@ class _BinstallMetadata:
 
 @dataclasses.dataclass(slots=True, frozen=True)
 class ResolvedArtefact:
+    """Pair a configured artefact with its resolved source and destination."""
+
     artefact: ArtefactConfig
     source: Path
     destination: Path
@@ -97,6 +103,8 @@ class ResolvedArtefact:
 
 @dataclasses.dataclass(slots=True)
 class StagingState:
+    """Collect the staged paths, outputs, checksums and skipped sources."""
+
     staged_paths: list[Path]
     outputs: dict[str, Path]
     checksums: dict[str, str]
@@ -496,6 +504,7 @@ def _resolve_binstall_metadata(config: StagingConfig) -> _BinstallMetadata:
     binstall = config.binstall
 
     def _manifest() -> dict[str, typ.Any]:
+        """Read the Cargo manifest on first use and cache it."""
         nonlocal manifest
         if manifest is None:
             manifest = _read_manifest_metadata(config)

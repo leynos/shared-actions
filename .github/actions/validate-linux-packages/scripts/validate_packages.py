@@ -68,6 +68,8 @@ MetaT = typ.TypeVar("MetaT", bound="_SupportsFiles")
 
 
 class _SupportsFiles(typ.Protocol):
+    """Structural type for metadata objects that expose ``files``."""
+
     files: typ.Collection[str]
 
 
@@ -141,6 +143,7 @@ def _install_and_verify(
     paths: ValidationPaths,
     install_cfg: InstallConfig,
 ) -> None:
+    """Install the package in a sandbox and run its configured checks."""
     expected_paths = paths.expected_paths
     executable_paths = paths.executable_paths
 
@@ -166,6 +169,7 @@ def _install_and_verify(
             diagnostics_fn: typ.Callable[[BaseException | None], str | None]
             | None = None,
         ) -> str:
+            """Run a sandbox command with the given context for error messages."""
             return _exec_with_diagnostics(
                 sandbox,
                 args,
@@ -214,12 +218,16 @@ class _MetadataValidators:
 
     @staticmethod
     def raise_error(label: str, expected: str, actual: str) -> None:
+        """Raise a ``ValidationError`` naming the expected and actual values."""
         message = f"{label}: expected {expected!r}, found {actual!r}"
         raise ValidationError(message)
 
     @staticmethod
     def equal(attr: str, expected: str, label: str) -> typ.Callable[[MetaT], None]:
+        """Return a validator that requires ``attr`` to equal ``expected``."""
+
         def _validator(meta: MetaT) -> None:
+            """Raise when the attribute differs from ``expected``."""
             actual = getattr(meta, attr)
             if actual != expected:
                 _MetadataValidators.raise_error(label, expected, actual)
@@ -234,11 +242,13 @@ class _MetadataValidators:
         *,
         fmt_expected: typ.Callable[[typ.Collection[str]], str] | None = None,
     ) -> typ.Callable[[MetaT], None]:
+        """Return a validator that requires ``attr`` to be in ``expected``."""
         formatter = fmt_expected or (
             lambda values: f"one of [{', '.join(sorted(values))}]"
         )
 
         def _validator(meta: MetaT) -> None:
+            """Raise when the attribute is not among the expected values."""
             actual = getattr(meta, attr)
             if actual not in expected:
                 _MetadataValidators.raise_error(label, formatter(expected), actual)
@@ -247,7 +257,10 @@ class _MetadataValidators:
 
     @staticmethod
     def prefix(attr: str, prefix: str, label: str) -> typ.Callable[[MetaT], None]:
+        """Return a validator requiring non-blank ``attr`` to start with ``prefix``."""
+
         def _validator(meta: MetaT) -> None:
+            """Raise when a non-blank attribute lacks the prefix."""
             value = getattr(meta, attr)
             text = "" if value is None else str(value)
             if text and not text.startswith(prefix):
@@ -269,6 +282,7 @@ def _validate_package[MetaT: _SupportsFiles](
     context: PackageContext,
     sandbox_factory: SandboxFactory,
 ) -> None:
+    """Check metadata, then sandbox-test unless the architecture is skipped."""
     metadata = inspect_fn(package_path)
     for validator in validators:
         validator(metadata)

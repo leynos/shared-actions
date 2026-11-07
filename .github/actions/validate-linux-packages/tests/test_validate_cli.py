@@ -38,6 +38,7 @@ def validate_cli_module() -> object:
 
 
 def _write_package(path: Path) -> None:
+    """Write a placeholder package archive at ``path``, creating parents."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"archive")
 
@@ -46,6 +47,7 @@ def _prepare_polythene_stub(
     module: object,
     tmp_path: Path,
 ) -> tuple[list[tuple[str, str]], list[tuple[str, ...]]]:
+    """Replace the polythene hooks on ``module`` and return the recorded calls."""
     calls: list[tuple[str, str]] = []
     exec_calls: list[tuple[str, ...]] = []
 
@@ -53,6 +55,7 @@ def _prepare_polythene_stub(
     script_path.write_text("#!/usr/bin/env python\n")
 
     def _default_path() -> Path:
+        """Return the stub polythene script path."""
         return script_path
 
     def _polythene_stub(
@@ -62,6 +65,7 @@ def _prepare_polythene_stub(
         *,
         timeout: int | None = None,
     ) -> typ.Iterable[object]:
+        """Record the call, create the store and return a stub session context."""
         calls.append((image, store.as_posix()))
         store.mkdir(parents=True, exist_ok=True)
         root = store / "rootfs"
@@ -69,11 +73,17 @@ def _prepare_polythene_stub(
 
         @contextlib.contextmanager
         def _context() -> typ.Iterable[object]:
+            """Yield a stub session whose ``exec`` records each command."""
+
             class _Session:
+                """Stub polythene session rooted at the stub store."""
+
                 def __init__(self) -> None:
+                    """Point the session root at the stub rootfs."""
                     self.root = root
 
                 def exec(self, *args: str, _timeout: int | None = None) -> None:
+                    """Record the command arguments and ignore the timeout."""
                     exec_calls.append(tuple(args))
 
             yield _Session()
@@ -176,6 +186,7 @@ def test_main_invokes_deb_validation(
         verify_command: tuple[str, ...],
         sandbox_factory: object,
     ) -> None:
+        """Record the arguments and run the sandbox ``test -e`` check."""
         recorded.update(
             {
                 "path": candidate_path,
@@ -253,6 +264,7 @@ def test_main_invokes_rpm_validation(
         verify_command: tuple[str, ...],
         sandbox_factory: object,
     ) -> None:
+        """Record the arguments and run the sandbox version check."""
         recorded.update(
             {
                 "path": candidate_path,
@@ -333,6 +345,7 @@ def test_handle_deb_invokes_validator(
         verify_command: tuple[str, ...],
         sandbox_factory: object,
     ) -> None:
+        """Record the arguments passed to the validator."""
         recorded.update(
             {
                 "command": command,
@@ -409,6 +422,7 @@ def test_handle_rpm_invokes_validator(
         verify_command: tuple[str, ...],
         sandbox_factory: object,
     ) -> None:
+        """Record the arguments passed to the validator."""
         recorded.update(
             {
                 "command": command,
@@ -480,6 +494,7 @@ def test_validate_format_dispatches_to_handler(
         cfg: object,
         sandbox_factory: typ.Callable[[], typ.ContextManager[object]],
     ) -> None:
+        """Record the dispatched arguments and open the sandbox factory."""
         called["command"] = command
         called["path"] = path
         called["cfg"] = cfg
@@ -487,6 +502,7 @@ def test_validate_format_dispatches_to_handler(
             called["sandbox"] = True
 
     def _fake_locate(package_dir: Path, name: str, version: str, release: str) -> Path:
+        """Record the locator arguments and return the package path."""
         called["locate_args"] = (package_dir, name, version, release)
         return package_path
 
@@ -507,6 +523,7 @@ def test_validate_format_dispatches_to_handler(
         *,
         timeout: int | None = None,
     ) -> typ.Iterator[object]:
+        """Record the rootfs arguments and yield a placeholder session."""
         called["rootfs_args"] = (script, image, store_dir, timeout)
         yield object()
 
@@ -575,6 +592,7 @@ def test_validate_format_skips_polythene_for_cross_architecture_package(
     caplog.set_level("INFO")
 
     def _fail_install(*_args: object, **_kwargs: object) -> None:
+        """Fail the test if the sandbox install is reached."""
         message = "sandbox execution should be skipped"
         raise AssertionError(message)
 
@@ -583,10 +601,12 @@ def test_validate_format_skips_polythene_for_cross_architecture_package(
     polythene_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
     def _polythene_stub(*args: object, **kwargs: object) -> typ.ContextManager[object]:
+        """Record the call and return a context that must not be entered."""
         polythene_calls.append((args, kwargs))
 
         @contextlib.contextmanager
         def _ctx() -> typ.Iterator[object]:
+            """Raise when entered, because the sandbox must not start."""
             message = "polythene context should not start"
             raise AssertionError(message)
             yield object()
@@ -646,18 +666,24 @@ def test_validate_format_runs_polythene_for_supported_architecture(
     def _polythene_stub(
         *_args: object, **_kwargs: object
     ) -> typ.ContextManager[object]:
+        """Record the factory call and return a context with a stub session."""
         polythene_calls.append("factory")
 
         @contextlib.contextmanager
         def _ctx() -> typ.Iterator[object]:
+            """Record entry and yield a stub session."""
             polythene_calls.append("enter")
 
             class _Session:
+                """Stub session that records each ``exec`` call."""
+
                 def __init__(self) -> None:
+                    """Create the session root directory under ``tmp_path``."""
                     self.root = tmp_path / "root"
                     self.root.mkdir(parents=True, exist_ok=True)
 
                 def exec(self, *command: str, timeout: int | None = None) -> str:
+                    """Record the exec call and return an empty output string."""
                     polythene_calls.append("exec")
                     return ""
 
@@ -672,6 +698,7 @@ def test_validate_format_runs_polythene_for_supported_architecture(
         *_args: object,
         **_kwargs: object,
     ) -> None:
+        """Run ``true`` inside a sandbox created by ``sandbox_factory``."""
         with sandbox_factory() as session:
             session.exec("true")
 
@@ -766,6 +793,7 @@ def test_main_invokes_each_requested_format(
     recorded: list[tuple[str, Path]] = []
 
     def _fake_validate(fmt: str, config: object, store_dir: Path) -> None:
+        """Record the format and store, and check the polythene command passed."""
         recorded.append((fmt, store_dir))
         assert isinstance(config, module.ValidationConfig)
         assert config.polythene_command == (polythene_path.as_posix(),)
@@ -807,6 +835,7 @@ def test_main_respects_explicit_polythene_store(
     dispatched: list[Path] = []
 
     def _capture(fmt: str, config: object, store_dir: Path) -> None:
+        """Record the store directory passed for each format."""
         dispatched.append(store_dir)
         assert store_dir.is_dir()
 
@@ -845,6 +874,7 @@ def test_polythene_store_prefers_workspace(
     allowed_roots = {workspace_root, runner_root}
 
     def fake_supports(base: Path) -> Path | None:
+        """Accept the workspace and runner temp paths, and fail on any other."""
         resolved = base.resolve()
         if resolved in allowed_roots or resolved.parent in allowed_roots:
             return resolved
@@ -875,6 +905,7 @@ def test_polythene_store_falls_back_to_runner_temp(
     allowed_roots = {workspace_root, runner_root}
 
     def fake_supports(base: Path) -> Path | None:
+        """Reject the workspace and its children, and accept runner temp paths."""
         resolved = base.resolve()
         if resolved in allowed_roots or resolved.parent in allowed_roots:
             if resolved == workspace_root or resolved.parent == workspace_root:
@@ -947,6 +978,7 @@ def test_ensure_executable_store_creates_directory(
     target = tmp_path / "store"
 
     def fake_supports(base: Path) -> Path | None:
+        """Assert the probed base is ``target`` and report it as executable."""
         assert base == target
         return base
 
@@ -1163,6 +1195,7 @@ def test_main_raises_when_polythene_unreadable(
     original_open = module.Path.open
 
     def _deny(self: Path, *args: object, **kwargs: object) -> object:
+        """Refuse to open the polythene script and delegate other paths."""
         if self == polythene_path:
             message = "denied"
             raise PermissionError(message)
@@ -1197,6 +1230,7 @@ def test_main_raises_when_polythene_read_fails(
     polythene_path.write_text("#!/usr/bin/env python\n")
 
     def _broken_open(*_args: object, **_kwargs: object) -> object:
+        """Raise ``OSError`` for every call to open."""
         message = "io error"
         raise OSError(message)
 
@@ -1235,6 +1269,7 @@ def test_main_uses_default_polythene_for_blank_input(
     captured: list[tuple[str, ...]] = []
 
     def _capture(fmt: str, config: object, store_dir: Path) -> None:
+        """Record the polythene command from each validated config."""
         assert isinstance(config, module.ValidationConfig)
         captured.append(config.polythene_command)
 

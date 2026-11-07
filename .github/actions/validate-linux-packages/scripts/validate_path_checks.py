@@ -52,13 +52,17 @@ def _validate_paths_exist(
 def _make_path_diagnostics_fn(
     sandbox: PolytheneSession, path: str
 ) -> typ.Callable[[BaseException | None], str | None]:
+    """Return a callable that formats the sandbox diagnostics for ``path``."""
+
     def _diagnostics(error: BaseException | None) -> str | None:
+        """Return the sandbox diagnostics for ``path`` relating to ``error``."""
         return _format_path_diagnostics(sandbox, path, error=error)
 
     return _diagnostics
 
 
 def _iter_python_fallback_commands(path: str) -> typ.Iterator[tuple[str, ...]]:
+    """Yield a Python ``os.access`` check command for each interpreter."""
     for interpreter in _PYTHON_FALLBACK_INTERPRETERS:
         yield (interpreter, "-c", _PYTHON_FALLBACK_SCRIPT, path)
 
@@ -67,6 +71,7 @@ def _combine_fallback_errors(
     primary_error: ValidationError,
     fallback_failures: list[tuple[str, ValidationError]],
 ) -> str:
+    """Join the primary error with each fallback interpreter's failure."""
     message_lines = [str(primary_error)]
     for interpreter, error in fallback_failures:
         heading = (

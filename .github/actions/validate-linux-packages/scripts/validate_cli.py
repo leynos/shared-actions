@@ -114,6 +114,7 @@ def _handle_deb(
     cfg: ValidationConfig,
     sandbox_factory: SandboxFactory,
 ) -> None:
+    """Validate a Debian package and print a confirmation line."""
     expected = ExpectedMetadata(
         name=cfg.package_value,
         version=cfg.version,
@@ -138,6 +139,7 @@ def _handle_rpm(
     cfg: ValidationConfig,
     sandbox_factory: SandboxFactory,
 ) -> None:
+    """Validate an RPM package and print a confirmation line."""
     expected = ExpectedMetadata(
         name=cfg.package_value,
         version=cfg.version,
@@ -375,6 +377,7 @@ def _decode_mount_field(value: str) -> str:
     """Decode octal escape sequences present in ``mountinfo`` fields."""
 
     def replace_octal(match: re.Match[str]) -> str:
+        """Return the character for an octal escape, or the escape if invalid."""
         try:
             return chr(int(match.group(1), 8))
         except ValueError:
@@ -548,6 +551,7 @@ def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
     """Yield a base directory for polythene store usage."""
 
     def _prepare_store(base: Path, *, source: str) -> typ.Iterator[Path]:
+        """Ensure ``base`` is executable, log the choice and yield it."""
         store_base = ensure_executable_store(base)
         _log_store_selection(store_base, source=source)
         yield store_base
@@ -597,6 +601,7 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
     )
 
     def sandbox_factory() -> typ.ContextManager[PolytheneSession]:
+        """Return a polythene rootfs context for the configured image."""
         return polythene_rootfs(
             config.polythene_command,
             image,

@@ -30,6 +30,8 @@ def test_metadata_validator_equal_accepts_match(
     """Equal validator returns successfully when the attribute matches."""
 
     class Meta:
+        """Stand-in metadata object with a ``name`` attribute."""
+
         name = "package"
 
     validator = validate_packages_module._MetadataValidators.equal(
@@ -45,6 +47,8 @@ def test_metadata_validator_equal_rejects_mismatch(
     """Equal validator raises when the attribute differs."""
 
     class Meta:
+        """Stand-in metadata object with a ``name`` attribute."""
+
         name = "other"
 
     validator = validate_packages_module._MetadataValidators.equal(
@@ -64,6 +68,8 @@ def test_metadata_validator_in_set_uses_formatter(
     """In_set validator applies the provided formatter in error messages."""
 
     class Meta:
+        """Stand-in metadata object with a ``version`` attribute."""
+
         version = "2.0.0"
 
     validator = validate_packages_module._MetadataValidators.in_set(
@@ -86,6 +92,8 @@ def test_metadata_validator_prefix_accepts_blank(
     """Prefix validator permits blank values."""
 
     class Meta:
+        """Stand-in metadata object with a ``release`` attribute."""
+
         release = ""
 
     validator = validate_packages_module._MetadataValidators.prefix(
@@ -101,6 +109,8 @@ def test_metadata_validator_prefix_rejects_non_matching(
     """Prefix validator raises when the attribute lacks the prefix."""
 
     class Meta:
+        """Stand-in metadata object with a ``release`` attribute."""
+
         release = "2.el9"
 
     validator = validate_packages_module._MetadataValidators.prefix(

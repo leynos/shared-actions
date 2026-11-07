@@ -16,6 +16,7 @@ __all__ = ["run_text"]
 
 
 def _decode(value: object) -> str:
+    """Return ``value`` as text, with ``None`` empty and bytes decoded."""
     if value is None:
         return ""
     if isinstance(value, bytes):
@@ -24,6 +25,7 @@ def _decode(value: object) -> str:
 
 
 def _format_command(command: BaseCommand | typ.Sequence[object] | None) -> str:
+    """Return ``command`` as text for use in error messages."""
     if command is None:
         return "<unknown command>"
     if argv := getattr(command, "argv", None):

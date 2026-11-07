@@ -151,6 +151,7 @@ def test_the_generator_reaches_the_cases_the_property_is_about() -> None:
     @settings(max_examples=300, deadline=None, database=None)
     @given(documents())
     def draw(document: Document) -> None:
+        """Record each drawn document for the coverage assertions below."""
         seen.append(document)
 
     draw()

@@ -325,7 +325,12 @@ def test_build_only_drops_the_variables_a_real_run_never_sets(
 
     run_rust.build_instrumented_tests(targets, _selection(run_rust))
 
-    assert calls[0][0] == ["llvm-cov", "show-env"]
+    assert calls[0][0] == [
+        "llvm-cov",
+        "show-env",
+        "--manifest-path",
+        str(tmp_path / "Cargo.toml"),
+    ]
     build_args, env = calls[1]
     assert build_args[:3] == ["nextest", "run", "--no-run"]
     assert env["CARGO_LLVM_COV"] == "1"
@@ -425,3 +430,18 @@ def test_the_publisher_gates_itself_so_the_calling_job_needs_no_condition() -> N
         assert "steps.gate.outputs.active == 'true'" in _condition(step), (
             f"{step['name']!r} would run without a hand-over"
         )
+
+
+def test_plain_cargo_build_matches_the_coverage_run_target_selection(
+    run_rust: ModuleType,
+) -> None:
+    """`cargo llvm-cov` runs `cargo test --tests`; a bare build would add examples."""
+    args = run_rust.get_build_only_cmd(
+        "",
+        manifest_path=Path("Cargo.toml"),
+        target_dir=Path("t"),
+        selection=_selection(run_rust, use_nextest=False, all_targets=False),
+    )
+
+    assert "--tests" in args
+    assert "--all-targets" not in args

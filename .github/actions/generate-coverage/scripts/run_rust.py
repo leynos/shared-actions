@@ -718,6 +718,12 @@ def get_build_only_cmd(
     ]
     if selection.all_targets:
         args.append("--all-targets")
+    elif not selection.use_nextest:
+        # Plain `cargo llvm-cov` runs `cargo test --tests`, which leaves
+        # examples uncompiled unless they are test targets; a bare
+        # `cargo test --no-run` would compile them and could fail where the
+        # coverage run succeeds. Nextest builds its own selection already.
+        args.append("--tests")
     args += feature_selection_args(
         features,
         with_default=selection.with_default,
@@ -735,7 +741,17 @@ def build_instrumented_tests(
     directory ``cargo llvm-cov`` builds in, so the compiler-cache entries it
     writes are the ones a later ``cargo llvm-cov nextest`` run reads.
     """
-    printed = parse_show_env(_run_cargo(["llvm-cov", "show-env"], env_unsets=()))
+    # The manifest is passed so a nested workspace resolves as it does for the
+    # coverage run, and the leaking variables are scrubbed from the inherited
+    # environment as well as from what is printed: an inherited
+    # CARGO_LLVM_COV_TARGET_DIR would otherwise move the build away from the
+    # directory a coverage run uses, and this mode does not honour that override.
+    printed = parse_show_env(
+        _run_cargo(
+            ["llvm-cov", "show-env", "--manifest-path", str(targets.manifest_path)],
+            env_unsets=tuple(_SHOW_ENV_LEAKS),
+        )
+    )
     env = {key: value for key, value in printed.items() if key not in _SHOW_ENV_LEAKS}
     target_dir = (
         Path(printed.get("CARGO_LLVM_COV_TARGET_DIR", "target"))
@@ -753,7 +769,11 @@ def build_instrumented_tests(
         target_dir=target_dir,
         selection=selection,
     )
-    _run_cargo(args, env_overrides=env, env_unsets=_CARGO_COVERAGE_ENV_UNSETS)
+    _run_cargo(
+        args,
+        env_overrides=env,
+        env_unsets=(*_CARGO_COVERAGE_ENV_UNSETS, *sorted(_SHOW_ENV_LEAKS)),
+    )
 
 
 def _run_coverage(

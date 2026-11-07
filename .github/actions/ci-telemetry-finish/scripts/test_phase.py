@@ -220,8 +220,9 @@ def judge(
 def _ratio_message(record: typ.Mapping[str, typ.Any], thresholds: Thresholds) -> str:
     """Describe a test-phase hit ratio that is below the minimum.
 
-    The ratio is recomputed from the hit and attempt counts when they are
-    present, otherwise the recorded ratio is quoted.
+    The ratio is recomputed from the hit and miss counts when both are present
+    and their sum is non-zero. Otherwise, including when both are zero, the
+    recorded ratio is quoted.
     """
     counted = _attempts(record)
     seen = (

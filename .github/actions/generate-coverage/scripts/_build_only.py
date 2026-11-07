@@ -10,6 +10,7 @@ arguments; ``run_rust`` owns the subprocesses.
 
 from __future__ import annotations
 
+import dataclasses
 import shlex
 import typing as typ
 from pathlib import Path
@@ -74,16 +75,20 @@ def build_environment(printed: typ.Mapping[str, str]) -> tuple[dict[str, str], P
     return env, target_dir
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class BuildSelection:
+    """What a build-only run compiles: its runner, targets and feature flags."""
+
+    use_nextest: bool
+    all_targets: bool
+    feature_args: tuple[str, ...]
+
+
 def build_command(
-    *,
-    manifest_path: Path,
-    target_dir: Path,
-    use_nextest: bool,
-    all_targets: bool,
-    feature_args: typ.Sequence[str],
+    manifest_path: Path, target_dir: Path, selection: BuildSelection
 ) -> list[str]:
     """Return the cargo arguments that compile the test binaries and stop."""
-    args = ["nextest", "run"] if use_nextest else ["test"]
+    args = ["nextest", "run"] if selection.use_nextest else ["test"]
     args += [
         "--no-run",
         "--manifest-path",
@@ -92,12 +97,12 @@ def build_command(
         str(target_dir),
         "--workspace",
     ]
-    if all_targets:
+    if selection.all_targets:
         args.append("--all-targets")
-    elif not use_nextest:
+    elif not selection.use_nextest:
         # Plain `cargo llvm-cov` runs `cargo test --tests`, which leaves
         # examples uncompiled unless they are test targets; a bare
         # `cargo test --no-run` would compile them and could fail where the
         # coverage run succeeds. Nextest builds its own selection already.
         args.append("--tests")
-    return [*args, *feature_args]
+    return [*args, *selection.feature_args]

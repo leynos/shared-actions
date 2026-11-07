@@ -27,6 +27,7 @@ import _cargo_runner
 import typer
 from _build_only import (
     SHOW_ENV_LEAKS,
+    BuildSelection,
     build_command,
     build_environment,
     parse_show_env,
@@ -672,14 +673,18 @@ def get_build_only_cmd(
     and feature selection as ``get_cargo_coverage_cmd``.
     """
     return build_command(
-        manifest_path=manifest_path,
-        target_dir=target_dir,
-        use_nextest=selection.use_nextest,
-        all_targets=selection.all_targets,
-        feature_args=feature_selection_args(
-            features,
-            with_default=selection.with_default,
-            all_features=selection.all_features,
+        manifest_path,
+        target_dir,
+        BuildSelection(
+            use_nextest=selection.use_nextest,
+            all_targets=selection.all_targets,
+            feature_args=tuple(
+                feature_selection_args(
+                    features,
+                    with_default=selection.with_default,
+                    all_features=selection.all_features,
+                )
+            ),
         ),
     )
 

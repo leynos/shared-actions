@@ -1,5 +1,5 @@
 .PHONY: all clean help makeutil test test-act doctest lint lint-clippy lint-whitaker \
-	markdownlint nixie fmt check-fmt typecheck spelling skylos-allow
+	markdownlint nixie fmt check-fmt typecheck spelling skylos-allow interrogate
 
 export GITHUB_ACTION_PATH ?= $(CURDIR)
 
@@ -146,7 +146,32 @@ test-act: .venv ## Run the act workflow lane, independently of the plain suite
 	$(UV) venv
 	$(UV) sync --group dev
 
-lint: ## Check code and actions, including dead production code
+# Interrogate measures docstring presence over the Python files it scans under
+# INTERROGATE_TARGETS (it skips some path prefixes by default, so check a new
+# file against the verbose report). Add a new Python directory to the targets.
+# No `--python` pin: a managed interpreter would be downloaded, and a PyO3
+# build could link it.
+INTERROGATE_VERSION ?= 1.7.0
+INTERROGATE_TARGETS ?= .github packages tests test_support uv_gate workflow_scripts actions_common.py bool_utils.py cargo_utils.py cmd_utils.py cmd_utils.pyi cmd_utils_importer.py composite_fragments.py conftest.py
+# Level 2 prints a MISSED row per undocumented definition, which the
+# `interrogate` target fails on: the rounded percentage alone passes a lone gap.
+INTERROGATE_FLAGS ?= -vv --ext pyi --fail-under 100
+INTERROGATE = $(UV) tool run \
+	--from 'interrogate==$(INTERROGATE_VERSION)' interrogate
+
+# Interrogate rounds its percentage to one decimal, so `--fail-under 100` alone
+# passes a lone gap in a large repository; fail on any MISSED row as well.
+interrogate: ## Enforce complete Python docstring coverage
+	@report="$$($(INTERROGATE) $(INTERROGATE_FLAGS) $(INTERROGATE_TARGETS))"; \
+	  status=$$?; \
+	  printf '%s\n' "$$report"; \
+	  test "$$status" -eq 0 || exit "$$status"; \
+	  if printf '%s\n' "$$report" | grep -q '| *MISSED *|'; then \
+	    printf '%s\n' 'interrogate: undocumented definitions remain; see the MISSED rows above' >&2; \
+	    exit 1; \
+	  fi
+
+lint: interrogate ## Check code and actions, including dead production code
 	$(UV) tool run ruff check
 	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) \
 		-exec $(ACTION_VALIDATOR) {} \;

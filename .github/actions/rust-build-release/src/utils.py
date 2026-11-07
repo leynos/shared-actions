@@ -77,7 +77,9 @@ def run_validated(
     method: typ.Literal["run"] = "run",
     env: cabc.Mapping[str, str] | None = None,
     **run_kwargs: object,
-) -> cmd_utils.RunResult: ...
+) -> cmd_utils.RunResult:
+    """Run the executable and return a ``RunResult`` when using ``run``."""
+    ...
 
 
 @typ.overload
@@ -89,7 +91,9 @@ def run_validated(
     method: typ.Literal["call", "run_fg"],
     env: cabc.Mapping[str, str] | None = None,
     **run_kwargs: object,
-) -> object: ...
+) -> object:
+    """Run the executable with ``call`` or ``run_fg`` and return the raw result."""
+    ...
 
 
 def run_validated(

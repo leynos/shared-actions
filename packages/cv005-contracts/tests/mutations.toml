@@ -857,9 +857,79 @@ expect = "test_each_lane_leg_pairs_with_a_publisher_leg"
 [[mutation]]
 id = "P9 a job measuring nothing must still ratchet"
 file = "cv005_contracts/parity.py"
-old = "        if any(invokes(step, COVERAGE_ACTION) for step in steps(job))\n"
+old = "        if any(generates_coverage(step) for step in steps(job))\n"
 new = "        if True\n"
 expect = "test_a_second_publisher_job_ratchets_its_own_platform"
+
+[[mutation]]
+id = "P9b a build-only step is held to the ratchet rule"
+file = "cv005_contracts/publisher.py"
+old = "    return invokes(step, COVERAGE_ACTION) and not build_only\n"
+new = "    return invokes(step, COVERAGE_ACTION)\n"
+expect = "test_a_build_only_job_is_not_a_second_generator"
+
+[[mutation]]
+id = "P9c the hand-over artefact name counts as a measured difference"
+file = "cv005_contracts/parity.py"
+old = "        \"baseline-artefact-name\",\n"
+new = ""
+expect = "test_the_hand_over_inputs_do_not_differ_a_lane_from_the_publisher"
+
+[[mutation]]
+id = "P9d a baseline publisher need not wait for the generator"
+file = "cv005_contracts/publisher_rules.py"
+old = "        if name != producer and producer in _needs(job)\n"
+new = "        if name != producer\n"
+expect = "test_a_baseline_publisher_that_does_not_need_the_generator_is_refused"
+
+[[mutation]]
+id = "P9e a baseline publisher may take any artefact"
+file = "cv005_contracts/publisher_rules.py"
+old = "        if invokes(step, BASELINE_ACTION) and _input(step, \"artefact-name\") == artefact\n"
+new = "        if invokes(step, BASELINE_ACTION)\n"
+expect = "test_a_baseline_publisher_on_another_artefact_is_refused"
+
+[[mutation]]
+id = "P9d2 a skippable baseline publisher accepted"
+file = "cv005_contracts/publisher_rules.py"
+old = "    return not _skipping_keys(receiver) and all(\n"
+new = "    return all(\n"
+expect = "test_a_skipped_baseline_publisher_is_refused"
+
+[[mutation]]
+id = "P9d3 a baseline publisher on other paths accepted"
+file = "cv005_contracts/publisher_rules.py"
+old = "        _path(generator, key) == _path(receiver, key) for key in BASELINE_PATH_INPUTS\n"
+new = "        True for key in BASELINE_PATH_INPUTS\n"
+expect = "test_a_baseline_publisher_on_other_paths_is_refused"
+
+[[mutation]]
+id = "P9d4 an unset baseline path has no default"
+file = "cv005_contracts/publisher_rules.py"
+old = "    return _input(step, name) or BASELINE_PATH_INPUTS[name]\n"
+new = "    return _input(step, name)\n"
+expect = "test_explicit_default_paths_match_omitted_ones"
+
+[[mutation]]
+id = "P9h a numeric build-only exempts a step"
+file = "cv005_contracts/publisher.py"
+old = "    build_only = value is True or value == \"true\"\n"
+new = "    build_only = value in (True, \"true\")\n"
+expect = "test_a_numeric_build_only_is_still_a_generator"
+
+[[mutation]]
+id = "P9f a lane may set build-only"
+file = "cv005_contracts/lanes.py"
+old = "        if \"build-only\" in inputs_of(step)\n"
+new = "        if False\n"
+expect = "test_a_lane_may_not_set_build_only"
+
+[[mutation]]
+id = "P9g a build-only step escapes the commit pin"
+file = "cv005_contracts/parity.py"
+old = "        *action_steps(publisher, COVERAGE_ACTION),\n"
+new = "        *generators,\n"
+expect = "test_a_build_only_step_must_share_the_commit_pin"
 
 [[mutation]]
 id = "P10 a publisher measuring nothing accepted"

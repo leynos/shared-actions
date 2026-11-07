@@ -22,6 +22,7 @@ from cv005_contracts.parity import publisher_lane_violations
 from cv005_contracts.permissions import permissions_violations
 from cv005_contracts.publisher import find_publisher
 from cv005_contracts.publisher_rules import (
+    baseline_publisher_violations,
     condition_violations,
     retired_checksum_violations,
     trigger_violations,
@@ -221,6 +222,7 @@ def violations(texts: dict[str, str]) -> list[str]:
         *permissions_violations(publisher),
         *wiring_violations(publisher),
         *condition_violations(publisher),
+        *baseline_publisher_violations(publisher),
         *retired_checksum_violations(documents),
         *pull_request_lane_violations(closure),
         *second_writer_violations(documents, name, REPOSITORY),

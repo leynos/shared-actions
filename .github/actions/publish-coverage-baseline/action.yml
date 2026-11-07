@@ -1,0 +1,183 @@
+name: Publish coverage baseline
+description: >-
+  Ratchet the coverage figures a generate-coverage job handed over, and save
+  the advanced baseline to the cache store this runner's pull requests read.
+inputs:
+  artefact-name:
+    description: >-
+      Name of the hand-over artefact, the `baseline-artefact-name` the
+      generate-coverage job was given.
+    required: true
+  baseline-rust-file:
+    description: Path of the Rust coverage baseline; match generate-coverage.
+    required: false
+    default: .coverage-baseline.rust
+  baseline-python-file:
+    description: Path of the Python coverage baseline; match generate-coverage.
+    required: false
+    default: .coverage-baseline.python
+runs:
+  using: composite
+  steps:
+    - name: Check for a baseline hand-over
+      id: gate
+      # The measuring job hands a figure over only from a push to the trunk,
+      # so any other run, such as a dispatch, has nothing to publish. Decided
+      # here rather than in the calling job's `if`, which the CV-005 rules
+      # refuse on a publisher job: the job must always run on a push.
+      shell: bash
+      env:
+        GC_EVENT: ${{ github.event_name }}
+        GC_REF: ${{ github.ref }}
+      run: |
+        set -euo pipefail
+        if [[ "$GC_EVENT" == 'push' && "$GC_REF" == 'refs/heads/main' ]]; then
+          echo 'active=true' >> "$GITHUB_OUTPUT"
+        else
+          echo 'active=false' >> "$GITHUB_OUTPUT"
+          echo '::notice title=publish-coverage-baseline::not a push to the trunk; nothing to publish'
+        fi
+    - name: Download baseline hand-over
+      if: steps.gate.outputs.active == 'true'
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: ${{ inputs.artefact-name }}
+        path: ${{ runner.temp }}/coverage-baseline-handover
+    - name: Read baseline hand-over
+      id: handover
+      if: steps.gate.outputs.active == 'true'
+      shell: bash
+      env:
+        GC_HANDOVER_DIR: ${{ runner.temp }}/coverage-baseline-handover
+      run: |
+        set -euo pipefail
+        # The segment is part of the cache key, so the pull-request lanes
+        # that restore it must have computed the same one: `py<major.minor>-`
+        # when Python is measured, empty otherwise.
+        segment="$(cat "$GC_HANDOVER_DIR/segment")"
+        lang="$(cat "$GC_HANDOVER_DIR/lang")"
+        echo "segment=$segment" >> "$GITHUB_OUTPUT"
+        echo "lang=$lang" >> "$GITHUB_OUTPUT"
+    - name: Setup uv
+      if: steps.gate.outputs.active == 'true'
+      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+      with:
+        version: '0.12.19'
+        enable-cache: false
+        # The ratchet script runs through `uv run --script`; see the same
+        # settings in generate-coverage for why no environment is saved.
+        prune-cache: true
+    - name: Prune restored uv cache
+      if: steps.gate.outputs.active == 'true'
+      # A cache restored by the calling workflow shares this directory, so
+      # prune before the first `uv run --script` regardless of who restored.
+      shell: bash
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
+    - name: Restore baselines
+      id: restore-baselines
+      if: steps.gate.outputs.active == 'true'
+      # The same restore, over the same path list, as generate-coverage's:
+      # the path list is part of a cache entry's version, so a save over any
+      # other list would be invisible to the pull-request restore.
+      # v6.1.0
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: |
+          ${{ inputs.baseline-rust-file }}
+          ${{ inputs.baseline-python-file }}
+        key: ratchet-baseline-${{ runner.os }}-${{ steps.handover.outputs.segment }}${{ github.run_id }}
+        restore-keys: ratchet-baseline-${{ runner.os }}-${{ steps.handover.outputs.segment }}
+    - name: Ensure baseline files
+      if: steps.gate.outputs.active == 'true'
+      shell: bash
+      env:
+        GC_RUST_FILE: ${{ inputs.baseline-rust-file }}
+        GC_PYTHON_FILE: ${{ inputs.baseline-python-file }}
+      run: |
+        set -euo pipefail
+        # A miss starts a fresh baseline at 0, as generate-coverage does, so
+        # the first handed-over figure becomes the baseline. Said in the log,
+        # because it is also what a lost cache store looks like.
+        for file in "$GC_RUST_FILE" "$GC_PYTHON_FILE"; do
+          if [ ! -f "$file" ]; then
+            mkdir -p "$(dirname "$file")"
+            echo 0 > "$file"
+            echo "::notice title=publish-coverage-baseline::no restored baseline for ${file}; starting at 0"
+          fi
+        done
+    - name: Ratchet coverage
+      if: steps.gate.outputs.active == 'true'
+      # The comparison generate-coverage runs in-job elsewhere: it fails when
+      # the figure falls more than its one-point tolerance below the restored
+      # baseline, holds the baseline inside the band, and advances it when the
+      # figure rises beyond the band. A failure stops the job before the save
+      # below, so a drop beyond the band never lowers the baseline the pull
+      # requests check against. The script prints the figure, the baseline
+      # and the tolerance, which is the decision's record.
+      shell: bash
+      env:
+        GC_HANDOVER_DIR: ${{ runner.temp }}/coverage-baseline-handover
+        GC_LANG: ${{ steps.handover.outputs.lang }}
+        GC_RUST_FILE: ${{ inputs.baseline-rust-file }}
+        GC_PYTHON_FILE: ${{ inputs.baseline-python-file }}
+        GC_RATCHET: ${{ github.action_path }}/../generate-coverage/scripts/ratchet_coverage.py
+      run: |
+        set -euo pipefail
+        ratchet() {
+          uv run --script "$GC_RATCHET" \
+            --baseline-file "$1" \
+            --current "$(cat "$2")"
+        }
+        if [[ "$GC_LANG" == "rust" || "$GC_LANG" == "mixed" ]]; then
+          ratchet "$GC_RUST_FILE" "$GC_HANDOVER_DIR/rust.percent"
+        fi
+        if [[ "$GC_LANG" == "python" || "$GC_LANG" == "mixed" ]]; then
+          ratchet "$GC_PYTHON_FILE" "$GC_HANDOVER_DIR/python.percent"
+        fi
+    - name: Save baselines
+      id: save-baselines
+      # Run-id-suffixed key, as generate-coverage saves: cache entries are
+      # immutable, and the pull-request restore recovers the newest entry
+      # through the shared prefix. Trunk pushes only, as there.
+      if: >-
+        success() && steps.gate.outputs.active == 'true' &&
+        github.event_name == 'push' && github.ref == 'refs/heads/main'
+      # v6.1.0
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: |
+          ${{ inputs.baseline-rust-file }}
+          ${{ inputs.baseline-python-file }}
+        key: ratchet-baseline-${{ runner.os }}-${{ steps.handover.outputs.segment }}${{ github.run_id }}
+    - name: Report baseline cache decisions
+      # The same stable `name=value` lines generate-coverage prints, from the
+      # same closed vocabulary, so one log scraper reads both. No key, path or
+      # run identifier appears.
+      if: ${{ always() && steps.gate.outputs.active == 'true' }}
+      shell: bash
+      env:
+        GC_RESTORE_OUTCOME: ${{ steps.restore-baselines.outcome }}
+        GC_RESTORE_CACHE_HIT: ${{ steps.restore-baselines.outputs.cache-hit }}
+        GC_SAVE_OUTCOME: ${{ steps.save-baselines.outcome }}
+      run: |
+        set -euo pipefail
+        case "$GC_RESTORE_OUTCOME" in
+          success)
+            case "$GC_RESTORE_CACHE_HIT" in
+              true) restore='hit' ;;
+              false|'') restore='miss' ;;
+              *) restore='error' ;;
+            esac
+            ;;
+          skipped) restore='skipped' ;;
+          *) restore='error' ;;
+        esac
+        case "$GC_SAVE_OUTCOME" in
+          success) save='saved' ;;
+          skipped) save='skipped' ;;
+          *) save='error' ;;
+        esac
+        printf 'metric ratchet-cache.restore=%s\n' "$restore"
+        printf 'metric ratchet-cache.save=%s\n' "$save"
+        printf '::notice title=publish-coverage-baseline::restore=%s save=%s\n' \
+          "$restore" "$save"

@@ -23,6 +23,9 @@ UPLOAD_ACTION: typ.Final[str] = (
 COVERAGE_ACTION: typ.Final[str] = (
     "leynos/shared-actions/.github/actions/generate-coverage"
 )
+BASELINE_ACTION: typ.Final[str] = (
+    "leynos/shared-actions/.github/actions/publish-coverage-baseline"
+)
 PINNED_COMMIT: typ.Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{40}$")
 TOKEN_INPUT: typ.Final[str] = "${{ secrets.CS_ACCESS_TOKEN }}"  # noqa: S105 - an expression naming the secret, not one.
 #: The check step's id where the upload guard names none to follow.
@@ -127,6 +130,54 @@ def invokes(step: dict[str, object], action: str) -> bool:
 
     """
     return _action_of(step) == action.casefold()
+
+
+def generates_coverage(step: dict[str, object]) -> bool:
+    """Return whether a step runs the coverage action and measures coverage.
+
+    A step with `build-only: true` compiles the instrumented tests to warm a
+    compiler cache and measures nothing, so no rule about what a generator
+    measures, ratchets or pins applies to it.
+
+    Parameters
+    ----------
+    step : dict[str, object]
+        The step to inspect.
+
+    Returns
+    -------
+    bool
+        Whether the step invokes the coverage action and is not build-only.
+
+    """
+    inputs = step.get("with") or {}
+    value = inputs.get("build-only") if isinstance(inputs, dict) else None
+    # Not `value in (True, "true")`: YAML's integer 1 equals True in Python,
+    # but GitHub passes it to the action as "1", which does not build only.
+    build_only = value is True or value == "true"
+    return invokes(step, COVERAGE_ACTION) and not build_only
+
+
+def generator_steps(document: Document) -> list[dict[str, object]]:
+    """Return every step in a document that measures coverage.
+
+    Parameters
+    ----------
+    document : Document
+        The workflow document to search.
+
+    Returns
+    -------
+    list[dict[str, object]]
+        Every step for which `generates_coverage` holds, in document order.
+
+    """
+    return [
+        step
+        for job in jobs(document).values()
+        for step in steps(job)
+        if generates_coverage(step)
+    ]
 
 
 def _action_of(step: dict[str, object]) -> str:

@@ -25,6 +25,7 @@ from .parity import inputs_of, is_true, publisher_lane_violations
 from .permissions import permissions_violations
 from .publisher import COVERAGE_ACTION, action_steps, find_publisher
 from .publisher_rules import (
+    baseline_publisher_violations,
     condition_violations,
     retired_checksum_violations,
     trigger_violations,
@@ -227,6 +228,7 @@ def _publisher_clauses(
         ("upload", upload_step_violations),
         ("wiring", wiring_violations),
         ("conditions", condition_violations),
+        ("baseline", baseline_publisher_violations),
     ):
         yield ("publisher", f"publisher.{clause}", functools.partial(rule, publisher))
     yield (

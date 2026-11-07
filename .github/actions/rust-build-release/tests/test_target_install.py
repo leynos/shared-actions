@@ -55,6 +55,7 @@ def test_skips_target_install_when_cross_available(
     docker_path = _register_docker_info_stub(cmd_mox)
 
     def fake_which(name: str) -> str | None:
+        """Map cross, docker and rustup to their stub paths."""
         mapping = {
             "cross": cross_path,
             "docker": docker_path,
@@ -66,6 +67,10 @@ def test_skips_target_install_when_cross_available(
     app_env.patch_shutil_which(fake_which)
 
     def fake_run(cmd: object) -> None:
+        """Fail ``rustup target add`` and keep the latest other command and env.
+
+        Each non-failing call overwrites the previous command and environment.
+        """
         parts = list(cmd.formulate())
         env = getattr(cmd, "env", {})
         if Path(parts[0]).name == "rustup" and parts[1:3] == ["target", "add"]:
@@ -104,12 +109,14 @@ def test_errors_when_target_unsupported_without_cross(
     rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
 
     def fake_which(name: str) -> str | None:
+        """Return the rustup stub path and None for every other name."""
         return rustup_path if name == "rustup" else None
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
+        """Fail ``rustup target add`` calls with a process error."""
         if Path(cmd[0]).name == "rustup" and cmd[1:3] == ["target", "add"]:
             raise ProcessExecutionError(cmd, 1, "", "")
 
@@ -148,6 +155,7 @@ def _setup_container_test_environment(
         cross_path = _register_cross_version_stub(cmd_mox)
 
     def fake_which(name: str) -> str | None:
+        """Return the rustup stub, plus the cross stub when it is registered."""
         mapping = {"rustup": rustup_path}
         if cross_path is not None:
             mapping["cross"] = cross_path
@@ -245,6 +253,7 @@ def test_builds_freebsd_target_with_cross_and_container(
     docker_path = _register_docker_info_stub(cmd_mox)
 
     def fake_which(name: str) -> str | None:
+        """Map rustup, cross and docker to their stub paths."""
         mapping = {
             "rustup": rustup_path,
             "cross": cross_path,
@@ -260,6 +269,7 @@ def test_builds_freebsd_target_with_cross_and_container(
     commands: list[list[str]] = []
 
     def record_run(cmd: list[str]) -> None:
+        """Append the command to the recorded list."""
         commands.append(cmd)
 
     app_env.patch_run_cmd(record_run)
@@ -293,6 +303,7 @@ def test_cross_no_docker_disallowed_for_container_required_target(
     rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
 
     def fake_which(name: str) -> str | None:
+        """Map rustup and cross to their stub paths."""
         mapping = {
             "rustup": rustup_path,
             "cross": cross_path,
@@ -335,6 +346,7 @@ def test_errors_when_cross_container_start_fails(
     docker_path = _register_docker_info_stub(cmd_mox)
 
     def fake_which(name: str) -> str | None:
+        """Map rustup, cross and docker to their stub paths."""
         mapping = {
             "rustup": rustup_path,
             "cross": cross_path,
@@ -348,6 +360,7 @@ def test_errors_when_cross_container_start_fails(
     app_env.patch_attr("runtime_available", lambda runtime: runtime == "docker")
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
+        """Raise a process error with exit code 125 for cross calls."""
         if cmd and Path(cmd[0]).name == "cross":
             raise ProcessExecutionError(cmd, 125, "", "")
 
@@ -382,6 +395,7 @@ def test_sets_cross_container_engine_when_docker_available(
     docker_path = _register_docker_info_stub(cmd_mox)
 
     def fake_which(name: str) -> str | None:
+        """Map rustup, cross and docker to their stub paths."""
         mapping = {
             "rustup": rustup_path,
             "cross": cross_path,
@@ -400,6 +414,7 @@ def test_sets_cross_container_engine_when_docker_available(
     engines: list[str | None] = []
 
     def record_engine(cmd: list[str]) -> None:
+        """Record the CROSS_CONTAINER_ENGINE value seen by each cross call."""
         if cmd and Path(cmd[0]).name == "cross":
             engines.append(os.environ.get("CROSS_CONTAINER_ENGINE"))
 
@@ -430,6 +445,7 @@ def test_sets_cross_container_engine_when_only_podman_available(
     podman_path = _register_podman_info_stub(cmd_mox)
 
     def fake_which(name: str) -> str | None:
+        """Map rustup, cross and podman to their stub paths."""
         mapping = {
             "rustup": rustup_path,
             "cross": cross_path,
@@ -448,6 +464,7 @@ def test_sets_cross_container_engine_when_only_podman_available(
     engines: list[str | None] = []
 
     def record_engine(cmd: list[str]) -> None:
+        """Record the CROSS_CONTAINER_ENGINE value seen by each cross call."""
         if cmd and cmd[0] == "cross":
             engines.append(os.environ.get("CROSS_CONTAINER_ENGINE"))
 
@@ -479,6 +496,7 @@ def test_preserves_existing_cross_container_engine(
     docker_path = _register_docker_info_stub(cmd_mox)
 
     def fake_which(name: str) -> str | None:
+        """Map rustup, cross and docker to their stub paths."""
         mapping = {
             "rustup": rustup_path,
             "cross": cross_path,
@@ -495,6 +513,7 @@ def test_preserves_existing_cross_container_engine(
     engines: list[str | None] = []
 
     def record_engine(cmd: list[str]) -> None:
+        """Record the CROSS_CONTAINER_ENGINE value seen by each cross call."""
         if cmd and cmd[0] == "cross":
             engines.append(os.environ.get("CROSS_CONTAINER_ENGINE"))
 
@@ -559,6 +578,7 @@ def test_falls_back_to_cargo_when_cross_container_fails(
     app_env = module_harness(main_module)
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
+        """Raise a process error with exit code 125 for cross calls."""
         if cmd and Path(cmd[0]).name == "cross":
             raise ProcessExecutionError(cmd, 125, "", "")
 
@@ -570,6 +590,7 @@ def test_falls_back_to_cargo_when_cross_container_fails(
     cross_path = _register_cross_version_stub(cmd_mox)
 
     def fake_which(name: str) -> str | None:
+        """Return the rustup stub path and None for every other name."""
         return rustup_path if name == "rustup" else None
 
     cross_env.patch_shutil_which(fake_which)
@@ -607,6 +628,7 @@ def test_falls_back_to_cargo_when_podman_unusable(
     podman_path = _register_podman_info_stub(cmd_mox, exit_code=1)
 
     def fake_which(name: str) -> str | None:
+        """Map podman, cross and rustup to their stub paths; other names miss."""
         if name == "podman":
             return podman_path
         if name == "cross":
@@ -663,6 +685,7 @@ def test_windows_host_skips_container_probe_for_windows_targets(
         text: bool = False,
         **_: object,
     ) -> subprocess.CompletedProcess[str]:
+        """Answer rustup queries for a Windows target, with empty output otherwise."""
         _ = allowed_names
         cmd = [executable, *args]
         if executable == "/usr/bin/rustup" and args[:2] == ["toolchain", "list"]:
@@ -676,12 +699,14 @@ def test_windows_host_skips_container_probe_for_windows_targets(
     harness.patch_run_cmd(lambda _: None)
 
     def fake_which(name: str) -> str | None:
+        """Return the rustup path for ``rustup`` and None for other names."""
         return "/usr/bin/rustup" if name == "rustup" else None
 
     harness.patch_shutil_which(fake_which)
     runtime_calls: list[str] = []
 
     def fake_runtime(name: str, *, cwd: object | None = None) -> bool:
+        """Record the runtime name probed and report it as unavailable."""
         runtime_calls.append(name)
         _ = cwd
         return False
@@ -714,6 +739,11 @@ def test_windows_host_probes_container_for_non_windows_targets(
         text: bool = False,
         **_: object,
     ) -> subprocess.CompletedProcess[str]:
+        """Return a Windows MSVC toolchain for ``toolchain list``.
+
+        Return a fake ``rustc`` path for ``which rustc``, and empty output
+        for other calls.
+        """
         _ = allowed_names
         cmd = [executable, *args]
         if executable == "/usr/bin/rustup" and args[:2] == ["toolchain", "list"]:
@@ -727,12 +757,14 @@ def test_windows_host_probes_container_for_non_windows_targets(
     harness.patch_run_cmd(lambda _: None)
 
     def fake_which(name: str) -> str | None:
+        """Return the rustup path for ``rustup`` and None for other names."""
         return "/usr/bin/rustup" if name == "rustup" else None
 
     harness.patch_shutil_which(fake_which)
     runtime_calls: list[str] = []
 
     def fake_runtime(name: str, *, cwd: object | None = None) -> bool:
+        """Record the runtime name probed and report it as unavailable."""
         runtime_calls.append(name)
         _ = cwd
         return False
@@ -799,6 +831,7 @@ def test_probe_runtime_warns_on_timeout(
     harness = module_harness(main_module)
 
     def raise_timeout(name: str) -> bool:
+        """Simulate a probe that exceeds its five second timeout."""
         raise subprocess.TimeoutExpired(cmd=f"{name} info", timeout=5)
 
     harness.patch_attr("runtime_available", raise_timeout)
@@ -822,6 +855,7 @@ def test_probe_runtime_warns_on_timeout_without_duration(
     harness = module_harness(main_module)
 
     def raise_timeout(name: str) -> bool:
+        """Simulate a probe that times out without a recorded duration."""
         _ = name
         raise subprocess.TimeoutExpired(cmd="docker info", timeout=None)
 
@@ -848,6 +882,7 @@ def test_probe_runtime_propagates_unexpected_error(
         """Sentinel error for runtime probe tests."""
 
     def raise_error(name: str) -> bool:
+        """Raise the sentinel ``ProbeError`` from the probe."""
         raise ProbeError
 
     harness.patch_attr("runtime_available", raise_error)
@@ -875,6 +910,7 @@ def test_runtime_available_handles_timeout(
     def fake_run_validated(
         executable: str, args: list[str], **_: object
     ) -> subprocess.CompletedProcess[str]:
+        """Answer the rustup toolchain list and fail on any other call."""
         if executable == "/usr/bin/rustup" and args[:2] == ["toolchain", "list"]:
             stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
             return subprocess.CompletedProcess([executable, *args], 0, stdout=stdout)
@@ -885,6 +921,7 @@ def test_runtime_available_handles_timeout(
     commands: list[list[str]] = []
 
     def record_run_cmd(cmd: list[str]) -> None:
+        """Record each command and fail on anything but rustup target add or cargo."""
         commands.append(cmd)
         if cmd[:3] == ["rustup", "target", "add"]:
             return
@@ -896,6 +933,7 @@ def test_runtime_available_handles_timeout(
     harness.patch_attr("configure_windows_linkers", lambda *_: None)
 
     def timeout_runtime(_name: str, *, cwd: object | None = None) -> bool:
+        """Simulate a runtime probe that times out after ten seconds."""
         _ = cwd
         raise subprocess.TimeoutExpired(cmd="podman info", timeout=10)
 
@@ -953,6 +991,7 @@ def test_configure_windows_linkers_prefers_toolchain_gcc(
         method: str = "run",
         **run_kwargs: object,
     ) -> RunResult:
+        """Check the rustup ``which`` call and return the toolchain rustc path."""
         _ = allowed_names
         cmd = [executable, *args]
         assert Path(cmd[0]) == Path(rustup_path)
@@ -1012,6 +1051,7 @@ def test_configure_windows_linkers_sets_cross_linker(
         method: str = "run",
         **run_kwargs: object,
     ) -> RunResult:
+        """Check the rustup ``which`` call and return the toolchain rustc path."""
         _ = allowed_names
         cmd = [executable, *args]
         assert Path(cmd[0]) == Path(rustup_path)
@@ -1023,6 +1063,7 @@ def test_configure_windows_linkers_sets_cross_linker(
     harness.monkeypatch.setattr(toolchain_module, "run_validated", fake_run)
 
     def fake_which(name: str) -> str | None:
+        """Return the cross linker path only for the linker name under test."""
         return str(cross_linker) if name == linker_name else None
 
     harness.monkeypatch.setattr(toolchain_module.shutil, "which", fake_which)
@@ -1062,6 +1103,7 @@ def test_configure_windows_linkers_raises_on_rustup_failure(
         method: str = "run",
         **run_kwargs: object,
     ) -> RunResult:
+        """Return a failing rustup ``which`` result with exit code 9."""
         _ = allowed_names
         assert method == "run"
         assert not run_kwargs
@@ -1108,6 +1150,7 @@ def test_configure_windows_linkers_ignores_missing_rustup(
         method: str = "run",
         **run_kwargs: object,
     ) -> RunResult:
+        """Raise ``FileNotFoundError`` to simulate a missing rustup binary."""
         _ = allowed_names
         assert method == "run"
         assert not run_kwargs
@@ -1154,6 +1197,7 @@ def test_main_propagates_windows_linker_rustup_failure(
         method: str = "run",
         **run_kwargs: object,
     ) -> RunResult:
+        """Return a failing rustup ``which`` result with exit code 9."""
         _ = allowed_names
         assert method == "run"
         assert not run_kwargs

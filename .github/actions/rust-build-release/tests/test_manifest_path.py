@@ -28,7 +28,10 @@ NIGHTLY_CRANELIFT_PROJECT = FIXTURES_DIR / "nightly-cranelift-project"
 
 
 def _unexpected(message: str) -> cabc.Callable[..., None]:
+    """Return a callable that fails the test with *message* when called."""
+
     def _raiser(*_args: object, **_kwargs: object) -> None:
+        """Raise ``AssertionError`` with the captured message."""
         raise AssertionError(message)
 
     return _raiser
@@ -228,6 +231,7 @@ def test_main_passes_manifest_to_builder(
         def fake_cross(
             decision_arg: object, target_arg: str, manifest_arg: Path, features_arg: str
         ) -> object:
+            """Record the cross build arguments and return a dummy cross command."""
             captured["decision"] = decision_arg
             captured["target"] = target_arg
             captured["manifest"] = manifest_arg
@@ -245,6 +249,10 @@ def test_main_passes_manifest_to_builder(
         def fake_cargo(
             _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
         ) -> object:
+            """Record the target, manifest and features, ignoring ``_spec``.
+
+            Return a dummy cargo command.
+            """
             captured["target"] = target_arg
             captured["manifest"] = manifest_arg
             captured["features"] = features_arg
@@ -302,6 +310,7 @@ def test_main_prefers_repo_declared_toolchain(
     def fake_resolve_toolchain(
         _rustup_exec: str, toolchain_arg: str, target_arg: str
     ) -> str:
+        """Record the toolchain and target, then return the toolchain unchanged."""
         captured["toolchain"] = toolchain_arg
         captured["target"] = target_arg
         return toolchain_arg
@@ -313,6 +322,7 @@ def test_main_prefers_repo_declared_toolchain(
     def fake_cargo(
         _spec: str, _target_arg: str, manifest_arg: Path, features_arg: str
     ) -> object:
+        """Record the manifest and features passed to the cargo build."""
         captured["manifest"] = manifest_arg
         captured["features"] = features_arg
         return context.dummy_command_factory("cargo-build")
@@ -367,6 +377,7 @@ def test_main_cross_toolchain_environment(
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
     def fake_run(cmd: object) -> None:
+        """Capture the formulated command and its env for later assertions."""
         captured["parts"] = list(cmd.formulate())
         captured["env"] = getattr(cmd, "env", {})
 
@@ -449,6 +460,7 @@ def test_main_cross_uses_repo_declared_nightly_without_env_override(
     def fake_resolve_toolchain(
         _rustup_exec: str, toolchain_arg: str, target_arg: str
     ) -> str:
+        """Record the toolchain and target, then return the pinned nightly triple."""
         captured["toolchain"] = toolchain_arg
         captured["target"] = target_arg
         return "nightly-2026-03-26-x86_64-unknown-linux-gnu"
@@ -457,6 +469,7 @@ def test_main_cross_uses_repo_declared_nightly_without_env_override(
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
     def fake_run(cmd: object) -> None:
+        """Capture the formulated command and its env for later assertions."""
         captured["parts"] = list(cmd.formulate())
         captured["env"] = getattr(cmd, "env", {})
 
@@ -482,6 +495,10 @@ def test_handle_cross_container_error_passes_manifest_to_fallback(
     def fake_cargo(
         _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
     ) -> object:
+        """Record the target, manifest and features, ignoring ``_spec``.
+
+        Return a fallback dummy command.
+        """
         captured["target"] = target_arg
         captured["manifest"] = manifest_arg
         captured["features"] = features_arg

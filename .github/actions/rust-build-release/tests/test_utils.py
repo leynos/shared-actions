@@ -59,6 +59,7 @@ def test_run_validated_invokes_run_cmd(
         env: dict[str, str] | None = None,
         **kwargs: object,
     ) -> object:
+        """Record the command and its options, then return a successful result."""
         captured_calls.append(
             (
                 list(cmd.formulate()),

@@ -11,10 +11,14 @@ if typ.TYPE_CHECKING:
 
 
 class _DummyCommand:
+    """Stand-in for a formulate-able command that returns fixed parts."""
+
     def __init__(self, parts: list[object]) -> None:
+        """Store the argument parts returned by ``formulate``."""
         self._parts = parts
 
     def formulate(self) -> list[object]:
+        """Return a new list holding the stored parts."""
         return list(self._parts)
 
 

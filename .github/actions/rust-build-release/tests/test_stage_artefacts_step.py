@@ -8,6 +8,7 @@ import yaml
 
 
 def _load_stage_step() -> dict[str, object]:
+    """Return the ``stage-artefacts`` step from the action manifest."""
     action = Path(__file__).resolve().parents[1] / "action.yml"
     data = yaml.safe_load(action.read_text(encoding="utf-8"))
     steps: list[dict[str, object]] = data["runs"]["steps"]

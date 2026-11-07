@@ -26,6 +26,7 @@ else:  # pragma: no cover - type checking helper
 
 
 def _import_packaging_utils() -> ModuleType:
+    """Return the packaging utils module, loading it from file as a fallback."""
     try:
         from . import _packaging_utils as pkg_utils
     except ImportError:  # pragma: no cover - fallback for direct invocation

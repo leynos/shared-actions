@@ -38,10 +38,14 @@ def _install_client(
     sleep_calls: list[float] = []
 
     class FakeClient:
+        """Stub ``httpx.Client`` that routes each GET request through the handler."""
+
         def __init__(self, *args: object, **kwargs: object) -> None:
+            """Keep the headers passed to the client."""
             self._headers = kwargs.get("headers", {})
 
         def __enter__(self) -> FakeClient:
+            """Return the stub client itself."""
             return self
 
         def __exit__(
@@ -50,9 +54,11 @@ def _install_client(
             exc: BaseException | None,
             traceback: object,
         ) -> bool:
+            """Exit the context without suppressing exceptions."""
             return False
 
         def get(self, url: httpx.URL, *, follow_redirects: bool) -> httpx.Response:
+            """Record the attempt, then return or raise the handler's result."""
             assert follow_redirects is False
             request = httpx.Request("GET", url, headers=self._headers)
             attempt = len(attempts) + 1
@@ -65,6 +71,7 @@ def _install_client(
     monkeypatch.setattr(module.httpx, "Client", FakeClient)
 
     def fake_sleep(duration: float) -> None:
+        """Record the requested delay when recording is enabled."""
         if record_sleep:
             sleep_calls.append(duration)
 
@@ -85,10 +92,14 @@ def test_retry_wait_strategy_progression(module: ModuleType) -> None:
 
     # Force deterministic jitter
     class FixedRandom:
+        """Stub random source that returns preset jitter values."""
+
         def __init__(self) -> None:
+            """Prepare the sequence of jitter values to return."""
             self.values = iter([0.0, 0.5, 1.0])
 
         def uniform(self, a: float, b: float) -> float:
+            """Return the next preset value, ignoring the bounds."""
             return next(self.values)
 
     wait._rng = FixedRandom()  # type: ignore[attr-defined]
@@ -111,6 +122,7 @@ def test_success(
     """Print a success message when GitHub marks the release as published."""
 
     def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        """Assert the bearer token and return a published release payload."""
         assert request.headers["Authorization"] == f"Bearer {fake_token}"
         payload = {"draft": False, "prerelease": False, "name": "1.2.3"}
         return module.httpx.Response(200, json=payload, request=request)
@@ -132,6 +144,7 @@ def test_draft_release(
     """Exit with an error when GitHub reports the release as a draft."""
 
     def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        """Return a draft release payload."""
         payload = {"draft": True, "prerelease": False, "name": "draft"}
         return module.httpx.Response(200, json=payload, request=request)
 
@@ -153,6 +166,7 @@ def test_prerelease(
     """Exit with an error when GitHub flags the release as a prerelease."""
 
     def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        """Return a prerelease payload."""
         payload = {"draft": False, "prerelease": True, "name": "pre"}
         return module.httpx.Response(200, json=payload, request=request)
 
@@ -174,6 +188,7 @@ def test_missing_release(
     """Raise an error when the GitHub API cannot find the release."""
 
     def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        """Return a 404 response for every attempt."""
         return module.httpx.Response(404, content=b"", request=request)
 
     _install_client(monkeypatch, module, handler)
@@ -195,6 +210,7 @@ def test_authentication_failure(
     detail = b"Bad credentials"
 
     def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        """Return a 401 response carrying the detail body."""
         return module.httpx.Response(401, content=detail, request=request)
 
     _install_client(monkeypatch, module, handler)
@@ -217,6 +233,7 @@ def test_permission_denied(
     detail = b"forbidden"
 
     def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        """Return a 403 response carrying the detail body."""
         return module.httpx.Response(403, content=detail, request=request)
 
     _install_client(monkeypatch, module, handler)
@@ -238,6 +255,7 @@ def test_invalid_json_reports_payload(
     payload = "{" * (module._JSON_PAYLOAD_PREVIEW_LIMIT + 10)
 
     def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        """Return a 200 response whose body is not valid JSON."""
         return module.httpx.Response(200, content=payload.encode(), request=request)
 
     _install_client(monkeypatch, module, handler)
@@ -261,6 +279,7 @@ def test_forbidden_with_retry_after(
     """Respect Retry-After guidance on 403 responses before retrying."""
 
     def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        """Return 403 with Retry-After on the first attempt, then a release."""
         if attempt == 1:
             return module.httpx.Response(
                 403,
@@ -289,6 +308,7 @@ def test_retries_then_success(
     """Retry transient HTTP failures until GitHub releases the metadata."""
 
     def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        """Raise read timeouts on early attempts, then return a release."""
         if attempt < 3:
             message = "temporary"
             raise module.httpx.ReadTimeout(message, request=request)
@@ -314,6 +334,7 @@ def test_error_detail_truncated(
     detail = "x" * (module._ERROR_DETAIL_LIMIT + 50)
 
     def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        """Return a 500 response with an oversized error body."""
         return module.httpx.Response(500, content=detail.encode(), request=request)
 
     _install_client(monkeypatch, module, handler)
@@ -336,6 +357,7 @@ def test_retries_then_fail(
     """Abort after exhausting retries when transient errors persist."""
 
     def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        """Raise a read timeout on every attempt."""
         message = "temporary"
         raise module.httpx.ReadTimeout(message, request=request)
 

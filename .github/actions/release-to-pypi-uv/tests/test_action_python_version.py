@@ -9,6 +9,7 @@ import yaml
 
 
 def _load_action() -> dict[str, typ.Any]:
+    """Load and parse the action's ``action.yml`` metadata."""
     action_path = Path(__file__).resolve().parents[1] / "action.yml"
     return yaml.safe_load(action_path.read_text(encoding="utf-8"))
 

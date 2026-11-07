@@ -224,6 +224,7 @@ def _resolve_target(cli_target: str | None) -> str:
     """Resolve the requested gnullvm target from CLI or environment."""
 
     def _validate(candidate: str) -> str:
+        """Return ``candidate`` if it is a supported target, otherwise exit."""
         if candidate not in TARGET_CONFIGS:
             supported_targets = ", ".join(sorted(TARGET_CONFIGS))
             msg = (

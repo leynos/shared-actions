@@ -18,6 +18,7 @@ from plumbum import local
 
 
 def _script_dir_and_repo_root() -> tuple[Path, Path]:
+    """Return the script directory and the ancestor that contains the importer."""
     script_dir = script_utils.PKG_DIR
     repo_root = next(
         parent
@@ -32,7 +33,10 @@ def test_script_helper_exports_preserves_wrapped_callables(tmp_path: Path) -> No
     calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
 
     def _record(name: str) -> typ.Callable[..., object]:
+        """Return a stub that records calls to ``name`` and returns canned values."""
+
         def _inner(*args: object, **kwargs: object) -> object:
+            """Record the call and return a canned value for ``name``."""
             calls.append((name, args, kwargs))
             if name == "ensure_directory":
                 return args[0]
@@ -119,6 +123,7 @@ def test_load_script_helpers_uses_loader_fallback(
     attempted: list[str] = []
 
     def _raising_import(name: str, package: str | None = None) -> typ.NoReturn:
+        """Record the requested module name and raise ``ImportError``."""
         attempted.append(name)
         raise ImportError(name)
 
@@ -128,7 +133,10 @@ def test_load_script_helpers_uses_loader_fallback(
     original_loader = module.importlib.machinery.SourceFileLoader
 
     class RecordingLoader(original_loader):
+        """Source file loader that records each path it is constructed with."""
+
         def __init__(self, fullname: str, path: str) -> None:
+            """Record ``path`` and initialise the underlying source file loader."""
             seen_paths.append(Path(path))
             super().__init__(fullname, path)
 
@@ -210,6 +218,7 @@ def test_ensure_repo_root_on_sys_path_missing_importer(
     original_import = builtins.__import__
 
     def _always_false(path: Path) -> bool:
+        """Report the importer as absent and defer to the real check otherwise."""
         if path.name == "cmd_utils_importer.py":
             return False
         return original_is_file(path)
@@ -221,6 +230,7 @@ def test_ensure_repo_root_on_sys_path_missing_importer(
         fromlist: tuple[str, ...] = (),
         level: int = 0,
     ) -> object:
+        """Raise ``ModuleNotFoundError`` for the importer, else delegate."""
         if level == 0 and name == "cmd_utils_importer":
             raise ModuleNotFoundError(name)
         return original_import(name, globals_dict, locals_dict, fromlist, level)

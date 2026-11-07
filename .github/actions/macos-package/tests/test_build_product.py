@@ -35,16 +35,21 @@ def test_build_product_wraps_component(
     _make_component(work_dir, "tool", "1.0.0")
 
     class FakeCommand:
+        """Stub for ``productbuild`` that records arguments and writes the output."""
+
         def __init__(self) -> None:
+            """Start with no recorded calls and no output path."""
             self.calls: list[list[str]] = []
             self.output: Path | None = None
 
         def __getitem__(self, args: tuple[str, ...]) -> FakeCommand:
+            """Record the arguments and take the last one as the output path."""
             self.calls.append(list(args))
             self.output = Path(args[-1])
             return self
 
         def __call__(self) -> None:
+            """Write a stub product archive to the recorded output path."""
             if self.output is None:
                 pytest.fail("productbuild invoked without an output path")
             self.output.parent.mkdir(parents=True, exist_ok=True)
@@ -77,16 +82,21 @@ def test_build_product_with_license_resources(
     resources.mkdir(parents=True, exist_ok=True)
 
     class FakeCommand:
+        """Stub for ``productbuild`` that records arguments and writes the output."""
+
         def __init__(self) -> None:
+            """Start with no recorded calls and no output path."""
             self.calls: list[list[str]] = []
             self.output: Path | None = None
 
         def __getitem__(self, args: tuple[str, ...]) -> FakeCommand:
+            """Record the arguments and take the last one as the output path."""
             self.calls.append(list(args))
             self.output = Path(args[-1])
             return self
 
         def __call__(self) -> None:
+            """Write a stub product archive to the recorded output path."""
             if self.output is None:
                 pytest.fail("productbuild invoked without an output path")
             self.output.parent.mkdir(parents=True, exist_ok=True)
@@ -139,20 +149,26 @@ def test_build_product_warns_when_cleanup_fails(
     original_unlink = Path.unlink
 
     def _raise(self: Path, *args: object, **kwargs: object) -> None:
+        """Raise ``PermissionError`` for the output package, else unlink."""
         if self == output_pkg:
             reason = PermissionError("denied")
             raise reason
         original_unlink(self, *args, **kwargs)
 
     class FakeCommand:
+        """Stub for ``productbuild`` that only tracks the output path."""
+
         def __init__(self) -> None:
+            """Start with no output path."""
             self.output: Path | None = None
 
         def __getitem__(self, args: tuple[str, ...]) -> FakeCommand:
+            """Take the last argument as the output path."""
             self.output = Path(args[-1])
             return self
 
         def __call__(self) -> None:
+            """Write a stub product archive to the recorded output path."""
             if self.output is None:
                 pytest.fail("productbuild invoked without an output path")
             self.output.parent.mkdir(parents=True, exist_ok=True)

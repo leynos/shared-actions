@@ -98,6 +98,7 @@ class _CommandWrapper:
     """Expose a stable display name for a plumbum command."""
 
     def __init__(self, command: SupportsFormulate, display_name: str) -> None:
+        """Wrap ``command``, rejecting objects without a callable ``formulate``."""
         formulate_callable = getattr(command, "formulate", None)
         if not callable(formulate_callable):
             message = (
@@ -109,6 +110,13 @@ class _CommandWrapper:
         self._display_name = display_name
 
     def formulate(self) -> cabc.Sequence[str]:
+        """Return the command line with the display name as its first element.
+
+        The display name replaces the first element only when the wrapped
+        command returns a non-empty list; an empty list stays empty. If
+        ``formulate()`` is unavailable or raises, only the display name is
+        returned.
+        """
         formulate_callable = getattr(self._command, "formulate", None)
         if not callable(formulate_callable):
             typer.echo(
@@ -131,21 +139,26 @@ class _CommandWrapper:
         return parts
 
     def __str__(self) -> str:
+        """Return the wrapped command line as a shell-quoted string."""
         parts = [str(part) for part in self.formulate()]
         return shlex.join(parts)
 
     def __call__(self, *args: object, **kwargs: object) -> SupportsFormulate:
+        """Call the wrapped command with the given arguments."""
         return self._command(*args, **kwargs)
 
     def run(
         self, *args: object, **kwargs: object
     ) -> tuple[int, str | bytes | None, str | bytes | None]:
+        """Run the wrapped command and return its exit code and output streams."""
         return self._command.run(*args, **kwargs)
 
     def popen(self, *args: object, **kwargs: object) -> subprocess.Popen[typ.Any]:
+        """Start the wrapped command as a subprocess and return the handle."""
         return self._command.popen(*args, **kwargs)
 
     def with_env(self, *args: object, **kwargs: object) -> _CommandWrapper:
+        """Return a wrapper for the command with environment overrides applied."""
         wrapped = self._command.with_env(*args, **kwargs)
         wrapped_formulate = getattr(wrapped, "formulate", None)
         if not callable(wrapped_formulate):
@@ -157,6 +170,7 @@ class _CommandWrapper:
         return _CommandWrapper(wrapped, self._display_name)
 
     def __getattr__(self, name: str) -> object:
+        """Delegate attribute lookup to the wrapped command."""
         return getattr(self._command, name)
 
 
@@ -479,6 +493,11 @@ def _configure_cross_container_engine(
 def _restore_container_engine(
     previous_engine: str | None, *, applied_engine: str | None
 ) -> None:
+    """Restore ``CROSS_CONTAINER_ENGINE`` to its previous value, or unset it.
+
+    Unset the variable only when ``previous_engine`` is ``None`` and
+    ``applied_engine`` is set. Leave it unchanged when both are ``None``.
+    """
     if previous_engine is None:
         if applied_engine is not None:
             # Always remove the variable when no prior value existed so callers
@@ -503,6 +522,7 @@ def _normalize_features(features: str) -> str:
 def _build_cross_command(
     decision: _CrossDecision, target_to_build: str, manifest_path: Path, features: str
 ) -> SupportsFormulate:
+    """Build the ``cross build`` command for the target and any features."""
     cross_executable = decision.cross_path or "cross"
     executor = local[cross_executable]
     build_cmd = executor[
@@ -524,6 +544,7 @@ def _build_cross_command(
 def _build_cargo_command(
     cargo_toolchain_spec: str, target_to_build: str, manifest_path: Path, features: str
 ) -> SupportsFormulate:
+    """Build the ``cargo build`` command for the target and any features."""
     executor = local["cargo"]
     build_cmd = executor[
         cargo_toolchain_spec,
@@ -547,6 +568,7 @@ def _handle_cross_container_error(
     manifest_path: Path,
     features: str,
 ) -> None:
+    """Exit or fall back to cargo on a cross container failure, else re-raise."""
     if decision.use_cross and exc.retcode in CROSS_CONTAINER_ERROR_CODES:
         if decision.requires_cross_container and not decision.use_cross_local_backend:
             engine = decision.container_engine or "unknown"

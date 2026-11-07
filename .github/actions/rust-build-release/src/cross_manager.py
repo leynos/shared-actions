@@ -165,6 +165,7 @@ def ensure_cross(required_cross_version: str) -> tuple[str | None, str | None]:
     """Ensure cross is installed and up to date."""
 
     def get_cross_version(path: str) -> str | None:
+        """Return the version reported by the cross binary at ``path``, or None."""
         try:
             cross_exec = ensure_allowed_executable(path, ("cross", "cross.exe"))
             result = run_validated(
@@ -183,6 +184,7 @@ def ensure_cross(required_cross_version: str) -> tuple[str | None, str | None]:
             return None
 
     def version_compare(installed: str, required: str) -> bool:
+        """Return True when ``installed`` is at least ``required``."""
         return pkg_version.parse(installed) >= pkg_version.parse(required)
 
     cross_path = shutil.which("cross")

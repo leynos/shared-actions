@@ -60,6 +60,7 @@ def test_configure_app_reads_environment(
 
     @app.default
     def _main(*, value: str) -> None:
+        """Record the ``value`` passed in through the environment."""
         captured.append(value)
 
     monkeypatch.setenv("INPUT_VALUE", "example")
@@ -81,6 +82,7 @@ def test_run_app_reports_action_error(
 
     @app.default
     def _main() -> None:
+        """Raise ``ActionError`` so that ``run_app`` reports it."""
         message = "boom"
         raise utils.ActionError(message)
 
@@ -102,6 +104,7 @@ def test_run_app_honours_explicit_arguments(
 
     @app.default
     def _main(*, value: str) -> None:
+        """Record the ``value`` passed on the command line."""
         captured.append(value)
 
     utils.run_app(app, argv=["--value", "from-argv"])
@@ -159,6 +162,7 @@ def test_remove_file_logs_warning(
     original_unlink = Path.unlink
 
     def _raise(self: Path, *args: object, **kwargs: object) -> None:
+        """Raise ``PermissionError`` for the target file, else unlink."""
         if self == target:
             reason = PermissionError("denied")
             raise reason

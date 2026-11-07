@@ -30,16 +30,21 @@ def test_sign_package_creates_signed_archive(
     unsigned.write_text("unsigned", encoding="utf-8")
 
     class FakeCommand:
+        """Stub for ``productsign`` that records arguments and writes the output."""
+
         def __init__(self) -> None:
+            """Start with no recorded calls and no output path."""
             self.calls: list[list[str]] = []
             self.output: Path | None = None
 
         def __getitem__(self, args: tuple[str, ...]) -> FakeCommand:
+            """Record the arguments and take the last one as the output path."""
             self.calls.append(list(args))
             self.output = Path(args[-1])
             return self
 
         def __call__(self) -> None:
+            """Write a stub signed package to the recorded output path."""
             if self.output is None:
                 pytest.fail("productsign invoked without an output path")
             self.output.write_text("signed", encoding="utf-8")
@@ -91,20 +96,26 @@ def test_sign_package_warns_when_cleanup_fails(
     original_unlink = Path.unlink
 
     def _raise(self: Path, *args: object, **kwargs: object) -> None:
+        """Raise ``PermissionError`` for the signed package, else unlink."""
         if self == signed_pkg:
             reason = PermissionError("denied")
             raise reason
         original_unlink(self, *args, **kwargs)
 
     class FakeCommand:
+        """Stub for ``productsign`` that only tracks the output path."""
+
         def __init__(self) -> None:
+            """Start with no output path."""
             self.output: Path | None = None
 
         def __getitem__(self, args: tuple[str, ...]) -> FakeCommand:
+            """Take the last argument as the output path."""
             self.output = Path(args[-1])
             return self
 
         def __call__(self) -> None:
+            """Write a stub signed package to the recorded output path."""
             if self.output is None:
                 pytest.fail("productsign invoked without an output path")
             self.output.write_text("signed", encoding="utf-8")

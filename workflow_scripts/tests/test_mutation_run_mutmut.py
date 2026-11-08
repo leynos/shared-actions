@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import dataclasses
 import os
 import stat
 import sys
@@ -31,6 +32,15 @@ warning: The config paths_to_mutate is deprecated.
     mypkg.calc.x_clamp__mutmut_2: no tests
     mypkg.io.x_read__mutmut_3: timeout
 """
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class InvalidScopeTestContext:
+    """Fixtures needed by invalid mutmut scope configuration cases."""
+
+    project_dir: Path
+    fake_uv: Path
+    capsys: pytest.CaptureFixture[str]
 
 
 class TestFilesToModuleGlobs:
@@ -502,119 +512,144 @@ class TestMainEntry:
             )
 
     @pytest.mark.parametrize(
-        ("config_name", "contents", "expected_error"),
+        "config_case",
         [
             pytest.param(
-                None,
-                None,
-                "mutmut configuration must define source_paths",
+                (None, None, "mutmut configuration must define source_paths"),
                 id="missing-configuration",
             ),
             pytest.param(
-                "pyproject.toml",
-                "[tool.mutmut]\n",
-                "mutmut source_paths must contain at least one path",
+                (
+                    "pyproject.toml",
+                    "[tool.mutmut]\n",
+                    "mutmut source_paths must contain at least one path",
+                ),
                 id="missing-source-paths",
             ),
             pytest.param(
-                "pyproject.toml",
-                "[tool.mutmut]\nsource_paths = []\n",
-                "mutmut source_paths must contain at least one path",
+                (
+                    "pyproject.toml",
+                    "[tool.mutmut]\nsource_paths = []\n",
+                    "mutmut source_paths must contain at least one path",
+                ),
                 id="empty-source-paths",
             ),
             pytest.param(
-                "pyproject.toml",
-                '[tool.mutmut\nsource_paths = ["src/"]\n',
-                "Expected ']'",
+                (
+                    "pyproject.toml",
+                    '[tool.mutmut\nsource_paths = ["src/"]\n',
+                    "Expected ']'",
+                ),
                 id="malformed-pyproject-toml",
             ),
             pytest.param(
-                "pyproject.toml",
-                "tool = 1\n",
-                "pyproject.toml [tool] must be a table",
+                (
+                    "pyproject.toml",
+                    "tool = 1\n",
+                    "pyproject.toml [tool] must be a table",
+                ),
                 id="non-table-tool-setting",
             ),
             pytest.param(
-                "pyproject.toml",
-                "[tool]\nmutmut = 1\n",
-                "pyproject.toml [tool.mutmut] must be a table",
+                (
+                    "pyproject.toml",
+                    "[tool]\nmutmut = 1\n",
+                    "pyproject.toml [tool.mutmut] must be a table",
+                ),
                 id="non-table-mutmut-setting",
             ),
             pytest.param(
-                "pyproject.toml",
-                "[tool.mutmut]\nsource_paths = 1\n",
-                "mutmut source_paths must be a string or an array of strings",
+                (
+                    "pyproject.toml",
+                    "[tool.mutmut]\nsource_paths = 1\n",
+                    "mutmut source_paths must be a string or an array of strings",
+                ),
                 id="scalar-source-paths",
             ),
             pytest.param(
-                "pyproject.toml",
-                '[tool.mutmut]\nsource_paths = ["src/", 1]\n',
-                "mutmut source_paths must contain only strings",
+                (
+                    "pyproject.toml",
+                    '[tool.mutmut]\nsource_paths = ["src/", 1]\n',
+                    "mutmut source_paths must contain only strings",
+                ),
                 id="non-string-source-path",
             ),
             pytest.param(
-                "pyproject.toml",
-                '[tool.mutmut]\nsource_paths = ["src/"]\nonly_mutate = true\n',
-                "mutmut only_mutate must be a string or an array of strings",
+                (
+                    "pyproject.toml",
+                    '[tool.mutmut]\nsource_paths = ["src/"]\nonly_mutate = true\n',
+                    "mutmut only_mutate must be a string or an array of strings",
+                ),
                 id="scalar-only-mutate",
             ),
             pytest.param(
-                "pyproject.toml",
-                '[tool.mutmut]\nsource_paths = ["src/"]\n'
-                'only_mutate = ["src/api/*", 1]\n',
-                "mutmut only_mutate must contain only strings",
+                (
+                    "pyproject.toml",
+                    (
+                        '[tool.mutmut]\nsource_paths = ["src/"]\n'
+                        'only_mutate = ["src/api/*", 1]\n'
+                    ),
+                    "mutmut only_mutate must contain only strings",
+                ),
                 id="non-string-only-mutate-entry",
             ),
             pytest.param(
-                "pyproject.toml",
-                '[tool.mutmut]\nsource_paths = ["src/"]\ndo_not_mutate = false\n',
-                "mutmut do_not_mutate must be a string or an array of strings",
+                (
+                    "pyproject.toml",
+                    '[tool.mutmut]\nsource_paths = ["src/"]\ndo_not_mutate = false\n',
+                    "mutmut do_not_mutate must be a string or an array of strings",
+                ),
                 id="scalar-do-not-mutate",
             ),
             pytest.param(
-                "pyproject.toml",
-                '[tool.mutmut]\nsource_paths = ["src/"]\n'
-                'do_not_mutate = ["src/tests/*", 1]\n',
-                "mutmut do_not_mutate must contain only strings",
+                (
+                    "pyproject.toml",
+                    (
+                        '[tool.mutmut]\nsource_paths = ["src/"]\n'
+                        'do_not_mutate = ["src/tests/*", 1]\n'
+                    ),
+                    "mutmut do_not_mutate must contain only strings",
+                ),
                 id="non-string-do-not-mutate-entry",
             ),
             pytest.param(
-                "setup.cfg",
-                "[mutmut]\n",
-                "mutmut source_paths must contain at least one path",
+                (
+                    "setup.cfg",
+                    "[mutmut]\n",
+                    "mutmut source_paths must contain at least one path",
+                ),
                 id="setup-cfg-missing-source-paths",
             ),
             pytest.param(
-                "setup.cfg",
-                "[mutmut]\nsource_paths =\n",
-                "mutmut source_paths must contain at least one path",
+                (
+                    "setup.cfg",
+                    "[mutmut]\nsource_paths =\n",
+                    "mutmut source_paths must contain at least one path",
+                ),
                 id="setup-cfg-empty-source-paths",
             ),
             pytest.param(
-                "setup.cfg",
-                "[mutmut\nsource_paths = src/\n",
-                "setup.cfg",
+                (
+                    "setup.cfg",
+                    "[mutmut\nsource_paths = src/\n",
+                    "setup.cfg",
+                ),
                 id="malformed-setup-cfg",
             ),
         ],
     )
     def test_invalid_scope_fails_before_test_only_short_circuit(
         self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        fake_uv: Path,
-        capsys: pytest.CaptureFixture[str],
-        config_name: str | None,
-        contents: str | None,
-        expected_error: str,
+        invalid_scope_context: InvalidScopeTestContext,
+        config_case: tuple[str | None, str | None, str],
     ) -> None:
         """Invalid scope config fails clearly before a changed-file no-op."""
-        self._prepare(tmp_path, monkeypatch)
-        (tmp_path / "pyproject.toml").unlink(missing_ok=True)
-        (tmp_path / "setup.cfg").unlink(missing_ok=True)
+        project_dir = invalid_scope_context.project_dir
+        config_name, contents, expected_error = config_case
+        (project_dir / "pyproject.toml").unlink(missing_ok=True)
+        (project_dir / "setup.cfg").unlink(missing_ok=True)
         if config_name is not None and contents is not None:
-            (tmp_path / config_name).write_text(contents, encoding="utf-8")
-        monkeypatch.setenv("INPUT_FILES", "tests/test_only.py")
+            (project_dir / config_name).write_text(contents, encoding="utf-8")
 
         with pytest.raises(SystemExit) as excinfo:
             run_mutmut.app([])
@@ -622,14 +657,14 @@ class TestMainEntry:
         assert excinfo.value.code == 1, (
             "invalid source configuration must fail the step"
         )
-        captured = capsys.readouterr()
+        captured = invalid_scope_context.capsys.readouterr()
         assert "Could not load mutmut source configuration" in captured.err, (
             "invalid scope configuration should produce a clear error"
         )
         assert expected_error in captured.err, (
             f"the error should identify the invalid configuration: {expected_error}"
         )
-        assert not fake_uv.exists(), (
+        assert not invalid_scope_context.fake_uv.exists(), (
             "invalid configuration must fail before invoking uv"
         )
 
@@ -679,3 +714,18 @@ class TestMainEntry:
         assert excinfo.value.code == 1, (
             "a missing GITHUB_STEP_SUMMARY should exit with code 1"
         )
+
+
+@pytest.fixture
+def invalid_scope_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_uv: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> InvalidScopeTestContext:
+    """Prepare the caller project and test fixtures for invalid config cases."""
+    TestMainEntry()._prepare(tmp_path, monkeypatch)
+    (tmp_path / "pyproject.toml").unlink(missing_ok=True)
+    (tmp_path / "setup.cfg").unlink(missing_ok=True)
+    monkeypatch.setenv("INPUT_FILES", "tests/test_only.py")
+    return InvalidScopeTestContext(tmp_path, fake_uv, capsys)

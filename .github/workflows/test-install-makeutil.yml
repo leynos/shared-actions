@@ -20,9 +20,7 @@ jobs:
     # that depends on whether the pull request came from a fork, so a name
     # interpolating it would give the lane two check names. The aarch64 leg
     # stays on a GitHub-hosted Arm runner because this repository has
-    # measured no Ubicloud Arm shape. The x86_64 leg also uses GitHub-hosted
-    # runners because the cross-job cache check requires `actions/cache` to
-    # save a cache entry; Ubicloud reports no workflow job data for that step.
+    # measured no Ubicloud Arm shape.
     name: Install and reuse makeutil (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
@@ -31,7 +29,10 @@ jobs:
       matrix:
         include:
           - platform: linux-x86_64
-            runner: ubuntu-latest
+            runner: >-
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
           - platform: linux-aarch64
             runner: ubuntu-24.04-arm
     steps:
@@ -92,9 +93,7 @@ jobs:
     # The second install inside `install-makeutil` reuses a file the same job
     # wrote, so it proves nothing about the cache. This job starts on a fresh
     # runner after that one has saved its cache entry, so `cached` here can
-    # only mean the restored binary verified against the pinned digest. Keep
-    # both x86_64 jobs on GitHub-hosted runners: Ubicloud cannot save this
-    # cross-job `actions/cache` entry.
+    # only mean the restored binary verified against the pinned digest.
     name: Restore makeutil from the cache (${{ matrix.platform }})
     needs: install-makeutil
     runs-on: ${{ matrix.runner }}
@@ -104,7 +103,10 @@ jobs:
       matrix:
         include:
           - platform: linux-x86_64
-            runner: ubuntu-latest
+            runner: >-
+              ${{ (github.event.pull_request.head.repo.fork
+              || github.event.pull_request.user.login == 'dependabot[bot]')
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
           - platform: linux-aarch64
             runner: ubuntu-24.04-arm
     steps:

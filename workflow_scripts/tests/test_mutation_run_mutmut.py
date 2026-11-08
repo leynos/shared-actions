@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import configparser
+import os
 import stat
 import sys
+import tomllib
 import typing as typ
 
 import pytest
@@ -38,7 +41,7 @@ class TestFilesToModuleGlobs:
         globs = run_mutmut.files_to_module_globs(
             "src/mypkg/calc.py src/mypkg/io.py",
             "src/",
-            run_mutmut._MutmutScope(source_paths=("src/",)),
+            run_mutmut.MutmutScope(source_paths=("src/",)),
         )
         assert globs == ["mypkg.calc.*", "mypkg.io.*"], (
             "src-layout files should translate to module globs"
@@ -49,7 +52,7 @@ class TestFilesToModuleGlobs:
         globs = run_mutmut.files_to_module_globs(
             "src/mypkg/__init__.py src/mypkg/__init__.py",
             "src/",
-            run_mutmut._MutmutScope(source_paths=("src/",)),
+            run_mutmut.MutmutScope(source_paths=("src/",)),
         )
         assert globs == ["mypkg.*"], (
             "__init__.py should map to its package glob with duplicates collapsed"
@@ -57,62 +60,75 @@ class TestFilesToModuleGlobs:
 
     def test_non_python_and_bare_prefix_are_ignored(self) -> None:
         """Non-Python paths and empty translations produce nothing."""
-        scope = run_mutmut._MutmutScope(source_paths=("src/",))
+        scope = run_mutmut.MutmutScope(source_paths=("src/",))
         assert run_mutmut.files_to_module_globs("README.md src/", "src/", scope) == (
             []
         ), "non-Python paths and bare prefixes should produce no globs"
 
-    def test_paths_outside_source_paths_are_excluded(self) -> None:
-        """Files outside configured mutation roots produce no globs."""
-        scope = run_mutmut._MutmutScope(source_paths=("src/",))
-        assert (
-            run_mutmut.files_to_module_globs("tests/test_calc.py", "src/", scope) == []
-        ), "files outside source_paths must not reach mutmut"
+    @pytest.mark.parametrize(
+        ("files", "scope", "expected_globs", "reason"),
+        [
+            pytest.param(
+                "tests/test_calc.py",
+                run_mutmut.MutmutScope(source_paths=("src/",)),
+                [],
+                "files outside source_paths must not reach mutmut",
+                id="outside-source-paths",
+            ),
+            pytest.param(
+                "src/mypkg/tests/helpers.py",
+                run_mutmut.MutmutScope(
+                    source_paths=("src/",), do_not_mutate=("src/**/tests/*",)
+                ),
+                [],
+                "do_not_mutate paths must not reach mutmut",
+                id="do-not-mutate",
+            ),
+            pytest.param(
+                "src/pkg/api/client.py src/pkg/models.py",
+                run_mutmut.MutmutScope(
+                    source_paths=("src/",), only_mutate=("src/pkg/api/*",)
+                ),
+                ["pkg.api.client.*"],
+                "only_mutate must narrow source_paths",
+                id="only-mutate",
+            ),
+            pytest.param(
+                "src/mypkg/calc.py src/mypkg/test_calc.py",
+                run_mutmut.MutmutScope(
+                    source_paths=("src/",), do_not_mutate=("src/**/test_*.py",)
+                ),
+                ["mypkg.calc.*"],
+                "only mutable source files should reach mutmut",
+                id="test-only-exclusion",
+            ),
+        ],
+    )
+    def test_scope_patterns_filter_changed_files(
+        self,
+        files: str,
+        scope: run_mutmut.MutmutScope,
+        expected_globs: list[str],
+        reason: str,
+    ) -> None:
+        """Configured source and exclusion patterns filter changed files."""
+        globs = run_mutmut.files_to_module_globs(files, "src/", scope)
+        assert globs == expected_globs, reason
 
-    def test_do_not_mutate_patterns_exclude_configured_paths(self) -> None:
-        """Mutmut's do_not_mutate patterns exclude paths under source roots."""
-        scope = run_mutmut._MutmutScope(
-            source_paths=("src/",), do_not_mutate=("src/**/tests/*",)
-        )
-        assert (
-            run_mutmut.files_to_module_globs(
-                "src/mypkg/tests/helpers.py", "src/", scope
-            )
-            == []
-        ), "do_not_mutate paths must not reach mutmut"
+    def test_glob_patterns_do_not_match_by_basename(self) -> None:
+        """Glob patterns match paths, not matching basenames anywhere."""
+        scope = run_mutmut.MutmutScope(source_paths=("src/",), only_mutate=("calc.py",))
+        globs = run_mutmut.files_to_module_globs("src/pkg/calc.py", "src/", scope)
+        assert globs == [], "only_mutate patterns must match the full relative path"
 
     def test_configured_source_paths_preserve_test_like_module_names(self) -> None:
         """Mutmut source configuration overrides filename and directory hints."""
-        scope = run_mutmut._MutmutScope(source_paths=("src/",))
+        scope = run_mutmut.MutmutScope(source_paths=("src/",))
         globs = run_mutmut.files_to_module_globs(
             "src/pkg/request_test.py src/pkg/tests/helpers.py", "src/", scope
         )
         assert globs == ["pkg.request_test.*", "pkg.tests.helpers.*"], (
             "modules included by source_paths must remain mutable regardless of name"
-        )
-
-    def test_only_mutate_patterns_limit_configured_source_paths(self) -> None:
-        """Mutmut's only_mutate patterns further narrow source_paths."""
-        scope = run_mutmut._MutmutScope(
-            source_paths=("src/",), only_mutate=("src/pkg/api/*",)
-        )
-        globs = run_mutmut.files_to_module_globs(
-            "src/pkg/api/client.py src/pkg/models.py", "src/", scope
-        )
-        assert globs == ["pkg.api.client.*"], (
-            "files outside only_mutate must not reach mutmut"
-        )
-
-    def test_test_only_scope_drops_out_leaving_source(self) -> None:
-        """Configured exclusions leave only mutable source globs."""
-        scope = run_mutmut._MutmutScope(
-            source_paths=("src/",), do_not_mutate=("src/**/test_*.py",)
-        )
-        globs = run_mutmut.files_to_module_globs(
-            "src/mypkg/calc.py src/mypkg/test_calc.py", "src/", scope
-        )
-        assert globs == ["mypkg.calc.*"], (
-            "only the mutable source file should reach mutmut as a glob"
         )
 
 
@@ -129,7 +145,7 @@ class TestMutmutScopeConfig:
             encoding="utf-8",
         )
         scope = run_mutmut._load_mutmut_scope(tmp_path)
-        assert scope == run_mutmut._MutmutScope(
+        assert scope == run_mutmut.MutmutScope(
             source_paths=("src/",),
             only_mutate=("src/api/*",),
             do_not_mutate=("src/api/tests/*",),
@@ -142,9 +158,102 @@ class TestMutmutScopeConfig:
             encoding="utf-8",
         )
         scope = run_mutmut._load_mutmut_scope(tmp_path)
-        assert scope == run_mutmut._MutmutScope(
+        assert scope == run_mutmut.MutmutScope(
             source_paths=("src/",), do_not_mutate=("src/tests/*",)
         )
+
+    @pytest.mark.parametrize(
+        ("contents", "expected_type", "expected_message"),
+        [
+            pytest.param(
+                None,
+                ValueError,
+                "mutmut configuration must define source_paths",
+                id="missing-configuration",
+            ),
+            pytest.param(
+                "[tool.mutmut]\n",
+                ValueError,
+                "mutmut source_paths must contain at least one path",
+                id="missing-source-paths",
+            ),
+            pytest.param(
+                "[tool.mutmut]\nsource_paths = []\n",
+                ValueError,
+                "mutmut source_paths must contain at least one path",
+                id="empty-source-paths",
+            ),
+            pytest.param(
+                "tool = 1\n",
+                TypeError,
+                "pyproject.toml [tool] must be a table",
+                id="non-table-tool-setting",
+            ),
+            pytest.param(
+                "[tool]\nmutmut = 1\n",
+                TypeError,
+                "pyproject.toml [tool.mutmut] must be a table",
+                id="non-table-mutmut-setting",
+            ),
+            pytest.param(
+                '[tool.mutmut]\nsource_paths = ["src/", 1]\n',
+                TypeError,
+                "mutmut source_paths must contain only strings",
+                id="non-string-source-path",
+            ),
+        ],
+    )
+    def test_rejects_invalid_pyproject_scope_configuration(
+        self,
+        tmp_path: Path,
+        contents: str | None,
+        expected_type: type[Exception],
+        expected_message: str,
+    ) -> None:
+        """Invalid or missing pyproject scope settings fail with context."""
+        if contents is not None:
+            (tmp_path / "pyproject.toml").write_text(contents, encoding="utf-8")
+
+        with pytest.raises(expected_type) as excinfo:
+            run_mutmut._load_mutmut_scope(tmp_path)
+
+        assert expected_message in str(excinfo.value), (
+            "scope configuration errors should name the invalid setting"
+        )
+
+    def test_rejects_malformed_pyproject_toml(self, tmp_path: Path) -> None:
+        """Malformed pyproject TOML fails instead of yielding an empty scope."""
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.mutmut\nsource_paths = ["src/"]\n', encoding="utf-8"
+        )
+
+        with pytest.raises(tomllib.TOMLDecodeError):
+            run_mutmut._load_mutmut_scope(tmp_path)
+
+    @pytest.mark.parametrize(
+        "contents",
+        [
+            pytest.param("[mutmut]\n", id="missing-source-paths"),
+            pytest.param("[mutmut]\nsource_paths =\n", id="empty-source-paths"),
+        ],
+    )
+    def test_rejects_missing_or_empty_setup_cfg_source_paths(
+        self, tmp_path: Path, contents: str
+    ) -> None:
+        """setup.cfg must also define at least one source path."""
+        (tmp_path / "setup.cfg").write_text(contents, encoding="utf-8")
+
+        with pytest.raises(ValueError, match="source_paths"):
+            run_mutmut._load_mutmut_scope(tmp_path)
+
+    def test_rejects_malformed_setup_cfg(self, tmp_path: Path) -> None:
+        """Malformed setup.cfg syntax fails instead of yielding an empty scope."""
+        (tmp_path / "setup.cfg").write_text(
+            "[mutmut\nsource_paths = src/\n", encoding="utf-8"
+        )
+
+        with pytest.raises(configparser.Error):
+            run_mutmut._load_mutmut_scope(tmp_path)
 
 
 class TestParseResults:
@@ -276,6 +385,21 @@ class TestMainEntry:
         )
 
     @POSIX_SHIMS_ONLY
+    def test_full_run_does_not_load_changed_file_scope(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_uv: Path
+    ) -> None:
+        """An empty file list runs mutmut without requiring helper scope config."""
+        self._prepare(tmp_path, monkeypatch)
+        (tmp_path / "pyproject.toml").unlink()
+
+        run_mutmut.app([])
+
+        run_lines = fake_uv.read_text(encoding="utf-8").splitlines()
+        assert run_lines[0].split()[-2:] == ["mutmut", "run"], (
+            "full runs should invoke mutmut without changed-module globs"
+        )
+
+    @POSIX_SHIMS_ONLY
     def test_failing_baseline_propagates_exit_code(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_uv: Path
     ) -> None:
@@ -289,28 +413,89 @@ class TestMainEntry:
             "a failing mutmut run should propagate its exit code"
         )
 
-    @pytest.mark.usefixtures("fake_uv")
+    @pytest.mark.parametrize("exit_code", [0, 3], ids=["success", "nonzero-exit"])
     @POSIX_SHIMS_ONLY
-    def test_workflow_input_env_does_not_leak_into_mutmut(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    def test_mutation_run_isolates_and_restores_environment(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        fake_uv: Path,
+        exit_code: int,
     ) -> None:
-        """``INPUT_*`` vars are stripped before mutmut runs the baseline.
+        """Mutmut sees no workflow inputs and the caller environment is restored.
 
         Reproduces shared-actions#369: the caller sets
         ``INPUT_MODULE_PREFIX_STRIP=""``; without sanitisation that value
         reaches mutmut's in-process pytest baseline and breaks tests that
-        read the ambient environment.
+        read the ambient environment. A separate sentinel proves unrelated
+        variables remain available to the baseline.
         """
         self._prepare(tmp_path, monkeypatch)
-        monkeypatch.setenv("INPUT_FILES", "src/mypkg/calc.py")
-        monkeypatch.setitem(local.env, "INPUT_FILES", "src/mypkg/calc.py")
-        monkeypatch.setenv("INPUT_MODULE_PREFIX_STRIP", "")
-        monkeypatch.setitem(local.env, "INPUT_MODULE_PREFIX_STRIP", "")
-        run_mutmut.app([])
+        input_values = {
+            "INPUT_FILES": "src/mypkg/calc.py",
+            "INPUT_MODULE_PREFIX_STRIP": "",
+        }
+        for name, value in input_values.items():
+            monkeypatch.setenv(name, value)
+            monkeypatch.setitem(local.env, name, value)
+        monkeypatch.setenv("MUTMUT_TEST_SENTINEL", "keep-me")
+        monkeypatch.setitem(local.env, "MUTMUT_TEST_SENTINEL", "keep-me")
+        if exit_code:
+            monkeypatch.setenv("FAKE_MUTMUT_RUN_EXIT", str(exit_code))
+            monkeypatch.setitem(local.env, "FAKE_MUTMUT_RUN_EXIT", str(exit_code))
+
+        if exit_code:
+            with pytest.raises(SystemExit) as excinfo:
+                run_mutmut.app([])
+            assert excinfo.value.code == exit_code, (
+                "mutmut's failure code should still propagate"
+            )
+        else:
+            run_mutmut.app([])
+
         env_dump = (tmp_path / "uv-env.txt").read_text(encoding="utf-8")
         leaked = [line for line in env_dump.splitlines() if line.startswith("INPUT_")]
         assert not leaked, (
             f"no INPUT_* variable should reach the mutmut subprocess, found {leaked}"
+        )
+        assert "MUTMUT_TEST_SENTINEL=keep-me" in env_dump.splitlines(), (
+            "non-INPUT_ environment variables should reach the mutmut subprocess"
+        )
+        for name, value in input_values.items():
+            assert os.environ[name] == value, (
+                f"{name} should be restored in the process environment"
+            )
+            assert local.env[name] == value, (
+                f"{name} should be restored for later calls"
+            )
+
+    @pytest.mark.parametrize(
+        "contents",
+        [
+            pytest.param("[tool.mutmut]\n", id="missing-source-paths"),
+            pytest.param("[tool.mutmut]\nsource_paths = []\n", id="empty-source-paths"),
+        ],
+    )
+    def test_invalid_scope_fails_before_test_only_short_circuit(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        fake_uv: Path,
+        contents: str,
+    ) -> None:
+        """Invalid scope config fails before a changed-file no-op is selected."""
+        self._prepare(tmp_path, monkeypatch)
+        (tmp_path / "pyproject.toml").write_text(contents, encoding="utf-8")
+        monkeypatch.setenv("INPUT_FILES", "tests/test_only.py")
+
+        with pytest.raises(SystemExit) as excinfo:
+            run_mutmut.app([])
+
+        assert excinfo.value.code == 1, (
+            "invalid source configuration must fail the step"
+        )
+        assert not fake_uv.exists(), (
+            "invalid configuration must fail before invoking uv"
         )
 
     def test_test_only_scope_short_circuits_with_summary(

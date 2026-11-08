@@ -79,7 +79,7 @@ def test_bucket_files_partitions_without_loss_or_overlap(
 )
 def test_module_globs_are_deduplicated_module_patterns(paths: list[str]) -> None:
     """Globs are unique module patterns with no path or suffix residue."""
-    scope = run_mutmut._MutmutScope(source_paths=("src/",))
+    scope = run_mutmut.MutmutScope(source_paths=("src/",))
     globs = run_mutmut.files_to_module_globs(" ".join(paths), "src/", scope)
     # Compare against the expected module path rather than asserting that
     # ".py" is absent: a directory segment may itself be named "py", so
@@ -104,7 +104,7 @@ def test_module_globs_are_deduplicated_module_patterns(paths: list[str]) -> None
 @given(paths=st.lists(TEST_LIKE_FILE, max_size=8))
 def test_configured_mutable_scope_keeps_test_like_modules(paths: list[str]) -> None:
     """Caller source paths, not test-like names, decide mutability."""
-    scope = run_mutmut._MutmutScope(source_paths=("src/",))
+    scope = run_mutmut.MutmutScope(source_paths=("src/",))
     globs = run_mutmut.files_to_module_globs(" ".join(paths), "src/", scope)
     expected = list(
         dict.fromkeys(
@@ -122,8 +122,10 @@ def test_test_only_paths_outside_source_scope_produce_no_globs(
     paths: list[str],
 ) -> None:
     """Conventional test files outside mutmut's source root are not mutated."""
-    scope = run_mutmut._MutmutScope(source_paths=("src/",))
-    assert run_mutmut.files_to_module_globs(" ".join(paths), "src/", scope) == []
+    scope = run_mutmut.MutmutScope(source_paths=("src/",))
+    assert run_mutmut.files_to_module_globs(" ".join(paths), "src/", scope) == [], (
+        f"test-only paths outside source_paths must produce no globs: {paths}"
+    )
 
 
 @given(
@@ -139,9 +141,11 @@ def test_workflow_input_filter_selects_only_input_variables(
 
     selected = run_mutmut._workflow_input_env_names(names)
 
-    assert selected == input_names
+    assert selected == input_names, "all and only INPUT_ variables must be selected"
     remaining = {name for name in names if name not in selected}
-    assert remaining == set(other_names)
+    assert remaining == set(other_names), (
+        "non-INPUT_ variables must not be selected for removal"
+    )
 
 
 @given(

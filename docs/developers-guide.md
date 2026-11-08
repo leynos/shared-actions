@@ -2839,6 +2839,13 @@ Internals for maintainers:
   from the optional result files, while a verification step makes missing or
   incomplete evidence an explicit failure. A hard job cancellation can still
   prevent verification and upload from running; no upload is guaranteed then.
+- The mutmut runner removes inherited `INPUT_*` values only while invoking
+  `mutmut run`, because mutmut executes the caller's pytest baseline
+  in-process; the environment is restored before results are collected.
+  Changed-file runs validate `source_paths` before the no-mutable-source
+  short-circuit, while a full run bypasses helper-side scope filtering. Its
+  tests cover these environment, configuration-error and test-only-scope
+  boundaries.
 - Tool version pins default in the workflows because both report
   formats are unstable; a version bump must be paired with a parser check
   (`outcomes.json` fields for cargo-mutants; the `mutmut results --all true`

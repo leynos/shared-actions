@@ -131,8 +131,18 @@ class _MutmutConfigurationTypeError(TypeError):
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class _MutmutScope:
-    """Resolved mutmut source and exclusion patterns."""
+class MutmutScope:
+    """Resolved mutmut source and exclusion patterns.
+
+    Parameters
+    ----------
+    source_paths : tuple[str, ...]
+        Non-empty path patterns that define the caller's mutable source.
+    only_mutate : tuple[str, ...], optional
+        Additional patterns that narrow ``source_paths``.
+    do_not_mutate : tuple[str, ...], optional
+        Patterns excluded from the configured mutable source.
+    """
 
     source_paths: tuple[str, ...]
     only_mutate: tuple[str, ...] = ()
@@ -226,7 +236,7 @@ def _load_mutmut_settings(project_root: Path) -> dict[str, object]:
     return settings
 
 
-def _scope_from_settings(settings: dict[str, object]) -> _MutmutScope:
+def _scope_from_settings(settings: dict[str, object]) -> MutmutScope:
     """Build a validated mutmut scope from its path settings."""
     source_paths = _patterns_from_setting(settings.get("source_paths"), "source_paths")
     if not source_paths:
@@ -234,7 +244,7 @@ def _scope_from_settings(settings: dict[str, object]) -> _MutmutScope:
             "source_paths", "must contain at least one path"
         )
         raise error
-    return _MutmutScope(
+    return MutmutScope(
         source_paths=source_paths,
         only_mutate=_patterns_from_setting(settings.get("only_mutate"), "only_mutate"),
         do_not_mutate=_patterns_from_setting(
@@ -243,7 +253,7 @@ def _scope_from_settings(settings: dict[str, object]) -> _MutmutScope:
     )
 
 
-def _load_mutmut_scope(project_root: Path) -> _MutmutScope:
+def _load_mutmut_scope(project_root: Path) -> MutmutScope:
     """Load and validate the caller's mutmut path filters."""
     return _scope_from_settings(_load_mutmut_settings(project_root))
 
@@ -257,9 +267,7 @@ def _matches_mutmut_pattern(path: PurePosixPath, pattern: str) -> bool:
         return True
 
     path_text = path.as_posix()
-    if fnmatch.fnmatchcase(path_text, normalized) or fnmatch.fnmatchcase(
-        path.name, normalized
-    ):
+    if fnmatch.fnmatchcase(path_text, normalized):
         return True
 
     directory = normalized.rstrip("/")
@@ -268,7 +276,7 @@ def _matches_mutmut_pattern(path: PurePosixPath, pattern: str) -> bool:
     return False
 
 
-def _is_mutable_source_file(path: PurePosixPath, scope: _MutmutScope) -> bool:
+def _is_mutable_source_file(path: PurePosixPath, scope: MutmutScope) -> bool:
     """Return whether mutmut's configured path filters include ``path``."""
     in_source_paths = any(
         _matches_mutmut_pattern(path, pattern) for pattern in scope.source_paths
@@ -284,7 +292,7 @@ def _is_mutable_source_file(path: PurePosixPath, scope: _MutmutScope) -> bool:
     )
 
 
-def _module_glob_for(name: str, prefix_strip: str, scope: _MutmutScope) -> str | None:
+def _module_glob_for(name: str, prefix_strip: str, scope: MutmutScope) -> str | None:
     """Translate one configured mutable Python file into a mutant glob."""
     path = PurePosixPath(name)
     if path.suffix != ".py":
@@ -303,7 +311,7 @@ def _module_glob_for(name: str, prefix_strip: str, scope: _MutmutScope) -> str |
 
 
 def files_to_module_globs(
-    files: str, prefix_strip: str, scope: _MutmutScope
+    files: str, prefix_strip: str, scope: MutmutScope
 ) -> list[str]:
     """Translate changed Python files into mutmut mutant-name globs.
 
@@ -316,7 +324,7 @@ def files_to_module_globs(
         Space-separated file paths.
     prefix_strip : str
         Path prefix (e.g. ``src/``) removed before translation.
-    scope : _MutmutScope
+    scope : MutmutScope
         The caller's ``source_paths``, ``only_mutate``, and ``do_not_mutate``
         settings.
 
@@ -532,23 +540,26 @@ def main(
     SystemExit
         Exits with mutmut's code when ``mutmut run`` fails (failing
         baseline, usage error), and with 1 when ``GITHUB_STEP_SUMMARY``
-        is unset or the mutmut source configuration cannot be loaded.
+        is unset or a scoped run's mutmut source configuration cannot be
+        loaded.
     """
     summary_env = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_env:
         fail("GITHUB_STEP_SUMMARY is not set")
 
-    try:
-        scope = _load_mutmut_scope(Path.cwd())
-    except (configparser.Error, OSError, TypeError, ValueError) as error:
-        fail(f"Could not load mutmut source configuration: {error}")
+    globs: list[str] = []
+    if files.strip():
+        try:
+            scope = _load_mutmut_scope(Path.cwd())
+        except (configparser.Error, OSError, TypeError, ValueError) as error:
+            fail(f"Could not load mutmut source configuration: {error}")
 
-    globs = files_to_module_globs(files, module_prefix_strip, scope)
-    if files.strip() and not globs:
-        emit("mutation_mutmut_outcome", "changed files contain no mutable source")
-        Path(results_file).write_text("", encoding="utf-8")
-        _write_no_source_summary(summary_env)
-        return
+        globs = files_to_module_globs(files, module_prefix_strip, scope)
+        if not globs:
+            emit("mutation_mutmut_outcome", "changed files contain no mutable source")
+            Path(results_file).write_text("", encoding="utf-8")
+            _write_no_source_summary(summary_env)
+            return
 
     _run_mutation_testing(globs, mutmut_version, extra_args)
     _publish_results(mutmut_version, results_file, summary_env)

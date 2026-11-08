@@ -2835,13 +2835,18 @@ Internals for maintainers:
   `files_to_module_globs(files, prefix_strip, scope)` to turn eligible changed
   Python paths into de-duplicated module globs. Read filters from
   `[tool.mutmut]` in `pyproject.toml`, falling back to `[mutmut]` in
-  `setup.cfg` only when the TOML table is absent. Require non-empty
-  `source_paths`; let `only_mutate` narrow that scope and `do_not_mutate`
-  exclude paths. Patterns match normalized paths, with plain directory patterns
-  including descendants; matching a basename alone is insufficient. Test-like
-  names under configured source paths remain mutable unless explicitly
-  excluded. Scoped runs validate the filters before the no-source
-  short-circuit; full runs bypass this helper filtering.
+  `setup.cfg` only when the TOML table is absent. The TOML tables must have
+  their expected table shape, and each path filter must be a string or an array
+  of strings. Require non-empty `source_paths`; let `only_mutate` narrow that
+  scope and `do_not_mutate` exclude paths. Patterns match normalized paths,
+  with plain directory patterns including descendants; matching a basename
+  alone is insufficient. Test-like names under configured source paths remain
+  mutable unless explicitly excluded. Scoped runs validate the filters before
+  the no-source short-circuit; full runs bypass this helper filtering. A
+  changed-file run with no mutable source writes an empty results artefact and
+  the `changed files contain no mutable source` note to the job summary. See the
+  [mutmut workflow guide](mutation-mutmut-workflow.md) for the caller-facing
+  configuration and behaviour.
 - The mutmut workflow runs its outer command through
   `mutation_capture.py`, so failures during `uv` startup or the original-source
   baseline leave bounded stdout/stderr evidence even when mutmut never writes

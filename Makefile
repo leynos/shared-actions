@@ -183,8 +183,11 @@ lint: interrogate ## Check code and actions, including dead production code
 lint-clippy: ## Run Clippy on rust-toy-app with warnings denied
 	cd rust-toy-app && cargo clippy --all-targets --all-features -- -D warnings
 
-lint-whitaker: ## Run the Whitaker Dylint suite on rust-toy-app with warnings denied
-	cd rust-toy-app && RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
+# Run only the aggregate library: the rolling installer can expose a lint both
+# as a standalone library and through the suite, which makes `--all` register it
+# twice.
+lint-whitaker: ## Run the aggregate Whitaker Dylint suite on rust-toy-app
+	cd rust-toy-app && RUSTFLAGS="-D warnings" $(WHITAKER) --lib whitaker_suite -- --all-targets --all-features
 
 skylos-allow: export SKYLOS_SYMBOL = $(value SYMBOL)
 skylos-allow: export SKYLOS_REASON = $(value REASON)

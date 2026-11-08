@@ -2831,6 +2831,17 @@ Internals for maintainers:
   `mutation_summarize_cargo.py` (merges shard `outcomes.json` artefacts and
   renders the job summary), and `mutation_run_mutmut.py` (module-glob scoping,
   results parsing, and summary in one pass — mutmut has no shard support).
+- Mutmut change-file scoping uses `MutmutScope` and
+  `files_to_module_globs(files, prefix_strip, scope)` to turn eligible changed
+  Python paths into de-duplicated module globs. Read filters from
+  `[tool.mutmut]` in `pyproject.toml`, falling back to `[mutmut]` in
+  `setup.cfg` only when the TOML table is absent. Require non-empty
+  `source_paths`; let `only_mutate` narrow that scope and `do_not_mutate`
+  exclude paths. Patterns match normalized paths, with plain directory patterns
+  including descendants; matching a basename alone is insufficient. Test-like
+  names under configured source paths remain mutable unless explicitly
+  excluded. Scoped runs validate the filters before the no-source
+  short-circuit; full runs bypass this helper filtering.
 - The mutmut workflow runs its outer command through
   `mutation_capture.py`, so failures during `uv` startup or the original-source
   baseline leave bounded stdout/stderr evidence even when mutmut never writes

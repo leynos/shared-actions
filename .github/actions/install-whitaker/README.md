@@ -83,7 +83,7 @@ home would otherwise keep serving an installer built for an older version.
 | Name                     | Type   | Description                                                     | Required | Default        |
 | ------------------------ | ------ | --------------------------------------------------------------- | -------- | -------------- |
 | `cargo-home`             | string | Cargo home holding the cached installer binary                  | no       | `~/.cargo`     |
-| `installer-version`      | string | Version of `whitaker-installer`, 0.2.9 or later                 | no       | `0.2.11`       |
+| `installer-version`      | string | Version of `whitaker-installer`, 0.2.9 or later                 | no       | `0.2.12`       |
 | `installer-sha256`       | string | Digest for an asset the manifest does not pin                   | no       | `""`           |
 | `bootstrap-cache-salt`   | string | Text mixed into the bootstrap cache key, for tests pairing runs | no       | `""`           |
 | `clippy-snapshot-sha256` | string | Digest for a snapshot bundle the manifest does not pin          | no       | `""`           |
@@ -105,7 +105,9 @@ verified against as `whitaker-clippy-snapshot-<commit>.bundle`, with a
    [`clippy-snapshots.tsv`](clippy-snapshots.tsv) and its digest from
    [`snapshot-digests.sha256`](snapshot-digests.sha256) (or the
    `clippy-snapshot-sha256` input for an unpinned bundle; a value that
-   disagrees with a pinned one is rejected);
+   disagrees with a pinned one is rejected). A digest line may end with an
+   installer version, because a release can publish different bytes for the
+   same commit's bundle; the line for the requested version wins;
 2. restores the `whitaker-bootstrap/` directory (snapshot, `bootstrap.json`
    and the driver built on first use) from a cache keyed by installer version,
    Dylint release, Clippy commit and toolchain, and wipes only that directory,

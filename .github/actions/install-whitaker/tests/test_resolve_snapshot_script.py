@@ -35,10 +35,15 @@ SUPPLIED = "b" * 64
 require_posix_host()
 
 
-def _resolve(tmp_path: Path, version: str, **overrides: str) -> dict[str, str]:
+def _resolve(
+    tmp_path: Path, version: str, manifest_text: str | None = None, **overrides: str
+) -> dict[str, str]:
     """Run the script and parse its `key=value` record."""
     manifest = tmp_path / "snapshot-digests.sha256"
-    manifest.write_text(f"{PINNED}  {BUNDLE}\n", encoding="utf-8")
+    manifest.write_text(
+        manifest_text if manifest_text is not None else f"{PINNED}  {BUNDLE}\n",
+        encoding="utf-8",
+    )
     env = {
         **ambient_env(),
         "WHITAKER_INSTALLER_VERSION": version,
@@ -84,6 +89,42 @@ class TestResolveSnapshot:
             "trust-anchor": "pinned",
         }
 
+    def test_a_line_naming_the_installer_version_wins_for_that_version(
+        self, tmp_path: Path
+    ) -> None:
+        """A release whose bundle bytes differ pins its own digest.
+
+        The same commit's bundle is rebuilt for each release and is not
+        byte-identical across them, so one asset name can carry a general
+        digest and a version-specific one. The version-specific line applies
+        only to its version, wherever it sits in the file.
+        """
+        text = f"{SUPPLIED}  {BUNDLE}  0.2.12\n{PINNED}  {BUNDLE}\n"
+        assert _resolve(tmp_path, "0.2.12", text)["expected-sha"] == SUPPLIED
+        assert _resolve(tmp_path, "0.2.11", text)["expected-sha"] == PINNED
+
+    def test_a_version_specific_line_alone_does_not_pin_other_versions(
+        self, tmp_path: Path
+    ) -> None:
+        """Without a general line, another version stays unpinned and fails closed."""
+        record = _resolve(tmp_path, "0.2.11", f"{SUPPLIED}  {BUNDLE}  0.2.12\n")
+        assert record["status"] == "error", record
+        assert record["error-kind"] == "unpinned-digest", record
+
+    def test_the_shipped_manifest_pins_the_0_2_12_bundle_as_published(
+        self, tmp_path: Path
+    ) -> None:
+        """0.2.12 resolves, from the real manifest, to its own pinned digest."""
+        record = _resolve(tmp_path, "0.2.12", MANIFEST.read_text(encoding="utf-8"))
+        assert record["status"] == "install", record
+        assert record["trust-anchor"] == "pinned", record
+        assert (
+            record["expected-sha"]
+            != _resolve(tmp_path, "0.2.11", MANIFEST.read_text(encoding="utf-8"))[
+                "expected-sha"
+            ]
+        )
+
     def test_a_supplied_digest_serves_an_unpinned_bundle(self, tmp_path: Path) -> None:
         """Without a pin the caller's digest is the anchor, and says so."""
         empty = tmp_path / "empty.sha256"
@@ -100,7 +141,7 @@ class TestResolveSnapshot:
     @pytest.mark.parametrize(
         ("version", "overrides", "kind"),
         [
-            pytest.param("0.2.12", {}, "unlisted-version", id="unlisted-version"),
+            pytest.param("0.2.13", {}, "unlisted-version", id="unlisted-version"),
             pytest.param(
                 "0.2.11",
                 {"WHITAKER_SNAPSHOT_SHA256": SUPPLIED},
@@ -307,7 +348,16 @@ class TestVersionThreshold:
     @_PROPERTY
     @given(
         version=st.sampled_from(
-            ["0.2.11", "0.2.12", "0.2.99", "0.3.0", "0.10.0", "1.0.0", "2.4.1"]
+            [
+                "0.2.11",
+                "0.2.12",
+                "0.2.13",
+                "0.2.99",
+                "0.3.0",
+                "0.10.0",
+                "1.0.0",
+                "2.4.1",
+            ]
         )
     )
     def test_every_later_version_resolves_to_install_or_a_closed_error(
@@ -315,7 +365,7 @@ class TestVersionThreshold:
     ) -> None:
         """A bootstrap-era version is installed if tabled and refused if not."""
         record = _resolve(tmp_path_factory.mktemp("later"), version)
-        if version == "0.2.11":
+        if version in {"0.2.11", "0.2.12"}:
             assert record["status"] == "install"
         else:
             assert record["status"] == "error", record

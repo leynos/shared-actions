@@ -14,8 +14,9 @@ file.
   assets, and `clippy-snapshots.tsv` maps 0.2.12 to the same Clippy snapshot as
   0.2.11. The 0.2.9, 0.2.10 and 0.2.11 digests stay pinned. The 0.2.12 release
   rebuilt the Clippy snapshot bundle for the same commit with different bytes,
-  so `snapshot-digests.sha256` lines may now end with an installer version and
-  the line for the requested version wins; 0.2.12 pins its own bundle digest.
+  so `snapshot-digests.sha256` now keys each digest by installer version and
+  asset name: 0.2.11 and 0.2.12 each pin the bundle their own release
+  published, and a version with no line fails closed as unpinned.
 - Consume Whitaker's reproducible Dylint bootstrap (installer 0.2.11, issue
   #650). Dylint 6.0.1 pinned Clippy to the mutable branch `master`, which Rust
   renamed, so every cold driver build failed. `installer-version` now defaults

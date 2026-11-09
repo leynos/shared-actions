@@ -41,7 +41,9 @@ def _resolve(
     """Run the script and parse its `key=value` record."""
     manifest = tmp_path / "snapshot-digests.sha256"
     manifest.write_text(
-        manifest_text if manifest_text is not None else f"{PINNED}  {BUNDLE}\n",
+        manifest_text
+        if manifest_text is not None
+        else f"{PINNED}  {BUNDLE}  {version}\n",
         encoding="utf-8",
     )
     env = {
@@ -89,41 +91,51 @@ class TestResolveSnapshot:
             "trust-anchor": "pinned",
         }
 
-    def test_a_line_naming_the_installer_version_wins_for_that_version(
+    def test_each_version_resolves_to_the_digest_pinned_for_it(
         self, tmp_path: Path
     ) -> None:
         """A release whose bundle bytes differ pins its own digest.
 
         The same commit's bundle is rebuilt for each release and is not
-        byte-identical across them, so one asset name can carry a general
-        digest and a version-specific one. The version-specific line applies
-        only to its version, wherever it sits in the file.
+        byte-identical across them, so one asset name carries one digest per
+        installer version, wherever the lines sit in the file.
         """
-        text = f"{SUPPLIED}  {BUNDLE}  0.2.12\n{PINNED}  {BUNDLE}\n"
+        text = f"{SUPPLIED}  {BUNDLE}  0.2.12\n{PINNED}  {BUNDLE}  0.2.11\n"
         assert _resolve(tmp_path, "0.2.12", text)["expected-sha"] == SUPPLIED
         assert _resolve(tmp_path, "0.2.11", text)["expected-sha"] == PINNED
 
-    def test_a_version_specific_line_alone_does_not_pin_other_versions(
-        self, tmp_path: Path
-    ) -> None:
-        """Without a general line, another version stays unpinned and fails closed."""
-        record = _resolve(tmp_path, "0.2.11", f"{SUPPLIED}  {BUNDLE}  0.2.12\n")
-        assert record["status"] == "error", record
-        assert record["error-kind"] == "unpinned-digest", record
+    def test_a_version_without_its_own_line_is_unpinned(self, tmp_path: Path) -> None:
+        """Another version's line, or a line naming no version, pins nothing."""
+        for text in (
+            f"{SUPPLIED}  {BUNDLE}  0.2.12\n",
+            f"{SUPPLIED}  {BUNDLE}\n",
+        ):
+            record = _resolve(tmp_path, "0.2.11", text)
+            assert record["status"] == "error", record
+            assert record["error-kind"] == "unpinned-digest", record
 
-    def test_the_shipped_manifest_pins_the_0_2_12_bundle_as_published(
+    def test_an_install_offered_another_versions_bytes_is_refused(
         self, tmp_path: Path
     ) -> None:
-        """0.2.12 resolves, from the real manifest, to its own pinned digest."""
-        record = _resolve(tmp_path, "0.2.12", MANIFEST.read_text(encoding="utf-8"))
-        assert record["status"] == "install", record
-        assert record["trust-anchor"] == "pinned", record
-        assert (
-            record["expected-sha"]
-            != _resolve(tmp_path, "0.2.11", MANIFEST.read_text(encoding="utf-8"))[
-                "expected-sha"
-            ]
-        )
+        """0.2.12 offered the digest of 0.2.11's bundle conflicts with its pin."""
+        text = MANIFEST.read_text(encoding="utf-8")
+        old = _resolve(tmp_path, "0.2.11", text)["expected-sha"]
+        record = _resolve(tmp_path, "0.2.12", text, WHITAKER_SNAPSHOT_SHA256=old)
+        assert record["status"] == "error", record
+        assert record["error-kind"] == "digest-conflict", record
+
+    def test_the_shipped_manifest_pins_each_version_to_its_own_bundle(
+        self, tmp_path: Path
+    ) -> None:
+        """0.2.11 and 0.2.12 resolve, from the real manifest, to different digests."""
+        text = MANIFEST.read_text(encoding="utf-8")
+        digests = {}
+        for version in ("0.2.11", "0.2.12"):
+            record = _resolve(tmp_path, version, text)
+            assert record["status"] == "install", record
+            assert record["trust-anchor"] == "pinned", record
+            digests[version] = record["expected-sha"]
+        assert digests["0.2.11"] != digests["0.2.12"]
 
     def test_a_supplied_digest_serves_an_unpinned_bundle(self, tmp_path: Path) -> None:
         """Without a pin the caller's digest is the anchor, and says so."""
@@ -227,7 +239,7 @@ class TestResolveSnapshot:
         install an unverified bundle.
         """
         pinned = {
-            line.split()[1]
+            (line.split()[2], line.split()[1])
             for line in MANIFEST.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.startswith("#")
         }
@@ -236,7 +248,9 @@ class TestResolveSnapshot:
                 continue
             version, commit, *_ = line.split()
             bundle = f"whitaker-clippy-snapshot-{commit}.bundle"
-            assert bundle in pinned, f"{version}: {bundle} has no pinned digest"
+            assert (version, bundle) in pinned, (
+                f"{version}: {bundle} has no pinned digest"
+            )
 
 
 class TestResolutionIsPure:
@@ -270,7 +284,7 @@ class TestResolutionIsPure:
         output.write_text("", encoding="utf-8")
         summary.write_text("", encoding="utf-8")
         manifest = tmp_path / "snapshot-digests.sha256"
-        manifest.write_text(f"{PINNED}  {BUNDLE}\n", encoding="utf-8")
+        manifest.write_text(f"{PINNED}  {BUNDLE}  0.2.11\n", encoding="utf-8")
         before = sorted(
             (path.relative_to(tmp_path), path.read_bytes())
             for path in tmp_path.rglob("*")

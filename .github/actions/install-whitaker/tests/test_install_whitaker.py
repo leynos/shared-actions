@@ -33,7 +33,7 @@ _PINNED_TARGETS = (
     "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-gnu",
 )
-_PINNED_VERSIONS = ("0.2.9", "0.2.10", "0.2.11")
+_PINNED_VERSIONS = ("0.2.9", "0.2.10", "0.2.11", "0.2.12")
 
 
 def _step_env(name: str) -> dict[str, str]:
@@ -72,7 +72,7 @@ DOCUMENTED_INPUTS: dict[str, dict[str, object]] = {
             "always passes."
         ),
         "required": False,
-        "default": "0.2.11",
+        "default": "0.2.12",
     },
     "installer-sha256": {
         "description": (

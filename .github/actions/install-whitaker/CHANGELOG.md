@@ -5,6 +5,14 @@ file.
 
 ## v1.0.0 (Unreleased)
 
+- Default to `whitaker-installer` 0.2.12 (whitaker issue #565). 0.2.12 prunes
+  every staged lint library it was not asked for, by staged file name rather
+  than by a compiled-in crate list, so a library for a crate it does not know
+  can no longer sit beside the suite and make rustc reject the duplicate lint
+  registration. It also checks that the prebuilt archive delivered each
+  requested library. The 0.2.12 archive digests are pinned from the release
+  assets, and `clippy-snapshots.tsv` maps 0.2.12 to the same Clippy snapshot as
+  0.2.11. The 0.2.9, 0.2.10 and 0.2.11 digests stay pinned.
 - Consume Whitaker's reproducible Dylint bootstrap (installer 0.2.11, issue
   #650). Dylint 6.0.1 pinned Clippy to the mutable branch `master`, which Rust
   renamed, so every cold driver build failed. `installer-version` now defaults

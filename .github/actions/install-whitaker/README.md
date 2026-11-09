@@ -83,7 +83,7 @@ home would otherwise keep serving an installer built for an older version.
 | Name                     | Type   | Description                                                     | Required | Default        |
 | ------------------------ | ------ | --------------------------------------------------------------- | -------- | -------------- |
 | `cargo-home`             | string | Cargo home holding the cached installer binary                  | no       | `~/.cargo`     |
-| `installer-version`      | string | Version of `whitaker-installer`, 0.2.9 or later                 | no       | `0.2.11`       |
+| `installer-version`      | string | Version of `whitaker-installer`, 0.2.9 or later                 | no       | `0.2.12`       |
 | `installer-sha256`       | string | Digest for an asset the manifest does not pin                   | no       | `""`           |
 | `bootstrap-cache-salt`   | string | Text mixed into the bootstrap cache key, for tests pairing runs | no       | `""`           |
 | `clippy-snapshot-sha256` | string | Digest for a snapshot bundle the manifest does not pin          | no       | `""`           |

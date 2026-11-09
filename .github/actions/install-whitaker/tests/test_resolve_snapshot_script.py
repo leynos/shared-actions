@@ -100,7 +100,7 @@ class TestResolveSnapshot:
     @pytest.mark.parametrize(
         ("version", "overrides", "kind"),
         [
-            pytest.param("0.2.12", {}, "unlisted-version", id="unlisted-version"),
+            pytest.param("0.2.13", {}, "unlisted-version", id="unlisted-version"),
             pytest.param(
                 "0.2.11",
                 {"WHITAKER_SNAPSHOT_SHA256": SUPPLIED},
@@ -307,7 +307,16 @@ class TestVersionThreshold:
     @_PROPERTY
     @given(
         version=st.sampled_from(
-            ["0.2.11", "0.2.12", "0.2.99", "0.3.0", "0.10.0", "1.0.0", "2.4.1"]
+            [
+                "0.2.11",
+                "0.2.12",
+                "0.2.13",
+                "0.2.99",
+                "0.3.0",
+                "0.10.0",
+                "1.0.0",
+                "2.4.1",
+            ]
         )
     )
     def test_every_later_version_resolves_to_install_or_a_closed_error(
@@ -315,7 +324,7 @@ class TestVersionThreshold:
     ) -> None:
         """A bootstrap-era version is installed if tabled and refused if not."""
         record = _resolve(tmp_path_factory.mktemp("later"), version)
-        if version == "0.2.11":
+        if version in {"0.2.11", "0.2.12"}:
             assert record["status"] == "install"
         else:
             assert record["status"] == "error", record

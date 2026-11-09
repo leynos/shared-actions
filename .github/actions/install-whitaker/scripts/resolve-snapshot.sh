@@ -58,14 +58,12 @@ resolve_snapshot() {
     error manifest-unreadable "could not read the snapshot digest manifest at ${WHITAKER_SNAPSHOT_DIGEST_MANIFEST:-}"
     return 0
   fi
-  # A line may carry a third field naming the installer version whose release
-  # published those bytes: the same commit's bundle is rebuilt for each
-  # release and is not byte-identical across them. A line for this version
-  # wins; a line without a version applies to every version.
+  # Each line pins the bundle one installer version's own release published:
+  # the same commit's bundle is rebuilt for each release and is not
+  # byte-identical across them. The digest is therefore keyed by installer
+  # version and asset name, and a version with no line is unpinned.
   if ! pinned="$(awk -v a="$bundle" -v v="$version" '
-    $2 == a && $3 == v { exact = $1 }
-    $2 == a && $3 == "" && generic == "" { generic = $1 }
-    END { print (exact != "" ? exact : generic) }
+    $2 == a && $3 == v { print $1; exit }
   ' "$WHITAKER_SNAPSHOT_DIGEST_MANIFEST")"; then
     error manifest-unreadable "could not read the snapshot digest manifest at ${WHITAKER_SNAPSHOT_DIGEST_MANIFEST}"
     return 0

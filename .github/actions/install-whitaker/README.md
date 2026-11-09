@@ -105,9 +105,10 @@ verified against as `whitaker-clippy-snapshot-<commit>.bundle`, with a
    [`clippy-snapshots.tsv`](clippy-snapshots.tsv) and its digest from
    [`snapshot-digests.sha256`](snapshot-digests.sha256) (or the
    `clippy-snapshot-sha256` input for an unpinned bundle; a value that
-   disagrees with a pinned one is rejected). A digest line may end with an
-   installer version, because a release can publish different bytes for the
-   same commit's bundle; the line for the requested version wins;
+   disagrees with a pinned one is rejected). Each digest line names the
+   installer version whose release published the bundle, because a release can
+   publish different bytes for the same commit's bundle; a version with no line
+   is unpinned;
 2. restores the `whitaker-bootstrap/` directory (snapshot, `bootstrap.json`
    and the driver built on first use) from a cache keyed by installer version,
    Dylint release, Clippy commit and toolchain, and wipes only that directory,

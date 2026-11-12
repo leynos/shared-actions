@@ -296,6 +296,7 @@ def _ensure(
         "GITHUB_API_URL": "https://api.example",
         "GITHUB_REPOSITORY": "o/r",
         "GITHUB_SHA": "abc",
+        "GITHUB_WORKSPACE": str(work),
     }
     subprocess.run(  # noqa: S603,TID251 - fixed argv, test-only
         ["bash", "-c", step["run"]],  # noqa: S607
@@ -329,6 +330,16 @@ def test_a_404_from_an_unreadable_repository_is_not_an_absent_file(
     """A 404 counts as absence only when the commit itself can be read."""
     with pytest.raises(subprocess.CalledProcessError):
         _ensure(tmp_path, committed="private", restored=False)
+
+
+def test_an_absolute_workspace_path_is_made_repository_relative(
+    tmp_path: Path,
+) -> None:
+    """The contents API takes a repository path, not a runner path."""
+    run = _step(PUBLISH_YML, "Ensure baseline files")["run"]
+
+    assert '${file#"${GITHUB_WORKSPACE}"/}' in run
+    assert "contents/${encoded}" in run
 
 
 def test_a_restored_baseline_is_never_replaced_by_the_committed_one(

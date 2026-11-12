@@ -122,7 +122,13 @@ FOREIGN_INPUTS: typ.Final[tuple[str, ...]] = ("github-token", "repository", "run
 
 def _this_run(step: dict[str, object]) -> bool:
     """Return whether a download always runs and reads only this run's artefacts."""
-    return _reliable(step) and not any(_input(step, key) for key in FOREIGN_INPUTS)
+    path = str(_input(step, "path") or "")
+    # `download-artifact` expands `~`; the uploader reads its path literally.
+    return (
+        _reliable(step)
+        and not any(_input(step, key) for key in FOREIGN_INPUTS)
+        and not path.startswith("~")
+    )
 
 
 def _landed(download: dict[str, object], written: object) -> str:

@@ -210,3 +210,14 @@ def test_a_merge_redirecting_to_a_dot_slash_path_is_read() -> None:
         "output-path: coverage.xml", "output-path: leg.xml", 1
     )
     assert wiring_violations(load_workflow(text)) == []
+
+
+def test_a_tilde_download_path_is_refused() -> None:
+    """`download-artifact` expands `~`; the CodeScene uploader does not."""
+    download = DOWNLOAD + "          path: ~/reports\n"
+    text = _split(upload_job=UPLOAD_JOB.replace(DOWNLOAD, download)).replace(
+        "          path: coverage.xml\n          mode: upload",
+        "          path: ~/reports/coverage.xml\n          mode: upload",
+    )
+    found = violations(tree(coverage_main=text))
+    assert any("the upload reads" in f for f in found), found

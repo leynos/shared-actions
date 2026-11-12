@@ -107,7 +107,11 @@ runs:
         for file in "$GC_RUST_FILE" "$GC_PYTHON_FILE"; do
           if [ ! -f "$file" ]; then
             mkdir -p "$(dirname "$file")"
-            encoded="$(python3 -c 'import sys, urllib.parse as u; print(u.quote(sys.argv[1], safe="/"))' "$file")"
+            # The API wants a repository-relative path: strip the workspace
+            # prefix a caller may have put on an absolute baseline path.
+            relative="${file#"${GITHUB_WORKSPACE}"/}"
+            relative="${relative#./}"
+            encoded="$(python3 -c 'import sys, urllib.parse as u; print(u.quote(sys.argv[1], safe="/"))' "$relative")"
             # Zero only when the file is established to be absent (404). Any
             # other failure (network, rate limit, server) fails the job rather
             # than letting a lower figure become the baseline.

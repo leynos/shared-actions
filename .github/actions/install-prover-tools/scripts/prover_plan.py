@@ -79,8 +79,8 @@ def _read_version(root: Path, tool: str) -> str:
     return text
 
 
-def plan(request: Request) -> dict[str, str]:
-    """Return the step outputs for *request*, or raise ``PlanError``."""
+def _check_inputs(request: Request) -> None:
+    """Refuse a pin that is not a full SHA and lane words a key cannot carry."""
     if not _SHA.fullmatch(request.sha):
         _refuse(
             "prover-tools-sha must be a full 40-character lower-case commit "
@@ -89,17 +89,11 @@ def plan(request: Request) -> dict[str, str]:
     for name, value in (("runner-image", request.runner_image), ("lane", request.lane)):
         if not _LANE_WORD.fullmatch(value):
             _refuse(f"{name} holds characters a cache key cannot carry")
-    selected = _select(request.tools)
-    # Absolute, because the tool resolves a relative install directory against
-    # the repository root and a path that already names it would be doubled.
-    root = request.repo_root.resolve()
-    outputs = {
-        "source": f"{SOURCE_ROOT}{request.sha}",
-        "tools": " ".join(selected),
-        "kani": str("kani" in selected).lower(),
-        "verus": str("verus" in selected).lower(),
-        "z3": str("z3" in selected).lower(),
-    }
+
+
+def _keys(request: Request, root: Path, selected: tuple[str, ...]) -> dict[str, str]:
+    """Return each selected tool's version and cache key."""
+    outputs: dict[str, str] = {}
     short = request.sha[:12]
     for tool in selected:
         # Z3 has no version file: the tool pins its solver per revision, so the
@@ -110,19 +104,43 @@ def plan(request: Request) -> dict[str, str]:
             f"prover-tools-v1-{request.lane}-{request.runner_image}"
             f"-{tool}-{version}-{short}"
         )
-    for tool in ("kani", "z3"):
-        if tool in selected:
-            outputs[f"{tool}-cache-dir"] = str(request.cache_root / tool)
+    return outputs
+
+
+def _directories(
+    request: Request, root: Path, selected: tuple[str, ...], versions: dict[str, str]
+) -> dict[str, str]:
+    """Return the cache and install directories each selected tool uses."""
+    outputs = {
+        f"{tool}-cache-dir": str(request.cache_root / tool)
+        for tool in ("kani", "z3")
+        if tool in selected
+    }
     if "verus" in selected:
-        default = root / ".verus" / outputs["verus-version"]
+        default = root / ".verus" / versions["verus-version"]
         outputs["verus-install-dir"] = request.verus_install_dir or str(default)
     if "z3" in selected:
-        outputs["z3-install-dir"] = request.z3_install_dir or str(
-            root / ".verus" / "z3"
-        )
+        default = root / ".verus" / "z3"
+        outputs["z3-install-dir"] = request.z3_install_dir or str(default)
     if "kani" in selected:
         outputs["kani-install-dir"] = request.kani_install_dir
     return outputs
+
+
+def plan(request: Request) -> dict[str, str]:
+    """Return the step outputs for *request*, or raise ``PlanError``."""
+    _check_inputs(request)
+    selected = _select(request.tools)
+    # Absolute, because the tool resolves a relative install directory against
+    # the repository root and a path that already names it would be doubled.
+    root = request.repo_root.resolve()
+    outputs = {
+        "source": f"{SOURCE_ROOT}{request.sha}",
+        "tools": " ".join(selected),
+        **{tool: str(tool in selected).lower() for tool in TOOLS},
+    }
+    keys = _keys(request, root, selected)
+    return {**outputs, **keys, **_directories(request, root, selected, keys)}
 
 
 def _emit(outputs: cabc.Mapping[str, str], stream: typ.TextIO) -> None:

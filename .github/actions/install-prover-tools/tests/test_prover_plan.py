@@ -115,7 +115,7 @@ def test_a_missing_version_file_is_named(repo: Path) -> None:
     """The error says which file is absent rather than failing obscurely."""
     (repo / "tools" / "verus" / "VERSION").unlink()
 
-    with pytest.raises(prover_plan.PlanError, match="tools/verus/VERSION"):
+    with pytest.raises(prover_plan.PlanError, match=r"tools.verus.VERSION"):
         prover_plan.plan(_request(repo))
 
 

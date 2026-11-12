@@ -131,6 +131,8 @@ runs:
         prover() { uv tool run --from "$SOURCE" prover-tools "$@"; }
         if [ "$WANT_KANI" = true ]; then
           kani_bin="${KANI_DIR:-${CARGO_HOME:-$HOME/.cargo}/bin}"
+          # Absolute, so the tool's repo-root base and the PATH entry agree.
+          case "$kani_bin" in /*) ;; *) kani_bin="$PWD/$kani_bin" ;; esac
           # Always explicit: the tool also reads KANI_INSTALL_DIR from the
           # environment, which would move the install away from the PATH entry.
           prover kani install --repo-root "$ROOT" --cache-dir "$KANI_CACHE" \

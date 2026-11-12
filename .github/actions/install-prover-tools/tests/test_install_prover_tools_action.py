@@ -87,3 +87,11 @@ def test_the_kani_install_directory_is_always_explicit(
     install = next(s for s in _steps(manifest) if s.get("id") == "install")
     assert '--install-dir "$kani_bin"' in install["run"], "the flag is unconditional"
     assert "kani_args" not in install["run"], "no conditional flag list remains"
+
+
+def test_the_kani_install_directory_is_made_absolute(
+    manifest: dict[str, typ.Any],
+) -> None:
+    """A relative CARGO_HOME cannot split the install from the PATH entry."""
+    install = next(s for s in _steps(manifest) if s.get("id") == "install")
+    assert 'kani_bin="$PWD/$kani_bin"' in install["run"], "relative paths are anchored"

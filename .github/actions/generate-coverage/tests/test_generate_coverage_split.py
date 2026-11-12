@@ -249,11 +249,13 @@ def test_the_committed_baseline_is_read_without_a_checkout() -> None:
         "checkout" in str(step.get("uses", "")) for step in _steps(PUBLISH_YML)
     )
     run = _step(PUBLISH_YML, "Ensure baseline files")["run"]
-    assert "contents/${file}?ref=${GITHUB_SHA}" in run
+    assert "contents/${encoded}?ref=${GITHUB_SHA}" in run
     assert names.index("Restore baselines") < names.index("Ensure baseline files")
 
 
-def _ensure(tmp_path: Path, *, committed: str | None, restored: bool) -> Path:
+def _ensure(
+    tmp_path: Path, *, committed: str, restored: bool, check: bool = True
+) -> Path:
     """Run the Ensure step with a stub `curl`; return the working directory."""
     step = _step(PUBLISH_YML, "Ensure baseline files")
     work = tmp_path / "work"
@@ -263,17 +265,20 @@ def _ensure(tmp_path: Path, *, committed: str | None, restored: bool) -> Path:
     # The stub serves `committed` for the Rust file only, and fails (as curl
     # --fail does on a 404) for anything else.
     stub = bindir / "curl"
+    # Serves `committed` for the Rust file and answers 404 for anything else;
+    # a `committed` of "error" answers 500 for every file.
     stub.write_text(
         "#!/usr/bin/env bash\n"
         "out=''; url=''\n"
         'while [ $# -gt 0 ]; do case "$1" in --output) out=$2; shift;; '
         "http*) url=$1;; esac; shift; done\n"
         + (
-            "exit 22\n"
-            if committed is None
+            "printf 500\nexit 0\n"
+            if committed == "error"
             else (
                 'case "$url" in *rust.base*) '
-                f"printf '%s\\n' '{committed}' > \"$out\"; exit 0;; esac; exit 22\n"
+                f"printf '%s\\n' '{committed}' > \"$out\"; printf 200; exit 0;; esac; "
+                "printf 404; exit 0\n"
             )
         )
     )
@@ -294,7 +299,7 @@ def _ensure(tmp_path: Path, *, committed: str | None, restored: bool) -> Path:
         ["bash", "-c", step["run"]],  # noqa: S607
         cwd=work,
         env=env,
-        check=True,
+        check=check,
         capture_output=True,
     )
     return work
@@ -308,6 +313,12 @@ def test_a_miss_starts_from_the_committed_file_and_only_then_from_zero(
 
     assert (work / "rust.base").read_text().strip() == "77.0"
     assert (work / "python.base").read_text().strip() == "0"
+
+
+def test_an_api_failure_is_not_a_missing_file(tmp_path: Path) -> None:
+    """A server error must fail the job, not start the baseline at 0."""
+    with pytest.raises(subprocess.CalledProcessError):
+        _ensure(tmp_path, committed="error", restored=False)
 
 
 def test_a_restored_baseline_is_never_replaced_by_the_committed_one(

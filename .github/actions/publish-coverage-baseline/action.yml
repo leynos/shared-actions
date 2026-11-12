@@ -107,17 +107,29 @@ runs:
         for file in "$GC_RUST_FILE" "$GC_PYTHON_FILE"; do
           if [ ! -f "$file" ]; then
             mkdir -p "$(dirname "$file")"
-            if curl --fail --silent --show-error --location \
-                 --header "Authorization: Bearer ${GH_TOKEN}" \
-                 --header 'Accept: application/vnd.github.raw+json' \
-                 --output "$file" \
-                 "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/contents/${file}?ref=${GITHUB_SHA}"; then
-              echo "::notice title=publish-coverage-baseline::no restored baseline for ${file}; using the committed file"
-            else
-              rm -f -- "$file"
-              echo 0 > "$file"
-              echo "::notice title=publish-coverage-baseline::no restored baseline for ${file} and none committed; starting at 0"
-            fi
+            encoded="$(python3 -c 'import sys, urllib.parse as u; print(u.quote(sys.argv[1], safe="/"))' "$file")"
+            # Zero only when the file is established to be absent (404). Any
+            # other failure (network, rate limit, server) fails the job rather
+            # than letting a lower figure become the baseline.
+            status="$(curl --silent --show-error --location \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header 'Accept: application/vnd.github.raw+json' \
+              --output "$file" --write-out '%{http_code}' \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/contents/${encoded}?ref=${GITHUB_SHA}")" || status=000
+            case "$status" in
+              200)
+                echo "::notice title=publish-coverage-baseline::no restored baseline for ${file}; using the committed file"
+                ;;
+              404)
+                echo 0 > "$file"
+                echo "::notice title=publish-coverage-baseline::no restored baseline for ${file} and none committed; starting at 0"
+                ;;
+              *)
+                rm -f -- "$file"
+                echo "::error title=publish-coverage-baseline::could not read the committed ${file} (HTTP ${status}); refusing to start from 0"
+                exit 1
+                ;;
+            esac
           fi
         done
     - name: Ratchet coverage

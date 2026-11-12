@@ -90,7 +90,9 @@ def plan(request: Request) -> dict[str, str]:
         if not _LANE_WORD.fullmatch(value):
             _refuse(f"{name} holds characters a cache key cannot carry")
     selected = _select(request.tools)
-    root = request.repo_root
+    # Absolute, because the tool resolves a relative install directory against
+    # the repository root and a path that already names it would be doubled.
+    root = request.repo_root.resolve()
     outputs = {
         "source": f"{SOURCE_ROOT}{request.sha}",
         "tools": " ".join(selected),

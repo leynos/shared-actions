@@ -79,12 +79,12 @@ runs:
         # pinned release archive and checks its SHA-256 every time, so no
         # restored file can stand in for a verified one.
         uv tool run --python "$DF12_PYTHON" --from "$spec" -- \
-          df12-duplication install --repository "$DF12_REPOSITORY" ||
+          df12-duplication install --repository="$DF12_REPOSITORY" ||
           fail "df12-duplication install failed" install-failed
 
         status=0
         uv tool run --python "$DF12_PYTHON" --from "$spec" -- \
-          df12-duplication check --repository "$DF12_REPOSITORY" || status=$?
+          df12-duplication check --repository="$DF12_REPOSITORY" || status=$?
 
         echo "exit-status=${status}" >> "${GITHUB_OUTPUT:-/dev/null}"
         case "$status" in

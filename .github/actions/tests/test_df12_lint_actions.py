@@ -124,7 +124,8 @@ def test_clean_run_provisions_the_pinned_spec_and_reports_zero(
     spec = f"df12-python-lints[{extra}] @ {GIT_URL}@{SHA}"
     for call, verb in zip(calls, verbs, strict=True):
         assert call.startswith(f"tool run --python 3.14 --from {spec} -- {name} {verb}")
-        assert call.endswith(f"--repository {tmp_path / 'repo'}")
+        # One argument, so a directory named like an option is not parsed as one.
+        assert call.endswith(f"--repository={tmp_path / 'repo'}")
     assert "exit-status=0" in (tmp_path / "out").read_text("utf-8")
     assert f"metric {name}.result=clean" in result.stdout
 

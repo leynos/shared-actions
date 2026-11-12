@@ -79,7 +79,7 @@ runs:
 
         status=0
         uv tool run --python "$DF12_PYTHON" --from "$spec" -- \
-          df12-skylos check --repository "$DF12_REPOSITORY" || status=$?
+          df12-skylos check --repository="$DF12_REPOSITORY" || status=$?
 
         echo "exit-status=${status}" >> "${GITHUB_OUTPUT:-/dev/null}"
         case "$status" in

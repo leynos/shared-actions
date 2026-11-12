@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import pytest
 from contract_fixtures import PUBLISHER, TREE, tree, violations
+from cv005_contracts.loading import load_workflow
+from cv005_contracts.wiring import wiring_violations
 
 CHECK_AND_UPLOAD = PUBLISHER[
     PUBLISHER.index("      - name: Check for the CodeScene token") :
@@ -159,3 +161,33 @@ def test_a_hidden_report_needs_include_hidden_files() -> None:
     )
     found = violations(tree(coverage_main=hidden))
     assert any("the upload reads" in f for f in found), found
+
+
+def test_the_default_artefact_name_is_applied() -> None:
+    """`upload-artifact` names an unnamed artefact `artifact`."""
+    publish = PUBLISH.replace("          name: coverage-report\n", "")
+    download = DOWNLOAD.replace("coverage-report", "artifact")
+    text = _split(publish=publish, upload_job=UPLOAD_JOB.replace(DOWNLOAD, download))
+    assert violations(tree(coverage_main=text)) == violations(TREE)
+
+
+def test_an_expression_in_the_report_path_proves_nothing() -> None:
+    """`coverage-${{ github.job }}.xml` is a different file in each job."""
+    text = _split(publish=PUBLISH.replace("coverage.xml", "cov-${{ github.job }}.xml"))
+    text = text.replace(
+        "          output-path: coverage.xml\n",
+        "          output-path: cov-${{ github.job }}.xml\n",
+        1,
+    )
+    found = violations(tree(coverage_main=text))
+    assert any("the upload reads" in f for f in found), found
+
+
+def test_a_dot_slash_path_is_the_same_file_in_one_job() -> None:
+    """`./coverage.xml` on both sides of a same-job upload is accepted."""
+    text = PUBLISHER.replace("output-path: coverage.xml", "output-path: ./coverage.xml")
+    text = text.replace(
+        "path: coverage.xml\n          mode", "path: ./coverage.xml\n          mode"
+    )
+    assert text != PUBLISHER
+    assert wiring_violations(load_workflow(text)) == []

@@ -52,11 +52,11 @@ def wiring_violations(document: Document) -> list[str]:
     job_steps = steps(upload_job(document))
     earlier = job_steps[: position(job_steps, upload)]
     written = [
-        (_input(step, "output-path"), _format(step))
+        (_normalised(_input(step, "output-path")), _format(step))
         for step in earlier
-        if invokes(step, COVERAGE_ACTION)
+        if generates_coverage(step)
     ] + _handed_over(document, earlier)
-    read = (posixpath.normpath(str(_upload_path(upload))), _format(upload))
+    read = (_normalised(_upload_path(upload)), _format(upload))
     return (
         []
         if read in written or _merged_into(earlier, read)
@@ -133,6 +133,18 @@ def _landed(download: dict[str, object], written: object) -> str:
     )
 
 
+def _normalised(path: object) -> object:
+    """Return a path with `./` and doubled separators removed; None stays None.
+
+    Examples
+    --------
+    >>> _normalised("./coverage.xml"), _normalised(None)
+    ('coverage.xml', None)
+
+    """
+    return None if path is None else posixpath.normpath(str(path))
+
+
 def _published(
     producer: dict[str, object], artefact: object
 ) -> list[tuple[dict[str, object], object]]:
@@ -148,6 +160,8 @@ def _published(
         if _publishes(publish, artefact)
         for generator in producer_steps[:index]
         if _writes(generator, _input(publish, "path"))
+        # An expression in the path may evaluate differently in each job.
+        and "${{" not in str(_input(publish, "path"))
     ]
 
 
@@ -156,7 +170,7 @@ def _publishes(step: dict[str, object], artefact: object) -> bool:
     return (
         invokes(step, UPLOAD_ARTEFACT_ACTION)
         and _reliable(step)
-        and _input(step, "name") == artefact
+        and (_input(step, "name") or "artifact") == artefact
         and _includes_hidden(step)
     )
 

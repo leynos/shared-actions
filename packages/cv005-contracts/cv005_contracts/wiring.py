@@ -7,6 +7,7 @@ useful to send while every other clause passes.
 
 from __future__ import annotations
 
+import posixpath
 import re
 import typing as typ
 
@@ -17,7 +18,7 @@ from .publisher import (
     upload_job,
     upload_step,
 )
-from .reading import steps
+from .reading import jobs, steps
 
 if typ.TYPE_CHECKING:
     from .loading import Document
@@ -26,8 +27,11 @@ if typ.TYPE_CHECKING:
 def wiring_violations(document: Document) -> list[str]:
     """Require the upload to read the file, in the format, the publisher writes.
 
-    The report must be written earlier in the upload's own job: a generator
-    after the upload, or in another job, leaves the uploader nothing to read
+    The report must be written earlier in the upload's own job, or handed
+    over from a job the upload job `needs` through an unconditional
+    `upload-artifact` and `download-artifact` pair naming the same artefact: a
+    generator after the upload, or in another job with no such hand-over,
+    leaves the uploader nothing to read
     while every other clause passes. An omitted input reads as the action's
     own default, so two absent inputs compare as what each action does
     rather than as equal.
@@ -50,13 +54,91 @@ def wiring_violations(document: Document) -> list[str]:
         (_input(step, "output-path"), _format(step))
         for step in earlier
         if invokes(step, COVERAGE_ACTION)
-    ]
+    ] + _handed_over(document, earlier)
     read = (_upload_path(upload), _format(upload))
     return (
         []
         if read in written or _merged_into(earlier, read)
         else [f"the upload reads {read!r}; earlier steps of its job write {written!r}"]
     )
+
+
+DOWNLOAD_ACTION: typ.Final[str] = "actions/download-artifact"
+UPLOAD_ARTEFACT_ACTION: typ.Final[str] = "actions/upload-artifact"
+
+
+def _reliable(step: dict[str, object]) -> bool:
+    """Return whether a step always runs and fails its job when it fails."""
+    return "if" not in step and "continue-on-error" not in step
+
+
+def _needs(job: dict[str, object]) -> list[object]:
+    """Return a job's `needs` as a list, which YAML allows to be a scalar.
+
+    Examples
+    --------
+    >>> _needs({"needs": "a"}), _needs({"needs": ["a", "b"]}), _needs({})
+    (['a'], ['a', 'b'], [])
+
+    """
+    needed = job.get("needs") or []
+    return (
+        [needed] if isinstance(needed, str) else list(typ.cast("list[object]", needed))
+    )
+
+
+def _handed_over(
+    document: Document, earlier: list[dict[str, object]]
+) -> list[tuple[object, object]]:
+    """Return the reports a job the upload job needs hands over before the upload.
+
+    A report counts when an earlier, unconditional `download-artifact` step of
+    the upload job names an artefact that an unconditional `upload-artifact`
+    step of a needed job, running after that job's generator, publishes from
+    the generator's output path. The downloaded file is the output path's
+    basename under the download's `path`.
+
+    """
+    held = upload_job(document)
+    needed = [name for name in _needs(held) if isinstance(name, str)]
+    delivered: list[tuple[object, object]] = []
+    for download in earlier:
+        if not (invokes(download, DOWNLOAD_ACTION) and _reliable(download)):
+            continue
+        name = _input(download, "name")
+        directory = _input(download, "path") or "."
+        for producer in (jobs(document).get(n) for n in needed):
+            delivered += _published(producer, name, str(directory))
+    return delivered
+
+
+def _published(
+    producer: dict[str, object] | None, artefact: object, directory: str
+) -> list[tuple[object, object]]:
+    """Return the (path, format) pairs a job publishes as `artefact`."""
+    if producer is None or not artefact:
+        return []
+    producer_steps = steps(producer)
+    found: list[tuple[object, object]] = []
+    for index, publish in enumerate(producer_steps):
+        if not (
+            invokes(publish, UPLOAD_ARTEFACT_ACTION)
+            and _reliable(publish)
+            and _input(publish, "name") == artefact
+        ):
+            continue
+        for generator in producer_steps[:index]:
+            written = _input(generator, "output-path")
+            if (
+                invokes(generator, COVERAGE_ACTION)
+                and written
+                and _input(publish, "path") == written
+            ):
+                landed = posixpath.normpath(
+                    posixpath.join(directory, posixpath.basename(str(written)))
+                )
+                found.append((landed, _format(generator)))
+    return found
 
 
 def _input(step: dict[str, object], name: str) -> object:

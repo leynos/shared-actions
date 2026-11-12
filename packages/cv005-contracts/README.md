@@ -74,7 +74,11 @@ the retired checksum names.
   - Concurrency: one ref-keyed group that never cancels, at one scope only.
   - The upload runs in upload mode (`mode` absent, or `upload`; any other
     value is refused), reading the report its own job wrote
-    earlier, from the same commit pin as the generator. An omitted `path` or
+    earlier, or the one a job it `needs` hands over (an unconditional
+    `upload-artifact` of the generator's output path, and an unconditional
+    `download-artifact` of that artefact before the upload, whose `path` plus
+    the file's name is the file the upload reads), from the same commit pin as
+    the generator. An omitted `path` or
     `format` reads as the action's default: `cobertura`, and `coverage.xml`
     or, for `lcov`, `lcov.info`. A report merged from several legs counts
     when an earlier `run` step, after a generator of the same format,

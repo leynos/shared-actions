@@ -18,6 +18,7 @@ GitHub Actions
 | Install makeutil                  | `.github/actions/install-makeutil`                                                 | unreleased   |
 | Install mdtablefix                | `.github/actions/install-mdtablefix`                                               | unreleased   |
 | Install Nixie                     | `.github/actions/install-nixie`                                                    | unreleased   |
+| Install prover tools              | `.github/actions/install-prover-tools`                                             | unreleased   |
 | Install tool                      | `.github/actions/install-tool`                                                     | unreleased   |
 | Install YAML lint tools           | `.github/actions/install-yaml-lint`                                                | unreleased   |
 | Linux packages                    | `.github/actions/linux-packages`                                                   | v1           |

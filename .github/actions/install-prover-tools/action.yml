@@ -217,9 +217,12 @@ runs:
         WANT_Z3: ${{ steps.plan.outputs.z3 }}
         KANI_CACHE: ${{ steps.plan.outputs.kani-cache-dir }}
         Z3_CACHE: ${{ steps.plan.outputs.z3-cache-dir }}
-        SCRATCH: ${{ runner.temp }}/prover-tools-presave
+        TEMP_ROOT: ${{ runner.temp }}
       run: |
         set -euo pipefail
+        # Fresh on every call, so no marker or binary left by an earlier call
+        # or run can make the tool skip the archive it is meant to check.
+        SCRATCH="$(mktemp -d "$TEMP_ROOT/prover-tools-presave.XXXXXX")"
         for name in $(compgen -e | grep -E '^INPUT_'); do unset "$name"; done
         unset KANI KANI_CACHE_DIR KANI_INSTALL_DIR VERUS_INSTALL_DIR VERUS_TARGET \
           Z3_CACHE_DIR Z3_INSTALL_DIR

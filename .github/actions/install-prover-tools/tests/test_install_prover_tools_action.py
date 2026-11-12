@@ -136,3 +136,10 @@ def test_saves_follow_a_digest_check_of_the_archives(
     )
     for step in saves:
         assert "presave.outcome == 'success'" in " ".join(str(step["if"]).split())
+
+
+def test_the_presave_check_uses_a_fresh_directory(manifest: dict[str, typ.Any]) -> None:
+    """A reused scratch directory could hide an unverified archive."""
+    presave = next(s for s in _steps(manifest) if s.get("id") == "presave")
+    assert 'SCRATCH="$(mktemp -d ' in presave["run"], "created fresh on each call"
+    assert "SCRATCH" not in presave["env"], "not a fixed path"

@@ -1,0 +1,11 @@
+[project]
+name = "fx"
+version = "0"
+
+[tool.nose]
+version = "0.20.0"
+roots = ["src"]
+mode = "syntax,semantic,near"
+min-size = 24
+surface = "all"
+top = 0

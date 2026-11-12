@@ -3209,6 +3209,18 @@ substituting the fixture archives' digests for the pinned ones, and must keep
 covering the cold install, the warm cache, a digest mismatch, an unsupported
 platform and a missing `uv`.
 
+## `df12-skylos` and `df12-duplication` action maintenance
+
+Both manifests carry the same `python-lints-sha` default; a test asserts they
+agree. To move the estate, change both defaults, the two READMEs and the users'
+guide together, after the package release is the commit you name. The nose
+digests live in `df12_python_lints/duplication/releases.json` in the package,
+never here. The scripts run against a stubbed `uv` in
+`.github/actions/tests/test_df12_lint_actions.py`; the real package and
+detector run in `.github/workflows/test-df12-lint-actions.yml` over the trees
+under `.github/actions/tests/fixtures/df12`. The commands' own behaviour is
+tested in df12-python-lints, not here.
+
 ## `install-mdtablefix` action contract
 
 The composite action boundary is

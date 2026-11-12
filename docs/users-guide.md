@@ -1761,6 +1761,27 @@ Run the step before the step that runs `make lint`. The binaries are stored in
 while they report the pinned versions. Reference the action by commit SHA so
 Dependabot moves every consumer when the pins change.
 
+## df12 Skylos and duplication gates
+
+The `df12-skylos` and `df12-duplication` actions run the dead-code and
+duplication gates from `df12-python-lints` in CI. Each provisions the package
+at one commit through `uv tool run` (the `skylos` or `duplication` extra), runs
+the installed command, and reports `exit-status` (`0` clean, `1` blocking, `2`
+invalid or failed). `df12-duplication` first runs `install`, which downloads the
+`nose` release named by `[tool.nose].version` and verifies its SHA-256 against
+the digest table shipped in the package, so no digest lives in the action and
+the binary is not cached between runs. The `python-lints-sha` input defaults to
+the commit the estate runs; the repository keeps only its policy
+(`[tool.skylos]`, `[tool.df12_skylos]`, `[tool.nose]`) and exceptions.
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/df12-skylos@<40-hex-commit-sha>
+- uses: leynos/shared-actions/.github/actions/df12-duplication@<40-hex-commit-sha>
+```
+
+When a repository also pins the package for local `make` runs, bump both pins
+together. The per-action READMEs list inputs, outputs and result values.
+
 ## CodeScene coverage checks
 
 `upload-codescene-coverage` installs its default CLI from the committed

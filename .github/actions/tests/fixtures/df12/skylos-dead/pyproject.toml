@@ -1,0 +1,10 @@
+[project]
+name = "fx"
+version = "0"
+
+[tool.df12_skylos]
+roots = ["pkg"]
+python = "3.14"
+
+[tool.skylos.gate]
+strict = true

@@ -87,18 +87,42 @@ runs:
           ${{ inputs.baseline-python-file }}
         key: ratchet-baseline-${{ runner.os }}-${{ steps.handover.outputs.segment }}${{ github.run_id }}
         restore-keys: ratchet-baseline-${{ runner.os }}-${{ steps.handover.outputs.segment }}
+    - name: Fetch the committed baselines
+      # A cache miss would otherwise start at 0, which is more lenient than the
+      # figure the repository commits. generate-coverage, run in a job with a
+      # checkout, falls back to that committed file; this job has none, so the
+      # two baseline files alone are fetched, sparsely, into a directory of
+      # their own. A caller's workspace is never touched, whatever it holds.
+      if: steps.gate.outputs.active == 'true' && steps.restore-baselines.outputs.cache-hit != 'true'
+      # v7.0.1
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        path: ${{ runner.temp }}/committed-baselines
+        sparse-checkout: |
+          ${{ inputs.baseline-rust-file }}
+          ${{ inputs.baseline-python-file }}
+        sparse-checkout-cone-mode: false
+        persist-credentials: false
+        fetch-depth: 1
     - name: Ensure baseline files
       if: steps.gate.outputs.active == 'true'
       shell: bash
       env:
         GC_RUST_FILE: ${{ inputs.baseline-rust-file }}
         GC_PYTHON_FILE: ${{ inputs.baseline-python-file }}
+        GC_COMMITTED_DIR: ${{ runner.temp }}/committed-baselines
       run: |
         set -euo pipefail
-        # A miss starts a fresh baseline at 0, as generate-coverage does, so
-        # the first handed-over figure becomes the baseline. Said in the log,
-        # because it is also what a lost cache store looks like.
+        # A miss falls back to the committed file, as generate-coverage does,
+        # and only when the repository commits none starts a fresh baseline at
+        # 0, so the first handed-over figure becomes the baseline. Said in the
+        # log, because it is also what a lost cache store looks like.
         for file in "$GC_RUST_FILE" "$GC_PYTHON_FILE"; do
+          if [ ! -f "$file" ] && [ -f "$GC_COMMITTED_DIR/$file" ]; then
+            mkdir -p "$(dirname "$file")"
+            cp -- "$GC_COMMITTED_DIR/$file" "$file"
+            echo "::notice title=publish-coverage-baseline::no restored baseline for ${file}; using the committed file"
+          fi
           if [ ! -f "$file" ]; then
             mkdir -p "$(dirname "$file")"
             echo 0 > "$file"

@@ -15,6 +15,7 @@ run uses.
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import typing as typ
@@ -238,6 +239,53 @@ def test_a_figure_beyond_the_tolerance_fails_and_leaves_the_baseline_alone(
 
     assert (result.returncode != 0) is fails
     assert baseline.read_text() == "80.00"
+
+
+def test_committed_baseline_is_fetched_only_on_a_miss_and_outside_the_workspace() -> (
+    None
+):
+    """A cache miss falls back to the committed file without touching the workspace."""
+    step = _step(PUBLISH_YML, "Fetch the committed baselines")
+    condition = _condition(step)
+
+    assert "steps.gate.outputs.active == 'true'" in condition
+    assert "steps.restore-baselines.outputs.cache-hit != 'true'" in condition
+    assert step["with"]["path"].startswith("${{ runner.temp }}/")
+    assert step["with"]["persist-credentials"] is False
+    names = [item.get("name") for item in _steps(PUBLISH_YML)]
+    assert (
+        names.index("Restore baselines")
+        < names.index("Fetch the committed baselines")
+        < names.index("Ensure baseline files")
+    )
+
+
+def test_a_miss_starts_from_the_committed_file_and_only_then_from_zero(
+    tmp_path: Path,
+) -> None:
+    """The committed figure is the floor on a miss; 0 is the last resort."""
+    step = _step(PUBLISH_YML, "Ensure baseline files")
+    committed = tmp_path / "committed"
+    committed.mkdir()
+    (committed / "rust.base").write_text("77.0\n")
+    work = tmp_path / "work"
+    work.mkdir()
+    env = {
+        **os.environ,
+        "GC_RUST_FILE": "rust.base",
+        "GC_PYTHON_FILE": "python.base",
+        "GC_COMMITTED_DIR": str(committed),
+    }
+    subprocess.run(  # noqa: S603,TID251 - fixed argv, test-only
+        ["bash", "-c", step["run"]],  # noqa: S607
+        cwd=work,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+
+    assert (work / "rust.base").read_text().strip() == "77.0"
+    assert (work / "python.base").read_text().strip() == "0"
 
 
 # -- the build-only job -----------------------------------------------------

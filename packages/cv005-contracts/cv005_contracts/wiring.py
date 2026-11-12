@@ -97,48 +97,64 @@ def _handed_over(
     step of a needed job, running after that job's generator, publishes from
     the generator's output path. The downloaded file is the output path's
     basename under the download's `path`.
-
     """
-    held = upload_job(document)
-    needed = [name for name in _needs(held) if isinstance(name, str)]
-    delivered: list[tuple[object, object]] = []
-    for download in earlier:
-        if not (invokes(download, DOWNLOAD_ACTION) and _reliable(download)):
-            continue
-        name = _input(download, "name")
-        directory = _input(download, "path") or "."
-        for producer in (jobs(document).get(n) for n in needed):
-            delivered += _published(producer, name, str(directory))
-    return delivered
+    all_jobs = jobs(document)
+    producers = [
+        all_jobs[name]
+        for name in _needs(upload_job(document))
+        if isinstance(name, str) and name in all_jobs
+    ]
+    downloads = [
+        step for step in earlier if invokes(step, DOWNLOAD_ACTION) and _reliable(step)
+    ]
+    return [
+        (_landed(download, written), _format(generator))
+        for download in downloads
+        for producer in producers
+        for generator, written in _published(producer, _input(download, "name"))
+    ]
+
+
+def _landed(download: dict[str, object], written: object) -> str:
+    """Return where a download puts the file a generator wrote."""
+    directory = str(_input(download, "path") or ".")
+    return posixpath.normpath(
+        posixpath.join(directory, posixpath.basename(str(written)))
+    )
 
 
 def _published(
-    producer: dict[str, object] | None, artefact: object, directory: str
-) -> list[tuple[object, object]]:
-    """Return the (path, format) pairs a job publishes as `artefact`."""
-    if producer is None or not artefact:
+    producer: dict[str, object], artefact: object
+) -> list[tuple[dict[str, object], object]]:
+    """Return the (generator, output path) pairs a job publishes as `artefact`."""
+    if not artefact:
         return []
     producer_steps = steps(producer)
-    found: list[tuple[object, object]] = []
-    for index, publish in enumerate(producer_steps):
-        if not (
-            invokes(publish, UPLOAD_ARTEFACT_ACTION)
-            and _reliable(publish)
-            and _input(publish, "name") == artefact
-        ):
-            continue
-        for generator in producer_steps[:index]:
-            written = _input(generator, "output-path")
-            if (
-                invokes(generator, COVERAGE_ACTION)
-                and written
-                and _input(publish, "path") == written
-            ):
-                landed = posixpath.normpath(
-                    posixpath.join(directory, posixpath.basename(str(written)))
-                )
-                found.append((landed, _format(generator)))
-    return found
+    return [
+        (generator, _input(generator, "output-path"))
+        for index, publish in enumerate(producer_steps)
+        if _publishes(publish, artefact)
+        for generator in producer_steps[:index]
+        if _writes(generator, _input(publish, "path"))
+    ]
+
+
+def _publishes(step: dict[str, object], artefact: object) -> bool:
+    """Return whether a step always archives the named artefact."""
+    return (
+        invokes(step, UPLOAD_ARTEFACT_ACTION)
+        and _reliable(step)
+        and _input(step, "name") == artefact
+    )
+
+
+def _writes(step: dict[str, object], path: object) -> bool:
+    """Return whether a step is a generator whose output path is `path`."""
+    return (
+        invokes(step, COVERAGE_ACTION)
+        and bool(path)
+        and _input(step, "output-path") == path
+    )
 
 
 def _input(step: dict[str, object], name: str) -> object:

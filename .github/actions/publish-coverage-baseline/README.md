@@ -53,7 +53,11 @@ jobs:
 ```
 
 The job needs no checkout: the action restores the baseline files into the
-workspace and saves them from there. It needs no `if` either, and a publisher
-job under the CV-005 rules may not carry one: the action's first step checks
-for a push to the trunk and every later step runs only then, so a dispatch
-leaves the job green with nothing published.
+workspace and saves them from there. On a cache miss it reads the committed
+baseline files from the contents API at the published commit (nothing else in
+the workspace is touched) and starts from them; with no committed file it
+starts at 0. A committed file that is not a percentage between 0 and 100 fails
+the job rather than reading as 0. The job needs `contents: read`. It needs no
+`if` either, and a publisher job under the CV-005 rules may not carry one: the
+action's first step checks for a push to the trunk and every later step runs
+only then, so a dispatch leaves the job green with nothing published.

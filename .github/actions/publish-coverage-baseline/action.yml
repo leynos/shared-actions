@@ -93,16 +93,64 @@ runs:
       env:
         GC_RUST_FILE: ${{ inputs.baseline-rust-file }}
         GC_PYTHON_FILE: ${{ inputs.baseline-python-file }}
+        GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        # A miss starts a fresh baseline at 0, as generate-coverage does, so
-        # the first handed-over figure becomes the baseline. Said in the log,
-        # because it is also what a lost cache store looks like.
+        # A miss falls back to the committed file, as generate-coverage does
+        # in a job with a checkout, and only when the repository commits none
+        # starts a fresh baseline at 0, so the first handed-over figure becomes
+        # the baseline. This job has no checkout, and actions/checkout refuses
+        # a path outside the workspace, so the file is read from the contents
+        # API at the commit being published; nothing in the workspace is
+        # touched. A file the restore supplied is never fetched. Said in the
+        # log, because a miss is also what a lost cache store looks like.
         for file in "$GC_RUST_FILE" "$GC_PYTHON_FILE"; do
           if [ ! -f "$file" ]; then
             mkdir -p "$(dirname "$file")"
-            echo 0 > "$file"
-            echo "::notice title=publish-coverage-baseline::no restored baseline for ${file}; starting at 0"
+            # The API wants a repository-relative path: strip the workspace
+            # prefix a caller may have put on an absolute baseline path.
+            relative="${file#"${GITHUB_WORKSPACE}"/}"
+            relative="${relative#./}"
+            encoded="$(python3 -c 'import sys, urllib.parse as u; print(u.quote(sys.argv[1], safe="/"))' "$relative")"
+            # Zero only when the file is established to be absent (404). Any
+            # other failure (network, rate limit, server) fails the job rather
+            # than letting a lower figure become the baseline.
+            status="$(curl --silent --show-error --location \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header 'Accept: application/vnd.github.raw+json' \
+              --output "$file" --write-out '%{http_code}' \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/contents/${encoded}?ref=${GITHUB_SHA}")" || status=000
+            case "$status" in
+              200)
+                # The ratchet reads an unparsable baseline as 0, so a
+                # malformed committed file would silently lower the baseline.
+                if ! python3 -c 'import math, sys; v = float(open(sys.argv[1]).read().strip()); sys.exit(0 if math.isfinite(v) and 0 <= v <= 100 else 1)' "$file" 2>/dev/null; then
+                  rm -f -- "$file"
+                  echo "::error title=publish-coverage-baseline::the committed ${file} is not a coverage percentage between 0 and 100; refusing to start from 0"
+                  exit 1
+                fi
+                echo "::notice title=publish-coverage-baseline::no restored baseline for ${file}; using the committed file"
+                ;;
+              404)
+                # A 404 is also what an unreadable repository answers, so
+                # confirm the commit itself is readable before calling the
+                # file absent.
+                if ! curl --fail --silent --show-error --location --output /dev/null \
+                     --header "Authorization: Bearer ${GH_TOKEN}" \
+                     "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}"; then
+                  rm -f -- "$file"
+                  echo "::error title=publish-coverage-baseline::cannot read ${GITHUB_REPOSITORY}@${GITHUB_SHA} to confirm ${file} is absent; refusing to start from 0"
+                  exit 1
+                fi
+                echo 0 > "$file"
+                echo "::notice title=publish-coverage-baseline::no restored baseline for ${file} and none committed; starting at 0"
+                ;;
+              *)
+                rm -f -- "$file"
+                echo "::error title=publish-coverage-baseline::could not read the committed ${file} (HTTP ${status}); refusing to start from 0"
+                exit 1
+                ;;
+            esac
           fi
         done
     - name: Ratchet coverage

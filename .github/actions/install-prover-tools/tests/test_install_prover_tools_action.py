@@ -78,3 +78,12 @@ def test_installs_run_through_the_pinned_source(manifest: dict[str, typ.Any]) ->
     install = next(s for s in _steps(manifest) if s.get("id") == "install")
     assert 'uv tool run --from "$SOURCE" prover-tools' in install["run"]
     assert install["env"]["SOURCE"] == "${{ steps.plan.outputs.source }}"
+
+
+def test_the_kani_install_directory_is_always_explicit(
+    manifest: dict[str, typ.Any],
+) -> None:
+    """An inherited KANI_INSTALL_DIR cannot move the install off the PATH entry."""
+    install = next(s for s in _steps(manifest) if s.get("id") == "install")
+    assert '--install-dir "$kani_bin"' in install["run"], "the flag is unconditional"
+    assert "kani_args" not in install["run"], "no conditional flag list remains"

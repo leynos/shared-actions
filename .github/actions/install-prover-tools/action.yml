@@ -131,9 +131,10 @@ runs:
         prover() { uv tool run --from "$SOURCE" prover-tools "$@"; }
         if [ "$WANT_KANI" = true ]; then
           kani_bin="${KANI_DIR:-${CARGO_HOME:-$HOME/.cargo}/bin}"
-          kani_args=(--repo-root "$ROOT" --cache-dir "$KANI_CACHE")
-          if [ -n "$KANI_DIR" ]; then kani_args+=(--install-dir "$KANI_DIR"); fi
-          prover kani install "${kani_args[@]}"
+          # Always explicit: the tool also reads KANI_INSTALL_DIR from the
+          # environment, which would move the install away from the PATH entry.
+          prover kani install --repo-root "$ROOT" --cache-dir "$KANI_CACHE" \
+            --install-dir "$kani_bin"
           printf '%s\n' "$kani_bin" >> "$GITHUB_PATH"
           PATH="$kani_bin:$PATH" prover kani check-version \
             --repo-root "$ROOT" --kani-command "cargo kani"

@@ -166,7 +166,7 @@ runs:
           test -x "$verus_bin"
           # The tool reuses any installed binary, so an explicit directory
           # left by an older pin must fail here rather than verify with it.
-          reported="$("$verus_bin" --version)"
+          reported="$("$verus_bin" --version 2>&1 || true)"
           case "$reported" in *"$VERUS_VERSION"*) ;; *) echo "::error::Verus at $verus_bin is not $VERUS_VERSION"; exit 1 ;; esac
           printf 'verus-bin=%s\n' "$verus_bin" >> "$GITHUB_OUTPUT"
         fi

@@ -284,8 +284,8 @@ expect = "test_the_actions_defaults_are_read"
 [[mutation]]
 id = "W2 the generator's default format not read"
 file = "cv005_contracts/wiring.py"
-old = "        (_normalised(_input(step, \"output-path\")), _format(step))"
-new = "        (_normalised(_input(step, \"output-path\")), _input(step, \"format\"))"
+old = "        (_input(step, \"output-path\"), _format(step))"
+new = "        (_input(step, \"output-path\"), _input(step, \"format\"))"
 expect = "test_the_actions_defaults_are_read"
 
 [[mutation]]

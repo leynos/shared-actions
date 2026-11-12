@@ -128,6 +128,9 @@ def _this_run(step: dict[str, object]) -> bool:
         _reliable(step)
         and not any(_input(step, key) for key in FOREIGN_INPUTS)
         and not path.startswith("~")
+        # An expression may resolve to `~` or to a path the uploader reads
+        # differently, so equal text proves nothing.
+        and "${{" not in path
     )
 
 

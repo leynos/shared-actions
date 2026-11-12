@@ -221,3 +221,11 @@ def test_a_tilde_download_path_is_refused() -> None:
     )
     found = violations(tree(coverage_main=text))
     assert any("the upload reads" in f for f in found), found
+
+
+def test_an_expression_download_path_is_refused() -> None:
+    """`${{ '~' }}` resolves to a tilde the uploader would read literally."""
+    download = DOWNLOAD + "          path: ${{ '~' }}\n"
+    text = _split(upload_job=UPLOAD_JOB.replace(DOWNLOAD, download))
+    found = violations(tree(coverage_main=text))
+    assert any("the upload reads" in f for f in found), found

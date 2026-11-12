@@ -121,6 +121,16 @@ runs:
                 echo "::notice title=publish-coverage-baseline::no restored baseline for ${file}; using the committed file"
                 ;;
               404)
+                # A 404 is also what an unreadable repository answers, so
+                # confirm the commit itself is readable before calling the
+                # file absent.
+                if ! curl --fail --silent --show-error --location --output /dev/null \
+                     --header "Authorization: Bearer ${GH_TOKEN}" \
+                     "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}"; then
+                  rm -f -- "$file"
+                  echo "::error title=publish-coverage-baseline::cannot read ${GITHUB_REPOSITORY}@${GITHUB_SHA} to confirm ${file} is absent; refusing to start from 0"
+                  exit 1
+                fi
                 echo 0 > "$file"
                 echo "::notice title=publish-coverage-baseline::no restored baseline for ${file} and none committed; starting at 0"
                 ;;

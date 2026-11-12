@@ -275,6 +275,8 @@ def _ensure(
         + (
             "printf 500\nexit 0\n"
             if committed == "error"
+            else 'case "$url" in */commits/*) exit 22;; esac\nprintf 404\nexit 0\n'
+            if committed == "private"
             else (
                 'case "$url" in *rust.base*) '
                 f"printf '%s\\n' '{committed}' > \"$out\"; printf 200; exit 0;; esac; "
@@ -319,6 +321,14 @@ def test_an_api_failure_is_not_a_missing_file(tmp_path: Path) -> None:
     """A server error must fail the job, not start the baseline at 0."""
     with pytest.raises(subprocess.CalledProcessError):
         _ensure(tmp_path, committed="error", restored=False)
+
+
+def test_a_404_from_an_unreadable_repository_is_not_an_absent_file(
+    tmp_path: Path,
+) -> None:
+    """A 404 counts as absence only when the commit itself can be read."""
+    with pytest.raises(subprocess.CalledProcessError):
+        _ensure(tmp_path, committed="private", restored=False)
 
 
 def test_a_restored_baseline_is_never_replaced_by_the_committed_one(

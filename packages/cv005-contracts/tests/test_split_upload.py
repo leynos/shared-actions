@@ -110,3 +110,52 @@ def test_an_expression_naming_the_artefact_proves_nothing() -> None:
     text = _split(publish=publish, upload_job=UPLOAD_JOB.replace(DOWNLOAD, download))
     found = violations(tree(coverage_main=text))
     assert any("the upload reads" in f for f in found), found
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (
+            "          name: coverage-report\n    ",
+            "          name: coverage-report\n          run-id: 1\n    ",
+        ),
+        (
+            "          name: coverage-report\n    ",
+            "          name: coverage-report\n          repository: o/r\n    ",
+        ),
+        (
+            "          name: coverage-report\n    ",
+            "          name: coverage-report\n          github-token: x\n    ",
+        ),
+    ],
+)
+def test_a_download_of_another_run_is_refused(old: str, new: str) -> None:
+    """Only this run's artefact is the report the measuring job just wrote."""
+    text = _split(upload_job=UPLOAD_JOB.replace(old, new, 1))
+    assert text != _split()
+    found = violations(tree(coverage_main=text))
+    assert any("the upload reads" in f for f in found), found
+
+
+def test_a_build_only_generator_is_not_a_producer() -> None:
+    """A build-only step writes no report, so its archive proves nothing."""
+    text = _split().replace(
+        "          output-path: coverage.xml\n",
+        "          output-path: coverage.xml\n          build-only: 'true'\n",
+        1,
+    )
+    assert violations(tree(coverage_main=text)), "a build-only job measures nothing"
+
+
+def test_a_hidden_report_needs_include_hidden_files() -> None:
+    """upload-artifact drops dot-prefixed files unless told to keep them."""
+    hidden = _split(publish=PUBLISH.replace("coverage.xml", ".cov/coverage.xml"))
+    hidden = hidden.replace(
+        "output-path: coverage.xml", "output-path: .cov/coverage.xml", 1
+    )
+    hidden = hidden.replace(
+        "          path: coverage.xml\n          mode: upload",
+        "          path: coverage.xml\n          mode: upload",
+    )
+    found = violations(tree(coverage_main=hidden))
+    assert any("the upload reads" in f for f in found), found

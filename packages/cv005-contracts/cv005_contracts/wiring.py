@@ -13,6 +13,7 @@ import typing as typ
 
 from .publisher import (
     COVERAGE_ACTION,
+    generates_coverage,
     invokes,
     position,
     upload_job,
@@ -55,7 +56,7 @@ def wiring_violations(document: Document) -> list[str]:
         for step in earlier
         if invokes(step, COVERAGE_ACTION)
     ] + _handed_over(document, earlier)
-    read = (_upload_path(upload), _format(upload))
+    read = (posixpath.normpath(str(_upload_path(upload))), _format(upload))
     return (
         []
         if read in written or _merged_into(earlier, read)
@@ -105,7 +106,7 @@ def _handed_over(
         if isinstance(name, str) and name in all_jobs
     ]
     downloads = [
-        step for step in earlier if invokes(step, DOWNLOAD_ACTION) and _reliable(step)
+        step for step in earlier if invokes(step, DOWNLOAD_ACTION) and _this_run(step)
     ]
     return [
         (_landed(download, written), _format(generator))
@@ -113,6 +114,15 @@ def _handed_over(
         for producer in producers
         for generator, written in _published(producer, _input(download, "name"))
     ]
+
+
+#: Download inputs that would read an artefact of another run or repository.
+FOREIGN_INPUTS: typ.Final[tuple[str, ...]] = ("github-token", "repository", "run-id")
+
+
+def _this_run(step: dict[str, object]) -> bool:
+    """Return whether a download always runs and reads only this run's artefacts."""
+    return _reliable(step) and not any(_input(step, key) for key in FOREIGN_INPUTS)
 
 
 def _landed(download: dict[str, object], written: object) -> str:
@@ -147,15 +157,25 @@ def _publishes(step: dict[str, object], artefact: object) -> bool:
         invokes(step, UPLOAD_ARTEFACT_ACTION)
         and _reliable(step)
         and _input(step, "name") == artefact
+        and _includes_hidden(step)
     )
+
+
+def _includes_hidden(step: dict[str, object]) -> bool:
+    """Return whether the archive keeps a hidden report.
+
+    `upload-artifact` leaves out hidden files unless told otherwise, so a
+    report whose path has a dot-prefixed segment needs `include-hidden-files`.
+    """
+    parts = str(_input(step, "path") or "").split("/")
+    hidden = any(part.startswith(".") and part not in {".", ".."} for part in parts)
+    return not hidden or str(_input(step, "include-hidden-files")).lower() == "true"
 
 
 def _writes(step: dict[str, object], path: object) -> bool:
     """Return whether a step is a generator whose output path is `path`."""
     return (
-        invokes(step, COVERAGE_ACTION)
-        and bool(path)
-        and _input(step, "output-path") == path
+        generates_coverage(step) and bool(path) and _input(step, "output-path") == path
     )
 
 

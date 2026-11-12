@@ -122,6 +122,13 @@ runs:
               "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/contents/${encoded}?ref=${GITHUB_SHA}")" || status=000
             case "$status" in
               200)
+                # The ratchet reads an unparsable baseline as 0, so a
+                # malformed committed file would silently lower the baseline.
+                if ! python3 -c 'import math, sys; v = float(open(sys.argv[1]).read().strip()); sys.exit(0 if math.isfinite(v) and 0 <= v <= 100 else 1)' "$file" 2>/dev/null; then
+                  rm -f -- "$file"
+                  echo "::error title=publish-coverage-baseline::the committed ${file} is not a coverage percentage between 0 and 100; refusing to start from 0"
+                  exit 1
+                fi
                 echo "::notice title=publish-coverage-baseline::no restored baseline for ${file}; using the committed file"
                 ;;
               404)

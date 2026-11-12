@@ -324,6 +324,16 @@ def test_an_api_failure_is_not_a_missing_file(tmp_path: Path) -> None:
         _ensure(tmp_path, committed="error", restored=False)
 
 
+@pytest.mark.parametrize("malformed", ["", "n/a", "nan", "inf", "-3", "140"])
+def test_a_malformed_committed_baseline_fails_instead_of_reading_as_zero(
+    tmp_path: Path, malformed: str
+) -> None:
+    """An HTTP 200 whose body is not a percentage must not lower the baseline."""
+    with pytest.raises(subprocess.CalledProcessError):
+        _ensure(tmp_path, committed=malformed, restored=False)
+    assert not (tmp_path / "work" / "rust.base").exists()
+
+
 def test_a_404_from_an_unreadable_repository_is_not_an_absent_file(
     tmp_path: Path,
 ) -> None:

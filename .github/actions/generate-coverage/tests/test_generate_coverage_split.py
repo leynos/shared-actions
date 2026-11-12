@@ -241,40 +241,54 @@ def test_a_figure_beyond_the_tolerance_fails_and_leaves_the_baseline_alone(
     assert baseline.read_text() == "80.00"
 
 
-def test_committed_baseline_is_fetched_only_on_a_miss_and_outside_the_workspace() -> (
-    None
-):
-    """A cache miss falls back to the committed file without touching the workspace."""
-    step = _step(PUBLISH_YML, "Fetch the committed baselines")
-    condition = _condition(step)
-
-    assert "steps.gate.outputs.active == 'true'" in condition
-    assert "steps.restore-baselines.outputs.cache-hit != 'true'" in condition
-    assert step["with"]["path"].startswith("${{ runner.temp }}/")
-    assert step["with"]["persist-credentials"] is False
-    names = [item.get("name") for item in _steps(PUBLISH_YML)]
-    assert (
-        names.index("Restore baselines")
-        < names.index("Fetch the committed baselines")
-        < names.index("Ensure baseline files")
+def test_the_committed_baseline_is_read_without_a_checkout() -> None:
+    """The fallback uses the contents API, so no workspace path is touched."""
+    names = [step.get("name") for step in _steps(PUBLISH_YML)]
+    assert "Fetch the committed baselines" not in names
+    assert not any(
+        "checkout" in str(step.get("uses", "")) for step in _steps(PUBLISH_YML)
     )
+    run = _step(PUBLISH_YML, "Ensure baseline files")["run"]
+    assert "contents/${file}?ref=${GITHUB_SHA}" in run
+    assert names.index("Restore baselines") < names.index("Ensure baseline files")
 
 
-def test_a_miss_starts_from_the_committed_file_and_only_then_from_zero(
-    tmp_path: Path,
-) -> None:
-    """The committed figure is the floor on a miss; 0 is the last resort."""
+def _ensure(tmp_path: Path, *, committed: str | None, restored: bool) -> Path:
+    """Run the Ensure step with a stub `curl`; return the working directory."""
     step = _step(PUBLISH_YML, "Ensure baseline files")
-    committed = tmp_path / "committed"
-    committed.mkdir()
-    (committed / "rust.base").write_text("77.0\n")
     work = tmp_path / "work"
     work.mkdir()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    # The stub serves `committed` for the Rust file only, and fails (as curl
+    # --fail does on a 404) for anything else.
+    stub = bindir / "curl"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        "out=''; url=''\n"
+        'while [ $# -gt 0 ]; do case "$1" in --output) out=$2; shift;; '
+        "http*) url=$1;; esac; shift; done\n"
+        + (
+            "exit 22\n"
+            if committed is None
+            else (
+                'case "$url" in *rust.base*) '
+                f"printf '%s\\n' '{committed}' > \"$out\"; exit 0;; esac; exit 22\n"
+            )
+        )
+    )
+    stub.chmod(0o755)
+    if restored:
+        (work / "rust.base").write_text("91.0\n")
     env = {
         **os.environ,
+        "PATH": f"{bindir}:{os.environ['PATH']}",
         "GC_RUST_FILE": "rust.base",
         "GC_PYTHON_FILE": "python.base",
-        "GC_COMMITTED_DIR": str(committed),
+        "GH_TOKEN": "t",
+        "GITHUB_API_URL": "https://api.example",
+        "GITHUB_REPOSITORY": "o/r",
+        "GITHUB_SHA": "abc",
     }
     subprocess.run(  # noqa: S603,TID251 - fixed argv, test-only
         ["bash", "-c", step["run"]],  # noqa: S607
@@ -283,9 +297,26 @@ def test_a_miss_starts_from_the_committed_file_and_only_then_from_zero(
         check=True,
         capture_output=True,
     )
+    return work
+
+
+def test_a_miss_starts_from_the_committed_file_and_only_then_from_zero(
+    tmp_path: Path,
+) -> None:
+    """The committed figure is the floor on a miss; 0 is the last resort."""
+    work = _ensure(tmp_path, committed="77.0", restored=False)
 
     assert (work / "rust.base").read_text().strip() == "77.0"
     assert (work / "python.base").read_text().strip() == "0"
+
+
+def test_a_restored_baseline_is_never_replaced_by_the_committed_one(
+    tmp_path: Path,
+) -> None:
+    """A prefix match restores a file; the fallback must leave it alone."""
+    work = _ensure(tmp_path, committed="77.0", restored=True)
+
+    assert (work / "rust.base").read_text().strip() == "91.0"
 
 
 # -- the build-only job -----------------------------------------------------

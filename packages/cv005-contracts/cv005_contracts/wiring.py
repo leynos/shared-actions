@@ -127,7 +127,9 @@ def _published(
     producer: dict[str, object], artefact: object
 ) -> list[tuple[dict[str, object], object]]:
     """Return the (generator, output path) pairs a job publishes as `artefact`."""
-    if not artefact:
+    if not artefact or "${{" in str(artefact):
+        # An expression may name different artefacts in the two jobs
+        # (`${{ github.job }}`), so equal text proves nothing.
         return []
     producer_steps = steps(producer)
     return [

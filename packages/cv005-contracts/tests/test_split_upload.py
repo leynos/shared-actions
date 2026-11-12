@@ -101,3 +101,12 @@ def test_an_upload_job_that_does_not_need_the_measuring_job_is_refused() -> None
     text = _split(upload_job=UPLOAD_JOB.replace("    needs: coverage-upload\n", ""))
     found = violations(tree(coverage_main=text))
     assert any("the upload reads" in f for f in found), found
+
+
+def test_an_expression_naming_the_artefact_proves_nothing() -> None:
+    """`${{ github.job }}` evaluates to a different name in each job."""
+    publish = PUBLISH.replace("coverage-report", "report-${{ github.job }}")
+    download = DOWNLOAD.replace("coverage-report", "report-${{ github.job }}")
+    text = _split(publish=publish, upload_job=UPLOAD_JOB.replace(DOWNLOAD, download))
+    found = violations(tree(coverage_main=text))
+    assert any("the upload reads" in f for f in found), found

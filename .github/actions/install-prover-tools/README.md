@@ -18,15 +18,15 @@ proves.
 
 ## Inputs
 
-| Input               | Default            | Meaning                                              |
-| ------------------- | ------------------ | ---------------------------------------------------- |
-| `tools`             | required           | Any of `kani`, `verus`, `z3`; `verus` adds `z3`.     |
-| `prover-tools-sha`  | `592558f7…`        | Full 40-character SHA; a tag or branch is refused.   |
-| `repo-root`         | `.`                | Where `tools/*/VERSION` are read and `.verus` lives. |
-| `runner-image`      | required           | Image label, carried in the cache key.               |
-| `kani-install-dir`  | `$CARGO_HOME/bin`  | Where `cargo-kani` and `kani` land; put on `PATH`.   |
-| `verus-install-dir` | `.verus/<version>` | Verus release directory.                             |
-| `z3-install-dir`    | `.verus/z3`        | Z3 binary directory.                                 |
+| Input               | Default           | Meaning                                              |
+| ------------------- | ----------------- | ---------------------------------------------------- |
+| `tools`             | required          | Any of `kani`, `verus`, `z3`; `verus` adds `z3`.     |
+| `prover-tools-sha`  | `592558f7…`       | Full 40-character SHA; a tag or branch is refused.   |
+| `repo-root`         | `.`               | Where `tools/*/VERSION` are read and `.verus` lives. |
+| `runner-image`      | required          | Image label, carried in the cache key.               |
+| `kani-install-dir`  | `$CARGO_HOME/bin` | Where `cargo-kani` and `kani` land; put on `PATH`.   |
+| `verus-install-dir` | `.verus`          | Parent of the version-named Verus directory.         |
+| `z3-install-dir`    | `.verus/z3`       | Z3 binary directory.                                 |
 
 A relative install directory is read from `repo-root`, as the tool reads it,
 not from the job's working directory.

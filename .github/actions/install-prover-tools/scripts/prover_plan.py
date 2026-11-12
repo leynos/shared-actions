@@ -127,8 +127,10 @@ def _directories(
         if tool in selected
     }
     if "verus" in selected:
-        default = root / ".verus" / versions["verus-version"]
-        outputs["verus-install-dir"] = _under(root, request.verus_install_dir, default)
+        # Version-qualified, because the tool reuses any binary already in the
+        # directory it is given, so a bumped pin must land somewhere new.
+        parent = request.verus_install_dir or ".verus"
+        outputs["verus-install-dir"] = str(root / parent / versions["verus-version"])
     if "z3" in selected:
         default = root / ".verus" / "z3"
         outputs["z3-install-dir"] = _under(root, request.z3_install_dir, default)

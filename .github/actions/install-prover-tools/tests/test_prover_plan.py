@@ -156,3 +156,12 @@ def test_relative_install_directories_resolve_against_the_repository(
 
     assert outputs["z3-install-dir"] == str(repo.resolve() / "out" / "z3")
     assert outputs["kani-install-dir"] == str(repo.resolve() / "bin")
+
+
+def test_an_explicit_verus_directory_is_still_version_qualified(repo: Path) -> None:
+    """A bumped pin lands in a new directory, so a stale binary is never reused."""
+    outputs = prover_plan.plan(_request(repo, verus_install_dir="cache/verus"))
+
+    assert outputs["verus-install-dir"] == str(
+        repo.resolve() / "cache" / "verus" / "0.2026.09.06.8dea4a2"
+    ), "the version names the final directory"

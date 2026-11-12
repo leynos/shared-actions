@@ -163,6 +163,8 @@ runs:
         WANT_Z3: ${{ steps.plan.outputs.z3 }}
         VERUS_DIR: ${{ steps.plan.outputs.verus-install-dir }}
         Z3_DIR: ${{ steps.plan.outputs.z3-install-dir }}
+        KANI_CACHE: ${{ steps.plan.outputs.kani-cache-dir }}
+        Z3_CACHE: ${{ steps.plan.outputs.z3-cache-dir }}
         KANI_HIT: ${{ steps.kani-cache.outputs.cache-hit }}
         Z3_HIT: ${{ steps.z3-cache.outputs.cache-hit }}
         WANT_KANI: ${{ steps.plan.outputs.kani }}
@@ -182,12 +184,26 @@ runs:
           printf 'z3-path=%s\n' "$z3_path" >> "$GITHUB_OUTPUT"
         fi
         printf 'cache-hit=%s\n' "$hit" >> "$GITHUB_OUTPUT"
+        # A save is worth making only when this run's tool published a verified
+        # archive: on an exact miss the directory started empty, and the tool
+        # publishes a file only after its digest matched. A run that reused an
+        # installed solver downloads nothing and would save an empty entry.
+        for tool in kani z3; do
+          dir="$(printf '%s' "$tool" | tr a-z A-Z)_CACHE"
+          found=false
+          if [ -d "${!dir:-/nonexistent}" ] &&
+            [ -n "$(find "${!dir}" -type f ! -name '*.download' -print -quit)" ]; then
+            found=true
+          fi
+          printf '%s-archive=%s\n' "$tool" "$found" >> "$GITHUB_OUTPUT"
+        done
 
     # Saved from the default branch only, and only on an exact miss, so a pull
     # request never writes a key and a hit is never overwritten.
     - name: Save Kani archives
       if: >-
         steps.plan.outputs.kani == 'true'
+        && steps.verify.outputs.kani-archive == 'true'
         && steps.kani-cache.outputs.cache-hit != 'true'
         && github.event_name == 'push'
         && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
@@ -199,6 +215,7 @@ runs:
     - name: Save Z3 archive
       if: >-
         steps.plan.outputs.z3 == 'true'
+        && steps.verify.outputs.z3-archive == 'true'
         && steps.z3-cache.outputs.cache-hit != 'true'
         && github.event_name == 'push'
         && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)

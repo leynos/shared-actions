@@ -105,3 +105,16 @@ def test_ambient_tool_defaults_are_unset_before_the_tool_runs(
     assert run.index("unset") < run.index("prover()"), "scrubbed before first use"
     for name in ("KANI_INSTALL_DIR", "VERUS_INSTALL_DIR", "Z3_CACHE_DIR", "INPUT_"):
         assert name in run, name
+
+
+def test_a_save_needs_an_archive_this_run_published(
+    manifest: dict[str, typ.Any],
+) -> None:
+    """An empty or reused install never writes a cache entry."""
+    saves = [
+        s
+        for s in _steps(manifest)
+        if str(s.get("uses", "")).startswith("actions/cache/save@")
+    ]
+    for step in saves:
+        assert "-archive == 'true'" in " ".join(str(step["if"]).split()), step["name"]

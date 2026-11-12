@@ -32,6 +32,7 @@ fn derives_the_target_root(#[case] out_dir: &str, #[case] profile: &str, #[case]
 #[rstest]
 #[case::wrong_profile("/w/target/debug/build/pkg/out", "release")]
 #[case::no_build_dir("/w/target/debug/pkg/out", "debug")]
+#[case::unrelated_outer_build("/w/debug/build/project/target/ci/build/pkg/0123abcd/out", "debug")]
 fn rejects_unrecognised_layouts(#[case] out_dir: &str, #[case] profile: &str) {
     let error =
         derive_target_root(Path::new(out_dir), TARGET, profile).expect_err("layout does not match");

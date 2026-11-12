@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 /// Cargo releases and `<target-root>[/<target>]/<profile>/build/<pkg>/<hash>/out`
 /// on newer ones. Rather than counting levels, this walks up to the first
 /// directory named `build` whose parent is named `profile`, then strips the
-/// optional target triple component.
+/// optional target triple component. Only a `build` directory that sits exactly
+/// two or three components above `out_dir` qualifies, so an unrelated
+/// `<profile>/build` higher in the path is never mistaken for the real one.
 ///
 /// # Errors
 ///
@@ -30,7 +32,11 @@ pub fn derive_target_root(out_dir: &Path, target: &str, profile: &str) -> std::i
     let profile_dir = out_dir
         .ancestors()
         .find(|dir| {
-            name_is(dir, "build") && dir.parent().is_some_and(|parent| name_is(parent, profile))
+            name_is(dir, "build")
+                && dir.parent().is_some_and(|parent| name_is(parent, profile))
+                && out_dir
+                    .strip_prefix(dir)
+                    .is_ok_and(|suffix| matches!(suffix.components().count(), 2 | 3))
         })
         .and_then(Path::parent)
         .ok_or_else(|| {

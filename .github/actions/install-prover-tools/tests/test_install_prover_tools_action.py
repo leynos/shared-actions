@@ -78,3 +78,12 @@ def test_installs_run_through_the_pinned_source(manifest: dict[str, typ.Any]) ->
     install = next(s for s in _steps(manifest) if s.get("id") == "install")
     assert 'uv tool run --from "$SOURCE" prover-tools' in install["run"]
     assert install["env"]["SOURCE"] == "${{ steps.plan.outputs.source }}"
+
+
+def test_the_verus_version_is_checked_after_install(
+    manifest: dict[str, typ.Any],
+) -> None:
+    """The tool reuses an installed binary, so the action checks the version."""
+    verify = next(s for s in _steps(manifest) if s.get("id") == "verify")
+    assert "VERUS_VERSION" in verify["env"], "the pinned version reaches the step"
+    assert '*"$VERUS_VERSION"*' in verify["run"], "the reported version is compared"

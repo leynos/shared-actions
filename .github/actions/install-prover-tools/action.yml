@@ -151,6 +151,7 @@ runs:
         WANT_VERUS: ${{ steps.plan.outputs.verus }}
         WANT_Z3: ${{ steps.plan.outputs.z3 }}
         VERUS_DIR: ${{ steps.plan.outputs.verus-install-dir }}
+        VERUS_VERSION: ${{ steps.plan.outputs.verus-version }}
         Z3_DIR: ${{ steps.plan.outputs.z3-install-dir }}
         KANI_HIT: ${{ steps.kani-cache.outputs.cache-hit }}
         Z3_HIT: ${{ steps.z3-cache.outputs.cache-hit }}
@@ -163,6 +164,10 @@ runs:
         if [ "$WANT_VERUS" = true ]; then
           verus_bin="$(cd "$VERUS_DIR" && pwd)/verus/verus"
           test -x "$verus_bin"
+          # The tool reuses any installed binary, so an explicit directory
+          # left by an older pin must fail here rather than verify with it.
+          reported="$("$verus_bin" --version)"
+          case "$reported" in *"$VERUS_VERSION"*) ;; *) echo "::error::Verus at $verus_bin is not $VERUS_VERSION"; exit 1 ;; esac
           printf 'verus-bin=%s\n' "$verus_bin" >> "$GITHUB_OUTPUT"
         fi
         if [ "$WANT_Z3" = true ]; then

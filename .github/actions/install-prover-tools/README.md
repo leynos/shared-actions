@@ -28,6 +28,9 @@ proves.
 | `verus-install-dir` | `.verus/<version>` | Verus release directory.                             |
 | `z3-install-dir`    | `.verus/z3`        | Z3 binary directory.                                 |
 
+A relative install directory is read from `repo-root`, as the tool reads it,
+not from the job's working directory.
+
 Outputs: `verus-bin`, `z3-path` (for `VERUS_Z3_PATH`), and `cache-hit`.
 
 ## Digest checks

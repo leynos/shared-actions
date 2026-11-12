@@ -107,6 +107,16 @@ def _keys(request: Request, root: Path, selected: tuple[str, ...]) -> dict[str, 
     return outputs
 
 
+def _under(root: Path, given: str, default: Path) -> str:
+    """Return *given* as an absolute path, relative to *root* as the tool reads it.
+
+    The tool resolves a relative install directory against the repository
+    root, so the shell steps that look in the directory afterwards must use the
+    same base rather than the job's working directory.
+    """
+    return str(root / given) if given else str(default)
+
+
 def _directories(
     request: Request, root: Path, selected: tuple[str, ...], versions: dict[str, str]
 ) -> dict[str, str]:
@@ -118,12 +128,16 @@ def _directories(
     }
     if "verus" in selected:
         default = root / ".verus" / versions["verus-version"]
-        outputs["verus-install-dir"] = request.verus_install_dir or str(default)
+        outputs["verus-install-dir"] = _under(root, request.verus_install_dir, default)
     if "z3" in selected:
         default = root / ".verus" / "z3"
-        outputs["z3-install-dir"] = request.z3_install_dir or str(default)
+        outputs["z3-install-dir"] = _under(root, request.z3_install_dir, default)
     if "kani" in selected:
-        outputs["kani-install-dir"] = request.kani_install_dir
+        outputs["kani-install-dir"] = (
+            _under(root, request.kani_install_dir, root)
+            if request.kani_install_dir
+            else ""
+        )
     return outputs
 
 

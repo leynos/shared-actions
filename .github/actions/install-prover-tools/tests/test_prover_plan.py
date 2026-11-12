@@ -144,3 +144,15 @@ def test_the_command_writes_github_output(
 
     assert status == 0, "a valid plan succeeds"
     assert "z3=true" in target.read_text(encoding="utf-8").splitlines()
+
+
+def test_relative_install_directories_resolve_against_the_repository(
+    repo: Path,
+) -> None:
+    """A relative directory is read as the tool reads it, from the repo root."""
+    outputs = prover_plan.plan(
+        _request(repo, z3_install_dir="out/z3", kani_install_dir="bin", tools="kani z3")
+    )
+
+    assert outputs["z3-install-dir"] == str(repo.resolve() / "out" / "z3")
+    assert outputs["kani-install-dir"] == str(repo.resolve() / "bin")

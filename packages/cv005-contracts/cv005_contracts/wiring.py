@@ -189,7 +189,9 @@ def _includes_hidden(step: dict[str, object]) -> bool:
 def _writes(step: dict[str, object], path: object) -> bool:
     """Return whether a step is a generator whose output path is `path`."""
     return (
-        generates_coverage(step) and bool(path) and _input(step, "output-path") == path
+        generates_coverage(step)
+        and bool(path)
+        and _normalised(_input(step, "output-path")) == _normalised(path)
     )
 
 
@@ -220,7 +222,9 @@ def _merged_into(earlier: list[dict[str, object]], read: tuple[object, object]) 
 
     """
     path, wanted = read
-    target = re.compile(rf">\s*['\"]?{re.escape(str(path))}['\"]?\s*$", re.MULTILINE)
+    target = re.compile(
+        rf">\s*['\"]?(?:\./)?{re.escape(str(path))}['\"]?\s*$", re.MULTILINE
+    )
     has_generated = False
     for step in earlier:
         if invokes(step, COVERAGE_ACTION):

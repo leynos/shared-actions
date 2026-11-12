@@ -191,3 +191,22 @@ def test_a_dot_slash_path_is_the_same_file_in_one_job() -> None:
     )
     assert text != PUBLISHER
     assert wiring_violations(load_workflow(text)) == []
+
+
+def test_equivalent_spellings_of_the_report_path_are_the_same_file() -> None:
+    """`./coverage.xml` and `coverage.xml` name one file across the hand-over."""
+    text = _split(publish=PUBLISH.replace("path: coverage.xml", "path: ./coverage.xml"))
+    assert wiring_violations(load_workflow(text)) == []
+
+
+def test_a_merge_redirecting_to_a_dot_slash_path_is_read() -> None:
+    """A merge writing `./coverage.xml` feeds an upload reading `coverage.xml`."""
+    merge = (
+        "      - name: Merge the legs\n"
+        "        run: merge 'lcov-*.info' > ./coverage.xml\n"
+    )
+    anchor = "      - name: Check for the CodeScene token\n"
+    text = PUBLISHER.replace(anchor, merge + anchor, 1).replace(
+        "output-path: coverage.xml", "output-path: leg.xml", 1
+    )
+    assert wiring_violations(load_workflow(text)) == []

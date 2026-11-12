@@ -3218,8 +3218,8 @@ digests live in `df12_python_lints/duplication/releases.json` in the package,
 never here. The scripts run against a stubbed `uv` in
 `.github/actions/tests/test_df12_lint_actions.py`; the real package and
 detector run in `.github/workflows/test-df12-lint-actions.yml` over the trees
-under `.github/actions/tests/fixtures/df12`. The commands' own behaviour is
-tested in df12-python-lints, not here.
+under `.github/df12-fixtures`. The commands' own behaviour is tested in
+df12-python-lints, not here.
 
 ## `install-mdtablefix` action contract
 

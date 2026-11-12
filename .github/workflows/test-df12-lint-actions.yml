@@ -7,7 +7,7 @@ on:
     paths:
       - '.github/actions/df12-skylos/**'
       - '.github/actions/df12-duplication/**'
-      - '.github/actions/tests/fixtures/df12/**'
+      - '.github/df12-fixtures/**'
       - '.github/workflows/test-df12-lint-actions.yml'
   workflow_dispatch:
 
@@ -37,27 +37,27 @@ jobs:
         id: skylos-clean
         uses: ./.github/actions/df12-skylos
         with:
-          repository: .github/actions/tests/fixtures/df12/skylos-clean
+          repository: .github/df12-fixtures/skylos-clean
 
       - name: Skylos on a fixture with dead code
         id: skylos-dead
         continue-on-error: true
         uses: ./.github/actions/df12-skylos
         with:
-          repository: .github/actions/tests/fixtures/df12/skylos-dead
+          repository: .github/df12-fixtures/skylos-dead
 
       - name: Duplication on a clean fixture
         id: duplication-clean
         uses: ./.github/actions/df12-duplication
         with:
-          repository: .github/actions/tests/fixtures/df12/duplication-clean
+          repository: .github/df12-fixtures/duplication-clean
 
       - name: Duplication on a fixture with a duplicate family
         id: duplication-dup
         continue-on-error: true
         uses: ./.github/actions/df12-duplication
         with:
-          repository: .github/actions/tests/fixtures/df12/duplication-dup
+          repository: .github/df12-fixtures/duplication-dup
 
       - name: Assert the reported outcomes
         shell: bash

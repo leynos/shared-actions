@@ -215,7 +215,7 @@ def test_every_result_is_documented(name: str) -> None:
 
 def test_the_fixtures_exist_for_the_workflow_lane() -> None:
     """The self-test workflow names these trees; a rename must not strand it."""
-    root = ACTIONS_ROOT / "tests" / "fixtures" / "df12"
+    root = ACTIONS_ROOT.parent / "df12-fixtures"
     names = {p.name for p in root.iterdir() if p.is_dir()}
     assert names == {
         "skylos-clean",

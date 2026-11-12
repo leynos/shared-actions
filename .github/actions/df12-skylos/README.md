@@ -29,9 +29,10 @@ The step fails on any non-zero status. Use `continue-on-error` and read
 
 ## Results
 
-The step prints and summarises one `metric df12-skylos.result=<value>` line.
-The values are `clean`, `blocking`, `invalid`, `invalid-input` (a malformed
-input) and `missing-prerequisite` (no `uv` on `PATH`).
+The step prints and records in the step summary one
+`metric df12-skylos.result=<value>` line. The values are `clean`, `blocking`,
+`invalid`, `invalid-input` (a malformed input) and `missing-prerequisite` (no
+`uv` on `PATH`).
 
 ## Behaviour
 

@@ -128,6 +128,12 @@ runs:
         Z3_DIR: ${{ steps.plan.outputs.z3-install-dir }}
       run: |
         set -euo pipefail
+        # The tool reads defaults for its flags from these names, and a caller's
+        # job environment may set them; every value this action needs is passed
+        # explicitly, so none of them may reach the tool.
+        for name in $(compgen -e | grep -E '^INPUT_'); do unset "$name"; done
+        unset KANI KANI_CACHE_DIR KANI_INSTALL_DIR VERUS_INSTALL_DIR VERUS_TARGET \
+          Z3_CACHE_DIR Z3_INSTALL_DIR
         prover() { uv tool run --from "$SOURCE" prover-tools "$@"; }
         if [ "$WANT_KANI" = true ]; then
           kani_bin="${KANI_DIR:-${CARGO_HOME:-$HOME/.cargo}/bin}"

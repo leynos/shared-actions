@@ -95,3 +95,13 @@ def test_the_kani_install_directory_is_made_absolute(
     """A relative CARGO_HOME cannot split the install from the PATH entry."""
     install = next(s for s in _steps(manifest) if s.get("id") == "install")
     assert 'kani_bin="$PWD/$kani_bin"' in install["run"], "relative paths are anchored"
+
+
+def test_ambient_tool_defaults_are_unset_before_the_tool_runs(
+    manifest: dict[str, typ.Any],
+) -> None:
+    """A caller's INPUT_* or *_INSTALL_DIR cannot steer the tool off the plan."""
+    run = next(s for s in _steps(manifest) if s.get("id") == "install")["run"]
+    assert run.index("unset") < run.index("prover()"), "scrubbed before first use"
+    for name in ("KANI_INSTALL_DIR", "VERUS_INSTALL_DIR", "Z3_CACHE_DIR", "INPUT_"):
+        assert name in run, name

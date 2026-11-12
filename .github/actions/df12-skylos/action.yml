@@ -1,0 +1,84 @@
+name: df12 Skylos dead-code gate
+description: >
+  Provision the pinned df12-python-lints package, with its `skylos` extra,
+  into an isolated uv tool environment and run `df12-skylos check` over a
+  repository. The package carries the one Skylos pin and the gate's behaviour;
+  this action only provisions it and reports the outcome.
+inputs:
+  repository:
+    description: Directory holding the pyproject.toml to check.
+    required: false
+    default: .
+  python-version:
+    description: >
+      Interpreter for the tool environment. Skylos parses source with its own
+      Python AST, so it must be at least as new as the syntax being scanned.
+    required: false
+    default: '3.14'
+outputs:
+  exit-status:
+    description: >
+      Exit status of `df12-skylos check`: 0 clean, 1 blocking findings, 2
+      invalid configuration or failed analysis.
+    value: ${{ steps.check.outputs.exit-status }}
+runs:
+  using: composite
+  steps:
+    - name: Set up uv
+      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+      with:
+        enable-cache: false
+
+    - name: Prune restored uv cache
+      # A calling workflow's own setup-uv may have restored a cache into the
+      # directory this step inherits; remove interpreter-bound entries before
+      # the first uv invocation.
+      shell: bash
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
+
+    - name: Run df12-skylos check
+      id: check
+      shell: bash
+      env:
+        # The pin: one literal, so an audit reads the exact source. Bump the
+        # commit here, in both df12 actions, the READMEs and the users' guide.
+        DF12_SPEC: >-
+          df12-python-lints[skylos] @
+          git+https://github.com/leynos/df12-python-lints.git@1d6c3bba594651823c9ba8e8b40265cae59a1c52
+        DF12_REPOSITORY: ${{ inputs.repository }}
+        DF12_PYTHON: ${{ inputs.python-version }}
+      run: |
+        set -euo pipefail
+
+        emit_metric() {
+          echo "metric $1"
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "metric $1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+
+        fail() {
+          emit_metric "df12-skylos.result=$2"
+          echo "::error title=df12-skylos::$1" >&2
+          echo "exit-status=2" >> "${GITHUB_OUTPUT:-/dev/null}"
+          exit 2
+        }
+
+        [[ "$DF12_PYTHON" =~ ^3\.[0-9]+$ ]] ||
+          fail "python-version must look like 3.14" invalid-input
+        [[ -n "$DF12_REPOSITORY" && -d "$DF12_REPOSITORY" ]] ||
+          fail "repository must be an existing directory" invalid-input
+        command -v uv >/dev/null 2>&1 ||
+          fail "uv is required on PATH" missing-prerequisite
+
+        status=0
+        uv tool run --python "$DF12_PYTHON" --from "$DF12_SPEC" -- \
+          df12-skylos check --repository="$DF12_REPOSITORY" || status=$?
+
+        echo "exit-status=${status}" >> "${GITHUB_OUTPUT:-/dev/null}"
+        case "$status" in
+          0) emit_metric "df12-skylos.result=clean" ;;
+          1) emit_metric "df12-skylos.result=blocking" ;;
+          *) emit_metric "df12-skylos.result=invalid" ;;
+        esac
+        exit "$status"

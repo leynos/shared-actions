@@ -1,0 +1,74 @@
+name: Test df12 lint actions
+
+on:
+  pull_request:
+    # The lane installs the real package and nose release, so it runs only
+    # when an action it exercises, its fixtures or this workflow changes.
+    paths:
+      - '.github/actions/df12-skylos/**'
+      - '.github/actions/df12-duplication/**'
+      - '.github/df12-fixtures/**'
+      - '.github/workflows/test-df12-lint-actions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  df12-lint-actions:
+    # The unit suite drives each action's script against a stubbed `uv`, so it
+    # cannot see the real package, the real detector or what uv does with the
+    # pin. This lane runs both actions for real over a clean and a failing
+    # fixture each, and asserts the outcome the action reports.
+    name: Run the df12 actions over their fixtures
+    # Dependabot pull requests run on the hosted pool too. The author is
+    # tested, not the actor, which changes when someone else pushes.
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Skylos on a clean fixture
+        id: skylos-clean
+        uses: ./.github/actions/df12-skylos
+        with:
+          repository: .github/df12-fixtures/skylos-clean
+
+      - name: Skylos on a fixture with dead code
+        id: skylos-dead
+        continue-on-error: true
+        uses: ./.github/actions/df12-skylos
+        with:
+          repository: .github/df12-fixtures/skylos-dead
+
+      - name: Duplication on a clean fixture
+        id: duplication-clean
+        uses: ./.github/actions/df12-duplication
+        with:
+          repository: .github/df12-fixtures/duplication-clean
+
+      - name: Duplication on a fixture with a duplicate family
+        id: duplication-dup
+        continue-on-error: true
+        uses: ./.github/actions/df12-duplication
+        with:
+          repository: .github/df12-fixtures/duplication-dup
+
+      - name: Assert the reported outcomes
+        shell: bash
+        env:
+          SKYLOS_CLEAN: ${{ steps.skylos-clean.outputs.exit-status }}
+          SKYLOS_DEAD: ${{ steps.skylos-dead.outputs.exit-status }}
+          DUPLICATION_CLEAN: ${{ steps.duplication-clean.outputs.exit-status }}
+          DUPLICATION_DUP: ${{ steps.duplication-dup.outputs.exit-status }}
+        run: |
+          set -euo pipefail
+          test "$SKYLOS_CLEAN" = 0
+          test "$SKYLOS_DEAD" = 1
+          test "$DUPLICATION_CLEAN" = 0
+          test "$DUPLICATION_DUP" = 1

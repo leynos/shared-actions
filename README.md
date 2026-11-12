@@ -9,6 +9,8 @@ GitHub Actions
 
 | Name                              | Path                                                                               | Latest major |
 | --------------------------------- | ---------------------------------------------------------------------------------- | ------------ |
+| df12 duplication gate             | `.github/actions/df12-duplication`                                                 | unreleased   |
+| df12 Skylos dead-code gate        | `.github/actions/df12-skylos`                                                      | unreleased   |
 | Determine release modes           | `.github/actions/determine-release-modes`                                          | v1           |
 | Ensure Cargo version              | `.github/actions/ensure-cargo-version`                                             | v1           |
 | Export Cargo metadata             | `.github/actions/export-cargo-metadata`                                            | v1           |

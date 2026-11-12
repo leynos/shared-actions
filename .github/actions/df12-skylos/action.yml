@@ -5,12 +5,6 @@ description: >
   repository. The package carries the one Skylos pin and the gate's behaviour;
   this action only provisions it and reports the outcome.
 inputs:
-  python-lints-sha:
-    description: >
-      Full 40-digit commit of leynos/df12-python-lints to install. The default
-      is the commit the estate runs; a branch, tag or short SHA is refused.
-    required: false
-    default: 1d6c3bba594651823c9ba8e8b40265cae59a1c52
   repository:
     description: Directory holding the pyproject.toml to check.
     required: false
@@ -46,7 +40,11 @@ runs:
       id: check
       shell: bash
       env:
-        DF12_SHA: ${{ inputs.python-lints-sha }}
+        # The pin: one literal, so an audit reads the exact source. Bump the
+        # commit here, in both df12 actions, the READMEs and the users' guide.
+        DF12_SPEC: >-
+          df12-python-lints[skylos] @
+          git+https://github.com/leynos/df12-python-lints.git@1d6c3bba594651823c9ba8e8b40265cae59a1c52
         DF12_REPOSITORY: ${{ inputs.repository }}
         DF12_PYTHON: ${{ inputs.python-version }}
       run: |
@@ -66,8 +64,6 @@ runs:
           exit 2
         }
 
-        [[ "$DF12_SHA" =~ ^[0-9a-f]{40}$ ]] ||
-          fail "python-lints-sha must be a full 40-digit lowercase commit" invalid-input
         [[ "$DF12_PYTHON" =~ ^3\.[0-9]+$ ]] ||
           fail "python-version must look like 3.14" invalid-input
         [[ -n "$DF12_REPOSITORY" && -d "$DF12_REPOSITORY" ]] ||
@@ -75,10 +71,8 @@ runs:
         command -v uv >/dev/null 2>&1 ||
           fail "uv is required on PATH" missing-prerequisite
 
-        spec="df12-python-lints[skylos] @ git+https://github.com/leynos/df12-python-lints.git@${DF12_SHA}"
-
         status=0
-        uv tool run --python "$DF12_PYTHON" --from "$spec" -- \
+        uv tool run --python "$DF12_PYTHON" --from "$DF12_SPEC" -- \
           df12-skylos check --repository="$DF12_REPOSITORY" || status=$?
 
         echo "exit-status=${status}" >> "${GITHUB_OUTPUT:-/dev/null}"

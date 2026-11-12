@@ -3211,11 +3211,13 @@ platform and a missing `uv`.
 
 ## `df12-skylos` and `df12-duplication` action maintenance
 
-Both manifests carry the same `python-lints-sha` default; a test asserts they
-agree. To move the estate, change both defaults, the two READMEs and the users'
-guide together, after the package release is the commit you name. The nose
-digests live in `df12_python_lints/duplication/releases.json` in the package,
-never here. The scripts run against a stubbed `uv` in
+Both manifests carry the package commit as the literal `DF12_SPEC` step
+environment value, a literal so that Concordat's UV-006 can read the exact pin;
+a test asserts the two agree. To move the estate, change both literals, the two
+READMEs and the users' guide together, after the package release is the commit
+you name. The nose digests live in
+`df12_python_lints/duplication/releases.json` in the package, never here. The
+scripts run against a stubbed `uv` in
 `.github/actions/tests/test_df12_lint_actions.py`; the real package and
 detector run in `.github/workflows/test-df12-lint-actions.yml` over the trees
 under `.github/df12-fixtures`. The commands' own behaviour is tested in

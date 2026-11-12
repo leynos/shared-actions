@@ -9,14 +9,15 @@ exceptions in its own `pyproject.toml`.
 
 ## Inputs
 
-| Name               | Type   | Description                                                   | Required | Default                                    |
-| ------------------ | ------ | ------------------------------------------------------------- | -------- | ------------------------------------------ |
-| `python-lints-sha` | string | Full 40-digit lowercase commit of `leynos/df12-python-lints`. | No       | `1d6c3bba594651823c9ba8e8b40265cae59a1c52` |
-| `repository`       | string | Directory holding the `pyproject.toml` to check.              | No       | `.`                                        |
-| `python-version`   | string | Interpreter for the tool environment, such as `3.14`.         | No       | `3.14`                                     |
+| Name             | Type   | Description                                           | Required | Default |
+| ---------------- | ------ | ----------------------------------------------------- | -------- | ------- |
+| `repository`     | string | Directory holding the `pyproject.toml` to check.      | No       | `.`     |
+| `python-version` | string | Interpreter for the tool environment, such as `3.14`. | No       | `3.14`  |
 
-The default commit is the v0.4.0 release. A branch, tag, short SHA or
-upper-case digest is refused before `uv` runs.
+The package commit is a literal in the action (df12-python-lints v0.4.0,
+`1d6c3bba594651823c9ba8e8b40265cae59a1c52`), so an audit reads the exact
+source. Bump it in both df12 actions together; consumers move by bumping the
+SHA that references the action.
 
 ## Outputs
 

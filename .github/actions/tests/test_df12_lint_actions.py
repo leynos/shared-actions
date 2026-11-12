@@ -26,7 +26,6 @@ posix_only = pytest.mark.skipif(
 )
 
 ACTIONS_ROOT = Path(__file__).resolve().parents[1]
-SHA = "1d6c3bba594651823c9ba8e8b40265cae59a1c52"
 GIT_URL = "git+https://github.com/leynos/df12-python-lints.git"
 ACTIONS = {
     "df12-skylos": ("skylos", ("check",)),
@@ -45,6 +44,11 @@ def _check_step(name: str) -> dict[str, typ.Any]:
     return step
 
 
+def _spec(name: str) -> str:
+    """Return the literal package spec in the action's step env, as YAML folds it."""
+    return _check_step(name)["env"]["DF12_SPEC"]
+
+
 def _run(
     tmp_path: Path, name: str, *, stub_body: str = "", **overrides: str
 ) -> subprocess.CompletedProcess[str]:
@@ -61,7 +65,7 @@ def _run(
     repo.mkdir(exist_ok=True)
     env = {
         "PATH": f"{stubs}:/usr/bin:/bin",
-        "DF12_SHA": SHA,
+        "DF12_SPEC": _spec(name),
         "DF12_REPOSITORY": str(repo),
         "DF12_PYTHON": "3.14",
         "GITHUB_OUTPUT": str(tmp_path / "out"),
@@ -85,21 +89,31 @@ def _calls(tmp_path: Path) -> list[str]:
 
 @pytest.mark.parametrize("name", ACTIONS)
 def test_manifest_declares_the_contract(name: str) -> None:
-    """Inputs, the default pin and the output are declared; nothing is cached."""
+    """Inputs and the output are declared; nothing is cached."""
     manifest = _manifest(name)
-    inputs = manifest["inputs"]
-    assert set(inputs) == {"python-lints-sha", "repository", "python-version"}
-    assert re.fullmatch(r"[0-9a-f]{40}", inputs["python-lints-sha"]["default"])
+    assert set(manifest["inputs"]) == {"repository", "python-version"}
     assert set(manifest["outputs"]) == {"exit-status"}
     uses = [s["uses"] for s in manifest["runs"]["steps"] if "uses" in s]
     assert all(re.search(r"@[0-9a-f]{40}$", u) for u in uses), uses
     assert not any(u.startswith("actions/cache") for u in uses)
 
 
-def test_both_actions_default_to_the_same_package_commit() -> None:
-    """One pin for the estate: the two defaults cannot drift apart."""
-    defaults = {_manifest(n)["inputs"]["python-lints-sha"]["default"] for n in ACTIONS}
-    assert len(defaults) == 1
+@pytest.mark.parametrize(("name", "plan"), ACTIONS.items())
+def test_the_spec_is_one_literal_full_commit_pin(
+    name: str, plan: tuple[str, tuple[str, ...]]
+) -> None:
+    """Concordat UV-006 reads a literal: extras form, Git URL, full commit."""
+    spec = _spec(name)
+    assert "${" not in spec
+    assert re.fullmatch(
+        rf"df12-python-lints\[{plan[0]}\] @ {re.escape(GIT_URL)}@[0-9a-f]{{40}}", spec
+    ), spec
+
+
+def test_both_actions_pin_the_same_package_commit() -> None:
+    """One pin for the estate: the two literals cannot drift apart."""
+    pins = {_spec(n).rsplit("@", 1)[1] for n in ACTIONS}
+    assert len(pins) == 1
 
 
 @pytest.mark.parametrize("name", ACTIONS)
@@ -107,7 +121,7 @@ def test_inputs_reach_the_script_only_through_env(name: str) -> None:
     """No expression is interpolated into the script text."""
     step = _check_step(name)
     assert "${{" not in step["run"]
-    assert set(step["env"]) == {"DF12_SHA", "DF12_REPOSITORY", "DF12_PYTHON"}
+    assert set(step["env"]) == {"DF12_SPEC", "DF12_REPOSITORY", "DF12_PYTHON"}
 
 
 @posix_only
@@ -121,7 +135,8 @@ def test_clean_run_provisions_the_pinned_spec_and_reports_zero(
     assert result.returncode == 0, result.stderr
     calls = _calls(tmp_path)
     assert len(calls) == len(verbs)
-    spec = f"df12-python-lints[{extra}] @ {GIT_URL}@{SHA}"
+    spec = _spec(name)
+    assert f"[{extra}]" in spec
     for call, verb in zip(calls, verbs, strict=True):
         assert call.startswith(f"tool run --python 3.14 --from {spec} -- {name} {verb}")
         # One argument, so a directory named like an option is not parsed as one.
@@ -154,22 +169,6 @@ def test_failed_install_is_invalid_and_skips_check(tmp_path: Path) -> None:
     assert result.returncode == 2
     assert "metric df12-duplication.result=install-failed" in result.stdout
     assert not any(" check " in c for c in _calls(tmp_path))
-
-
-@posix_only
-@pytest.mark.parametrize("name", ACTIONS)
-@pytest.mark.parametrize(
-    "sha",
-    ["main", "v0.4.0", SHA[:7], SHA.upper(), SHA + "0", f"{SHA}; true", ""],
-)
-def test_a_pin_that_is_not_a_full_commit_is_refused(
-    tmp_path: Path, name: str, sha: str
-) -> None:
-    """Only a full 40-digit lowercase commit is a pin; uv is never called."""
-    result = _run(tmp_path, name, DF12_SHA=sha)
-    assert result.returncode == 2
-    assert f"metric {name}.result=invalid-input" in result.stdout
-    assert _calls(tmp_path) == []
 
 
 @posix_only

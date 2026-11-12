@@ -198,11 +198,47 @@ runs:
           printf '%s-archive=%s\n' "$tool" "$found" >> "$GITHUB_OUTPUT"
         done
 
+    # Whatever sits in an archive directory on a miss was not necessarily put
+    # there by this run, so before a save the tool checks every archive against
+    # its pinned digest, by installing from the directory into a throwaway one.
+    # A file that fails the check is replaced, never saved.
+    - name: Verify archives before they are saved
+      id: presave
+      if: >-
+        github.event_name == 'push'
+        && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        && ((steps.plan.outputs.kani == 'true' && steps.kani-cache.outputs.cache-hit != 'true')
+        || (steps.plan.outputs.z3 == 'true' && steps.z3-cache.outputs.cache-hit != 'true'))
+      shell: bash
+      env:
+        SOURCE: ${{ steps.plan.outputs.source }}
+        ROOT: ${{ inputs.repo-root }}
+        WANT_KANI: ${{ steps.plan.outputs.kani }}
+        WANT_Z3: ${{ steps.plan.outputs.z3 }}
+        KANI_CACHE: ${{ steps.plan.outputs.kani-cache-dir }}
+        Z3_CACHE: ${{ steps.plan.outputs.z3-cache-dir }}
+        SCRATCH: ${{ runner.temp }}/prover-tools-presave
+      run: |
+        set -euo pipefail
+        for name in $(compgen -e | grep -E '^INPUT_'); do unset "$name"; done
+        unset KANI KANI_CACHE_DIR KANI_INSTALL_DIR VERUS_INSTALL_DIR VERUS_TARGET \
+          Z3_CACHE_DIR Z3_INSTALL_DIR
+        prover() { uv tool run --from "$SOURCE" prover-tools "$@"; }
+        if [ "$WANT_KANI" = true ]; then
+          prover kani install --repo-root "$ROOT" --cache-dir "$KANI_CACHE" \
+            --install-dir "$SCRATCH/kani" --no-setup --no-verify
+        fi
+        if [ "$WANT_Z3" = true ]; then
+          prover z3 install --repo-root "$ROOT" \
+            --install-dir "$SCRATCH/z3" --cache-dir "$Z3_CACHE"
+        fi
+
     # Saved from the default branch only, and only on an exact miss, so a pull
     # request never writes a key and a hit is never overwritten.
     - name: Save Kani archives
       if: >-
         steps.plan.outputs.kani == 'true'
+        && steps.presave.outcome == 'success'
         && steps.verify.outputs.kani-archive == 'true'
         && steps.kani-cache.outputs.cache-hit != 'true'
         && github.event_name == 'push'
@@ -215,6 +251,7 @@ runs:
     - name: Save Z3 archive
       if: >-
         steps.plan.outputs.z3 == 'true'
+        && steps.presave.outcome == 'success'
         && steps.verify.outputs.z3-archive == 'true'
         && steps.z3-cache.outputs.cache-hit != 'true'
         && github.event_name == 'push'

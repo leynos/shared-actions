@@ -118,3 +118,21 @@ def test_a_save_needs_an_archive_this_run_published(
     ]
     for step in saves:
         assert "-archive == 'true'" in " ".join(str(step["if"]).split()), step["name"]
+
+
+def test_saves_follow_a_digest_check_of_the_archives(
+    manifest: dict[str, typ.Any],
+) -> None:
+    """The tool re-verifies archives on a miss, and a save needs that to succeed."""
+    steps = _steps(manifest)
+    names = [s.get("id") for s in steps]
+    presave = steps[names.index("presave")]
+    assert "--no-setup --no-verify" in presave["run"], "kani verifies without setup"
+    saves = [
+        s for s in steps if str(s.get("uses", "")).startswith("actions/cache/save@")
+    ]
+    assert all(steps.index(s) > steps.index(presave) for s in saves), (
+        "check comes first"
+    )
+    for step in saves:
+        assert "presave.outcome == 'success'" in " ".join(str(step["if"]).split())

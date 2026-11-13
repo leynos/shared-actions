@@ -1,0 +1,265 @@
+name: Install prover tools
+description: >-
+  Install Kani, Verus and Z3 through a pinned rust-prover-tools revision, with
+  the tool's own digest checks, and cache the verified archives.
+
+inputs:
+  tools:
+    description: >-
+      Space-separated tools to install, from `kani`, `verus` and `z3`. `verus`
+      also installs `z3`, which Verus needs and does not ship.
+    required: true
+  prover-tools-sha:
+    description: >-
+      Full 40-character commit SHA of leynos/rust-prover-tools. It decides the
+      installer and every digest the installer checks, so a tag or branch is
+      refused. Defaults to the estate revision.
+    required: false
+    default: 592558f7183b554fc749696246984c5d7300d029
+  repo-root:
+    description: >-
+      Consumer repository root. `tools/kani/VERSION` and `tools/verus/VERSION`
+      are read from it, and Verus and Z3 install beneath its `.verus`.
+    required: false
+    default: .
+  runner-image:
+    description: >-
+      Runner image label carried in the cache key, for example `ubuntu2404`,
+      because the Kani bundle is a compiled artefact.
+    required: true
+  kani-install-dir:
+    description: >-
+      Directory for `cargo-kani` and `kani`. Empty means `$CARGO_HOME/bin`
+      (`~/.cargo/bin` when unset). It is added to `PATH`.
+    required: false
+    default: ''
+  verus-install-dir:
+    description: >-
+      Parent directory for the Verus release, which installs in a subdirectory
+      named for the pinned version. Empty means `.verus`.
+    required: false
+    default: ''
+  z3-install-dir:
+    description: Directory for the Z3 binary. Empty means `.verus/z3`.
+    required: false
+    default: ''
+
+outputs:
+  verus-bin:
+    description: Absolute path of the installed Verus executable, when installed.
+    value: ${{ steps.verify.outputs.verus-bin }}
+  z3-path:
+    description: Absolute path of the installed Z3 binary, for `VERUS_Z3_PATH`.
+    value: ${{ steps.verify.outputs.z3-path }}
+  cache-hit:
+    description: >-
+      `true` when every requested archive cache restored exactly. The archives
+      are re-verified against the tool's digests either way.
+    value: ${{ steps.verify.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the prover tools plan
+      id: plan
+      shell: bash
+      env:
+        INPUT_TOOLS: ${{ inputs.tools }}
+        INPUT_SHA: ${{ inputs.prover-tools-sha }}
+        INPUT_ROOT: ${{ inputs.repo-root }}
+        INPUT_IMAGE: ${{ inputs.runner-image }}
+        INPUT_KANI_DIR: ${{ inputs.kani-install-dir }}
+        INPUT_VERUS_DIR: ${{ inputs.verus-install-dir }}
+        INPUT_Z3_DIR: ${{ inputs.z3-install-dir }}
+        PLAN_SCRIPT: ${{ github.action_path }}/scripts/prover_plan.py
+        LANE: ${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}
+        CACHE_ROOT: ${{ runner.temp }}/prover-tools-cache
+      run: |
+        set -euo pipefail
+        python3 "$PLAN_SCRIPT" \
+          --tools "$INPUT_TOOLS" --sha "$INPUT_SHA" \
+          --repo-root "$INPUT_ROOT" --runner-image "$INPUT_IMAGE" \
+          --lane "$LANE" --cache-root "$CACHE_ROOT" \
+          --kani-install-dir "$INPUT_KANI_DIR" \
+          --verus-install-dir "$INPUT_VERUS_DIR" \
+          --z3-install-dir "$INPUT_Z3_DIR"
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+      with:
+        enable-cache: false
+
+    - name: Prune restored uv cache
+      shell: bash
+      run: bash "${{ github.action_path }}/../../scripts/prune_uv_cache.sh"
+
+    # Only archives are cached. Each one is hashed against the revision's pinned
+    # digest on every use, so a restored entry is verified, never trusted, and
+    # the binaries are always extracted from an archive that passed that check.
+    - name: Restore Kani archives
+      id: kani-cache
+      if: steps.plan.outputs.kani == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.plan.outputs.kani-cache-dir }}
+        key: ${{ steps.plan.outputs.kani-key }}
+
+    - name: Restore Z3 archive
+      id: z3-cache
+      if: steps.plan.outputs.z3 == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.plan.outputs.z3-cache-dir }}
+        key: ${{ steps.plan.outputs.z3-key }}
+
+    - name: Install the tools
+      id: install
+      shell: bash
+      env:
+        SOURCE: ${{ steps.plan.outputs.source }}
+        ROOT: ${{ inputs.repo-root }}
+        WANT_KANI: ${{ steps.plan.outputs.kani }}
+        WANT_VERUS: ${{ steps.plan.outputs.verus }}
+        WANT_Z3: ${{ steps.plan.outputs.z3 }}
+        KANI_CACHE: ${{ steps.plan.outputs.kani-cache-dir }}
+        KANI_DIR: ${{ steps.plan.outputs.kani-install-dir }}
+        VERUS_DIR: ${{ steps.plan.outputs.verus-install-dir }}
+        Z3_CACHE: ${{ steps.plan.outputs.z3-cache-dir }}
+        Z3_DIR: ${{ steps.plan.outputs.z3-install-dir }}
+      run: |
+        set -euo pipefail
+        # The tool reads defaults for its flags from these names, and a caller's
+        # job environment may set them; every value this action needs is passed
+        # explicitly, so none of them may reach the tool.
+        for name in $(compgen -e | grep -E '^INPUT_'); do unset "$name"; done
+        unset KANI KANI_CACHE_DIR KANI_INSTALL_DIR VERUS_INSTALL_DIR VERUS_TARGET \
+          Z3_CACHE_DIR Z3_INSTALL_DIR
+        prover() { uv tool run --from "$SOURCE" prover-tools "$@"; }
+        if [ "$WANT_KANI" = true ]; then
+          kani_bin="${KANI_DIR:-${CARGO_HOME:-$HOME/.cargo}/bin}"
+          # Absolute, so the tool's repo-root base and the PATH entry agree.
+          case "$kani_bin" in /*) ;; *) kani_bin="$PWD/$kani_bin" ;; esac
+          # Always explicit: the tool also reads KANI_INSTALL_DIR from the
+          # environment, which would move the install away from the PATH entry.
+          prover kani install --repo-root "$ROOT" --cache-dir "$KANI_CACHE" \
+            --install-dir "$kani_bin"
+          printf '%s\n' "$kani_bin" >> "$GITHUB_PATH"
+          PATH="$kani_bin:$PATH" prover kani check-version \
+            --repo-root "$ROOT" --kani-command "cargo kani"
+        fi
+        if [ "$WANT_VERUS" = true ]; then
+          prover verus install --repo-root "$ROOT" --install-dir "$VERUS_DIR"
+        fi
+        if [ "$WANT_Z3" = true ]; then
+          prover z3 install --repo-root "$ROOT" \
+            --install-dir "$Z3_DIR" --cache-dir "$Z3_CACHE"
+        fi
+
+    - name: Verify the installed files
+      id: verify
+      shell: bash
+      env:
+        WANT_VERUS: ${{ steps.plan.outputs.verus }}
+        WANT_Z3: ${{ steps.plan.outputs.z3 }}
+        VERUS_DIR: ${{ steps.plan.outputs.verus-install-dir }}
+        Z3_DIR: ${{ steps.plan.outputs.z3-install-dir }}
+        KANI_CACHE: ${{ steps.plan.outputs.kani-cache-dir }}
+        Z3_CACHE: ${{ steps.plan.outputs.z3-cache-dir }}
+        KANI_HIT: ${{ steps.kani-cache.outputs.cache-hit }}
+        Z3_HIT: ${{ steps.z3-cache.outputs.cache-hit }}
+        WANT_KANI: ${{ steps.plan.outputs.kani }}
+      run: |
+        set -euo pipefail
+        hit=true
+        if [ "$WANT_KANI" = true ] && [ "$KANI_HIT" != true ]; then hit=false; fi
+        if [ "$WANT_Z3" = true ] && [ "$Z3_HIT" != true ]; then hit=false; fi
+        if [ "$WANT_VERUS" = true ]; then
+          verus_bin="$(cd "$VERUS_DIR" && pwd)/verus/verus"
+          test -x "$verus_bin"
+          printf 'verus-bin=%s\n' "$verus_bin" >> "$GITHUB_OUTPUT"
+        fi
+        if [ "$WANT_Z3" = true ]; then
+          z3_path="$(cd "$Z3_DIR" && pwd)/z3"
+          test -x "$z3_path"
+          printf 'z3-path=%s\n' "$z3_path" >> "$GITHUB_OUTPUT"
+        fi
+        printf 'cache-hit=%s\n' "$hit" >> "$GITHUB_OUTPUT"
+        # A save is worth making only when this run's tool published a verified
+        # archive: on an exact miss the directory started empty, and the tool
+        # publishes a file only after its digest matched. A run that reused an
+        # installed solver downloads nothing and would save an empty entry.
+        for tool in kani z3; do
+          dir="$(printf '%s' "$tool" | tr a-z A-Z)_CACHE"
+          found=false
+          if [ -d "${!dir:-/nonexistent}" ] &&
+            [ -n "$(find "${!dir}" -type f ! -name '*.download' -print -quit)" ]; then
+            found=true
+          fi
+          printf '%s-archive=%s\n' "$tool" "$found" >> "$GITHUB_OUTPUT"
+        done
+
+    # Whatever sits in an archive directory on a miss was not necessarily put
+    # there by this run, so before a save the tool checks every archive against
+    # its pinned digest, by installing from the directory into a throwaway one.
+    # A file that fails the check is replaced, never saved.
+    - name: Verify archives before they are saved
+      id: presave
+      if: >-
+        github.event_name == 'push'
+        && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        && ((steps.plan.outputs.kani == 'true' && steps.kani-cache.outputs.cache-hit != 'true')
+        || (steps.plan.outputs.z3 == 'true' && steps.z3-cache.outputs.cache-hit != 'true'))
+      shell: bash
+      env:
+        SOURCE: ${{ steps.plan.outputs.source }}
+        ROOT: ${{ inputs.repo-root }}
+        WANT_KANI: ${{ steps.plan.outputs.kani }}
+        WANT_Z3: ${{ steps.plan.outputs.z3 }}
+        KANI_CACHE: ${{ steps.plan.outputs.kani-cache-dir }}
+        Z3_CACHE: ${{ steps.plan.outputs.z3-cache-dir }}
+        TEMP_ROOT: ${{ runner.temp }}
+      run: |
+        set -euo pipefail
+        # Fresh on every call, so no marker or binary left by an earlier call
+        # or run can make the tool skip the archive it is meant to check.
+        SCRATCH="$(mktemp -d "$TEMP_ROOT/prover-tools-presave.XXXXXX")"
+        for name in $(compgen -e | grep -E '^INPUT_'); do unset "$name"; done
+        unset KANI KANI_CACHE_DIR KANI_INSTALL_DIR VERUS_INSTALL_DIR VERUS_TARGET \
+          Z3_CACHE_DIR Z3_INSTALL_DIR
+        prover() { uv tool run --from "$SOURCE" prover-tools "$@"; }
+        if [ "$WANT_KANI" = true ]; then
+          prover kani install --repo-root "$ROOT" --cache-dir "$KANI_CACHE" \
+            --install-dir "$SCRATCH/kani" --no-setup --no-verify
+        fi
+        if [ "$WANT_Z3" = true ]; then
+          prover z3 install --repo-root "$ROOT" \
+            --install-dir "$SCRATCH/z3" --cache-dir "$Z3_CACHE"
+        fi
+
+    # Saved from the default branch only, and only on an exact miss, so a pull
+    # request never writes a key and a hit is never overwritten.
+    - name: Save Kani archives
+      if: >-
+        steps.plan.outputs.kani == 'true'
+        && steps.presave.outcome == 'success'
+        && steps.verify.outputs.kani-archive == 'true'
+        && steps.kani-cache.outputs.cache-hit != 'true'
+        && github.event_name == 'push'
+        && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.plan.outputs.kani-cache-dir }}
+        key: ${{ steps.plan.outputs.kani-key }}
+
+    - name: Save Z3 archive
+      if: >-
+        steps.plan.outputs.z3 == 'true'
+        && steps.presave.outcome == 'success'
+        && steps.verify.outputs.z3-archive == 'true'
+        && steps.z3-cache.outputs.cache-hit != 'true'
+        && github.event_name == 'push'
+        && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.plan.outputs.z3-cache-dir }}
+        key: ${{ steps.plan.outputs.z3-key }}

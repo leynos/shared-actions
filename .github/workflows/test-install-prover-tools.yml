@@ -1,0 +1,107 @@
+name: Test install-prover-tools
+
+on:
+  pull_request:
+    paths:
+      - .github/actions/install-prover-tools/**
+      - .github/workflows/test-install-prover-tools.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CONSUMER: .github/actions/install-prover-tools/tests/fixtures/consumer
+
+jobs:
+  installs-and-reverifies:
+    # GitHub-hosted on purpose: the job is a free proof that a real install
+    # works and that a poisoned archive cache is repaired, and nothing
+    # waits on it.
+    name: Install every tool and re-verify a poisoned archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Kani, Verus and Z3 (cold)
+        id: cold
+        uses: ./.github/actions/install-prover-tools
+        with:
+          tools: kani verus
+          repo-root: ${{ env.CONSUMER }}
+          runner-image: ubuntu2404
+
+      - name: Assert the installed tools
+        shell: bash
+        env:
+          VERUS_BIN: ${{ steps.cold.outputs.verus-bin }}
+          Z3_PATH: ${{ steps.cold.outputs.z3-path }}
+        run: |
+          set -euo pipefail
+          test -x "$VERUS_BIN"
+          test -x "$Z3_PATH"
+          cargo kani --version | grep --fixed-strings "$(cat "$CONSUMER/tools/kani/VERSION")"
+          "$Z3_PATH" --version
+
+      - name: Poison the cached Z3 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find "$RUNNER_TEMP/prover-tools-cache/z3" -type f -name '*.zip' | head -n 1)"
+          test -n "$archive"
+          before="$(sha256sum "$archive" | cut -d' ' -f1)"
+          printf 'tampered' >> "$archive"
+          after="$(sha256sum "$archive" | cut -d' ' -f1)"
+          test "$before" != "$after"
+          printf 'ARCHIVE=%s\nGOOD_DIGEST=%s\n' "$archive" "$before" >> "$GITHUB_ENV"
+          # Force a fresh extraction so the install must read the archive.
+          rm -f "$CONSUMER/.verus/z3/z3"
+
+      - name: Reinstall Z3 over the poisoned archive
+        id: warm
+        uses: ./.github/actions/install-prover-tools
+        with:
+          tools: z3
+          repo-root: ${{ env.CONSUMER }}
+          # A key no earlier run can have saved, so the cache restore misses
+          # and cannot overwrite the poisoned archive before the tool reads it.
+          runner-image: poisoned-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Assert the archive was re-verified and replaced
+        shell: bash
+        env:
+          Z3_PATH: ${{ steps.warm.outputs.z3-path }}
+        run: |
+          set -euo pipefail
+          test "$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" = "$GOOD_DIGEST"
+          "$Z3_PATH" --version
+
+  refuses-an-unpinned-revision:
+    name: Refuse a branch name as the prover-tools pin
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install with a branch pin
+        id: refused
+        continue-on-error: true
+        uses: ./.github/actions/install-prover-tools
+        with:
+          tools: z3
+          prover-tools-sha: main
+          repo-root: ${{ env.CONSUMER }}
+          runner-image: ubuntu2404
+
+      - name: Assert the step failed closed
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.refused.outcome }}
+        run: |
+          set -euo pipefail
+          test "$OUTCOME" = failure

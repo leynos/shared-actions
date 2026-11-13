@@ -92,6 +92,8 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ("test-install-makeutil.yml", "install-makeutil-cache-restore"): "install",
     ("test-install-makeutil.yml", "install-makeutil-digest-mismatch"): "install",
     ("test-install-makeutil.yml", "install-makeutil-unknown-version"): "assertion",
+    ("test-install-prover-tools.yml", "installs-and-reverifies"): "install",
+    ("test-install-prover-tools.yml", "refuses-an-unpinned-revision"): "assertion",
     ("test-install-tool.yml", "installs-and-caches"): "install",
     ("test-install-tool.yml", "refuses-an-unpinned-version"): "assertion",
     ("test-install-tool.yml", "refuses-an-unsupported-target"): "assertion",

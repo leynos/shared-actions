@@ -83,6 +83,13 @@ HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
         "GitHub-hosted cache endpoint. On Ubicloud the endpoint is the one "
         "the action accepts, so the job would pass without testing anything."
     ),
+    ("test-install-prover-tools.yml", "installs-and-reverifies"): (
+        "A free proof that a real install works and that a poisoned archive "
+        "cache is repaired; nothing waits on it, so it needs no paid runner."
+    ),
+    ("test-install-prover-tools.yml", "refuses-an-unpinned-revision"): (
+        "Fails closed before any download; a hosted runner is enough."
+    ),
     ("test-setup-rust-sccache.yml", "exports-the-wrapper"): (
         "The job proves setup-rust's GitHub-hosted arm: a local sccache "
         "directory the action caches. On Ubicloud the action selects the "

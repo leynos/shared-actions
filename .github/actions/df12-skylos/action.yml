@@ -44,7 +44,7 @@ runs:
         # commit here, in both df12 actions, the READMEs and the users' guide.
         DF12_SPEC: >-
           df12-python-lints[skylos] @
-          git+https://github.com/leynos/df12-python-lints.git@1d6c3bba594651823c9ba8e8b40265cae59a1c52
+          git+https://github.com/leynos/df12-python-lints.git@56ad71721c3f1f2164ec84b69150582488f1a927
         DF12_REPOSITORY: ${{ inputs.repository }}
         DF12_PYTHON: ${{ inputs.python-version }}
       run: |

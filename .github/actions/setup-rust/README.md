@@ -271,7 +271,7 @@ so this action sets both:
 
 The backend is selected by runner, in a JavaScript step, because only an action
 step can read `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`
-([ADR 0005](../../../docs/adr/0005-runner-aware-sccache-backend.md)):
+([ADR 0005](../../../docs/adrs/adr-0005-runner-aware-sccache-backend.md)):
 
 - a private address literal in `ACTIONS_CACHE_URL` is Ubicloud's cache proxy.
   The action masks and exports both credentials, clears

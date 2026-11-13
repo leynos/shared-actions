@@ -13,7 +13,7 @@ needs this action. `setup-rust` makes the same private-address check and
 publishes the credentials itself, and on a GitHub-hosted runner it selects
 local disk, which it caches itself, instead of failing. Calling this action
 first remains harmless: `setup-rust` recognizes the credentials it exported. See
-[ADR 0005](../../../docs/adr/0005-runner-aware-sccache-backend.md).
+[ADR 0005](../../../docs/adrs/adr-0005-runner-aware-sccache-backend.md).
 
 ## Why it exists
 

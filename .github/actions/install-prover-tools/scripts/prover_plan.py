@@ -53,6 +53,7 @@ class Request:
     kani_install_dir: str = ""
     verus_install_dir: str = ""
     z3_install_dir: str = ""
+    cache: str = "true"
 
 
 def _select(tools: str) -> tuple[str, ...]:
@@ -146,6 +147,8 @@ def _directories(
 def plan(request: Request) -> dict[str, str]:
     """Return the step outputs for *request*, or raise ``PlanError``."""
     _check_inputs(request)
+    if request.cache not in {"true", "false"}:
+        _refuse(f"cache must be true or false, got {request.cache!r}")
     selected = _select(request.tools)
     # Absolute, because the tool resolves a relative install directory against
     # the repository root and a path that already names it would be doubled.
@@ -154,6 +157,10 @@ def plan(request: Request) -> dict[str, str]:
         "source": f"{SOURCE_ROOT}{request.sha}",
         "tools": " ".join(selected),
         **{tool: str(tool in selected).lower() for tool in TOOLS},
+        **{
+            f"{tool}-cached": str(tool in selected and request.cache == "true").lower()
+            for tool in ("kani", "z3")
+        },
     }
     keys = _keys(request, root, selected)
     return {**outputs, **keys, **_directories(request, root, selected, keys)}
@@ -179,6 +186,7 @@ def main(argv: cabc.Sequence[str] | None = None) -> int:
     parser.add_argument("--kani-install-dir", default="")
     parser.add_argument("--verus-install-dir", default="")
     parser.add_argument("--z3-install-dir", default="")
+    parser.add_argument("--cache", default="true")
     args = parser.parse_args(argv)
     request = Request(
         tools=args.tools,
@@ -190,6 +198,7 @@ def main(argv: cabc.Sequence[str] | None = None) -> int:
         kani_install_dir=args.kani_install_dir,
         verus_install_dir=args.verus_install_dir,
         z3_install_dir=args.z3_install_dir,
+        cache=args.cache,
     )
     try:
         outputs = plan(request)

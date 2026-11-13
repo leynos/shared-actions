@@ -22,6 +22,13 @@ inputs:
       are read from it, and Verus and Z3 install beneath its `.verus`.
     required: false
     default: .
+  cache:
+    description: >-
+      `true` (the default) restores and saves the verified archives; `false`
+      downloads them every run and touches no cache, for a job whose cold
+      install costs less than moving the archives.
+    required: false
+    default: 'true'
   runner-image:
     description: >-
       Runner image label carried in the cache key, for example `ubuntu2404`,
@@ -68,6 +75,7 @@ runs:
         INPUT_SHA: ${{ inputs.prover-tools-sha }}
         INPUT_ROOT: ${{ inputs.repo-root }}
         INPUT_IMAGE: ${{ inputs.runner-image }}
+        INPUT_CACHE: ${{ inputs.cache }}
         INPUT_KANI_DIR: ${{ inputs.kani-install-dir }}
         INPUT_VERUS_DIR: ${{ inputs.verus-install-dir }}
         INPUT_Z3_DIR: ${{ inputs.z3-install-dir }}
@@ -80,6 +88,7 @@ runs:
           --tools "$INPUT_TOOLS" --sha "$INPUT_SHA" \
           --repo-root "$INPUT_ROOT" --runner-image "$INPUT_IMAGE" \
           --lane "$LANE" --cache-root "$CACHE_ROOT" \
+          --cache "$INPUT_CACHE" \
           --kani-install-dir "$INPUT_KANI_DIR" \
           --verus-install-dir "$INPUT_VERUS_DIR" \
           --z3-install-dir "$INPUT_Z3_DIR"
@@ -98,7 +107,7 @@ runs:
     # the binaries are always extracted from an archive that passed that check.
     - name: Restore Kani archives
       id: kani-cache
-      if: steps.plan.outputs.kani == 'true'
+      if: steps.plan.outputs.kani-cached == 'true'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ${{ steps.plan.outputs.kani-cache-dir }}
@@ -106,7 +115,7 @@ runs:
 
     - name: Restore Z3 archive
       id: z3-cache
-      if: steps.plan.outputs.z3 == 'true'
+      if: steps.plan.outputs.z3-cached == 'true'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ${{ steps.plan.outputs.z3-cache-dir }}
@@ -207,8 +216,8 @@ runs:
       if: >-
         github.event_name == 'push'
         && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        && ((steps.plan.outputs.kani == 'true' && steps.kani-cache.outputs.cache-hit != 'true')
-        || (steps.plan.outputs.z3 == 'true' && steps.z3-cache.outputs.cache-hit != 'true'))
+        && ((steps.plan.outputs.kani-cached == 'true' && steps.kani-cache.outputs.cache-hit != 'true')
+        || (steps.plan.outputs.z3-cached == 'true' && steps.z3-cache.outputs.cache-hit != 'true'))
       shell: bash
       env:
         SOURCE: ${{ steps.plan.outputs.source }}
@@ -240,7 +249,7 @@ runs:
     # request never writes a key and a hit is never overwritten.
     - name: Save Kani archives
       if: >-
-        steps.plan.outputs.kani == 'true'
+        steps.plan.outputs.kani-cached == 'true'
         && steps.presave.outcome == 'success'
         && steps.verify.outputs.kani-archive == 'true'
         && steps.kani-cache.outputs.cache-hit != 'true'
@@ -253,7 +262,7 @@ runs:
 
     - name: Save Z3 archive
       if: >-
-        steps.plan.outputs.z3 == 'true'
+        steps.plan.outputs.z3-cached == 'true'
         && steps.presave.outcome == 'success'
         && steps.verify.outputs.z3-archive == 'true'
         && steps.z3-cache.outputs.cache-hit != 'true'

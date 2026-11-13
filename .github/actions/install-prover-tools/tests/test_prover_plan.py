@@ -165,3 +165,14 @@ def test_an_explicit_verus_directory_is_still_version_qualified(repo: Path) -> N
     assert outputs["verus-install-dir"] == str(
         repo.resolve() / "cache" / "verus" / "0.2026.09.06.8dea4a2"
     ), "the version names the final directory"
+
+
+def test_cache_false_plans_no_cache_and_rejects_other_values(repo: Path) -> None:
+    """`cache: false` switches both archive caches off; anything else is refused."""
+    off = prover_plan.plan(_request(repo, tools="kani verus", cache="false"))
+    on = prover_plan.plan(_request(repo, tools="kani verus"))
+
+    assert (off["kani-cached"], off["z3-cached"]) == ("false", "false")
+    assert (on["kani-cached"], on["z3-cached"]) == ("true", "true")
+    with pytest.raises(prover_plan.PlanError, match="cache must be"):
+        prover_plan.plan(_request(repo, cache="yes"))

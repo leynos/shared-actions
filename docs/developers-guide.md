@@ -27,15 +27,15 @@ repository-specific entries to the overlay instead.
 
 ## Architecture Decision Records
 
-- [ADR 0002: Explicit ps-module-name for PowerShell sidecars](adr/0002-explicit-ps-module-name.md)
-- [ADR 0003: sccache owns Rust compiler output](adr/0003-sccache-owns-rust-compiler-output.md)
-- [ADR 0004: main owns CodeScene coverage](adr/0004-main-owns-codescene-coverage.md)
-- [ADR 0005: setup-rust selects the sccache backend by runner](adr/0005-runner-aware-sccache-backend.md)
-- [ADR 0006: install-whitaker installs binaries only](adr/0006-binary-only-whitaker-install.md)
-- [ADR 0007: Four-tier Python linting architecture](adr/0007-python-linting-architecture.md)
-- [ADR 0008: CI telemetry is a start action, a finish action and a file](adr/0008-ci-telemetry-start-and-finish.md)
-- [ADR 0009: Do not reuse interpreter-bound uv script environments](adr/0009-prune-uv-script-environments.md)
-- [ADR 0010: Install Merman from upstream prebuilt binaries](adr/0010-merman-binary-installation-trust.md)
+- [ADR 0002: Explicit ps-module-name for PowerShell sidecars](adrs/adr-0002-explicit-ps-module-name.md)
+- [ADR 0003: sccache owns Rust compiler output](adrs/adr-0003-sccache-owns-rust-compiler-output.md)
+- [ADR 0004: main owns CodeScene coverage](adrs/adr-0004-main-owns-codescene-coverage.md)
+- [ADR 0005: setup-rust selects the sccache backend by runner](adrs/adr-0005-runner-aware-sccache-backend.md)
+- [ADR 0006: install-whitaker installs binaries only](adrs/adr-0006-binary-only-whitaker-install.md)
+- [ADR 0007: Four-tier Python linting architecture](adrs/adr-0007-python-linting-architecture.md)
+- [ADR 0008: CI telemetry is a start action, a finish action and a file](adrs/adr-0008-ci-telemetry-start-and-finish.md)
+- [ADR 0009: Do not reuse interpreter-bound uv script environments](adrs/adr-0009-prune-uv-script-environments.md)
+- [ADR 0010: Install Merman from upstream prebuilt binaries](adrs/adr-0010-merman-binary-installation-trust.md)
 
 ## Python Coverage Venv Architecture
 
@@ -212,7 +212,7 @@ make test ACT=/usr/local/bin/act
 ## Python linting
 
 The lint architecture has four tiers, recorded in
-[ADR 0007](adr/0007-python-linting-architecture.md):
+[ADR 0007](adrs/adr-0007-python-linting-architecture.md):
 
 1. Ruff checks Python source and import hygiene.
 2. action-validator checks GitHub Action metadata.
@@ -485,11 +485,11 @@ Without that variable sccache writes to local disk, which nothing persists, so
 `RUSTC_WRAPPER` alone buys a wrapper and an empty cache.
 
 The selection is runner-aware, as
-[ADR 0005](adr/0005-runner-aware-sccache-backend.md) records. It is a pinned
-`actions/github-script` step, because the runner hands `ACTIONS_CACHE_URL` and
-`ACTIONS_RUNTIME_TOKEN` to action steps only, and the URL is what tells the
-runners apart. `runner.environment` cannot: on a fork-fallback job it varies
-with the event. The runner decides which service:
+[ADR 0005](adrs/adr-0005-runner-aware-sccache-backend.md) records. It is a
+pinned `actions/github-script` step, because the runner hands
+`ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN` to action steps only, and the
+URL is what tells the runners apart. `runner.environment` cannot: on a
+fork-fallback job it varies with the event. The runner decides which service:
 
 - a private address literal in `ACTIONS_CACHE_URL`, with a runtime token, is
   Ubicloud's proxy. The step masks both credentials before writing anything,
@@ -601,7 +601,7 @@ down instead of failing. Seven mutations each fail a named case.
 
 The pair measures a job's CPU, memory and disk and prints one record. The
 decision and its reasons are in
-[ADR 0008](adr/0008-ci-telemetry-start-and-finish.md); this section is the
+[ADR 0008](adrs/adr-0008-ci-telemetry-start-and-finish.md); this section is the
 contract a maintainer needs.
 
 ### State files
@@ -971,11 +971,11 @@ emits one bounded `uv-cache-prune.outcome=success|failure` metric to the job
 log and summary; a prune failure keeps uv's exit status. The repository
 contract and the script's success and failure behaviour are covered by
 [`test_uv_cache_prune.py`](../tests/workflows/test_uv_cache_prune.py). See
-[ADR 0009](adr/0009-prune-uv-script-environments.md) for the cache policy.
+[ADR 0009](adrs/adr-0009-prune-uv-script-environments.md) for the cache policy.
 
 The compiler cache is a separate boundary. `cache-provider` governs the Cargo
 and uv archives only; which service sccache writes to is selected by runner, as
-[ADR 0005](adr/0005-runner-aware-sccache-backend.md)
+[ADR 0005](adrs/adr-0005-runner-aware-sccache-backend.md)
 records and "`setup-rust` and the rustc wrapper" above describes. Neither input
 changes the other, so an Ubicloud job with `cache-provider: external` still
 gets Ubicloud's proxy for sccache. Caches do not cross between that proxy and
@@ -1109,9 +1109,9 @@ Coverage keeps the LLVM codegen backend. Cranelift has no
 so an instrumented build must use LLVM. mold remains usable as the linker for
 those builds.
 
-[ADR 0003](adr/0003-sccache-owns-rust-compiler-output.md) records this decision
-for both actions, including the measurements behind it and the consequence of a
-cold sccache store.
+[ADR 0003](adrs/adr-0003-sccache-owns-rust-compiler-output.md) records this
+decision for both actions, including the measurements behind it and the
+consequence of a cold sccache store.
 
 Do not couple this input to `use-sccache`. The setup action's compiler-cache
 backend is independent of its Cargo and uv archive caches. A caller mounting
@@ -1342,13 +1342,13 @@ before any step that starts an sccache server, because sccache reads the cache
 configuration once at server start and keeps it for that server's life.
 
 `setup-rust` now makes the same decision itself, and a job using it needs no
-credentials step; see [ADR 0005](adr/0005-runner-aware-sccache-backend.md).
-This action keeps its contract, including failing on a public host, for jobs
-that need the credentials for something else. `setup-rust` recognizes
-credentials this action already exported by the cleared
-`ACTIONS_CACHE_SERVICE_V2` and does not export them again. Its copy of the
-private-address check must stay identical to this one, and a contract in the
-`setup-rust` tests fails when they drift.
+credentials step; see
+[ADR 0005](adrs/adr-0005-runner-aware-sccache-backend.md). This action keeps
+its contract, including failing on a public host, for jobs that need the
+credentials for something else. `setup-rust` recognizes credentials this action
+already exported by the cleared `ACTIONS_CACHE_SERVICE_V2` and does not export
+them again. Its copy of the private-address check must stay identical to this
+one, and a contract in the `setup-rust` tests fails when they drift.
 
 ## `install-whitaker` action contract
 
@@ -1394,9 +1394,9 @@ a failing subshell.
 
 ### Binary-only installs
 
-[ADR 0006](adr/0006-binary-only-whitaker-install.md) records why the action
-installs published binaries only. The `Run Whitaker installer` step implements
-it:
+[ADR 0006](adrs/adr-0006-binary-only-whitaker-install.md) records why the
+action installs published binaries only. The `Run Whitaker installer` step
+implements it:
 
 - The installer always receives `--no-source-fallback`, so a missing published
   lint library or Dylint tool archive fails before Cargo starts.
@@ -1711,7 +1711,7 @@ crates.io access for Dylint's registry dependencies, but no access to public
 Clippy. A pinned digest wins over the input, a conflict fails, and with neither
 the step fails as `unpinned-digest`. Installers before 0.2.11 resolve to
 `status=none` and skip every bootstrap step. The decision is recorded in the
-addendum to [ADR 0006](adr/0006-binary-only-whitaker-install.md).
+addendum to [ADR 0006](adrs/adr-0006-binary-only-whitaker-install.md).
 
 ## `install-makeutil` action contract
 
@@ -1828,7 +1828,7 @@ users' guide and these tests together.
 ## This repository's coverage publication
 
 The decision and what it costs are recorded in
-[ADR 0004](adr/0004-main-owns-codescene-coverage.md).
+[ADR 0004](adrs/adr-0004-main-owns-codescene-coverage.md).
 
 This repository follows CV-005, main-owned CodeScene coverage. No workflow a
 pull request can start contacts CodeScene, and one push-to-`main` publisher

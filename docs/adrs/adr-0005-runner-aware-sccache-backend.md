@@ -4,7 +4,7 @@
 
 ## Context
 
-[ADR 0003](0003-sccache-owns-rust-compiler-output.md) made sccache the sole
+[ADR 0003](adr-0003-sccache-owns-rust-compiler-output.md) made sccache the sole
 owner of compiler output, and its 2026-09-04 addendum made `setup-rust` export
 `SCCACHE_GHA_ENABLED=true` so that sccache writes to a cache that outlives the
 job. That export chose one backend for every runner. Which service it reached
@@ -181,8 +181,8 @@ build to record a cache hit.
 ## References
 
 - Issue `#521`
-- [ADR 0003](0003-sccache-owns-rust-compiler-output.md)
-- [ADR 0004](0004-main-owns-codescene-coverage.md), main-owned CodeScene
+- [ADR 0003](adr-0003-sccache-owns-rust-compiler-output.md)
+- [ADR 0004](adr-0004-main-owns-codescene-coverage.md), main-owned CodeScene
   coverage, the record numbered before this one
 - `docs/developers-guide.md`, "`setup-rust` and the rustc wrapper", "Rust
   action cache ownership" and "`export-ubicloud-cache-credentials` action

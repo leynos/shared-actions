@@ -146,8 +146,8 @@ token is present; on any other runner with a runtime token, local disk under
 `actions/cache`; and plain local disk under nektos/act or with no service. The
 GitHub Actions backend is selected only when a caller enables it. A caller's
 own switch or directory still wins.
-[ADR 0005](0005-runner-aware-sccache-backend.md) records that decision. This
-one stands: sccache owns compiler output, and no `target` archive returns.
+[ADR 0005](adr-0005-runner-aware-sccache-backend.md) records that decision.
+This one stands: sccache owns compiler output, and no `target` archive returns.
 
 ## References
 

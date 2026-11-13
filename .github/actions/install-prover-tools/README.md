@@ -24,6 +24,7 @@ proves.
 | `prover-tools-sha`  | `592558f7…`       | Full 40-character SHA; a tag or branch is refused.   |
 | `repo-root`         | `.`               | Where `tools/*/VERSION` are read and `.verus` lives. |
 | `runner-image`      | required          | Image label, carried in the cache key.               |
+| `cache`             | `true`            | `false` restores and saves no cache.                 |
 | `kani-install-dir`  | `$CARGO_HOME/bin` | Where `cargo-kani` and `kani` land; put on `PATH`.   |
 | `verus-install-dir` | `.verus`          | Parent of the version-named Verus directory.         |
 | `z3-install-dir`    | `.verus/z3`       | Z3 binary directory.                                 |

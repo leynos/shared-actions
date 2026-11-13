@@ -143,3 +143,18 @@ def test_the_presave_check_uses_a_fresh_directory(manifest: dict[str, typ.Any]) 
     presave = next(s for s in _steps(manifest) if s.get("id") == "presave")
     assert 'SCRATCH="$(mktemp -d ' in presave["run"], "created fresh on each call"
     assert "SCRATCH" not in presave["env"], "not a fixed path"
+
+
+def test_every_cache_step_is_gated_on_the_cache_input(
+    manifest: dict[str, typ.Any],
+) -> None:
+    """With `cache: false` no restore, check-for-save or save step runs."""
+    cache_steps = [
+        s
+        for s in _steps(manifest)
+        if str(s.get("uses", "")).startswith("actions/cache/")
+        or s.get("id") == "presave"
+    ]
+    assert len(cache_steps) == 5, "two restores, two saves and the presave check"
+    for step in cache_steps:
+        assert "-cached == 'true'" in " ".join(str(step["if"]).split()), step["name"]

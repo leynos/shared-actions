@@ -41,7 +41,7 @@ class _StubHttpsHandler(urllib.request.BaseHandler):
         response = urllib.response.addinfourl(
             io.BytesIO(body), headers, req.full_url, status
         )
-        response.msg = "stub"  # ty: ignore[unresolved-attribute]
+        response.msg = "stub"  # ty: ignore[missing-attribute]
         return response
 
 
@@ -91,7 +91,7 @@ class TestHttpsOnlyRedirects:
 
         assert any(
             isinstance(handler, urllib.request.HTTPRedirectHandler)
-            for handler in opener.handlers  # ty: ignore[unresolved-attribute]
+            for handler in opener.handlers  # ty: ignore[missing-attribute]
         )
 
     def test_the_default_downloader_uses_the_validating_opener(

@@ -26,6 +26,7 @@ SEP = os.pathsep
     [
         ("cache_miss", uv_gate.Kind.CACHE_MISS),
         ("stale_offline_ambiguous", uv_gate.Kind.OFFLINE_RESOLUTION),
+        ("offline_registry_download", uv_gate.Kind.OFFLINE_RESOLUTION),
         ("stale_lock_online", uv_gate.Kind.STALE_LOCK),
         ("missing_lock", uv_gate.Kind.MISSING_LOCK),
         ("missing_package", uv_gate.Kind.MISSING_PACKAGE),
@@ -550,9 +551,9 @@ def test_the_version_is_reported(flag: str, capsys: pytest.CaptureFixture[str]) 
     """Either switch prints exactly the helper's version, nothing else, and exits 0."""
     assert uv_gate.main([flag]) == 0
     captured = capsys.readouterr()
-    assert captured.out == "uv_gate 0.2.1\n"
+    assert captured.out == "uv_gate 0.2.2\n"
     assert captured.err == ""
-    assert uv_gate.VERSION == "0.2.1"
+    assert uv_gate.VERSION == "0.2.2"
 
 
 SHA = "0123456789abcdef0123456789abcdef01234567"

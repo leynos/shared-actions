@@ -4,6 +4,15 @@ All notable changes to `uv_gate` will be documented in this file.
 
 ## Unreleased
 
+## 0.2.2
+
+- Recognize the `offline-resolution` variant in which uv says a package "needs
+  to be downloaded from a registry" and hints that "registry packages may only
+  be read from the cache". A cold cache that lacked a transitive dependency of
+  a Git-sourced tool, such as pylint under `df12-python-lints`, previously
+  failed as `unknown`; `prepare` and `tool` now make their one online attempt.
+  Found while moving cmd-mox onto the df12-duplication command.
+
 ## 0.2.1
 
 - Add the `missing-git-source` failure class: uv says "Remote Git fetches are

@@ -165,6 +165,7 @@ def test_run_preserves_the_exit_status(harness: Harness) -> None:
 ALL_FAILURES = [
     ("cache_miss", "cache-miss"),
     ("stale_offline_ambiguous", "offline-resolution"),
+    ("offline_registry_download", "offline-resolution"),
     ("stale_lock_online", "stale-lock"),
     ("missing_lock", "missing-lock"),
     ("missing_package", "missing-package"),
@@ -279,7 +280,7 @@ def test_version_is_a_subprocess_contract(harness: Harness, flag: str) -> None:
     """Run for real, the switch prints one exact line, no stderr, and calls no uv."""
     result = harness.run([flag], [])
     assert result.status == 0
-    assert result.stdout == "uv_gate 0.2.1\n"
+    assert result.stdout == "uv_gate 0.2.2\n"
     assert result.stderr == ""
     assert result.uv_calls() == []
 
@@ -303,6 +304,7 @@ def test_tool_online_warm_is_bounded(harness: Harness) -> None:
         not in {
             "cache_miss",
             "stale_offline_ambiguous",
+            "offline_registry_download",
             "missing_python",
             "missing_git_source",
         }
@@ -325,6 +327,22 @@ def test_tool_does_not_retry_an_unrecognised_failure(harness: Harness) -> None:
     result = harness.run(["tool", "--from", "ruff==1", "--", "ruff"], rules)
     assert result.status == 4
     assert len(result.argvs()) == 1
+
+
+def test_tool_warms_online_once_when_a_registry_package_is_uncached(
+    harness: Harness,
+) -> None:
+    """A package that must be downloaded from a registry earns the online retry."""
+    rules = [
+        rule(
+            ["tool", "run", "--offline"],
+            response(1, fixture_text("offline_registry_download")),
+        ),
+        rule(["tool", "run"], response(0), without=("--offline",)),
+    ]
+    result = harness.run(["tool", "--from", "ruff==1", "--", "ruff"], rules)
+    assert result.status == 0
+    assert len(result.argvs()) == 2
 
 
 def test_tool_warms_online_once_on_offline_resolution(harness: Harness) -> None:

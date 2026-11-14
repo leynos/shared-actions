@@ -258,7 +258,9 @@ hands the values to `df12-skylos allow`. Do not add baselines, bulk exceptions,
 or unreasoned allow-list entries. Remove an allow-list entry when its dynamic
 boundary disappears. The command holds the ignored `.pyproject.toml.df12.lock`
 through the complete whitelist update, so concurrent verified exceptions cannot
-overwrite one another.
+overwrite one another. That lock uses `fcntl`, so record exceptions on Linux,
+macOS or WSL; the vendored helper's Windows locking is gone with it (tracked in
+[df12-python-lints#80](https://github.com/leynos/df12-python-lints/issues/80)).
 
 The Makefile contract tests parse the Makefile with Makeutil. `make test`
 requires Makeutil before executing the suite. Bootstrap the pinned local parser

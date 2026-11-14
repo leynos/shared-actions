@@ -30,7 +30,9 @@ from workflow_scripts.tests.makefile_contract_support import (
     _normalize_make_text,
     _objects,
     _recipe_tokens,
+    _sole_recipe_rule,
     _sole_workflow_step,
+    _text_sequence,
     _workflow_job,
 )
 
@@ -45,6 +47,17 @@ class TestMakefileToolchainContract:
 
         assert normalized_tokens == ("first", "second"), (
             "Makeutil tokenization must normalize CRLF before joining continued lines"
+        )
+
+    def test_make_test_requires_the_makefile_parser(self) -> None:
+        """`make test` must require Makeutil before it runs the contract suites."""
+        prerequisites = _text_sequence(
+            _sole_recipe_rule("test").get("prerequisites"),
+            subject="test prerequisites",
+        )
+        assert "makeutil" in prerequisites, (
+            "make test must depend on the makeutil target, or the contract suites "
+            "fail on a missing parser instead of naming it"
         )
 
     def test_typecheck_recipes_preserve_commands_paths_and_sources(self) -> None:

@@ -111,9 +111,10 @@ auto‑increments patch unless `release‑type` input overrides (`minor`, `major
   Only when that cannot model the verified boundary, use
   `make skylos-allow SYMBOL=<symbol> REASON="<verified runtime caller>"`. Both
   values must contain non-whitespace text; `SYMBOL` avoids WSL's injected
-  hostname `NAME` variable. The helper holds the ignored repository-local
-  `.skylos-whitelist.lock` through the complete whitelist update using the
-  cross-platform Python lock helper. Do not add unexplained exceptions.
+  hostname `NAME` variable. The installed `df12-skylos allow` command holds the
+  ignored repository-local `.pyproject.toml.df12.lock` through the complete
+  whitelist update; it locks with `fcntl`, so record exceptions on Linux, macOS
+  or WSL, not native Windows. Do not add unexplained exceptions.
 
 CI workflow lives at `.github/workflows/ci.yml` and runs on PR and nightly via
 schedule.

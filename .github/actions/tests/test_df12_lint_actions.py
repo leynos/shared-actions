@@ -98,6 +98,20 @@ def test_manifest_declares_the_contract(name: str) -> None:
     assert not any(u.startswith("actions/cache") for u in uses)
 
 
+@pytest.mark.parametrize("name", ACTIONS)
+def test_setup_uv_is_skipped_when_the_caller_already_has_uv(name: str) -> None:
+    """A caller's own uv is kept: setup-uv runs only when uv is absent from PATH."""
+    steps = _manifest(name)["runs"]["steps"]
+    names = [step.get("name") for step in steps]
+    detect = steps[names.index("Detect uv")]
+    setup = steps[names.index("Set up uv")]
+    assert names.index("Detect uv") < names.index("Set up uv")
+    assert detect["id"] == "uv"
+    assert detect["env"]["PROBE_TOOL"] == "uv"
+    assert 'command -v "${PROBE_TOOL}"' in detect["run"]
+    assert setup["if"] == "steps.uv.outputs.present != 'true'"
+
+
 @pytest.mark.parametrize(("name", "plan"), ACTIONS.items())
 def test_the_spec_is_one_literal_full_commit_pin(
     name: str, plan: tuple[str, tuple[str, ...]]

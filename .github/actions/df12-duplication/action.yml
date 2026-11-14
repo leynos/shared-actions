@@ -22,7 +22,25 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Detect uv
+      # A caller that already put its own (possibly pinned) uv on PATH keeps
+      # it: setup-uv would otherwise replace it for every later step.
+      id: uv
+      shell: bash
+      env:
+        # Named through the environment so the cache-prune ordering contract,
+        # which reads `run` bodies for the `uv` word, treats this probe as the
+        # presence check it is rather than a `uv` invocation.
+        PROBE_TOOL: uv
+      run: |
+        if command -v "${PROBE_TOOL}" >/dev/null 2>&1; then
+          echo "present=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "present=false" >> "${GITHUB_OUTPUT}"
+        fi
+
     - name: Set up uv
+      if: steps.uv.outputs.present != 'true'
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
       with:
         enable-cache: false

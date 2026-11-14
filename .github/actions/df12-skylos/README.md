@@ -37,9 +37,11 @@ The step prints and records in the step summary one
 
 ## Behaviour
 
-- `setup-uv` runs with its cache disabled and the shared prune step runs before
-  the first `uv` invocation, so a cache restored by the calling workflow cannot
-  hand over an interpreter-bound environment.
+- A `uv` already on `PATH` is kept: `setup-uv` runs only when none is found, so
+  a caller's pinned `uv` stays the one every later step uses. When it does run,
+  its cache is disabled, and the shared prune step runs before the first `uv`
+  invocation, so a cache restored by the calling workflow cannot hand over an
+  interpreter-bound environment.
 - The package is installed from
   `git+https://github.com/leynos/df12-python-lints.git@<sha>` with the `skylos`
   extra, which carries the single Skylos pin; `df12-skylos` fails closed if the

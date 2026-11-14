@@ -19,16 +19,19 @@ otherwise conceal dead production code.
 3. Whitaker for the Rust fixture with warnings denied.
 4. Skylos for strict production Python dead-code detection.
 
-Skylos scans only the production modules selected by
-`SKYLOS_PRODUCTION_TARGETS` and excludes `SKYLOS_EXCLUDE_FOLDERS`. The gate is
-strict and runs in CI through the same `make lint` target. Skylos is
-provisioned through its standalone Python 3.14 tool environment because it
-parses source with its own runtime AST; the pin prevents phantom findings when
-current source uses syntax an older runtime cannot parse.
+Skylos scans only the production modules selected by `[tool.df12_skylos]` and
+excludes the paths in `[tool.skylos] exclude`. The gate is strict and runs in
+CI through the same `make lint` target. Skylos is provisioned through the
+installed `df12-skylos` command in a standalone Python 3.14 tool environment
+because it parses source with its own runtime AST; the pin prevents phantom
+findings when current source uses syntax an older runtime cannot parse.
 
-Scan-only global options remain in `SKYLOS`. `SKYLOS_CLI` stays command-only so
-`skylos-allow` can dispatch `skylos whitelist <symbol> --reason <reason>` in
-the required order.
+Update, 2026-11-13: the earlier `SKYLOS_*` Makefile variables, the
+cross-platform lock helper and the Makefile contract suites were replaced by the
+`df12-skylos` command from df12-python-lints, whose behaviour is tested there.
+The earlier notes describe the previous form: scan-only global options lived in
+`SKYLOS`, and `SKYLOS_CLI` stayed command-only so `skylos-allow` could dispatch
+`skylos whitelist <symbol> --reason <reason>` in the required order.
 
 ## Exceptions
 
@@ -37,9 +40,10 @@ Investigate every finding and remove genuine dead code. Prefer a typed
 implementation, or other implicit runtime caller. Use a documented whitelist
 entry only when that typed boundary cannot model a verified false positive.
 `SYMBOL` and `REASON` must both contain non-whitespace text; `SYMBOL` avoids
-the WSL-provided hostname `NAME` variable. The `skylos-allow` target takes the
-ignored repository-local `.skylos-whitelist.lock` with `flock` before changing
-the documented allow list, so concurrent exception updates do not lose entries.
+the WSL-provided hostname `NAME` variable. The `skylos-allow` target hands the
+values to `df12-skylos allow`, which takes the ignored repository-local
+`.pyproject.toml.df12.lock` before changing the documented allow list, so
+concurrent exception updates do not lose entries.
 
 ## Consequences
 

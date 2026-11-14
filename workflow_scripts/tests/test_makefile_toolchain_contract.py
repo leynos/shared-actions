@@ -13,7 +13,7 @@ import shlex
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from workflow_scripts.tests.skylos_contract_support import (
+from workflow_scripts.tests.makefile_contract_support import (
     _MAKEUTIL_ACTION_ENVIRONMENT,
     _MAKEUTIL_ACTION_INPUTS,
     _MAKEUTIL_ACTION_REFERENCE,
@@ -23,13 +23,13 @@ from workflow_scripts.tests.skylos_contract_support import (
     _TYPECHECK_SECOND_RECIPE_TOKENS,
     _assert_gnu_make_installation,
     _assert_makeutil_installation,
+    _clean_environment,
     _make_command,
     _makeutil_action,
     _mapping,
     _normalize_make_text,
     _objects,
     _recipe_tokens,
-    _skylos_allow_environment,
     _sole_workflow_step,
     _workflow_job,
 )
@@ -69,7 +69,7 @@ class TestMakefileToolchainContract:
             returncode, _stdout, stderr = _make_command(
                 f"MAKEUTIL={missing_executable}",
                 "makeutil",
-                environment=_skylos_allow_environment(),
+                environment=_clean_environment(),
             )
 
         assert returncode != 0, (

@@ -41,6 +41,7 @@ PLATFORM_STEPS: typ.Final[cabc.Mapping[str, str]] = {
     "Setup Rust": "Linux",
     "Install Whitaker": "Linux",
     "Run lint checks": "Linux",
+    "Dead-code gate": "Linux",
     "Install Makefile parser": "macOS",
     "Run tests": "macOS",
 }

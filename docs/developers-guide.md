@@ -2831,6 +2831,22 @@ Internals for maintainers:
   `mutation_summarize_cargo.py` (merges shard `outcomes.json` artefacts and
   renders the job summary), and `mutation_run_mutmut.py` (module-glob scoping,
   results parsing, and summary in one pass — mutmut has no shard support).
+- Mutmut change-file scoping uses `MutmutScope` and
+  `files_to_module_globs(files, prefix_strip, scope)` to turn eligible changed
+  Python paths into de-duplicated module globs. Read filters from
+  `[tool.mutmut]` in `pyproject.toml`, falling back to `[mutmut]` in
+  `setup.cfg` only when the TOML table is absent. The TOML tables must have
+  their expected table shape, and each path filter must be a string or an array
+  of strings. Require non-empty `source_paths`; let `only_mutate` narrow that
+  scope and `do_not_mutate` exclude paths. Patterns match normalized paths,
+  with plain directory patterns including descendants; matching a basename
+  alone is insufficient. Test-like names under configured source paths remain
+  mutable unless explicitly excluded. Scoped runs validate the filters before
+  the no-source short-circuit; full runs bypass this helper filtering. A
+  changed-file run with no mutable source writes an empty results artefact and
+  the `changed files contain no mutable source` note to the job summary. See the
+  [mutmut workflow guide](mutation-mutmut-workflow.md) for the caller-facing
+  configuration and behaviour.
 - The mutmut workflow runs its outer command through
   `mutation_capture.py`, so failures during `uv` startup or the original-source
   baseline leave bounded stdout/stderr evidence even when mutmut never writes
@@ -2839,6 +2855,13 @@ Internals for maintainers:
   from the optional result files, while a verification step makes missing or
   incomplete evidence an explicit failure. A hard job cancellation can still
   prevent verification and upload from running; no upload is guaranteed then.
+- The mutmut runner removes inherited `INPUT_*` values only while invoking
+  `mutmut run`, because mutmut executes the caller's pytest baseline
+  in-process; the environment is restored before results are collected.
+  Changed-file runs validate `source_paths` before the no-mutable-source
+  short-circuit, while a full run bypasses helper-side scope filtering. Its
+  tests cover these environment, configuration-error and test-only-scope
+  boundaries.
 - Tool version pins default in the workflows because both report
   formats are unstable; a version bump must be paired with a parser check
   (`outcomes.json` fields for cargo-mutants; the `mutmut results --all true`

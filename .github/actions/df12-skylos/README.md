@@ -15,9 +15,10 @@ exceptions in its own `pyproject.toml`.
 | `python-version` | string | Interpreter for the tool environment, such as `3.14`. | No       | `3.14`  |
 
 The package commit is a literal in the action (df12-python-lints main after
-v0.4.0, `56ad71721c3f1f2164ec84b69150582488f1a927`, which adds the `allow`
-coverage check), so an audit reads the exact source. Bump it in both df12
-actions together; consumers move by bumping the SHA that references the action.
+v0.4.0, `b83e3eb850de93b3f9ce7fbc9ffdb429925714dc`, which adds the `allow`
+coverage check and runs the Skylos scan under a fixed hash seed), so an audit
+reads the exact source. Bump it in both df12 actions together; consumers move
+by bumping the SHA that references the action.
 
 ## Outputs
 

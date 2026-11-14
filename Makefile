@@ -48,7 +48,7 @@ MAKEUTIL ?= $(if $(wildcard $(HOME)/.cargo/bin/makeutil),$(HOME)/.cargo/bin/make
 # the tool environment runs Python 3.14 to avoid phantom dead-code findings
 # from syntax older tool runtimes cannot parse. The package pin is the commit
 # the df12-skylos action pins; bump them together.
-DF12_GATES_SHA ?= 56ad71721c3f1f2164ec84b69150582488f1a927
+DF12_GATES_SHA ?= b83e3eb850de93b3f9ce7fbc9ffdb429925714dc
 DF12_GATES = git+https://github.com/leynos/df12-python-lints.git@$(DF12_GATES_SHA)
 SKYLOS = $(UV_ENV) $(UV) tool run --python 3.14 --from \
 	'df12-python-lints[skylos] @ $(DF12_GATES)' df12-skylos

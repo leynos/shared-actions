@@ -46,8 +46,10 @@ The step prints and records in the step summary one
 - The detector binary is deliberately not cached between runs, so every run
   re-verifies the archive and no restored file can stand in for a verified one.
   The archive is a few megabytes.
-- `setup-uv` runs with its cache disabled and the shared prune step runs before
-  the first `uv` invocation.
+- A `uv` already on `PATH` is kept: `setup-uv` runs only when none is found, so
+  a caller's pinned `uv` stays the one every later step uses. When it does run,
+  its cache is disabled, and the shared prune step runs before the first `uv`
+  invocation.
 - Linux and macOS runners only, as the package's `install` supports.
 
 ## Usage

@@ -232,13 +232,15 @@ reason. `tests/workflow_contracts/test_interrogate_gate.py` asserts the wiring.
 
 ### Skylos dead-code policy
 
-Skylos `4.33.2` scans action implementations, workflow helpers, root modules,
-and the maintained tooling script, while excluding test directories so
-test-only imports cannot make production symbols appear live. `$(SKYLOS_CLI)`
-runs it with Python 3.14 because Skylos parses source using its own runtime
-AST; pinning that runtime prevents phantom findings from newer Python syntax.
-`$(SKYLOS)` adds scan-only options such as `--config-file`, leaving the
-command-only CLI available for subcommands.
+Skylos scans action implementations, workflow helpers, root modules, and the
+maintained tooling script (the roots in `[tool.df12_skylos]`), while excluding
+test directories (`[tool.skylos] exclude`) so test-only imports cannot make
+production symbols appear live. `$(SKYLOS)` runs the installed `df12-skylos`
+command from df12-python-lints, pinned by `DF12_GATES_SHA`, under Python 3.14
+because Skylos parses source using its own runtime AST; pinning that runtime
+prevents phantom findings from newer Python syntax. The package's `skylos`
+extra carries the one Skylos pin, and the command's behaviour and tests live in
+df12-python-lints.
 
 Treat each finding as dead code until a runtime caller is verified. Remove
 genuine dead code. For framework callbacks, protocol implementations, or other
@@ -251,17 +253,18 @@ make skylos-allow SYMBOL=registered_handler REASON="Loaded by plugin registry"
 ```
 
 Both values must contain non-whitespace text. `SYMBOL` avoids WSL's injected
-hostname `NAME` environment variable. The target passes the subcommand before
-scan options as `skylos whitelist <symbol> --reason <reason>`. Do not add
-baselines, bulk exceptions, or unreasoned allow-list entries. Remove an
-allow-list entry when its dynamic boundary disappears. The helper holds the
-ignored `.skylos-whitelist.lock` through the complete whitelist update using a
-cross-platform Python lock helper, so concurrent verified exceptions cannot
-overwrite one another.
+hostname `NAME` environment variable. The target refuses wildcard symbols and
+hands the values to `df12-skylos allow`. Do not add baselines, bulk exceptions,
+or unreasoned allow-list entries. Remove an allow-list entry when its dynamic
+boundary disappears. The command holds the ignored `.pyproject.toml.df12.lock`
+through the complete whitelist update, so concurrent verified exceptions cannot
+overwrite one another. That lock uses `fcntl`, so record exceptions on Linux,
+macOS or WSL; the vendored helper's Windows locking is gone with it (tracked in
+[df12-python-lints#80](https://github.com/leynos/df12-python-lints/issues/80)).
 
-The Skylos contract test parses the Makefile with Makeutil and checks the
-argument boundary with a non-mutating executable recorder. `make test` requires
-Makeutil before executing the suite. Bootstrap the pinned local parser with:
+The Makefile contract tests parse the Makefile with Makeutil. `make test`
+requires Makeutil before executing the suite. Bootstrap the pinned local parser
+with:
 
 ```shell
 rustup toolchain install nightly-2026-05-28 --profile minimal

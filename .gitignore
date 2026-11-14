@@ -23,7 +23,7 @@ lib-cov
 coverage
 .coverage
 .skylos/
-.skylos-whitelist.lock
+.pyproject.toml.df12.lock
 *.lcov
 
 # nyc test coverage

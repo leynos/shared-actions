@@ -138,6 +138,9 @@ jobs:
         if: runner.os == 'Linux'
         run: make lint
         shell: bash
+      - name: Dead-code gate
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/df12-skylos
       # Its own step rather than a prerequisite nothing reaches. `make test`
       # depends on this target, but no job here runs `make test`: the macOS
       # and Windows legs run `uv run pytest`, and the Linux suite runs under

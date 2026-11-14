@@ -152,6 +152,24 @@ py-modules = [
 [tool.uv]
 package = true
 
+# The dead-code gate is the installed `df12-skylos` command from
+# df12-python-lints. `roots` limits liveness analysis to production sources and
+# the exclusion keeps the test trees out of the liveness graph.
+[tool.df12_skylos]
+roots = [
+    ".github/actions",
+    "workflow_scripts",
+    "actions_common.py",
+    "bool_utils.py",
+    "cargo_utils.py",
+    "cmd_utils.py",
+    "cmd_utils_importer.py",
+]
+python = "3.14"
+
+[tool.skylos]
+exclude = ["tests"]
+
 [tool.skylos.gate]
 strict = true
 

@@ -39,9 +39,12 @@ def read_baseline(file: Path) -> float:
 
 
 def validate_floor(floor: float) -> float:
-    """Return ``floor`` if it is a number from 0 to 100, else refuse it."""
-    if not math.isfinite(floor) or not 0 <= floor <= 100:
-        message = f"ratchet floor must be a number from 0 to 100, got {floor}"
+    """Return ``floor`` if it is a number from 0 to 100 with at most two decimals."""
+    if not math.isfinite(floor) or not 0 <= floor <= 100 or round(floor, 2) != floor:
+        message = (
+            "ratchet floor must be a number from 0 to 100 with at most two "
+            f"decimal places, got {floor}"
+        )
         raise typer.BadParameter(message)
     return floor
 

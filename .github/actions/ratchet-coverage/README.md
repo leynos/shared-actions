@@ -19,8 +19,8 @@ floor: the baseline is then set to the current figure, and a drop of more than
 one point below the old baseline raises a `::warning`. Coverage below the floor
 fails. A baseline at or below the floor (including exactly the floor) is
 ratcheted strictly, as before: any drop fails. `ratchet-floor: 0` switches the
-floor off and gives exactly the previous behaviour. An invalid value fails the
-step.
+floor off and gives the previous behaviour. An invalid value (not a number from
+0 to 100, or with more than two decimal places) fails the step.
 
 ## Outputs
 

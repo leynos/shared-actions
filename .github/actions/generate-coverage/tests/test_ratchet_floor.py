@@ -226,19 +226,31 @@ def test_dead_band_edge_is_exact_for_fractional_baselines(tmp_path: Path) -> Non
     assert file.read_text() == "64.01"
 
 
-@pytest.mark.parametrize(
-    "case",
-    [(85.004, 85.00, 1), (85.004, 85.01, 0), (85.0049, 85.0, 1), (72.555, 72.55, 1)],
-    ids=str,
-)
-def test_floor_keeps_its_precision(
-    module: ModuleType, tmp_path: Path, case: tuple[float, float, int]
+@pytest.mark.parametrize("floor", ["85.004", "85.0049", "72.555"])
+def test_floor_with_more_than_two_decimals_is_refused(
+    module: ModuleType, tmp_path: Path, floor: str
 ) -> None:
-    """A floor with more than two decimals is not rounded in the comparison."""
-    floor, current, code = case
-    _, exit_code = _run(module, tmp_path, baseline=90.0, current=current, floor=floor)
+    """A floor is never silently rounded: three or more decimals are a usage error."""
+    file = tmp_path / ".coverage-baseline"
+    file.write_text("90.00")
 
-    assert exit_code == code
+    result = CliRunner().invoke(
+        _cli(module),
+        ["--baseline-file", str(file), "--current", "85", "--floor", floor],
+    )
+
+    assert result.exit_code == 2
+    assert file.read_text() == "90.00"
+
+
+def test_floor_with_two_decimals_is_applied_exactly(
+    module: ModuleType, tmp_path: Path
+) -> None:
+    """A floor of 72.55 passes 72.55 and fails 72.54 from a higher baseline."""
+    _, at = _run(module, tmp_path, baseline=90.0, current=72.55, floor=72.55)
+    _, below = _run(module, tmp_path, baseline=90.0, current=72.54, floor=72.55)
+
+    assert (at, below) == (0, 1)
 
 
 def test_non_finite_current_is_refused(module: ModuleType, tmp_path: Path) -> None:

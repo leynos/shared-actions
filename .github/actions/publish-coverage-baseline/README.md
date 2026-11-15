@@ -41,8 +41,9 @@ handed-over figure stays at or above the floor: the baseline is then set to the
 figure, and a drop of more than one point raises a `::warning` naming the
 language. A figure below the floor fails the job and saves nothing. A baseline
 at or below the floor is ratcheted as described above. `ratchet-floor: 0`
-switches the floor off and restores the plain ratchet exactly. See
-`generate-coverage` for the full rule.
+switches the floor off and restores the plain ratchet, with the exact-decimal
+comparison described in `generate-coverage`. See `generate-coverage` for the
+full rule.
 
 ## Example
 

@@ -6,7 +6,7 @@
   above the floor may fall while coverage stays at or above it, with a warning
   for a drop of more than one point; a baseline at or below the floor stays a
   strict ratchet with no tolerance. `ratchet-floor: 0` restores the previous
-  behaviour exactly.
+  behaviour, except that figures are now compared as exact decimals.
 
 - Never archive or reuse an interpreter-bound uv script environment. `uv run`
   builds each PEP 723 script environment under `environments-v2`, bound to the

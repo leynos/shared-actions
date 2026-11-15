@@ -15,7 +15,7 @@ switches the floor off, leaving the strict ratchet for every baseline.
 from __future__ import annotations
 
 import math
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import typer
@@ -24,7 +24,7 @@ import typer
 WARN_DROP_PP = 1.0
 
 # Default ratchet floor, in percent. Zero disables the floor.
-DEFAULT_RATCHET_FLOOR = 85.0
+DEFAULT_RATCHET_FLOOR = "85"
 
 
 def read_baseline(file: Path) -> float:
@@ -38,14 +38,22 @@ def read_baseline(file: Path) -> float:
     return 0.0
 
 
-def validate_floor(floor: float) -> float:
-    """Return ``floor`` if it is a number from 0 to 100 with at most two decimals."""
-    in_range = math.isfinite(floor) and 0 <= floor <= 100
-    if not in_range or round(floor, 2) != floor:
-        message = (
-            "ratchet floor must be a number from 0 to 100 with at most two "
-            f"decimal places, got {floor}"
-        )
+def validate_floor(text: str) -> Decimal:
+    """Parse a floor from its text: 0 to 100, at most two decimal places.
+
+    The text is read as a decimal, never through a float, so a value that a
+    float would round (``85.000000000000001``) is refused rather than altered.
+    """
+    message = (
+        "ratchet floor must be a number from 0 to 100 with at most two "
+        f"decimal places, got {text!r}"
+    )
+    try:
+        floor = Decimal(text.strip())
+    except InvalidOperation:
+        raise typer.BadParameter(message) from None
+    in_range = floor.is_finite() and 0 <= floor <= 100
+    if not in_range or floor != floor.quantize(Decimal("0.01")):
         raise typer.BadParameter(message)
     return floor
 
@@ -63,9 +71,9 @@ def exact(percent: float) -> Decimal:
     return Decimal(repr(percent))
 
 
-def floor_mode(baseline: float, floor: float) -> bool:
+def floor_mode(baseline: float, floor: Decimal) -> bool:
     """Return whether the floor, rather than the strict ratchet, judges the run."""
-    return floor > 0 and exact(baseline) > exact(floor)
+    return floor > 0 and exact(baseline) > floor
 
 
 def drop_exceeds_warning(current: float, baseline: float) -> bool:
@@ -85,28 +93,29 @@ def main(
     baseline_file: Path = BASELINE_FILE_OPT,
     *,
     current: float = CURRENT_OPT,
-    floor: float = FLOOR_OPT,
+    floor: str = FLOOR_OPT,
     language: str = LANGUAGE_OPT,
 ) -> None:
     """Compare ``current`` coverage with the stored baseline and update it."""
-    floor = validate_floor(floor)
+    floor_value = validate_floor(floor)
     baseline = round(read_baseline(baseline_file), 2)
     current = round(validate_current(current), 2)
 
     typer.echo(f"Current coverage: {current}%")
     typer.echo(f"Baseline coverage: {baseline}%")
-    typer.echo(f"Ratchet floor: {floor:g}%")
+    typer.echo(f"Ratchet floor: {floor_value:g}%")
 
-    limit = floor if floor_mode(baseline, floor) else baseline
-    if exact(current) < exact(limit):
+    in_floor_mode = floor_mode(baseline, floor_value)
+    limit = floor_value if in_floor_mode else exact(baseline)
+    if exact(current) < limit:
         typer.echo("Coverage decreased", err=True)
         raise typer.Exit(code=1)
 
-    if floor_mode(baseline, floor) and drop_exceeds_warning(current, baseline):
+    if in_floor_mode and drop_exceeds_warning(current, baseline):
         label = f" ({language})" if language else ""
         typer.echo(
             f"::warning title=Coverage dropped{label}::coverage fell from "
-            f"{baseline}% to {current}%, still at or above the {floor:g}% floor"
+            f"{baseline}% to {current}%, still at or above the {floor_value:g}% floor"
         )
 
     baseline_file.parent.mkdir(parents=True, exist_ok=True)

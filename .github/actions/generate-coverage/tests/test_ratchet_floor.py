@@ -65,7 +65,7 @@ def _run(
         module.main(
             baseline_file=file,
             current=scenario["current"],
-            floor=scenario.get("floor", FLOOR),
+            floor=str(scenario.get("floor", FLOOR)),
             language=scenario.get("language", "rust"),
         )
     except typer.Exit as exc:
@@ -226,7 +226,10 @@ def test_dead_band_edge_is_exact_for_fractional_baselines(tmp_path: Path) -> Non
     assert file.read_text() == "64.01"
 
 
-@pytest.mark.parametrize("floor", ["85.004", "85.0049", "72.555"])
+@pytest.mark.parametrize(
+    "floor",
+    ["85.004", "85.0049", "72.555", "85.000000000000001", "100.000000000000001"],
+)
 def test_floor_with_more_than_two_decimals_is_refused(
     module: ModuleType, tmp_path: Path, floor: str
 ) -> None:

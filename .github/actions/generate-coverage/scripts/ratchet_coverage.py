@@ -19,7 +19,7 @@ floor off, so the dead-band rule applies to every baseline.
 from __future__ import annotations
 
 import math
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import typer
@@ -36,7 +36,7 @@ RATCHET_TOLERANCE_PP = 1.0
 # Default ratchet floor, in percent. A baseline above it is allowed to fall, so
 # long as coverage stays at or above the floor; a baseline at or below it is
 # ratcheted. Zero disables the floor.
-DEFAULT_RATCHET_FLOOR = 85.0
+DEFAULT_RATCHET_FLOOR = "85"
 
 BASELINE_FILE_OPT = typer.Option(
     Path(".coverage-baseline"), envvar="INPUT_BASELINE_FILE"
@@ -57,14 +57,22 @@ def read_baseline(file: Path) -> float:
     return 0.0
 
 
-def validate_floor(floor: float) -> float:
-    """Return ``floor`` if it is a number from 0 to 100 with at most two decimals."""
-    in_range = math.isfinite(floor) and 0 <= floor <= 100
-    if not in_range or round(floor, 2) != floor:
-        message = (
-            "ratchet floor must be a number from 0 to 100 with at most two "
-            f"decimal places, got {floor}"
-        )
+def validate_floor(text: str) -> Decimal:
+    """Parse a floor from its text: 0 to 100, at most two decimal places.
+
+    The text is read as a decimal, never through a float, so a value that a
+    float would round (``85.000000000000001``) is refused rather than altered.
+    """
+    message = (
+        "ratchet floor must be a number from 0 to 100 with at most two "
+        f"decimal places, got {text!r}"
+    )
+    try:
+        floor = Decimal(text.strip())
+    except InvalidOperation:
+        raise typer.BadParameter(message) from None
+    in_range = floor.is_finite() and 0 <= floor <= 100
+    if not in_range or floor != floor.quantize(Decimal("0.01")):
         raise typer.BadParameter(message)
     return floor
 
@@ -82,9 +90,9 @@ def exact(percent: float) -> Decimal:
     return Decimal(repr(percent))
 
 
-def floor_mode(baseline: float, floor: float) -> bool:
+def floor_mode(baseline: float, floor: Decimal) -> bool:
     """Return whether the floor, rather than the dead-band, judges the run."""
-    return floor > 0 and exact(baseline) > exact(floor)
+    return floor > 0 and exact(baseline) > floor
 
 
 def drop_exceeds_tolerance(current: float, baseline: float) -> bool:
@@ -97,14 +105,14 @@ def rise_exceeds_tolerance(current: float, baseline: float) -> bool:
     return exact(current) > exact(baseline) + exact(RATCHET_TOLERANCE_PP)
 
 
-def passes(current: float, baseline: float, floor: float) -> bool:
+def passes(current: float, baseline: float, floor: Decimal) -> bool:
     """Return whether ``current`` clears the gate for ``baseline``."""
     if floor_mode(baseline, floor):
-        return exact(current) >= exact(floor)
+        return exact(current) >= floor
     return not drop_exceeds_tolerance(current, baseline)
 
 
-def next_baseline(current: float, baseline: float, floor: float) -> float | None:
+def next_baseline(current: float, baseline: float, floor: Decimal) -> float | None:
     """Return the baseline to store after a passing run, or None to hold it."""
     if floor_mode(baseline, floor) or rise_exceeds_tolerance(current, baseline):
         return current
@@ -115,7 +123,7 @@ def main(
     baseline_file: Path = BASELINE_FILE_OPT,
     *,
     current: float = CURRENT_OPT,
-    floor: float = FLOOR_OPT,
+    floor: str = FLOOR_OPT,
     language: str = LANGUAGE_OPT,
 ) -> None:
     """Gate ``current`` coverage against the baseline and the floor.
@@ -127,27 +135,27 @@ def main(
     ``floor``; otherwise the baseline is set to ``current``, with a warning when
     that is a drop of more than the tolerance.
     """
-    floor = validate_floor(floor)
+    floor_value = validate_floor(floor)
     baseline = round(read_baseline(baseline_file), 2)
     current = round(validate_current(current), 2)
 
     typer.echo(f"Current coverage: {current}%")
     typer.echo(f"Baseline coverage: {baseline}%")
     typer.echo(f"Tolerance: +/-{RATCHET_TOLERANCE_PP:.2f} percentage points")
-    typer.echo(f"Ratchet floor: {floor:g}%")
+    typer.echo(f"Ratchet floor: {floor_value:g}%")
 
-    if not passes(current, baseline, floor):
+    if not passes(current, baseline, floor_value):
         typer.echo("Coverage decreased", err=True)
         raise typer.Exit(code=1)
 
-    if floor_mode(baseline, floor) and drop_exceeds_tolerance(current, baseline):
+    if floor_mode(baseline, floor_value) and drop_exceeds_tolerance(current, baseline):
         label = f" ({language})" if language else ""
         typer.echo(
             f"::warning title=Coverage dropped{label}::coverage fell from "
-            f"{baseline}% to {current}%, still at or above the {floor:g}% floor"
+            f"{baseline}% to {current}%, still at or above the {floor_value:g}% floor"
         )
 
-    new = next_baseline(current, baseline, floor)
+    new = next_baseline(current, baseline, floor_value)
     if new is not None:
         baseline_file.parent.mkdir(parents=True, exist_ok=True)
         baseline_file.write_text(f"{new:.2f}")

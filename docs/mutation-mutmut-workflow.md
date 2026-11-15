@@ -22,14 +22,25 @@ mutmut is injected at run time via `uv run --with mutmut==<pin>`, so it must
 not be added to the project's own dependencies. pip-only projects are not
 supported by this workflow's first release.
 
+`source_paths` must contain at least one path. Scoped runs load and validate
+this configuration before deciding that a changed-file window has no mutable
+source, so missing or malformed scope settings fail the run. A
+`workflow_dispatch` run has no changed-file filters and lets mutmut select all
+configured source paths.
+
 ## Behaviour
 
 - **Scheduled runs** scan commits reachable from `base-ref` within
   `window-hours` and translate changed `*.py` files into mutant-name globs
   (mutmut 3.x rejects file paths as run arguments): with the default
   `module-prefix-strip` of `src/`, `src/pkg/mod.py` scopes the run to
-  `pkg.mod.*`. When nothing relevant changed, the run writes a skip message and
-  finishes in seconds.
+  `pkg.mod.*`. The caller's mutmut `source_paths`, `only_mutate`, and
+  `do_not_mutate` settings define which changed files can produce globs, so a
+  mutable module remains eligible even when its name or directory resembles a
+  test. A change window containing only paths outside that configured scope
+  short-circuits as a no-op with a "no mutable source" summary note. When
+  nothing relevant changed, the run writes a skip message and finishes in
+  seconds.
 - **`workflow_dispatch` runs** bypass the guard and mutate everything
   in `source_paths`. There is no shard fan-out — mutmut has no shard equivalent
   — so size `timeout-minutes` to the suite.

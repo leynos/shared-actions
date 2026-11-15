@@ -56,7 +56,10 @@ These are scripts that a repository copies, not published actions.
 | -------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------ |
 | Dependabot auto-merge            | `.github/workflows/dependabot-automerge.yml` | [docs/dependabot-automerge-workflow.md](docs/dependabot-automerge-workflow.md) |
 | Mutation testing (cargo-mutants) | `.github/workflows/mutation-cargo.yml`       | [docs/mutation-cargo-workflow.md](docs/mutation-cargo-workflow.md)             |
-| Mutation testing (mutmut)        | `.github/workflows/mutation-mutmut.yml`      | [docs/mutation-mutmut-workflow.md](docs/mutation-mutmut-workflow.md)           |
+| Mutation testing (mutmut)        | `.github/workflows/mutation-mutmut.yml`      | [workflow guide][mutmut-workflow-guide], [users' guide][mutmut-user-guide]     |
+
+[mutmut-workflow-guide]: docs/mutation-mutmut-workflow.md
+[mutmut-user-guide]: docs/users-guide.md#python-mutation-testing-with-mutmut
 
 ## Development
 

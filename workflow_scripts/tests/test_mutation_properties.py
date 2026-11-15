@@ -2,9 +2,10 @@
 
 These complement the example-based unit tests with range invariants over
 CSV splitting, file bucketing, module-glob translation, mutmut results
-parsing, and outcome counting. Filesystem-bound behaviour (git scans,
-artefact merging) stays example-based because Hypothesis does not mix
-with function-scoped fixtures such as ``tmp_path``.
+scope and workflow-input filtering, results parsing, and outcome counting.
+Filesystem-bound behaviour (git scans, artefact merging) stays example-based
+because Hypothesis does not mix with function-scoped fixtures such as
+``tmp_path``.
 """
 
 from __future__ import annotations
@@ -22,6 +23,25 @@ from workflow_scripts import mutation_summarize_cargo as summarize
 SEGMENT = st.from_regex(r"[a-z][a-z0-9_]{0,7}", fullmatch=True)
 STATUS = st.sampled_from(["killed", "survived", "no tests", "timeout", "suspicious"])
 COUNTED = st.sampled_from(["CaughtMutant", "MissedMutant", "Timeout", "Unviable"])
+TEST_LIKE_FILE = st.one_of(
+    st.tuples(SEGMENT, SEGMENT).map(lambda parts: f"src/{parts[0]}/test_{parts[1]}.py"),
+    st.tuples(SEGMENT, SEGMENT).map(lambda parts: f"src/{parts[0]}/{parts[1]}_test.py"),
+    st.tuples(SEGMENT, SEGMENT).map(
+        lambda parts: f"src/{parts[0]}/tests/{parts[1]}.py"
+    ),
+    st.tuples(SEGMENT, SEGMENT).map(lambda parts: f"src/{parts[0]}/test/{parts[1]}.py"),
+)
+TEST_ONLY_FILE = st.one_of(
+    st.just("conftest.py"),
+    SEGMENT.map(lambda name: f"test_{name}.py"),
+    SEGMENT.map(lambda name: f"{name}_test.py"),
+    SEGMENT.map(lambda name: f"tests/{name}.py"),
+    SEGMENT.map(lambda name: f"test/{name}.py"),
+)
+INPUT_SUFFIX = st.from_regex(r"[A-Z][A-Z0-9_]{0,15}", fullmatch=True)
+OTHER_ENV_NAME = st.tuples(
+    st.sampled_from(["GH", "OTHER", "PATH", "INPUTS", "input"]), SEGMENT
+).map(lambda parts: f"{parts[0]}_{parts[1]}")
 
 
 @given(tokens=st.lists(SEGMENT, max_size=8))
@@ -59,7 +79,8 @@ def test_bucket_files_partitions_without_loss_or_overlap(
 )
 def test_module_globs_are_deduplicated_module_patterns(paths: list[str]) -> None:
     """Globs are unique module patterns with no path or suffix residue."""
-    globs = run_mutmut.files_to_module_globs(" ".join(paths), "src/")
+    scope = run_mutmut.MutmutScope(source_paths=("src/",))
+    globs = run_mutmut.files_to_module_globs(" ".join(paths), "src/", scope)
     # Compare against the expected module path rather than asserting that
     # ".py" is absent: a directory segment may itself be named "py", so
     # "src/a/py.py" correctly yields "a.py.*".
@@ -78,6 +99,53 @@ def test_module_globs_are_deduplicated_module_patterns(paths: list[str]) -> None
         assert glob.endswith(".*")
         assert "/" not in glob
     assert len(globs) <= len(paths)
+
+
+@given(paths=st.lists(TEST_LIKE_FILE, max_size=8))
+def test_configured_mutable_scope_keeps_test_like_modules(paths: list[str]) -> None:
+    """Caller source paths, not test-like names, decide mutability."""
+    scope = run_mutmut.MutmutScope(source_paths=("src/",))
+    globs = run_mutmut.files_to_module_globs(" ".join(paths), "src/", scope)
+    expected = list(
+        dict.fromkeys(
+            path.removeprefix("src/").removesuffix(".py").replace("/", ".") + ".*"
+            for path in paths
+        )
+    )
+    assert globs == expected, (
+        f"configured source paths must retain test-like modules: {paths}"
+    )
+
+
+@given(paths=st.lists(TEST_ONLY_FILE, min_size=1, max_size=8))
+def test_test_only_paths_outside_source_scope_produce_no_globs(
+    paths: list[str],
+) -> None:
+    """Conventional test files outside mutmut's source root are not mutated."""
+    scope = run_mutmut.MutmutScope(source_paths=("src/",))
+    assert run_mutmut.files_to_module_globs(" ".join(paths), "src/", scope) == [], (
+        f"test-only paths outside source_paths must produce no globs: {paths}"
+    )
+
+
+@given(
+    suffixes=st.lists(INPUT_SUFFIX, max_size=8),
+    other_names=st.lists(OTHER_ENV_NAME, max_size=8),
+)
+def test_workflow_input_filter_selects_only_input_variables(
+    suffixes: list[str], other_names: list[str]
+) -> None:
+    """Only the workflow's INPUT_ variables are selected for removal."""
+    input_names = [f"INPUT_{suffix}" for suffix in suffixes]
+    names = [*input_names, *other_names]
+
+    selected = run_mutmut._workflow_input_env_names(names)
+
+    assert selected == input_names, "all and only INPUT_ variables must be selected"
+    remaining = {name for name in names if name not in selected}
+    assert remaining == set(other_names), (
+        "non-INPUT_ variables must not be selected for removal"
+    )
 
 
 @given(

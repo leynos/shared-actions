@@ -148,6 +148,7 @@ Known limitations:
 | format                 | Formats: `lcov`*, `cobertura`, `coveragepy`*                                                                                                                                                                                                        | no       | `cobertura`                 |
 | with-ratchet           | Fail if coverage drops more than 1pp below baseline                                                                                                                                                                                                 | no       | `false`                     |
 | cargo-wait-timeout     | Seconds cargo may run before the watchdog kills it                                                                                                                                                                                                  | no       | `1800`                      |
+| ratchet-floor          | Coverage floor, 0 to 100: a baseline above it may fall while coverage stays at or above it (a drop over 1pp warns); 0 switches the floor off                                                                                                        | no       | `85`                        |
 | publish-baseline       | When the baseline may be published: `auto`, `always`, or `never` (no restore, ratchet or save; see "Splitting main coverage across runner providers")                                                                                               | no       | `auto`                      |
 | baseline-artefact-name | With `publish-baseline: never`: hand the figures on as an artefact of this name, from a successful push to `refs/heads/main` only                                                                                                                   | no       | empty                       |
 | build-only             | Compile the instrumented test binaries and stop: no run, report, ratchet, baseline or coverage artefact                                                                                                                                             | no       | `false`                     |
@@ -608,6 +609,20 @@ fails the run; a rise of more than one point above the baseline advances the
 baseline. Under the default `publish-baseline: auto`, only a push to
 `refs/heads/main` persists the advanced baseline to the Actions cache; every
 run restores it, so the baseline tracks the latest trunk coverage.
+
+The `ratchet-floor` input (a number from 0 to 100 with at most two decimal
+places, default `85`) relaxes this for a baseline above the floor. There the
+run passes whenever coverage is at or above the floor, even after a drop of any
+size, and the baseline is set to the current figure, up or down. A drop of more
+than one point below the baseline raises a `::warning` annotation titled with
+the language, and passes. Coverage below the floor fails. A baseline at or
+below the floor (exactly 85 included) keeps the dead-band ratchet above. Rust
+and Python are judged separately. Set `ratchet-floor: 0` to switch the floor
+off and get exactly the previous behaviour, with one deliberate correction:
+figures are now compared as exact decimals, so a drop of exactly one point
+(64.01 to 63.01) passes, where binary floating-point error previously made it
+fail. `publish-coverage-baseline` takes the same input and applies the same
+rule.
 
 Enable cucumber-rs:
 

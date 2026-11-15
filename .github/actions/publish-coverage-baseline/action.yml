@@ -16,6 +16,13 @@ inputs:
     description: Path of the Python coverage baseline; match generate-coverage.
     required: false
     default: .coverage-baseline.python
+  ratchet-floor:
+    description: >-
+      Coverage floor in percent, a number from 0 to 100; match
+      generate-coverage. A baseline above the floor may fall while coverage
+      stays at or above it; 0 switches the floor off.
+    required: false
+    default: "85"
 runs:
   using: composite
   steps:
@@ -169,18 +176,21 @@ runs:
         GC_RUST_FILE: ${{ inputs.baseline-rust-file }}
         GC_PYTHON_FILE: ${{ inputs.baseline-python-file }}
         GC_RATCHET: ${{ github.action_path }}/../generate-coverage/scripts/ratchet_coverage.py
+        GC_RATCHET_FLOOR: ${{ inputs.ratchet-floor }}
       run: |
         set -euo pipefail
         ratchet() {
           uv run --script "$GC_RATCHET" \
             --baseline-file "$1" \
-            --current "$(cat "$2")"
+            --current "$(cat "$2")" \
+            --floor "$GC_RATCHET_FLOOR" \
+            --language "$3"
         }
         if [[ "$GC_LANG" == "rust" || "$GC_LANG" == "mixed" ]]; then
-          ratchet "$GC_RUST_FILE" "$GC_HANDOVER_DIR/rust.percent"
+          ratchet "$GC_RUST_FILE" "$GC_HANDOVER_DIR/rust.percent" rust
         fi
         if [[ "$GC_LANG" == "python" || "$GC_LANG" == "mixed" ]]; then
-          ratchet "$GC_PYTHON_FILE" "$GC_HANDOVER_DIR/python.percent"
+          ratchet "$GC_PYTHON_FILE" "$GC_HANDOVER_DIR/python.percent" python
         fi
     - name: Save baselines
       id: save-baselines

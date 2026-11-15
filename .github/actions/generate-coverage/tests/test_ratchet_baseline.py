@@ -385,7 +385,7 @@ def test_baseline_advances_when_coverage_rises(tmp_path: Path) -> None:
     baseline = tmp_path / ".coverage-baseline.rust"
     baseline.write_text("85.20")
 
-    module.main(baseline_file=baseline, current=90.05)
+    module.main(baseline_file=baseline, current=90.05, floor="0", language="")
 
     assert baseline.read_text() == "90.05"
 
@@ -396,7 +396,7 @@ def test_exactly_equal_passes_and_holds(tmp_path: Path) -> None:
     baseline = tmp_path / ".coverage-baseline.python"
     baseline.write_text("85.23")
 
-    module.main(baseline_file=baseline, current=85.23)
+    module.main(baseline_file=baseline, current=85.23, floor="0", language="")
 
     assert baseline.read_text() == "85.23"
 
@@ -414,7 +414,7 @@ def test_within_tolerance_dip_passes_without_lowering_baseline(
     baseline = tmp_path / ".coverage-baseline.rust"
     baseline.write_text("85.23")
 
-    module.main(baseline_file=baseline, current=85.20)
+    module.main(baseline_file=baseline, current=85.20, floor="0", language="")
 
     assert baseline.read_text() == "85.23"
 
@@ -425,7 +425,7 @@ def test_dip_at_tolerance_edge_passes_and_holds(tmp_path: Path) -> None:
     baseline = tmp_path / ".coverage-baseline.rust"
     baseline.write_text("90.00")
 
-    module.main(baseline_file=baseline, current=89.00)
+    module.main(baseline_file=baseline, current=89.00, floor="0", language="")
 
     assert baseline.read_text() == "90.00"
 
@@ -442,7 +442,7 @@ def test_within_tolerance_rise_passes_without_raising_baseline(
     baseline = tmp_path / ".coverage-baseline.rust"
     baseline.write_text("85.00")
 
-    module.main(baseline_file=baseline, current=85.50)
+    module.main(baseline_file=baseline, current=85.50, floor="0", language="")
 
     assert baseline.read_text() == "85.00"
 
@@ -456,7 +456,7 @@ def test_rise_at_tolerance_edge_holds_baseline(tmp_path: Path) -> None:
     baseline = tmp_path / ".coverage-baseline.rust"
     baseline.write_text("85.00")
 
-    module.main(baseline_file=baseline, current=86.00)
+    module.main(baseline_file=baseline, current=86.00, floor="0", language="")
 
     assert baseline.read_text() == "85.00"
 
@@ -468,7 +468,7 @@ def test_gate_fails_when_coverage_drops_beyond_tolerance(tmp_path: Path) -> None
     baseline.write_text("85.23")
 
     with pytest.raises(typer.Exit) as excinfo:
-        module.main(baseline_file=baseline, current=84.00)
+        module.main(baseline_file=baseline, current=84.00, floor="0", language="")
 
     assert excinfo.value.exit_code == 1
     assert baseline.read_text() == "85.23"
@@ -479,6 +479,6 @@ def test_missing_baseline_is_treated_as_zero(tmp_path: Path) -> None:
     module = _load_ratchet_module()
     baseline = tmp_path / "nested" / ".coverage-baseline.rust"
 
-    module.main(baseline_file=baseline, current=42.5)
+    module.main(baseline_file=baseline, current=42.5, floor="0", language="")
 
     assert baseline.read_text() == "42.50"

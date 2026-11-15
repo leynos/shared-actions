@@ -10,6 +10,17 @@ coverage percentage falls below a stored baseline.
 | baseline-file    | File used to persist the baseline coverage percentage between runs | no       | `.coverage-baseline` |
 | args             | Additional arguments passed to `cargo llvm-cov`                    | no       | `''`                 |
 | publish-baseline | When the baseline may be published: `auto` or `always`             | no       | `auto`               |
+| ratchet-floor    | Coverage floor, a number from 0 to 100                             | no       | `85`                 |
+
+### Ratchet floor
+
+A baseline above the floor may fall, so long as coverage stays at or above the
+floor: the baseline is then set to the current figure, and a drop of more than
+one point below the old baseline raises a `::warning`. Coverage below the floor
+fails. A baseline at or below the floor (including exactly the floor) is
+ratcheted strictly, as before: any drop fails. `ratchet-floor: 0` switches the
+floor off and gives the previous behaviour. An invalid value (not a number from
+0 to 100, or with more than two decimal places) fails the step.
 
 ## Outputs
 

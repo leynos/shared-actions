@@ -501,7 +501,7 @@ def _ratchet_invocations(action: str, tmp_path: Path) -> list[dict[str, str]]:
         "PATH": f"{stub_dir}{os.pathsep}{os.environ['PATH']}",
         **{key: render(str(value)) for key, value in step.get("env", {}).items()},
     }
-    result = subprocess.run(  # noqa: S603 - fixed argv, bash from PATH
+    result = subprocess.run(  # noqa: S603,TID251 - exercise the action fragment.
         [bash, "-c", render(step["run"])],
         cwd=tmp_path,
         env=env,

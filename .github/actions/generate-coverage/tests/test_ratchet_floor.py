@@ -9,6 +9,10 @@ against baseline files, and each action's manifest is checked to hand the
 from __future__ import annotations
 
 import importlib.util
+import os
+import re
+import shutil
+import subprocess
 import sys
 import typing as typ
 from pathlib import Path
@@ -447,3 +451,103 @@ def test_action_hands_the_floor_to_its_ratchet_step(action: str) -> None:
     assert len(steps) == 1
     values = [str(v) for v in steps[0].get("env", {}).values()]
     assert "${{ inputs.ratchet-floor }}" in values
+
+
+_EXPRESSION = re.compile(r"\$\{\{\s*([^}]*?)\s*\}\}")
+
+
+def _ratchet_invocations(action: str, tmp_path: Path) -> list[dict[str, str]]:
+    """Run an action's ratchet step against a stub ``uv`` and return its calls.
+
+    Workflow expressions are filled with fixed values, the step's ``env`` is
+    applied, and ``uv`` records the arguments it is given, one call per line.
+    Each call is returned as a mapping from option name to value.
+    """
+    bash = shutil.which("bash")
+    if bash is None:  # pragma: no cover - bash is present on every CI runner
+        pytest.skip("bash is required to run the step")
+    handover = tmp_path / "coverage-baseline-handover"
+    handover.mkdir()
+    (handover / "rust.percent").write_text("91.5")
+    (handover / "python.percent").write_text("92.5")
+    values = {
+        "github.action_path": str(ACTIONS_DIR / action),
+        "inputs.ratchet-floor": "72.5",
+        "inputs.baseline-file": "single.base",
+        "inputs.baseline-rust-file": "rust.base",
+        "inputs.baseline-python-file": "python.base",
+        "steps.rust.outputs.percent": "91.5",
+        "steps.python.outputs.percent": "92.5",
+        "steps.cov.outputs.percent": "93.5",
+        "steps.detect.outputs.lang": "mixed",
+        "steps.handover.outputs.lang": "mixed",
+        "runner.temp": str(tmp_path),
+    }
+
+    def render(text: str) -> str:
+        """Fill the workflow expressions in ``text`` with the fixed values."""
+        return _EXPRESSION.sub(lambda m: values.get(m.group(1), ""), text)
+
+    data = yaml.safe_load((ACTIONS_DIR / action / "action.yml").read_text())
+    step = next(s for s in data["runs"]["steps"] if s.get("name") == "Ratchet coverage")
+    log = tmp_path / "uv.log"
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    stub = stub_dir / "uv"
+    stub.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{log}"\n')
+    stub.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{stub_dir}{os.pathsep}{os.environ['PATH']}",
+        **{key: render(str(value)) for key, value in step.get("env", {}).items()},
+    }
+    result = subprocess.run(  # noqa: S603 - fixed argv, bash from PATH
+        [bash, "-c", render(step["run"])],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    calls = []
+    for line in log.read_text().splitlines():
+        words = line.split()
+        calls.append(
+            {w: words[i + 1] for i, w in enumerate(words) if w.startswith("--")}
+        )
+    return calls
+
+
+@pytest.mark.parametrize("action", ["generate-coverage", "publish-coverage-baseline"])
+def test_shared_script_is_called_per_language_with_the_floor(
+    action: str, tmp_path: Path
+) -> None:
+    """Rust and Python each get the floor and their own language label."""
+    calls = _ratchet_invocations(action, tmp_path)
+
+    by_language = {call["--language"]: call for call in calls}
+    assert sorted(by_language) == ["python", "rust"]
+    assert len(calls) == 2
+    assert all(call["--floor"] == "72.5" for call in calls)
+    assert by_language["rust"]["--baseline-file"] == "rust.base"
+    assert by_language["rust"]["--current"] == "91.5"
+    assert by_language["python"]["--baseline-file"] == "python.base"
+    assert by_language["python"]["--current"] == "92.5"
+
+
+def test_legacy_action_calls_its_script_with_the_floor(tmp_path: Path) -> None:
+    """The single ratchet call carries the floor and the Rust label."""
+    calls = _ratchet_invocations("ratchet-coverage", tmp_path)
+
+    assert calls == [
+        {
+            "--script": str(
+                ACTIONS_DIR / "ratchet-coverage" / "scripts" / "ratchet_coverage.py"
+            ),
+            "--baseline-file": "single.base",
+            "--current": "93.5",
+            "--floor": "72.5",
+            "--language": "rust",
+        }
+    ]

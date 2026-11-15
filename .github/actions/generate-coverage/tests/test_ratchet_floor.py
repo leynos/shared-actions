@@ -192,6 +192,60 @@ def test_drop_of_exactly_one_point_does_not_warn(
     assert "::warning" not in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    ("baseline", "current", "warns"),
+    [
+        (64.01, 63.01, False),
+        (64.01, 63.00, True),
+        (70.07, 69.07, False),
+        (70.07, 69.06, True),
+        (60.01, 59.01, False),
+    ],
+)
+def test_warning_boundary_is_exact_with_a_custom_floor(
+    module: ModuleType,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    baseline: float,
+    current: float,
+    warns: bool,  # noqa: FBT001
+) -> None:
+    """Fractional figures are compared in hundredths, not as binary floats."""
+    _, code = _run(module, tmp_path, baseline=baseline, current=current, floor=50.0)
+
+    assert code == 0
+    assert ("::warning" in capsys.readouterr().out) is warns
+
+
+def test_dead_band_edge_is_exact_for_fractional_baselines(tmp_path: Path) -> None:
+    """A drop of exactly the tolerance passes below the floor despite float error."""
+    module = _load(GENERATE_SCRIPT)
+    file, code = _run(module, tmp_path, baseline=64.01, current=63.01, floor=90.0)
+
+    assert code == 0
+    assert file.read_text() == "64.01"
+
+
+def test_non_finite_current_is_refused(tmp_path: Path) -> None:
+    """The shared script refuses a NaN figure instead of passing it."""
+    module = _load(GENERATE_SCRIPT)
+    result = CliRunner().invoke(
+        _cli(module),
+        ["--baseline-file", str(tmp_path / "b"), "--current", "nan"],
+    )
+
+    assert result.exit_code == 2
+
+
+def test_non_finite_baseline_reads_as_zero(tmp_path: Path) -> None:
+    """A baseline file holding ``nan`` is treated as missing, like any junk."""
+    module = _load(GENERATE_SCRIPT)
+    file, code = _run(module, tmp_path, baseline=float("nan"), current=70.0)
+
+    assert code == 0
+    assert file.read_text() == "70.00"
+
+
 def test_no_warning_for_rises_or_ratcheted_baselines(
     module: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

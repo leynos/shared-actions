@@ -44,9 +44,19 @@ def validate_floor(floor: float) -> float:
     return floor
 
 
+def hundredths(percent: float) -> int:
+    """Return ``percent`` as whole hundredths, so comparisons are exact."""
+    return round(percent * 100)
+
+
 def floor_mode(baseline: float, floor: float) -> bool:
     """Return whether the floor, rather than the strict ratchet, judges the run."""
-    return floor > 0 and baseline > floor
+    return floor > 0 and hundredths(baseline) > hundredths(floor)
+
+
+def drop_exceeds_warning(current: float, baseline: float) -> bool:
+    """Return whether ``current`` is more than the warning drop below ``baseline``."""
+    return hundredths(current) < hundredths(baseline) - hundredths(WARN_DROP_PP)
 
 
 BASELINE_FILE_OPT = typer.Option(
@@ -74,11 +84,11 @@ def main(
     typer.echo(f"Ratchet floor: {floor:g}%")
 
     limit = floor if floor_mode(baseline, floor) else baseline
-    if current < limit:
+    if hundredths(current) < hundredths(limit):
         typer.echo("Coverage decreased", err=True)
         raise typer.Exit(code=1)
 
-    if floor_mode(baseline, floor) and current < baseline - WARN_DROP_PP:
+    if floor_mode(baseline, floor) and drop_exceeds_warning(current, baseline):
         label = f" ({language})" if language else ""
         typer.echo(
             f"::warning title=Coverage dropped{label}::coverage fell from "

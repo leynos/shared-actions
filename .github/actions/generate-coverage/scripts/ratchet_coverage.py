@@ -49,9 +49,10 @@ def read_baseline(file: Path) -> float:
     """Return the stored baseline coverage or 0.0 if missing/invalid."""
     if file.is_file():
         try:
-            return float(file.read_text().strip())
+            value = float(file.read_text().strip())
         except ValueError:
             return 0.0
+        return value if math.isfinite(value) else 0.0
     return 0.0
 
 
@@ -63,23 +64,44 @@ def validate_floor(floor: float) -> float:
     return floor
 
 
+def validate_current(current: float) -> float:
+    """Return ``current`` if it is a finite number, else refuse it."""
+    if not math.isfinite(current):
+        message = f"current coverage must be a finite number, got {current}"
+        raise typer.BadParameter(message)
+    return current
+
+
+def hundredths(percent: float) -> int:
+    """Return ``percent`` as whole hundredths, so comparisons are exact."""
+    return round(percent * 100)
+
+
 def floor_mode(baseline: float, floor: float) -> bool:
     """Return whether the floor, rather than the dead-band, judges the run."""
-    return floor > 0 and baseline > floor
+    return floor > 0 and hundredths(baseline) > hundredths(floor)
+
+
+def drop_exceeds_tolerance(current: float, baseline: float) -> bool:
+    """Return whether ``current`` is more than the tolerance below ``baseline``."""
+    return hundredths(current) < hundredths(baseline) - hundredths(RATCHET_TOLERANCE_PP)
+
+
+def rise_exceeds_tolerance(current: float, baseline: float) -> bool:
+    """Return whether ``current`` is more than the tolerance above ``baseline``."""
+    return hundredths(current) > hundredths(baseline) + hundredths(RATCHET_TOLERANCE_PP)
 
 
 def passes(current: float, baseline: float, floor: float) -> bool:
     """Return whether ``current`` clears the gate for ``baseline``."""
     if floor_mode(baseline, floor):
-        return current >= floor
-    return current >= baseline - RATCHET_TOLERANCE_PP
+        return hundredths(current) >= hundredths(floor)
+    return not drop_exceeds_tolerance(current, baseline)
 
 
 def next_baseline(current: float, baseline: float, floor: float) -> float | None:
     """Return the baseline to store after a passing run, or None to hold it."""
-    if floor_mode(baseline, floor):
-        return current
-    if current > baseline + RATCHET_TOLERANCE_PP:
+    if floor_mode(baseline, floor) or rise_exceeds_tolerance(current, baseline):
         return current
     return None
 
@@ -102,7 +124,7 @@ def main(
     """
     floor = validate_floor(floor)
     baseline = round(read_baseline(baseline_file), 2)
-    current = round(current, 2)
+    current = round(validate_current(current), 2)
 
     typer.echo(f"Current coverage: {current}%")
     typer.echo(f"Baseline coverage: {baseline}%")
@@ -113,7 +135,7 @@ def main(
         typer.echo("Coverage decreased", err=True)
         raise typer.Exit(code=1)
 
-    if floor_mode(baseline, floor) and current < baseline - RATCHET_TOLERANCE_PP:
+    if floor_mode(baseline, floor) and drop_exceeds_tolerance(current, baseline):
         label = f" ({language})" if language else ""
         typer.echo(
             f"::warning title=Coverage dropped{label}::coverage fell from "

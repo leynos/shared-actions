@@ -112,7 +112,8 @@ runs:
         uv run --script "${{ github.action_path }}/scripts/ratchet_coverage.py" \
           --baseline-file "${{ inputs.baseline-file }}" \
           --current "${{ steps.cov.outputs.percent }}" \
-          --floor "$RATCHET_FLOOR"
+          --floor "$RATCHET_FLOOR" \
+          --language rust
       shell: bash
     - name: Save baseline
       # Save under the same run-id-suffixed key the restore step uses as its

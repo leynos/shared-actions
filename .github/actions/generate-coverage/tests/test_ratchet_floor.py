@@ -46,20 +46,28 @@ def module(request: pytest.FixtureRequest) -> ModuleType:
     return _load(request.param)
 
 
+class _Scenario(typ.TypedDict):
+    """One ratchet run: the stored baseline, the new figure, and the options."""
+
+    baseline: float
+    current: float
+    floor: typ.NotRequired[float]
+    language: typ.NotRequired[str]
+
+
 def _run(
-    module: ModuleType,
-    tmp_path: Path,
-    *,
-    baseline: float,
-    current: float,
-    floor: float = FLOOR,
-    language: str = "rust",
+    module: ModuleType, tmp_path: Path, **scenario: typ.Unpack[_Scenario]
 ) -> tuple[Path, int]:
     """Run ``main`` once and return the baseline file and the exit code."""
     file = tmp_path / ".coverage-baseline"
-    file.write_text(f"{baseline:.2f}")
+    file.write_text(f"{scenario['baseline']:.2f}")
     try:
-        module.main(baseline_file=file, current=current, floor=floor, language=language)
+        module.main(
+            baseline_file=file,
+            current=scenario["current"],
+            floor=scenario.get("floor", FLOOR),
+            language=scenario.get("language", "rust"),
+        )
     except typer.Exit as exc:
         return file, exc.exit_code
     return file, 0

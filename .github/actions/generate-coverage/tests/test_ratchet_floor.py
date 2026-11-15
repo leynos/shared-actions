@@ -193,7 +193,7 @@ def test_drop_of_exactly_one_point_does_not_warn(
 
 
 @pytest.mark.parametrize(
-    ("baseline", "current", "warns"),
+    "case",
     [
         (64.01, 63.01, False),
         (64.01, 63.00, True),
@@ -201,16 +201,16 @@ def test_drop_of_exactly_one_point_does_not_warn(
         (70.07, 69.06, True),
         (60.01, 59.01, False),
     ],
+    ids=str,
 )
 def test_warning_boundary_is_exact_with_a_custom_floor(
     module: ModuleType,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    baseline: float,
-    current: float,
-    warns: bool,  # noqa: FBT001
+    case: tuple[float, float, bool],
 ) -> None:
     """Fractional figures are compared in hundredths, not as binary floats."""
+    baseline, current, warns = case
     _, code = _run(module, tmp_path, baseline=baseline, current=current, floor=50.0)
 
     assert code == 0

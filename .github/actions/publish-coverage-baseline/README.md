@@ -34,6 +34,15 @@ example does, so publications happen in push order.
 | `artefact-name`        | The `baseline-artefact-name` the measuring job was given | yes      |                             |
 | `baseline-rust-file`   | Rust baseline path; match `generate-coverage`            | no       | `.coverage-baseline.rust`   |
 | `baseline-python-file` | Python baseline path; match `generate-coverage`          | no       | `.coverage-baseline.python` |
+| `ratchet-floor`        | Coverage floor, 0 to 100; match `generate-coverage`      | no       | `85`                        |
+
+With a floor above 0, a baseline above the floor may fall, so long as the
+handed-over figure stays at or above the floor: the baseline is then set to the
+figure, and a drop of more than one point raises a `::warning` naming the
+language. A figure below the floor fails the job and saves nothing. A baseline
+at or below the floor is ratcheted as described above. `ratchet-floor: 0`
+switches the floor off and restores the plain ratchet exactly. See
+`generate-coverage` for the full rule.
 
 ## Example
 

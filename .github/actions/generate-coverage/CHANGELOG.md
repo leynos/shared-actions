@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add a `ratchet-floor` input (default 85, a number from 0 to 100). A baseline
+  above the floor no longer ratchets: a run passes while coverage is at or
+  above the floor, the baseline tracks the current figure up or down, and a
+  drop of more than one point warns. A baseline at or below the floor ratchets
+  as before. This stops a repository that first measures a trivially high
+  figure from being held to it. `ratchet-floor: 0` restores the previous
+  behaviour exactly. `ratchet_coverage.py` gains `--floor` and `--language`.
+
 - Fix the interpreter step failing on Windows with "No interpreter found at
   path". Git Bash's `command -v python3` prints the interpreter without its
   `.exe`, and uv refuses a path to a file that does not exist. The step now

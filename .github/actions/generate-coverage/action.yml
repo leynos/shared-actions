@@ -71,6 +71,14 @@ inputs:
     description: Fail if coverage falls below the stored baseline
     required: false
     default: "false"
+  ratchet-floor:
+    description: >-
+      Coverage floor in percent, a number from 0 to 100. A baseline above the
+      floor may fall, so long as coverage stays at or above the floor (a drop
+      of more than one point warns); a baseline at or below it is ratcheted.
+      0 switches the floor off, restoring the plain ratchet.
+    required: false
+    default: "85"
   cargo-wait-timeout:
     description: >-
       Seconds cargo may run before the watchdog kills it. The watchdog exists
@@ -457,20 +465,24 @@ runs:
       shell: bash
     - name: Ratchet coverage
       if: inputs.with-ratchet == 'true' && inputs.publish-baseline != 'never' && inputs.build-only != 'true'
+      env:
+        GC_RATCHET_FLOOR: ${{ inputs.ratchet-floor }}
       run: |
         set -euo pipefail
         ratchet() {
           uv run --script "${{ github.action_path }}/scripts/ratchet_coverage.py" \
             --baseline-file "$1" \
-            --current "$2"
+            --current "$2" \
+            --floor "$GC_RATCHET_FLOOR" \
+            --language "$3"
         }
 
         lang="${{ steps.detect.outputs.lang }}"
         if [[ "$lang" == "rust" || "$lang" == "mixed" ]]; then
-          ratchet "${{ inputs.baseline-rust-file }}" "${{ steps.rust.outputs.percent }}"
+          ratchet "${{ inputs.baseline-rust-file }}" "${{ steps.rust.outputs.percent }}" rust
         fi
         if [[ "$lang" == "python" || "$lang" == "mixed" ]]; then
-          ratchet "${{ inputs.baseline-python-file }}" "${{ steps.python.outputs.percent }}"
+          ratchet "${{ inputs.baseline-python-file }}" "${{ steps.python.outputs.percent }}" python
         fi
       shell: bash
     - name: Save baselines

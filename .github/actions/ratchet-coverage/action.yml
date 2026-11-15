@@ -19,6 +19,14 @@ inputs:
       restricting the job to its trunk.
     required: false
     default: auto
+  ratchet-floor:
+    description: >-
+      Coverage floor in percent, a number from 0 to 100. A baseline above the
+      floor may fall, so long as coverage stays at or above the floor (a drop
+      of more than one point warns); a baseline at or below it is ratcheted
+      strictly. 0 switches the floor off, restoring the plain ratchet.
+    required: false
+    default: "85"
 outputs:
   percent:
     description: Coverage percentage reported by cargo llvm-cov
@@ -98,10 +106,13 @@ runs:
       run: uv run --script "${{ github.action_path }}/scripts/run_coverage.py" --args "${{ inputs.args }}"
       shell: bash
     - name: Ratchet coverage
+      env:
+        RATCHET_FLOOR: ${{ inputs.ratchet-floor }}
       run: |
         uv run --script "${{ github.action_path }}/scripts/ratchet_coverage.py" \
           --baseline-file "${{ inputs.baseline-file }}" \
-          --current "${{ steps.cov.outputs.percent }}"
+          --current "${{ steps.cov.outputs.percent }}" \
+          --floor "$RATCHET_FLOOR"
       shell: bash
     - name: Save baseline
       # Save under the same run-id-suffixed key the restore step uses as its

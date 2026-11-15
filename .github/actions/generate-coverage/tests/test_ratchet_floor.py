@@ -227,13 +227,15 @@ def test_dead_band_edge_is_exact_for_fractional_baselines(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize(
-    ("floor", "current", "code"),
+    "case",
     [(85.004, 85.00, 1), (85.004, 85.01, 0), (85.0049, 85.0, 1), (72.555, 72.55, 1)],
+    ids=str,
 )
 def test_floor_keeps_its_precision(
-    module: ModuleType, tmp_path: Path, floor: float, current: float, code: int
+    module: ModuleType, tmp_path: Path, case: tuple[float, float, int]
 ) -> None:
     """A floor with more than two decimals is not rounded in the comparison."""
+    floor, current, code = case
     _, exit_code = _run(module, tmp_path, baseline=90.0, current=current, floor=floor)
 
     assert exit_code == code

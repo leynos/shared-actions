@@ -226,9 +226,21 @@ def test_dead_band_edge_is_exact_for_fractional_baselines(tmp_path: Path) -> Non
     assert file.read_text() == "64.01"
 
 
-def test_non_finite_current_is_refused(tmp_path: Path) -> None:
-    """The shared script refuses a NaN figure instead of passing it."""
-    module = _load(GENERATE_SCRIPT)
+@pytest.mark.parametrize(
+    ("floor", "current", "code"),
+    [(85.004, 85.00, 1), (85.004, 85.01, 0), (85.0049, 85.0, 1), (72.555, 72.55, 1)],
+)
+def test_floor_keeps_its_precision(
+    module: ModuleType, tmp_path: Path, floor: float, current: float, code: int
+) -> None:
+    """A floor with more than two decimals is not rounded in the comparison."""
+    _, exit_code = _run(module, tmp_path, baseline=90.0, current=current, floor=floor)
+
+    assert exit_code == code
+
+
+def test_non_finite_current_is_refused(module: ModuleType, tmp_path: Path) -> None:
+    """Both scripts refuse a NaN figure instead of passing it."""
     result = CliRunner().invoke(
         _cli(module),
         ["--baseline-file", str(tmp_path / "b"), "--current", "nan"],
@@ -237,9 +249,8 @@ def test_non_finite_current_is_refused(tmp_path: Path) -> None:
     assert result.exit_code == 2
 
 
-def test_non_finite_baseline_reads_as_zero(tmp_path: Path) -> None:
+def test_non_finite_baseline_reads_as_zero(module: ModuleType, tmp_path: Path) -> None:
     """A baseline file holding ``nan`` is treated as missing, like any junk."""
-    module = _load(GENERATE_SCRIPT)
     file, code = _run(module, tmp_path, baseline=float("nan"), current=70.0)
 
     assert code == 0

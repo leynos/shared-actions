@@ -19,6 +19,7 @@ floor off, so the dead-band rule applies to every baseline.
 from __future__ import annotations
 
 import math
+from decimal import Decimal
 from pathlib import Path
 
 import typer
@@ -72,30 +73,30 @@ def validate_current(current: float) -> float:
     return current
 
 
-def hundredths(percent: float) -> int:
-    """Return ``percent`` as whole hundredths, so comparisons are exact."""
-    return round(percent * 100)
+def exact(percent: float) -> Decimal:
+    """Return ``percent`` as the decimal it prints as, so comparisons are exact."""
+    return Decimal(repr(percent))
 
 
 def floor_mode(baseline: float, floor: float) -> bool:
     """Return whether the floor, rather than the dead-band, judges the run."""
-    return floor > 0 and hundredths(baseline) > hundredths(floor)
+    return floor > 0 and exact(baseline) > exact(floor)
 
 
 def drop_exceeds_tolerance(current: float, baseline: float) -> bool:
     """Return whether ``current`` is more than the tolerance below ``baseline``."""
-    return hundredths(current) < hundredths(baseline) - hundredths(RATCHET_TOLERANCE_PP)
+    return exact(current) < exact(baseline) - exact(RATCHET_TOLERANCE_PP)
 
 
 def rise_exceeds_tolerance(current: float, baseline: float) -> bool:
     """Return whether ``current`` is more than the tolerance above ``baseline``."""
-    return hundredths(current) > hundredths(baseline) + hundredths(RATCHET_TOLERANCE_PP)
+    return exact(current) > exact(baseline) + exact(RATCHET_TOLERANCE_PP)
 
 
 def passes(current: float, baseline: float, floor: float) -> bool:
     """Return whether ``current`` clears the gate for ``baseline``."""
     if floor_mode(baseline, floor):
-        return hundredths(current) >= hundredths(floor)
+        return exact(current) >= exact(floor)
     return not drop_exceeds_tolerance(current, baseline)
 
 

@@ -9,10 +9,10 @@
   as before. This stops a repository that first measures a trivially high
   figure from being held to it. `ratchet-floor: 0` restores the previous
   behaviour exactly. `ratchet_coverage.py` gains `--floor` and `--language`.
-  Figures are now compared in whole hundredths, so a drop of exactly one point
-  is never mistaken for a larger one by binary floating-point error. A
-  non-finite current figure is refused, and a non-finite stored baseline reads
-  as 0.
+  Figures and the floor are now compared as exact decimals, so a drop of
+  exactly one point is never mistaken for a larger one by binary floating-point
+  error. A non-finite current figure is refused, and a non-finite stored
+  baseline reads as 0.
 
 - Fix the interpreter step failing on Windows with "No interpreter found at
   path". Git Bash's `command -v python3` prints the interpreter without its

@@ -15,6 +15,7 @@ switches the floor off, leaving the strict ratchet for every baseline.
 from __future__ import annotations
 
 import math
+from decimal import Decimal
 from pathlib import Path
 
 import typer
@@ -30,9 +31,10 @@ def read_baseline(file: Path) -> float:
     """Return the stored baseline coverage or 0.0 if missing/invalid."""
     if file.is_file():
         try:
-            return float(file.read_text().strip())
+            value = float(file.read_text().strip())
         except ValueError:
             return 0.0
+        return value if math.isfinite(value) else 0.0
     return 0.0
 
 
@@ -44,19 +46,27 @@ def validate_floor(floor: float) -> float:
     return floor
 
 
-def hundredths(percent: float) -> int:
-    """Return ``percent`` as whole hundredths, so comparisons are exact."""
-    return round(percent * 100)
+def validate_current(current: float) -> float:
+    """Return ``current`` if it is a finite number, else refuse it."""
+    if not math.isfinite(current):
+        message = f"current coverage must be a finite number, got {current}"
+        raise typer.BadParameter(message)
+    return current
+
+
+def exact(percent: float) -> Decimal:
+    """Return ``percent`` as the decimal it prints as, so comparisons are exact."""
+    return Decimal(repr(percent))
 
 
 def floor_mode(baseline: float, floor: float) -> bool:
     """Return whether the floor, rather than the strict ratchet, judges the run."""
-    return floor > 0 and hundredths(baseline) > hundredths(floor)
+    return floor > 0 and exact(baseline) > exact(floor)
 
 
 def drop_exceeds_warning(current: float, baseline: float) -> bool:
     """Return whether ``current`` is more than the warning drop below ``baseline``."""
-    return hundredths(current) < hundredths(baseline) - hundredths(WARN_DROP_PP)
+    return exact(current) < exact(baseline) - exact(WARN_DROP_PP)
 
 
 BASELINE_FILE_OPT = typer.Option(
@@ -77,14 +87,14 @@ def main(
     """Compare ``current`` coverage with the stored baseline and update it."""
     floor = validate_floor(floor)
     baseline = round(read_baseline(baseline_file), 2)
-    current = round(current, 2)
+    current = round(validate_current(current), 2)
 
     typer.echo(f"Current coverage: {current}%")
     typer.echo(f"Baseline coverage: {baseline}%")
     typer.echo(f"Ratchet floor: {floor:g}%")
 
     limit = floor if floor_mode(baseline, floor) else baseline
-    if hundredths(current) < hundredths(limit):
+    if exact(current) < exact(limit):
         typer.echo("Coverage decreased", err=True)
         raise typer.Exit(code=1)
 

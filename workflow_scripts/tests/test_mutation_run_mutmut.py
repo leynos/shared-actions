@@ -14,6 +14,7 @@ import typing as typ
 import pytest
 from plumbum import local
 
+from test_support.cyclopts_app_support import _invoke_cyclopts_successfully
 from workflow_scripts import mutation_run_mutmut as run_mutmut
 
 if typ.TYPE_CHECKING:
@@ -246,7 +247,7 @@ class TestMainEntry:
         previous_summary = "Earlier workflow summary.\n\n"
         summary_file.write_text(previous_summary, encoding="utf-8")
         monkeypatch.setenv("INPUT_FILES", "src/mypkg/calc.py")
-        run_mutmut.app([])
+        _invoke_cyclopts_successfully(run_mutmut.app, [])
         recorded = fake_uv.read_text(encoding="utf-8")
         assert "mutmut run mypkg.calc.*" in recorded.replace("  ", " "), (
             "changed files should reach mutmut run as module globs"
@@ -328,7 +329,7 @@ class TestMainEntry:
         """A scope containing no Python files skips mutmut entirely."""
         _, results_file = self._prepare(tmp_path, monkeypatch)
         monkeypatch.setenv("INPUT_FILES", "README.md")
-        run_mutmut.app([])
+        _invoke_cyclopts_successfully(run_mutmut.app, [])
         assert not fake_uv.exists(), (
             "uv should never be invoked when the scope has no Python files"
         )

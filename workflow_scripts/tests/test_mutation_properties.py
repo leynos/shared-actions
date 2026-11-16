@@ -15,8 +15,7 @@ from unittest import mock
 from hypothesis import given
 from hypothesis import strategies as st
 
-from workflow_scripts import graphql_client
-from workflow_scripts import mutation_capture
+from workflow_scripts import graphql_client, mutation_capture
 from workflow_scripts import mutation_detect_changes as detect
 from workflow_scripts import mutation_run_mutmut as run_mutmut
 from workflow_scripts import mutation_summarize_cargo as summarize

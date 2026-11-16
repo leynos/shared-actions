@@ -17,7 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import typer
-from cmd_utils_loader import run_cmd
+from cmd_utils_loader import process_error_to_run_result, run_cmd
 from common import _required_env
 from coverage_parsers import get_line_coverage_percent_from_cobertura
 from plumbum import local
@@ -26,7 +26,7 @@ from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
-    from plumbum.commands.base import BoundCommand
+    from plumbum.commands.base import BaseCommand
 
 logger = logging.getLogger(__name__)
 
@@ -349,7 +349,7 @@ def coverage_child_env(interpreter: str = "") -> dict[str, str]:
 
 
 @lru_cache(maxsize=1)
-def _coverage_python_cmd(interpreter: str = "") -> BoundCommand:
+def _coverage_python_cmd(interpreter: str = "") -> BaseCommand:
     """Return coverage Python with its scripts available to child processes."""
     python = _coverage_venv_python(interpreter)
     scripts_dir = str(Path(python).parent)
@@ -423,7 +423,7 @@ def coverage_cmd_for_fmt(
     workers: str = "",
     python_source: str = "",
     interpreter: str = "",
-) -> BoundCommand:
+) -> BaseCommand:
     """Return the slipcover command for the requested coverage format.
 
     Parameters
@@ -450,7 +450,7 @@ def coverage_cmd_for_fmt(
 
     Returns
     -------
-    plumbum.commands.base.BoundCommand
+    plumbum.commands.base.BaseCommand
         A plumbum command that runs slipcover via the coverage venv Python.
     """
     python_cmd = _coverage_python_cmd(interpreter)
@@ -496,7 +496,7 @@ def tmp_coveragepy_xml(out: Path, interpreter: str = "") -> cabc.Generator[Path]
             f"coverage xml failed with code {exc.retcode}: {exc.stderr}",
             err=True,
         )
-        raise typer.Exit(code=exc.retcode or 1) from exc
+        raise typer.Exit(code=process_error_to_run_result(exc).returncode) from exc
     try:
         yield xml_tmp
     finally:
@@ -564,7 +564,7 @@ def _run_coverage(
         cmd = coverage_cmd_for_fmt(fmt, out, workers, python_source, interpreter)
         run_cmd(cmd, method="run_fg", env=coverage_child_env(interpreter))
     except ProcessExecutionError as exc:
-        raise typer.Exit(code=exc.retcode or 1) from exc
+        raise typer.Exit(code=process_error_to_run_result(exc).returncode) from exc
     except RuntimeError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc

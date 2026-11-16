@@ -12,6 +12,7 @@ import typing as typ
 
 import pytest
 
+from test_support.cyclopts_app_support import _invoke_cyclopts_successfully
 from workflow_scripts import mutation_summarize_cargo as summarize
 
 if typ.TYPE_CHECKING:
@@ -296,7 +297,7 @@ class TestMainEntry:
         summary_file.touch()
         monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
         monkeypatch.setenv("INPUT_REPORT_ROOT", str(reports))
-        summarize.app([])
+        _invoke_cyclopts_successfully(summarize.app, [])
         text = summary_file.read_text(encoding="utf-8")
         assert "Surviving mutants" in text, (
             "the job summary should receive the rendered Markdown"

@@ -84,3 +84,18 @@ def test_run_cmd_missing_symbol(
     msg = str(excinfo.value)
     assert "run_cmd" in msg
     assert str(tmp_path / mod.CMD_UTILS_FILENAME) in msg
+
+
+def test_process_error_to_run_result_is_proxied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The lazy loader proxies process error conversion."""
+    monkeypatch.setenv("GITHUB_ACTION_PATH", str(tmp_path))
+    mod = _load_loader(
+        tmp_path,
+        monkeypatch,
+        cmd_utils_content=("def process_error_to_run_result(exc):\n    return exc\n"),
+    )
+
+    marker = object()
+    assert mod.process_error_to_run_result(marker) is marker

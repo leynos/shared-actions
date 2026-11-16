@@ -13,6 +13,7 @@ import typing as typ
 import pytest
 from plumbum import local
 
+from test_support.cyclopts_app_support import _invoke_cyclopts_successfully
 from workflow_scripts import mutation_detect_changes as detect
 
 if typ.TYPE_CHECKING:
@@ -191,7 +192,7 @@ class TestMainEntry:
         monkeypatch.setenv("INPUT_SHARD_COUNT", "2")
         monkeypatch.setenv("INPUT_BASE_REF", "HEAD")
         monkeypatch.chdir(repo)
-        detect.app([])
+        _invoke_cyclopts_successfully(detect.app, [])
         outputs: dict[str, str] = {}
         for line in output_file.read_text(encoding="utf-8").splitlines():
             key, _, value = line.partition("=")
@@ -394,7 +395,7 @@ class TestNothingToMutate:
         monkeypatch.setenv("INPUT_SHARD_COUNT", "1")
         monkeypatch.setenv("INPUT_BASE_REF", "HEAD")
         monkeypatch.chdir(repo)
-        detect.app([])
+        _invoke_cyclopts_successfully(detect.app, [])
         outputs: dict[str, str] = {}
         for line in output_file.read_text(encoding="utf-8").splitlines():
             key, _, value = line.partition("=")

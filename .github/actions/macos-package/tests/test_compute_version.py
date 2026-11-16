@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import typing as typ
 
+from test_support.cyclopts_app_support import _invoke_cyclopts_successfully
+
 if typ.TYPE_CHECKING:
     from collections import abc as cabc
     from pathlib import Path
@@ -100,7 +102,7 @@ def test_cli_reads_input_environment(
     module = load_module("compute_version")
     monkeypatch.setenv("INPUT_VERSION", "v3.2.1")
 
-    module.run_app(module.app)
+    _invoke_cyclopts_successfully(module.run_app, module.app)
 
     assert _read_key(env_file, "VERSION") == ["3.2.1"]
     assert _read_key(output_file, "version") == ["3.2.1"]

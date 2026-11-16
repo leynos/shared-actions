@@ -84,6 +84,7 @@ class TestRequestGraphqlRetries:
         seen: list[tuple[str, str, dict[str, object]]] = []
 
         def fake_execute(token: str, query: str, variables: dict[str, object]) -> None:
+            """Record the arguments forwarded to each retry attempt."""
             seen.append((token, query, variables.copy()))
 
         monkeypatch.setattr(graphql_client, "_execute_graphql_attempt", fake_execute)

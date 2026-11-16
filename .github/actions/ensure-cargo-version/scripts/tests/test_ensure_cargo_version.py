@@ -8,6 +8,8 @@ from types import ModuleType
 import pytest
 from syspath_hack import prepend_to_syspath
 
+from test_support.cyclopts_app_support import _invoke_cyclopts_successfully
+
 MODULE_PATH = Path(__file__).resolve().parent.parent / "ensure_cargo_version.py"
 SCRIPT_DIR = MODULE_PATH.parent
 prepend_to_syspath(SCRIPT_DIR)
@@ -59,7 +61,7 @@ def test_app_parses_check_tag_from_env(
     monkeypatch.setenv("INPUT_MANIFESTS", "Cargo.toml")
     monkeypatch.setenv("INPUT_CHECK_TAG", "false")
 
-    ensure.app([])
+    _invoke_cyclopts_successfully(ensure.app, [])
 
     contents = output_file.read_text(encoding="utf-8").splitlines()
     assert "crate-version=1.2.3" in contents
@@ -87,7 +89,7 @@ def test_app_defaults_check_tag_true(
     monkeypatch.delenv("INPUT_CHECK_TAG", raising=False)
     monkeypatch.setenv("INPUT_MANIFESTS", "Cargo.toml")
 
-    ensure.app([])
+    _invoke_cyclopts_successfully(ensure.app, [])
 
     contents = output_file.read_text(encoding="utf-8").splitlines()
     assert "crate-version=2.3.4" in contents

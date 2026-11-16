@@ -11,6 +11,10 @@ from pathlib import Path
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from types import ModuleType
 
+    from plumbum.commands.processes import ProcessExecutionError
+
+    from cmd_utils import RunResult
+
 
 CMD_UTILS_FILENAME: typ.Final[str] = "cmd_utils.py"
 ERROR_REPO_ROOT_NOT_FOUND: typ.Final[str] = "Repository root not found"
@@ -105,11 +109,24 @@ def run_cmd(*args: typ.Any, **kwargs: typ.Any) -> typ.Any:  # noqa: ANN401 - pas
         raise CmdUtilsImportError(missing, "run_cmd", original_exception=exc) from exc
 
 
+def process_error_to_run_result(exc: ProcessExecutionError) -> RunResult:
+    """Convert a Plumbum process error through the lazily loaded utilities."""
+    try:
+        result = _get_cmd_utils().process_error_to_run_result(exc)
+    except AttributeError as import_error:
+        missing = find_repo_root() / CMD_UTILS_FILENAME
+        raise CmdUtilsImportError(
+            missing, "process_error_to_run_result", original_exception=import_error
+        ) from import_error
+    return typ.cast("RunResult", result)
+
+
 __all__ = [
     "CMD_UTILS_FILENAME",
     "CmdUtilsImportError",
     "RepoRootNotFoundError",
     "find_repo_root",
     "load_cmd_utils",
+    "process_error_to_run_result",
     "run_cmd",
 ]

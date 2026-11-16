@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from test_support.cyclopts_app_support import _invoke_cyclopts_successfully
+
 if typ.TYPE_CHECKING:
     from collections import abc as cabc
 else:  # pragma: no cover - runtime fallback for annotations
@@ -64,7 +66,7 @@ def test_configure_app_reads_environment(
         captured.append(value)
 
     monkeypatch.setenv("INPUT_VALUE", "example")
-    utils.run_app(app)
+    _invoke_cyclopts_successfully(utils.run_app, app)
 
     assert captured == ["example"]
     out = capsys.readouterr()
@@ -107,7 +109,7 @@ def test_run_app_honours_explicit_arguments(
         """Record the ``value`` passed on the command line."""
         captured.append(value)
 
-    utils.run_app(app, argv=["--value", "from-argv"])
+    _invoke_cyclopts_successfully(utils.run_app, app, argv=["--value", "from-argv"])
 
     assert captured == ["from-argv"]
 

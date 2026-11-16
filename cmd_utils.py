@@ -174,10 +174,18 @@ def coerce_run_result(
     )
 
 
+def _normalize_exit_code(retcode: int | str | None) -> int:
+    """Return a usable integer exit code, defaulting invalid values to 1."""
+    try:
+        return int(retcode) if retcode is not None else 1
+    except ValueError:
+        return 1
+
+
 def process_error_to_run_result(exc: ProcessExecutionError) -> RunResult:
     """Convert ``exc`` into a :class:`RunResult` for consistent handling."""
     return RunResult(
-        int(exc.retcode),
+        _normalize_exit_code(exc.retcode),
         _ensure_text(getattr(exc, "stdout", "")),
         _ensure_text(getattr(exc, "stderr", "")),
     )
@@ -193,7 +201,7 @@ def process_error_to_subprocess(
     formatted = [str(part) for part in command.formulate()]
     if isinstance(exc, ProcessExecutionError):
         return subprocess.CalledProcessError(
-            int(exc.retcode),
+            _normalize_exit_code(exc.retcode),
             formatted,
             output=_ensure_text(getattr(exc, "stdout", "")),
             stderr=_ensure_text(getattr(exc, "stderr", "")),
@@ -289,19 +297,9 @@ def _run_handler(
     except ProcessTimedOut:
         raise
     except TimeoutError as exc:
-        timeout_value = run_options.get("timeout", getattr(exc, "timeout", None))
-        if isinstance(timeout_value, int | float):
-            normalized_timeout: float | None = float(timeout_value)
-        else:
-            normalized_timeout = None
         formatted = [str(part) for part in command.formulate()]
         timeout_message = str(exc) or "Command timed out"
-        resolved_timeout = normalized_timeout if normalized_timeout is not None else 0.0
-        timed_out = ProcessTimedOut(
-            formatted,
-            resolved_timeout,
-        )
-        timed_out.args = (timeout_message, *timed_out.args[1:])
+        timed_out = ProcessTimedOut(timeout_message, formatted)
         raise timed_out from exc
     return coerce_run_result(typ.cast("cabc.Sequence[object]", raw_result))
 

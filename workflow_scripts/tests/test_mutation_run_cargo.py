@@ -13,6 +13,7 @@ import typing as typ
 import pytest
 from plumbum import local
 
+from test_support.cyclopts_app_support import _invoke_cyclopts_successfully
 from workflow_scripts import mutation_run_cargo as run_cargo
 
 if typ.TYPE_CHECKING:
@@ -162,7 +163,7 @@ class TestMainEntry:
         monkeypatch.setenv("FAKE_CARGO_EXIT", "2")
         monkeypatch.setitem(local.env, "FAKE_CARGO_EXIT", "2")
         monkeypatch.setenv("INPUT_FILES", "src/lib.rs")
-        run_cargo.app([])
+        _invoke_cyclopts_successfully(run_cargo.app, [])
         recorded = fake_cargo.read_text(encoding="utf-8").split()
         assert recorded[0] == "mutants"
         assert recorded[-2:] == ["--file", "src/lib.rs"]
@@ -341,7 +342,7 @@ class TestEmptyRunEndToEnd:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("INPUT_ALLOW_NO_MUTANTS", "true")
 
-        run_cargo.app([])
+        _invoke_cyclopts_successfully(run_cargo.app, [])
 
         output = capsys.readouterr().out
         assert "mutation_cargo_outcome=no mutants found (allowed)" in output, output
@@ -359,7 +360,7 @@ class TestEmptyRunEndToEnd:
         self._write_inventory(tmp_path, '[{"function": "a"}]')
         monkeypatch.chdir(tmp_path)
 
-        run_cargo.app([])
+        _invoke_cyclopts_successfully(run_cargo.app, [])
 
         output = capsys.readouterr().out
         assert "mutation_cargo_outcome=all mutants caught" in output, output

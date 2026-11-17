@@ -66,7 +66,7 @@ class TestManifest:
             "a refused manifest must not be half-applied to later phases"
         )
 
-    def test_an_unrecognised_key_is_refused(
+    def test_an_unrecognized_key_is_refused(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """A typo would otherwise read as a requirement that is being checked."""
@@ -258,7 +258,7 @@ class TestSandbox:
     def test_a_readme_passes_once_also_copy_names_it(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
-        """The declared path is satisfied by the copy entry that materialises it."""
+        """The declared path is satisfied by the copy entry that materializes it."""
         outcome = outcome_for(
             run_preflight,
             tmp_path / "repo",
@@ -328,7 +328,7 @@ class TestSandbox:
         """A toolchain file and a nested fixture are requirements like any other.
 
         Neither sits under ``source_paths``, so existing is not enough: the
-        declaration has to be materialised by ``also_copy``.
+        declaration has to be materialized by ``also_copy``.
         """
         outcome = outcome_for(
             run_preflight,

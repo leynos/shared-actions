@@ -83,7 +83,7 @@ def phase_envelope(result: PhaseResult) -> dict[str, object]:
     -------
     dict[str, object]
         The phase's name, status, findings and evidence. Every value is
-        JSON-serialisable, because the same entry is logged and written to the
+        JSON-serializable, because the same entry is logged and written to the
         report.
 
     """

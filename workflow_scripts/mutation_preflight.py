@@ -64,7 +64,7 @@ its own directory on the import path.
 Environment Variables
 ---------------------
 INPUT_LANE : str, optional
-    ``mutmut`` (default) or ``cargo``. Only the mutmut lane materialises a
+    ``mutmut`` (default) or ``cargo``. Only the mutmut lane materializes a
     filtered sandbox, so ``sandbox_paths`` is refused on the cargo lane.
 INPUT_PROJECT_PYTHON : str, optional
     The interpreter the caller selected for the project, such as ``3.13``.

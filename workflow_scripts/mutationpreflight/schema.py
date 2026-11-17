@@ -54,7 +54,7 @@ def unknown_keys(
 
     """
     return [
-        f"{where} declares unrecognised key {key!r}; supported keys are "
+        f"{where} declares unrecognized key {key!r}; supported keys are "
         f"{sorted(allowed)}"
         for key in sorted(set(table) - allowed)
     ]

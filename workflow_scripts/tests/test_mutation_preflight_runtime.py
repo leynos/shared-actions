@@ -131,6 +131,8 @@ class TestVersionMatching:
             ("mold 1.2.3rc1", "1.2.3", False),
             ("mold 1.2.3.post1", "1.2.3", False),
             ("mold 1.2.3", "1.2.3", True),
+            ("mold 0.9.0rc1", "0.9.0rc1", True),
+            ("mold 0.9.0rc1", "0.9.0", False),
         ],
     )
     def test_a_token_must_equal_the_declared_version_or_extend_it(
@@ -263,6 +265,31 @@ class TestChecks:
 
         assert outcome.exit_code == 0, outcome.stdout
         assert outcome.phases["checks"]["status"] == "pass"
+
+    @POSIX_SYMLINKS_ONLY
+    def test_a_relative_symlinked_command_runs_through_its_link(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A declared link is the path that runs, so a venv keeps its packages."""
+        manifest = (
+            '[[checks]]\nname = "collect"\ncommand = ["./probe"]\ncwd = "fixtures"\n'
+        )
+        root = repository(tmp_path / "repo", Checkout(manifest=manifest))
+        fixtures = root / "fixtures"
+        fixtures.mkdir(parents=True)
+        target = fixtures / "real-probe"
+        target.write_text('#!/bin/sh\necho "$0"\n', encoding="utf-8")
+        target.chmod(target.stat().st_mode | stat.S_IXUSR)
+        (fixtures / "probe").symlink_to(target)
+
+        outcome = run_preflight(root, project_python="3.13")
+
+        assert outcome.exit_code == 0, outcome.stdout
+        printed = typ.cast("dict[str, object]", outcome.detail("checks")["collect"])
+        assert str(printed["stdout"]).strip() == str(fixtures / "probe"), (
+            "the declared link must be the executable path, so an interpreter "
+            "reached through it still finds the environment that named it"
+        )
 
     @POSIX_SYMLINKS_ONLY
     def test_a_cwd_resolving_outside_the_checkout_is_refused(

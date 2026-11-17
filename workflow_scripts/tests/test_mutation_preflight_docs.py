@@ -95,6 +95,13 @@ class TestLoader:
         with pytest.raises(ExampleError, match="no tested-example marker"):
             load_examples(path)
 
+    def test_a_fence_inside_a_blockquote_is_refused(self, tmp_path: Path) -> None:
+        """A quoted fence would otherwise pass for prose and go unread."""
+        path = _written(tmp_path, "> ~~~toml\n> a = 1\n> ~~~\n")
+
+        with pytest.raises(ExampleError, match="inside a blockquote"):
+            load_examples(path)
+
     def test_a_marker_before_no_fence_is_refused(self, tmp_path: Path) -> None:
         """A marker whose example was removed must not silently disappear."""
         path = _written(tmp_path, "<!-- tested-example: stray -->\nprose\n")

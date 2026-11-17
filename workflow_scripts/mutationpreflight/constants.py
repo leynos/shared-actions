@@ -26,7 +26,7 @@ LANES: typ.Final[frozenset[str]] = frozenset({"mutmut", "cargo"})
 #: The helper scripts the workflows run need this interpreter.
 HELPER_PYTHON_FLOOR: typ.Final[str] = "3.13"
 
-#: What mutmut 3.6.0 materialises besides ``source_paths`` and ``also_copy``.
+#: What mutmut 3.6.0 materializes besides ``source_paths`` and ``also_copy``.
 #: Read from ``mutmut/configuration.py`` at the tag the workflow pins; bump
 #: this list together with ``mutmut-version``.
 MUTMUT_DEFAULT_COPIES: typ.Final[tuple[str, ...]] = (

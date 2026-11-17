@@ -74,10 +74,15 @@ def _executable(name: str, cwd: Path) -> str:
     A bare name is resolved through ``PATH``. A name carrying a path separator
     would otherwise be resolved against the process's working directory, which
     is not the directory the command is about to run in.
+
+    The anchor is lexical: a virtual environment's ``bin/python`` is usually a
+    symlink, and an interpreter finds its own ``site-packages`` from the path it
+    was started with. Following the link here would run the target interpreter
+    under the link's path and lose the environment the declaration named.
     """
     if not _is_path(name) or Path(name).is_absolute():
         return name
-    return str((cwd / name).resolve())
+    return os.path.normpath(f"{cwd}{os.sep}{name}")
 
 
 def run_command(
@@ -141,7 +146,8 @@ def reports_version(printed: str, wanted: str) -> bool:
     dotted token in the output or be its dotted prefix: ``2.4`` accepts
     ``2.4.0`` and rejects ``2.41.0``. A pre- or post-release suffix stays in the
     token and makes it a different release, so neither ``1.2.3rc1`` nor
-    ``1.2.3.post1`` reports the stable ``1.2.3``.
+    ``1.2.3.post1`` reports the stable ``1.2.3``; a declaration that pins the
+    suffixed release itself, such as ``0.9.0rc1``, still matches it exactly.
 
     Parameters
     ----------
@@ -158,10 +164,12 @@ def reports_version(printed: str, wanted: str) -> bool:
 
     """
     for token in VERSION_TOKEN.findall(printed):
+        if token == wanted:
+            return True
         # A suffix makes the token a different release from the stable version
         # it resembles, whatever the dotted components in front of it say.
         if not all(part.isdigit() for part in token.split(".")):
             continue
-        if token == wanted or token.startswith(f"{wanted}."):
+        if token.startswith(f"{wanted}."):
             return True
     return False

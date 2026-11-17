@@ -3,7 +3,8 @@
 A fenced block is an example when the line immediately above its opening fence
 is ``<!-- tested-example: <identifier> -->``. Loading fails on an unmarked
 fence, an unterminated fence, a marker that precedes no fence, a marker
-separated from its fence by prose, and a duplicate identifier, so a document
+separated from its fence by prose, a fence nested inside a blockquote, and a
+duplicate identifier, so a document
 cannot drift away from the examples its tests load from the shipped text rather
 than from a copied fixture.
 
@@ -23,6 +24,7 @@ if typ.TYPE_CHECKING:
 
 _MARKER = re.compile(r"^<!--\s*tested-example:\s*(?P<identifier>\S+)\s*-->$")
 _FENCE = re.compile(r"^(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
+_BLOCKQUOTE = re.compile(r"^\s*(?:>\s?)+")
 
 
 class ExampleError(AssertionError):
@@ -76,6 +78,27 @@ def _opening(line: str) -> tuple[str, str] | None:
     if matched is None:
         return None
     return matched.group("fence"), matched.group("info").strip()
+
+
+def _container_fence(line: str) -> bool:
+    """Return whether *line* fences an example inside a blockquote.
+
+    GitHub-flavoured Markdown permits that nesting, so the line would otherwise
+    pass for prose and hide an example this loader never reads.
+    """
+    unquoted = _BLOCKQUOTE.sub("", line)
+    return unquoted != line and _opening(unquoted) is not None
+
+
+def _refuse_container(path: Path, line: str, line_number: int) -> None:
+    """Refuse a blockquote fence rather than silently ignoring it."""
+    if not _container_fence(line):
+        return
+    message = (
+        f"{path}:{line_number}: a fenced block inside a blockquote is not "
+        f"supported; publish the example at the document's top level"
+    )
+    raise ExampleError(message)
 
 
 def _read_body(path: Path, lines: list[str], start: int, fence: str) -> tuple[str, int]:
@@ -181,6 +204,7 @@ def load_examples(path: Path) -> dict[str, Example]:
             continue
         opening = _opening(lines[index])
         if opening is None:
+            _refuse_container(path, lines[index], index + 1)
             # Prose between a marker and its fence is only a separation if a
             # fence follows; without one the marker precedes no fence at all,
             # which the end of the document reports.

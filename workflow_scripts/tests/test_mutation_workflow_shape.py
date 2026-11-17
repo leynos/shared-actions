@@ -65,6 +65,17 @@ def _step_names(steps: list[dict[str, object]]) -> list[object]:
     return [step.get("name") for step in steps]
 
 
+def _condition(step: dict[str, object]) -> str:
+    """Return a step's condition without its expression wrapper or extra spaces."""
+    text = " ".join(str(step.get("if", "")).split())
+    inner = text
+    if text.startswith("${{"):
+        inner = text.removeprefix("${{")
+    if inner.endswith("}}"):
+        inner = inner.removesuffix("}}")
+    return inner.strip()
+
+
 @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
 def test_every_workflow_checkout_is_followed_by_relocation(
     workflow_name: str,
@@ -143,6 +154,28 @@ def _workspace_local_action_steps(
 PREFLIGHT_STEP = "Validate mutation environment"
 PREFLIGHT_UPLOAD_STEP = "Upload mutation preflight diagnostics"
 PREFLIGHT_LANES = {"mutation-mutmut.yml": "mutmut", "mutation-cargo.yml": "cargo"}
+
+#: The caller input naming the project's own interpreter. It must be a caller
+#: input rather than the helper interpreter: the native phase judges a declared
+#: support range against the interpreter the project runs under.
+PREFLIGHT_PROJECT_PYTHON = {
+    "mutation-mutmut.yml": "${{ inputs.python-version }}",
+    "mutation-cargo.yml": "${{ inputs.project-python }}",
+}
+
+#: The exact gate each lane puts on its preflight and on its diagnostics
+#: upload, as ``(preflight, upload)``. mutmut detects changes first, so it
+#: validates only a diff that exists; cargo validates per shard and has no
+#: change-detection step. The upload is unconditional on the preflight result
+#: but still follows the caller's opt-in, because a phase envelope is what
+#: explains a failed preflight.
+PREFLIGHT_CONDITIONS = {
+    "mutation-mutmut.yml": (
+        "inputs.preflight && steps.detect.outputs.has_changes == 'true'",
+        "always() && inputs.preflight && steps.detect.outputs.has_changes == 'true'",
+    ),
+    "mutation-cargo.yml": ("inputs.preflight", "always() && inputs.preflight"),
+}
 
 
 def _workflow(workflow_name: str) -> dict[str, object]:
@@ -385,12 +418,21 @@ class TestPreflightWiring:
                 f"{workflow_name}:{job_name} must read the helper from the "
                 f"relocated workflow checkout"
             )
+            wanted_python = PREFLIGHT_PROJECT_PYTHON[workflow_name]
+            assert env.get("INPUT_PROJECT_PYTHON") == wanted_python, (
+                f"{workflow_name}:{job_name} must pass the caller's project "
+                f"interpreter ({wanted_python}), got "
+                f"{env.get('INPUT_PROJECT_PYTHON')!r}; the native phase cannot "
+                f"judge a support range without it"
+            )
             assert "mutation_preflight.py" in str(step.get("run")), (
                 f"{workflow_name}:{job_name} preflight does not invoke the helper"
             )
-            assert "inputs.preflight" in str(step.get("if")), (
-                f"{workflow_name}:{job_name} preflight is not gated on the "
-                f"caller's opt-in"
+            expected, _ = PREFLIGHT_CONDITIONS[workflow_name]
+            assert _condition(step) == expected, (
+                f"{workflow_name}:{job_name} preflight condition must be "
+                f"{expected!r}, got {_condition(step)!r}; a negated opt-in or a "
+                f"step that can never run would leave the check unenforced"
             )
         assert guarded, f"{workflow_name} never runs the environment preflight"
 
@@ -410,13 +452,11 @@ class TestPreflightWiring:
             f"{workflow_name} must upload the preflight diagnostics; a failed "
             f"preflight without its envelope says only 'step failed'"
         )
+        _, expected = PREFLIGHT_CONDITIONS[workflow_name]
         for step in uploads:
-            condition = " ".join(str(step.get("if", "")).split())
-            assert "always()" in condition, (
-                f"{workflow_name} preflight upload is not guarded by always(): "
-                f"{condition!r}"
-            )
-            assert "inputs.preflight" in condition, (
-                f"{workflow_name} preflight upload must follow the caller's "
-                f"opt-in: {condition!r}"
+            condition = _condition(step)
+            assert condition == expected, (
+                f"{workflow_name} preflight upload condition must be "
+                f"{expected!r}, got {condition!r}; the envelope must survive a "
+                f"failed preflight and stay off when the caller did not opt in"
             )

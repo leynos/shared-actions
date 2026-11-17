@@ -161,7 +161,7 @@ def run_interpreter_phase(repo_root: Path, runtimes: Runtimes) -> PhaseResult:
         return phase_outcome("interpreter", blocking, indeterminate, detail)
     requirement, problem = _project_requirement(repo_root)
     # TOML may hand back a non-string for a misdeclared value (an unquoted date,
-    # for instance), and the report is JSON: keep the evidence serialisable.
+    # for instance), and the report is JSON: keep the evidence serializable.
     detail["requires_python"] = None if requirement is None else str(requirement)
     if problem is not None:
         indeterminate.append(problem)

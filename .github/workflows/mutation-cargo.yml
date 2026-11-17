@@ -117,6 +117,17 @@ on:
           declares nothing is unaffected.
         type: boolean
         default: false
+      project-python:
+        description: >-
+          The interpreter the mutated crate's Python bindings are built
+          and tested against, such as "3.13". Used only by the opt-in
+          preflight, to judge a declared `native.supported_python` range
+          against the interpreter this project actually uses. It is not
+          the interpreter running the workflow's own scripts: the shards
+          set that one to 3.13 themselves. Empty reports native support
+          as unknown rather than assuming it.
+        type: string
+        default: ""
 
 # Default the token to no scopes; jobs opt in explicitly.
 permissions: {}
@@ -366,6 +377,11 @@ jobs:
         shell: bash
         env:
           INPUT_LANE: cargo
+          # The project's interpreter, not the helper's: the shards run the
+          # workflow scripts under 3.13, while the native phase must judge a
+          # declared support range against the interpreter the mutated crate
+          # is built and tested with.
+          INPUT_PROJECT_PYTHON: ${{ inputs.project-python }}
           # Outside the checkout: cargo-mutants copies the whole working
           # tree, so diagnostics written into it would be mutated as source.
           INPUT_OUTPUT_DIR: ${{ runner.temp }}/mutation-preflight-diagnostics

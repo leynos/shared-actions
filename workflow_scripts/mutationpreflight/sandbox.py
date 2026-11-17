@@ -77,7 +77,7 @@ def _resolved_problem(repo_root: Path, declared: str) -> str | None:
 
 
 def _covers(entry: str, wanted: str) -> bool:
-    """Return whether copying *entry* materialises *wanted*."""
+    """Return whether copying *entry* materializes *wanted*."""
     entry_path = PurePosixPath(entry.rstrip("/"))
     wanted_path = PurePosixPath(wanted.rstrip("/"))
     return entry_path == wanted_path or entry_path in wanted_path.parents
@@ -92,7 +92,7 @@ def _copied_by_default_glob(wanted: str) -> bool:
 
 
 def _is_copied(declared: str, copied: tuple[str, ...]) -> bool:
-    """Return whether mutmut's copy set materialises *declared*."""
+    """Return whether mutmut's copy set materializes *declared*."""
     if _copied_by_default_glob(declared):
         return True
     return any(_covers(entry, declared) for entry in copied)
@@ -130,7 +130,7 @@ def _review_paths(
             continue
         not_copied.append(declared)
         findings.append(
-            f"sandbox path {declared!r} is not materialised in mutants/: add it "
+            f"sandbox path {declared!r} is not materialized in mutants/: add it "
             f"to [tool.mutmut] also_copy, because mutmut copies only "
             f"{list(MUTMUT_DEFAULT_COPIES)} and root {list(MUTMUT_DEFAULT_GLOBS)} "
             f"besides source_paths and also_copy"
@@ -168,5 +168,5 @@ def run_sandbox_phase(repo_root: Path, declaration: Declaration) -> PhaseResult:
     if copied is None:
         # An unusable or absent path is a failure whether or not the copy set
         # could be established; only the copy question itself stays unknown.
-        return phase_outcome("sandbox", findings, problems, detail)
+        return phase_outcome("sandbox", findings, list(problems), detail)
     return phase_outcome("sandbox", findings, [], detail)

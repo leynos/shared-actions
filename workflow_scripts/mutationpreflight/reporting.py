@@ -145,14 +145,24 @@ def write_report(output_dir: Path, report: Report) -> None:
 
 def _declaration_phases(
     root: Path, declaration: Declaration, project_python: str, output_dir: Path
-) -> list[PhaseResult]:
-    """Return the phases a parsed declaration enables, in order."""
-    return [
-        run_native_phase(root, declaration, project_python),
-        run_sandbox_phase(root, declaration),
-        run_commands_phase(root, declaration),
-        run_checks_phase(root, declaration, output_dir),
-    ]
+) -> typ.Iterator[PhaseResult]:
+    """Yield the phases a parsed declaration enables, running each when reached."""
+    yield run_native_phase(root, declaration, project_python)
+    yield run_sandbox_phase(root, declaration)
+    yield run_commands_phase(root, declaration)
+    yield run_checks_phase(root, declaration, output_dir)
+
+
+def _all_phases(
+    root: Path, loaded: Loaded, runtimes: Runtimes, output_dir: Path
+) -> typ.Iterator[PhaseResult]:
+    """Yield every phase in order, running each only when it is reached."""
+    yield manifest_phase(loaded)
+    yield run_interpreter_phase(root, runtimes)
+    if loaded.declaration is not None:
+        yield from _declaration_phases(
+            root, loaded.declaration, runtimes.project, output_dir
+        )
 
 
 def checked_phases(
@@ -177,11 +187,8 @@ def checked_phases(
         Every phase that ran, in order.
 
     """
-    results = [manifest_phase(loaded), run_interpreter_phase(root, runtimes)]
-    if loaded.declaration is not None:
-        results.extend(
-            _declaration_phases(root, loaded.declaration, runtimes.project, output_dir)
-        )
-    for result in results:
+    results: list[PhaseResult] = []
+    for result in _all_phases(root, loaded, runtimes, output_dir):
         emit("mutation_preflight_phase", phase_envelope(result))
+        results.append(result)
     return results

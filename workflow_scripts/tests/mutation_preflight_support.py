@@ -10,16 +10,34 @@ from __future__ import annotations
 import dataclasses as dc
 import sys
 import typing as typ
+from pathlib import Path
 
 import pytest
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
 
 # The fake tool shims are POSIX shell scripts; the reusable workflows only run
 # on ubuntu-latest, and on Windows the real tools would answer instead.
 POSIX_SHIMS_ONLY = pytest.mark.skipif(
     sys.platform == "win32", reason="fake tool helpers emit POSIX sh"
+)
+
+# Creating a symlink needs an elevated token on Windows, and the reusable
+# workflows only run on ubuntu-latest, where the containment check matters.
+POSIX_SYMLINKS_ONLY = pytest.mark.skipif(
+    sys.platform == "win32", reason="creating symlinks needs privileges on Windows"
+)
+
+# mutmut's sandbox copies ``workflow_scripts/`` but not ``packages/``, so the
+# shared requires-python rule (#565) is absent when these tests run under it.
+# No range can be judged without the rule, so the honest outcome is a skip.
+RULE_AVAILABLE = pytest.mark.skipif(
+    not (
+        Path(__file__).resolve().parents[2]
+        / "packages"
+        / "cv005-contracts"
+        / "cv005_contracts"
+        / "requires_python.py"
+    ).is_file(),
+    reason="mutmut's sandbox does not copy the shared requires-python rule",
 )
 
 MUTMUT_TABLE = """\
@@ -151,4 +169,5 @@ def outcome_for(
         The exit status, phases and verdict the run emitted.
 
     """
-    return runner(repository(root, checkout), **inputs)
+    prepared = root if checkout is None else repository(root, checkout)
+    return runner(prepared, **inputs)

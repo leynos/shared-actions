@@ -74,7 +74,9 @@ def run_command(
         )
     except ProcessTimedOut:
         return None, f"it did not finish within {timeout} seconds"
-    except ProcessExecutionError as error:
+    except (OSError, ProcessExecutionError) as error:
+        # OSError covers the spawn itself: a path that is not executable, a
+        # working directory that cannot be entered, or a full process table.
         return None, f"it could not be started: {error}"
     return (
         Ran(

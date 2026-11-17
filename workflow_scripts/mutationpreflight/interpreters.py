@@ -60,7 +60,7 @@ def judge(requirement: object, interpreter: str, *, subject: str) -> list[str]:
     Parameters
     ----------
     requirement : object
-        The PEP 508 range, or what stopped it being read.
+        The PEP 508 range to judge.
     interpreter : str
         The interpreter to judge, such as ``3.13`` or ``3.13.5``.
     subject : str
@@ -79,18 +79,23 @@ def judge(requirement: object, interpreter: str, *, subject: str) -> list[str]:
     return list(rule(requirement, interpreter, subject=subject))
 
 
-def _project_requirement(repo_root: Path) -> object:
-    """Return the project's declared ``requires-python``, or what stopped the read."""
+def _project_requirement(repo_root: Path) -> tuple[object, str | None]:
+    """Return the project's declared ``requires-python``, or why it went unread.
+
+    A read failure is returned separately from the range itself: both would
+    otherwise be a ``str``, and a failure is a reason to report unknown support
+    rather than a requirement to judge.
+    """
     path = repo_root / "pyproject.toml"
     if not path.is_file():
-        return None
+        return None, None
     document, problem = read_document(path)
     if problem is not None or document is None:
-        return problem
+        return None, problem or f"{path} could not be read"
     project = document.get("project")
     if not isinstance(project, dict):
-        return None
-    return typ.cast("dict[str, object]", project).get("requires-python")
+        return None, None
+    return typ.cast("dict[str, object]", project).get("requires-python"), None
 
 
 def _helper_floor_violations(helper_python: str) -> list[str]:
@@ -113,20 +118,17 @@ def _judge_project_range(
     requirement: object, interpreter: str, blocking: list[str], unknown: list[str]
 ) -> None:
     """Extend *blocking* or *unknown* from the project's declared range."""
-    if isinstance(requirement, str):
-        blocking.extend(
-            judge(
-                requirement,
-                interpreter,
-                subject="the project's requires-python",
-            )
+    if requirement is None:
+        return
+    if not isinstance(requirement, str):
+        unknown.append(
+            f"the project's requires-python is not a range: {requirement!r}, so "
+            f"interpreter compatibility is unknown rather than established"
         )
         return
-    if requirement is not None:
-        # A pyproject.toml that cannot be read is the finding itself, so this
-        # phase cannot judge the project's range and says so rather than
-        # passing it.
-        unknown.append(str(requirement))
+    blocking.extend(
+        judge(requirement, interpreter, subject="the project's requires-python")
+    )
 
 
 def run_interpreter_phase(repo_root: Path, runtimes: Runtimes) -> PhaseResult:
@@ -157,7 +159,9 @@ def run_interpreter_phase(repo_root: Path, runtimes: Runtimes) -> PhaseResult:
     if not runtimes.project:
         indeterminate.append(_NO_PROJECT_PYTHON)
         return phase_outcome("interpreter", blocking, indeterminate, detail)
-    requirement = _project_requirement(repo_root)
+    requirement, problem = _project_requirement(repo_root)
     detail["requires_python"] = requirement
+    if problem is not None:
+        indeterminate.append(problem)
     _judge_project_range(requirement, runtimes.project, blocking, indeterminate)
     return phase_outcome("interpreter", blocking, indeterminate, detail)

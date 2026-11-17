@@ -9,7 +9,8 @@ whether the answer came from ``pyproject.toml`` or ``setup.cfg``.
 from __future__ import annotations
 
 import typing as typ
-from configparser import ConfigParser, NoOptionError, NoSectionError
+from configparser import ConfigParser
+from configparser import Error as ConfigError
 
 from .constants import MUTMUT_DEFAULT_COPIES
 from .models import DeclarationError
@@ -37,9 +38,11 @@ def _setup_cfg_table(root: Path) -> dict[str, object] | None:
     parser = ConfigParser()
     try:
         parser.read(path, encoding="utf-8")
-        section = parser["mutmut"]
-    except (OSError, UnicodeDecodeError, NoSectionError, NoOptionError):
+    except (OSError, UnicodeDecodeError, ConfigError):
         return None
+    if not parser.has_section("mutmut"):
+        return None
+    section = parser["mutmut"]
     table: dict[str, object] = {}
     for key in ("source_paths", "also_copy"):
         if key not in section:

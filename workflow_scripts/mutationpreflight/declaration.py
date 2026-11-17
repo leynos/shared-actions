@@ -35,7 +35,7 @@ from .schema import (
     string,
     strings,
 )
-from .toml_documents import nested_table, read_document
+from .toml_documents import read_document
 
 #: Where a declaration may live, and the table path inside each file. The
 #: sidecar is a bare table, so its path is empty.
@@ -59,6 +59,18 @@ _SANDBOX_ON_CARGO: typ.Final[str] = (
 _DEFAULT_TIMEOUT_SECONDS: typ.Final[int] = 300
 
 
+def _declaration_member(
+    document: dict[str, object], keys: tuple[str, ...]
+) -> tuple[bool, dict[str, object] | None]:
+    """Return whether *keys* names a member, and that member when it is a table."""
+    current: object = document
+    for key in keys:
+        if not isinstance(current, dict) or key not in current:
+            return False, None
+        current = typ.cast("dict[str, object]", current)[key]
+    return True, current if isinstance(current, dict) else None
+
+
 def _declared_tables(
     root: Path,
 ) -> tuple[list[tuple[Path, dict[str, object]]], Path | None, list[str]]:
@@ -71,7 +83,15 @@ def _declared_tables(
         document, problem = read_document(path)
         if problem is not None:
             return found, path, [problem]
-        table = nested_table(document or {}, *keys)
+        present, table = _declaration_member(document or {}, keys)
+        if present and table is None:
+            # Absent and misdeclared are different: one means the lane has not
+            # opted in, the other is a declaration this helper cannot honour.
+            message = (
+                f"{path} declares {'.'.join(keys)} but not as a table, so its "
+                f"requirements can be neither read nor ignored"
+            )
+            return found, path, [message]
         if table is not None:
             found.append((path, table))
     return found, None, []

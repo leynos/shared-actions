@@ -25,6 +25,8 @@ new installer per repository or a per-repository copy of the checks.
 Both reusable workflows expose `preflight`, default `false`, so no existing
 caller starts checking requirements it has not declared:
 
+<!-- tested-example: opt-in -->
+
 ```yaml
 jobs:
   mutation:
@@ -77,6 +79,8 @@ against what mutmut will **actually copy**, not against what exists. mutmut
 copied fails here, with the reason spelled out, instead of failing the baseline
 inside the sandbox.
 
+<!-- tested-example: sandbox-paths -->
+
 ```toml
 [tool.mutation-preflight]
 sandbox_paths = [
@@ -101,6 +105,8 @@ there; declare the tools the run needs instead.
 
 External commands the run invokes, and optionally the version each must report:
 
+<!-- tested-example: require-commands -->
+
 ```toml
 [[tool.mutation-preflight.require_commands]]
 name = "mold"
@@ -121,6 +127,8 @@ version_args = ["--version"]
 ### `native`
 
 A locked native dependency whose interpreter support the run depends on:
+
+<!-- tested-example: native -->
 
 ```toml
 [tool.mutation-preflight.native]
@@ -158,20 +166,28 @@ support boundary before any mutant is enumerated.
 
 Bounded commands run from a declared boundary:
 
+<!-- tested-example: checks -->
+
 ```toml
 [[tool.mutation-preflight.checks]]
 name = "subprocess-fixture"
-command = ["python", "-m", "pytest", "-q", "tests/test_cli.py", "-k", "subprocess"]
+command = ["python", "-m", "pytest", "-q", "test_cli.py", "-k", "subprocess"]
 cwd = "tests"
 timeout_seconds = 120
 env = { PYTHONPATH = "..:/declared" }
 ```
 
+The test path is written relative to `cwd`, not to the checkout, because the
+command runs from `cwd`: selecting `tests/test_cli.py` from inside `tests`
+would run `tests/tests/test_cli.py`.
+
 This is the contract a subprocess or nested-pytest fixture needs, made explicit:
 `cwd` is the working directory, `env` is layered over the ambient environment,
 and a relative `PYTHONPATH` (resolved against `cwd` by the child) is how the
 fixture declares its import root. `cwd` must be a directory inside the checkout
-and is subject to the same escape rules as `sandbox_paths`.
+and is subject to the same escape rules as `sandbox_paths`; a symlink that
+resolves outside the checkout is refused as well, because the command would
+otherwise run somewhere the declaration did not name.
 
 `timeout_seconds` defaults to `300` and is capped at `900`, so a hung command
 cannot outlive the job. Each check's first 4 KiB of each stream is kept; later
@@ -241,6 +257,8 @@ preflight is exactly the case whose diagnostics need publishing.
 The environment variables a workflow sets are `INPUT_LANE`,
 `INPUT_PROJECT_PYTHON`, `INPUT_HELPER_PYTHON`, `INPUT_REPOSITORY` and
 `INPUT_OUTPUT_DIR`. The helper can be run by hand the same way:
+
+<!-- tested-example: manual-run -->
 
 ```sh
 INPUT_LANE=mutmut INPUT_PROJECT_PYTHON=3.13 \

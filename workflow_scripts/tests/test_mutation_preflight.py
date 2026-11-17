@@ -11,33 +11,21 @@ passing once the requirement is declared or satisfied.
 from __future__ import annotations
 
 import typing as typ
-from pathlib import Path
 
 import pytest
 
 from workflow_scripts.tests.mutation_preflight_support import (
+    RULE_AVAILABLE,
     Checkout,
     Outcome,
     outcome_for,
     repository,
 )
 
-# mutmut's sandbox copies ``workflow_scripts/`` but not ``packages/``, so the
-# shared requires-python rule is absent when these tests run under it. No
-# range can be judged without the rule, so the honest outcome is a skip.
-RULE_AVAILABLE = pytest.mark.skipif(
-    not (
-        Path(__file__).resolve().parents[2]
-        / "packages"
-        / "cv005-contracts"
-        / "cv005_contracts"
-        / "requires_python.py"
-    ).is_file(),
-    reason="mutmut's sandbox does not copy the shared requires-python rule",
-)
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 
-@RULE_AVAILABLE
 class TestManifest:
     """The declaration is read, or refused, before anything is trusted."""
 
@@ -45,7 +33,9 @@ class TestManifest:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """No declaration is not a failure: only the interpreter is checked."""
-        outcome = outcome_for(run_preflight, tmp_path / "repo", project_python="3.13")
+        outcome = outcome_for(
+            run_preflight, tmp_path / "repo", Checkout(), project_python="3.13"
+        )
 
         assert outcome.exit_code == 0, outcome.stdout
         assert outcome.result == "pass", outcome.stdout
@@ -89,6 +79,19 @@ class TestManifest:
         assert "sandbox_path" in outcome.findings("manifest")
         assert "supported keys" in outcome.findings("manifest")
 
+    def test_a_declaration_that_is_not_a_table_is_refused(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A bare value must not read as a repository that declared nothing."""
+        root = repository(tmp_path / "repo", Checkout())
+        with (root / "pyproject.toml").open("a", encoding="utf-8") as handle:
+            handle.write('\n[tool]\nmutation-preflight = "enabled"\n')
+
+        outcome = run_preflight(root, project_python="3.13")
+
+        assert outcome.exit_code == 1
+        assert "not as a table" in outcome.findings("manifest")
+
     def test_sandbox_paths_are_refused_on_the_cargo_lane(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
@@ -110,6 +113,7 @@ class TestManifest:
 class TestInterpreter:
     """The project interpreter is judged, and both runtimes are reported."""
 
+    @RULE_AVAILABLE
     @pytest.mark.parametrize("interpreter", ["3.13", "3.13.5", "3.14"])
     def test_an_accepted_interpreter_passes(
         self,
@@ -129,6 +133,7 @@ class TestInterpreter:
         assert outcome.exit_code == 0, outcome.stdout
         assert outcome.phases["interpreter"]["status"] == "pass"
 
+    @RULE_AVAILABLE
     @pytest.mark.parametrize(
         ("requirement", "interpreter"),
         [(">=3.14", "3.13"), ("<3.13", "3.13"), ("==3.12.*", "3.13")],
@@ -155,6 +160,7 @@ class TestInterpreter:
         )
         assert requirement in outcome.findings("interpreter")
 
+    @RULE_AVAILABLE
     def test_the_helper_and_project_runtimes_are_reported_separately(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
@@ -195,7 +201,11 @@ class TestInterpreter:
     ) -> None:
         """A missing input cannot prove the project refuses its own range."""
         outcome = outcome_for(
-            run_preflight, tmp_path / "repo", project_python="", helper_python="3.13"
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(),
+            project_python="",
+            helper_python="3.13",
         )
 
         assert outcome.exit_code == 0, outcome.stdout
@@ -360,3 +370,65 @@ class TestSandbox:
         assert outcome.exit_code == 0, outcome.stdout
         assert outcome.phases["sandbox"]["status"] == "unknown"
         assert "cannot be established" in outcome.findings("sandbox")
+
+    def test_a_setup_cfg_without_a_mutmut_section_is_unknown_not_a_crash(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """An absent section is unknown configuration, not a lookup failure."""
+        root = repository(
+            tmp_path / "repo", Checkout(manifest='sandbox_paths = ["conftest.py"]\n')
+        )
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "example"\n', encoding="utf-8"
+        )
+        (root / "setup.cfg").write_text(
+            "[metadata]\nname = example\n", encoding="utf-8"
+        )
+
+        outcome = run_preflight(root, project_python="3.13")
+
+        assert outcome.exit_code == 0, outcome.stdout
+        assert outcome.phases["sandbox"]["status"] == "unknown"
+        assert "neither pyproject.toml's [tool.mutmut]" in outcome.findings("sandbox")
+
+    @pytest.mark.parametrize(
+        ("declared", "expected"),
+        [
+            ("../outside", "escapes the checkout"),
+            ("README.md", "is not in the checkout"),
+        ],
+    )
+    def test_a_path_is_decided_though_the_copy_set_is_unknown(
+        self,
+        tmp_path: Path,
+        run_preflight: typ.Callable[..., Outcome],
+        declared: str,
+        expected: str,
+    ) -> None:
+        """Neither question depends on knowing what mutmut would copy."""
+        root = repository(
+            tmp_path / "repo", Checkout(manifest=f'sandbox_paths = ["{declared}"]\n')
+        )
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "example"\n', encoding="utf-8"
+        )
+
+        outcome = run_preflight(root, project_python="3.13")
+
+        assert outcome.exit_code == 1
+        assert expected in outcome.findings("sandbox")
+
+    def test_a_prepared_checkout_is_read_as_the_test_wrote_it(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """Passing no checkout must not overwrite the one the test prepared."""
+        root = repository(
+            tmp_path / "repo", Checkout(manifest='sandbox_paths = ["README.md"]\n')
+        )
+        with (root / "pyproject.toml").open("a", encoding="utf-8") as handle:
+            handle.write('\n[tool.mutation-preflight]\nsandbox_paths = ["README.md"]\n')
+
+        outcome = outcome_for(run_preflight, root, project_python="3.13")
+
+        assert outcome.exit_code == 1
+        assert "keep one" in outcome.findings("manifest")

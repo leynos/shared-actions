@@ -366,7 +366,9 @@ jobs:
         shell: bash
         env:
           INPUT_LANE: cargo
-          INPUT_OUTPUT_DIR: mutation-preflight-diagnostics
+          # Outside the checkout: cargo-mutants copies the whole working
+          # tree, so diagnostics written into it would be mutated as source.
+          INPUT_OUTPUT_DIR: ${{ runner.temp }}/mutation-preflight-diagnostics
           WORKFLOW_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail
@@ -383,7 +385,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutation-preflight-diagnostics-${{ matrix.slug }}-${{ matrix.shard }}
-          path: mutation-preflight-diagnostics/
+          path: ${{ runner.temp }}/mutation-preflight-diagnostics/
           if-no-files-found: warn
 
       - name: Run mutation testing

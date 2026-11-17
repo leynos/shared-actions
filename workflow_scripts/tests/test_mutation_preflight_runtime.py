@@ -14,10 +14,13 @@ import typing as typ
 
 from workflow_scripts.tests.mutation_preflight_support import (
     POSIX_SHIMS_ONLY,
+    POSIX_SYMLINKS_ONLY,
+    RULE_AVAILABLE,
     Checkout,
     Outcome,
     lock_document,
     outcome_for,
+    repository,
 )
 
 if typ.TYPE_CHECKING:
@@ -194,22 +197,40 @@ class TestChecks:
         assert outcome.exit_code == 1
         assert "did not finish within 1 seconds" in outcome.findings("checks")
 
+    @POSIX_SYMLINKS_ONLY
+    def test_a_cwd_resolving_outside_the_checkout_is_refused(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A symlinked cwd would run the check where the checkout does not reach."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        manifest = (
+            "[[checks]]\n"
+            'name = "collect"\n'
+            f"command = ['{sys.executable}', '-c', 'print(1)']\n"
+            'cwd = "linked"\n'
+        )
+        root = repository(tmp_path / "repo", Checkout(manifest=manifest))
+        (root / "linked").symlink_to(outside, target_is_directory=True)
+
+        outcome = run_preflight(root, project_python="3.13")
+
+        assert outcome.exit_code == 1
+        assert "outside the checkout" in outcome.findings("checks")
+
 
 class TestNative:
     """A locked native dependency is named with its support boundary."""
 
-    def _lock(self, version: str, source: str) -> str:
-        """Return a ``uv.lock`` pinning one package at *version* from *source*."""
-        return (
-            "version = 1\n\n"
-            "[[package]]\n"
-            'name = "example"\nversion = "0.1.0"\n\n'
-            "[[package]]\n"
-            'name = "tei-rapporteur"\n'
-            f'version = "{version}"\n'
-            f"source = {{ {source} }}\n"
+    @staticmethod
+    def _checkout(manifest: str, source: str = 'registry = "x"') -> Checkout:
+        """Return a checkout declaring *manifest*, with the package locked."""
+        return Checkout(
+            manifest=manifest,
+            extra={"uv.lock": lock_document("0.3.1", source)},
         )
 
+    @RULE_AVAILABLE
     def test_an_unsupported_tuple_names_the_package_and_boundary(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
@@ -219,14 +240,8 @@ class TestNative:
         outcome = outcome_for(
             run_preflight,
             tmp_path / "repo",
-            Checkout(
-                manifest=manifest,
-                extra={
-                    "uv.lock": lock_document(
-                        "0.3.1",
-                        'git = "https://example.invalid/tei.git?rev=abc123"',
-                    )
-                },
+            self._checkout(
+                manifest, 'git = "https://example.invalid/tei.git?rev=abc123"'
             ),
             project_python="3.13",
         )
@@ -236,25 +251,45 @@ class TestNative:
         assert "tei-rapporteur's supported-python" in found
         assert ">=3.14" in found
 
+    def _unknown_outcome(
+        self,
+        runner: typ.Callable[..., Outcome],
+        root: Path,
+        manifest: str,
+        **inputs: str,
+    ) -> Outcome:
+        """Return the run's outcome, having asserted support stayed unknown."""
+        outcome = outcome_for(runner, root, self._checkout(manifest), **inputs)
+        assert outcome.exit_code == 0, outcome.stdout
+        assert outcome.phases["native"]["status"] == "unknown"
+        return outcome
+
     def test_unknown_support_stays_unknown(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """No declared range is reported as unknown, never as compatible."""
-        manifest = '[native]\npackage = "tei-rapporteur"\n'
-
-        outcome = outcome_for(
+        outcome = self._unknown_outcome(
             run_preflight,
             tmp_path / "repo",
-            Checkout(
-                manifest=manifest,
-                extra={"uv.lock": lock_document("0.3.1", 'registry = "x"')},
-            ),
+            '[native]\npackage = "tei-rapporteur"\n',
             project_python="3.13",
         )
 
-        assert outcome.exit_code == 0, outcome.stdout
-        assert outcome.phases["native"]["status"] == "unknown"
         assert "unknown rather than established" in outcome.findings("native")
+
+    def test_a_declared_range_is_unknown_without_a_project_interpreter(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A range that was never judged must not read as a range that holds."""
+        outcome = self._unknown_outcome(
+            run_preflight,
+            tmp_path / "repo",
+            '[native]\npackage = "tei-rapporteur"\nsupported_python = ">=3.12"\n',
+            project_python="",
+            helper_python="3.13",
+        )
+
+        assert "no project interpreter was supplied" in outcome.findings("native")
 
     def test_a_revision_that_the_lock_does_not_pin_is_refused(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
@@ -270,14 +305,8 @@ class TestNative:
         outcome = outcome_for(
             run_preflight,
             tmp_path / "repo",
-            Checkout(
-                manifest=manifest,
-                extra={
-                    "uv.lock": lock_document(
-                        "0.3.1",
-                        'git = "https://example.invalid/tei.git?rev=abc123"',
-                    )
-                },
+            self._checkout(
+                manifest, 'git = "https://example.invalid/tei.git?rev=abc123"'
             ),
             project_python="3.13",
         )
@@ -300,10 +329,7 @@ class TestNative:
         outcome = outcome_for(
             run_preflight,
             tmp_path / "repo",
-            Checkout(
-                manifest=manifest,
-                extra={"uv.lock": lock_document("0.3.1", 'registry = "x"')},
-            ),
+            self._checkout(manifest),
             project_python="3.13",
         )
 
@@ -373,7 +399,9 @@ class TestEnvelope:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """The JSON report is the artefact a later stage reads, so it always exists."""
-        outcome = outcome_for(run_preflight, tmp_path / "repo", project_python="3.13")
+        outcome = outcome_for(
+            run_preflight, tmp_path / "repo", Checkout(), project_python="3.13"
+        )
 
         report = json.loads(
             (tmp_path / "out" / "mutation-preflight.json").read_text(encoding="utf-8")
@@ -395,7 +423,9 @@ class TestEnvelope:
         summary = tmp_path / "summary.md"
         monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
 
-        outcome = outcome_for(run_preflight, tmp_path / "repo", project_python="3.13")
+        outcome = outcome_for(
+            run_preflight, tmp_path / "repo", Checkout(), project_python="3.13"
+        )
 
         assert outcome.exit_code == 0, outcome.stdout
         rendered = summary.read_text(encoding="utf-8")
@@ -407,7 +437,11 @@ class TestEnvelope:
     ) -> None:
         """A lane this helper cannot check fails instead of borrowing another's."""
         outcome = outcome_for(
-            run_preflight, tmp_path / "repo", lane="stryker", project_python="3.13"
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(),
+            lane="stryker",
+            project_python="3.13",
         )
 
         assert outcome.exit_code == 2

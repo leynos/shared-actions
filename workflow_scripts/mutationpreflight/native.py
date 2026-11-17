@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import typing as typ
 
+from packaging.utils import canonicalize_name
+
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
@@ -41,11 +43,11 @@ def _locked_packages(repo_root: Path) -> tuple[list[dict[str, object]], str | No
 def _find_locked(
     packages: list[dict[str, object]], name: str
 ) -> dict[str, object] | None:
-    """Return the locked record for *name*, ignoring case and separators."""
-    wanted = name.lower().replace("-", "_")
+    """Return the locked record for *name*, comparing canonical names."""
+    wanted = canonicalize_name(name)
     for package in packages:
         found = package.get("name")
-        if isinstance(found, str) and found.lower().replace("-", "_") == wanted:
+        if isinstance(found, str) and canonicalize_name(found) == wanted:
             return package
     return None
 
@@ -100,7 +102,11 @@ def _support_findings(
         )
         return [], [unknown]
     if not project_python:
-        return [], []
+        unknown = (
+            f"no project interpreter was supplied, so {native.package}'s "
+            f"declared support {native.supported_python!r} was not checked"
+        )
+        return [], [unknown]
     violations = judge(
         native.supported_python,
         project_python,

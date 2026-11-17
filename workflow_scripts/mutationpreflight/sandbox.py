@@ -16,7 +16,6 @@ from .constants import (
     MUTMUT_DEFAULT_COPIES,
     MUTMUT_DEFAULT_GLOBS,
     SKIPPED,
-    UNKNOWN,
 )
 from .copy_set import mutmut_copy_set
 from .models import Declaration, PhaseResult, phase_outcome
@@ -79,9 +78,14 @@ def _is_copied(declared: str, copied: tuple[str, ...]) -> bool:
 
 
 def _review_paths(
-    repo_root: Path, declared_paths: tuple[str, ...], copied: tuple[str, ...]
+    repo_root: Path, declared_paths: tuple[str, ...], copied: tuple[str, ...] | None
 ) -> tuple[list[str], dict[str, object]]:
-    """Return every finding, with the paths classified for the envelope."""
+    """Return every finding, with the paths classified for the envelope.
+
+    *copied* is ``None`` when mutmut's copy set could not be established: the
+    syntax and existence of each path are still checked, because neither
+    depends on knowing what mutmut would copy.
+    """
     findings: list[str] = []
     missing: list[str] = []
     not_copied: list[str] = []
@@ -97,7 +101,7 @@ def _review_paths(
                 f"declaration names a requirement nothing satisfies"
             )
             continue
-        if _is_copied(declared, copied):
+        if copied is None or _is_copied(declared, copied):
             continue
         not_copied.append(declared)
         findings.append(
@@ -134,8 +138,10 @@ def run_sandbox_phase(repo_root: Path, declaration: Declaration) -> PhaseResult:
         "declared": list(declaration.sandbox_paths),
         "copied": [] if copied is None else sorted(copied),
     }
-    if copied is None:
-        return PhaseResult("sandbox", UNKNOWN, problems, detail)
     findings, classified = _review_paths(repo_root, declaration.sandbox_paths, copied)
     detail.update(classified)
+    if copied is None:
+        # An unusable or absent path is a failure whether or not the copy set
+        # could be established; only the copy question itself stays unknown.
+        return phase_outcome("sandbox", findings, problems, detail)
     return phase_outcome("sandbox", findings, [], detail)

@@ -27,7 +27,13 @@ def _check_cwd(repo_root: Path, check: Check) -> tuple[Path | None, str]:
     problem = path_problem(check.cwd) if check.cwd != "." else None
     if problem is not None:
         return None, f"checks[{check.name!r}].cwd {problem}"
-    directory = (repo_root / check.cwd).resolve()
+    root = repo_root.resolve()
+    directory = (root / check.cwd).resolve()
+    if not directory.is_relative_to(root):
+        return None, (
+            f"checks[{check.name!r}].cwd {check.cwd!r} resolves to {str(directory)!r} "
+            f"outside the checkout, so the check would run elsewhere"
+        )
     if not directory.is_dir():
         return None, (
             f"checks[{check.name!r}].cwd {check.cwd!r} is not a directory in "

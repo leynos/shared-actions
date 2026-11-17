@@ -756,7 +756,9 @@ class TestEnvelope:
             'package = "tei-rapporteur"\n'
             "[[checks]]\n"
             'name = "collect"\n'
-            f'command = ["{sys.executable}", "-c", "print(1)"]\n'
+            # A TOML literal string, because a Windows interpreter path holds
+            # backslashes, which a basic string would read as escapes.
+            f"command = ['{sys.executable}', '-c', 'print(1)']\n"
         )
 
         outcome = run_preflight(

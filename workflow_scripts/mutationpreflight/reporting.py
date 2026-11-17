@@ -31,9 +31,7 @@ _NO_DECLARATION: typ.Final[str] = (
 def manifest_phase(loaded: Loaded) -> PhaseResult:
     """Return the manifest phase for what reading the declaration produced."""
     if loaded.source is None:
-        return PhaseResult(
-            "manifest", SKIPPED, (), {"reason": _NO_DECLARATION}
-        )
+        return PhaseResult("manifest", SKIPPED, (), {"reason": _NO_DECLARATION})
     detail: dict[str, object] = {"source": str(loaded.source)}
     if loaded.findings:
         return PhaseResult("manifest", FAILED, loaded.findings, detail)
@@ -182,9 +180,7 @@ def checked_phases(
     results = [manifest_phase(loaded), run_interpreter_phase(root, runtimes)]
     if loaded.declaration is not None:
         results.extend(
-            _declaration_phases(
-                root, loaded.declaration, runtimes.project, output_dir
-            )
+            _declaration_phases(root, loaded.declaration, runtimes.project, output_dir)
         )
     for result in results:
         emit("mutation_preflight_phase", phase_envelope(result))

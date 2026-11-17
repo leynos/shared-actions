@@ -36,9 +36,7 @@ def read_document(path: Path) -> tuple[dict[str, object] | None, str | None]:
     return parsed, None
 
 
-def nested_table(
-    document: dict[str, object], *keys: str
-) -> dict[str, object] | None:
+def nested_table(document: dict[str, object], *keys: str) -> dict[str, object] | None:
     """Return the table at *keys*, or ``None`` when the path is not a table.
 
     Parameters

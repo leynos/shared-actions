@@ -16,6 +16,10 @@ from plumbum import CommandNotFound, ProcessExecutionError, ProcessTimedOut, loc
 from .constants import LOG_BOUND_BYTES, VERSION_TOKEN
 from .models import Ran
 
+#: How a bounded stream marks the bytes it dropped. ``last_line`` ignores it,
+#: so a truncated stream still names a line of its retained output.
+TRUNCATION_PREFIX: typ.Final[str] = "[... "
+
 
 def bounded(text: str) -> str:
     """Return at most ``LOG_BOUND_BYTES`` bytes of *text*, marking the rest.
@@ -37,7 +41,13 @@ def bounded(text: str) -> str:
         return text
     kept = encoded[:LOG_BOUND_BYTES].decode("utf-8", "ignore")
     dropped = len(encoded) - LOG_BOUND_BYTES
-    return f"{kept}\n[... {dropped} bytes truncated]"
+    return f"{kept}\n{TRUNCATION_PREFIX}{dropped} bytes truncated]"
+
+
+def _diagnostic_lines(text: str) -> list[str]:
+    """Return the meaningful lines of *text*, without the truncation marker."""
+    present = [line.strip() for line in text.splitlines() if line.strip()]
+    return [line for line in present if not line.startswith(TRUNCATION_PREFIX)]
 
 
 def last_line(outcome: Ran) -> str:
@@ -56,7 +66,7 @@ def last_line(outcome: Ran) -> str:
 
     """
     for text in (outcome.stderr, outcome.stdout):
-        printed = [line.strip() for line in text.splitlines() if line.strip()]
+        printed = _diagnostic_lines(text)
         if printed:
             return printed[-1]
     return "it printed nothing"

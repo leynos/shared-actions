@@ -116,11 +116,15 @@ def _support_findings(
             f"declared support {native.supported_python!r} was not checked"
         )
         return [], [unknown]
-    violations = judge(
+    violations, problem = judge(
         native.supported_python,
         project_python,
         subject=f"{native.package}'s supported-python",
     )
+    if problem:
+        # The shared rule judged nothing, so support stays unknown rather than
+        # failing an interpreter against a range it never read.
+        return violations, [problem]
     return violations, []
 
 

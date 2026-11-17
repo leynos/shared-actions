@@ -392,16 +392,20 @@ class TestPreflightWiring:
     def test_the_preflight_runs_before_the_mutation_run(
         self, workflow_name: str
     ) -> None:
-        """The step exists, names its lane, and precedes the work it guards."""
-        guarded: list[str] = []
-        for job_name, job in _jobs(workflow_name).items():
-            steps = _steps(job)
+        """Every job that mutates also validates first, and names its lane."""
+        jobs = _jobs(workflow_name)
+        mutation_jobs = [
+            job_name
+            for job_name, job in jobs.items()
+            if "Run mutation testing" in _step_names(_steps(job))
+        ]
+        assert mutation_jobs, f"{workflow_name} never runs mutation testing"
+        for job_name in mutation_jobs:
+            steps = _steps(jobs[job_name])
             names = _step_names(steps)
-            if PREFLIGHT_STEP not in names:
-                continue
-            guarded.append(job_name)
-            assert "Run mutation testing" in names, (
-                f"{workflow_name}:{job_name} runs a preflight but no mutation run"
+            assert PREFLIGHT_STEP in names, (
+                f"{workflow_name}:{job_name} mutates without validating the "
+                f"environment first; one wired job must not mask this one"
             )
             assert names.index(PREFLIGHT_STEP) < names.index("Run mutation testing"), (
                 f"{workflow_name}:{job_name} must validate before enumerating "
@@ -434,29 +438,33 @@ class TestPreflightWiring:
                 f"{expected!r}, got {_condition(step)!r}; a negated opt-in or a "
                 f"step that can never run would leave the check unenforced"
             )
-        assert guarded, f"{workflow_name} never runs the environment preflight"
 
     @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
     def test_a_failed_preflight_still_publishes_its_diagnostics(
         self, workflow_name: str
     ) -> None:
         """The phase envelope is the artefact that explains a failed preflight."""
-        uploads = [
-            step
-            for job in _jobs(workflow_name).values()
-            for step in _steps(job)
-            if step.get("name") == PREFLIGHT_UPLOAD_STEP
-        ]
-
-        assert uploads, (
-            f"{workflow_name} must upload the preflight diagnostics; a failed "
-            f"preflight without its envelope says only 'step failed'"
-        )
         _, expected = PREFLIGHT_CONDITIONS[workflow_name]
-        for step in uploads:
-            condition = _condition(step)
-            assert condition == expected, (
-                f"{workflow_name} preflight upload condition must be "
-                f"{expected!r}, got {condition!r}; the envelope must survive a "
-                f"failed preflight and stay off when the caller did not opt in"
+        guarded = [
+            (job_name, _steps(job))
+            for job_name, job in _jobs(workflow_name).items()
+            if PREFLIGHT_STEP in _step_names(_steps(job))
+        ]
+        assert guarded, f"{workflow_name} never runs the environment preflight"
+        for job_name, steps in guarded:
+            uploads = [
+                step for step in steps if step.get("name") == PREFLIGHT_UPLOAD_STEP
+            ]
+            assert uploads, (
+                f"{workflow_name}:{job_name} must upload its own preflight "
+                f"diagnostics; an upload in another job cannot explain this "
+                f"job's failed preflight"
             )
+            for step in uploads:
+                condition = _condition(step)
+                assert condition == expected, (
+                    f"{workflow_name}:{job_name} preflight upload condition must "
+                    f"be {expected!r}, got {condition!r}; the envelope must "
+                    f"survive a failed preflight and stay off when the caller "
+                    f"did not opt in"
+                )

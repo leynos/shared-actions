@@ -15,7 +15,12 @@ import typing as typ
 
 import pytest
 
-from workflow_scripts.mutationpreflight.running import reports_version
+from workflow_scripts.mutationpreflight.models import Ran
+from workflow_scripts.mutationpreflight.running import (
+    bounded,
+    last_line,
+    reports_version,
+)
 from workflow_scripts.tests.mutation_preflight_support import (
     POSIX_SHIMS_ONLY,
     POSIX_SYMLINKS_ONLY,
@@ -133,6 +138,9 @@ class TestVersionMatching:
             ("mold 1.2.3", "1.2.3", True),
             ("mold 0.9.0rc1", "0.9.0rc1", True),
             ("mold 0.9.0rc1", "0.9.0", False),
+            ("mold 1.2.3build", "1.2.3", True),
+            ("mold 1.2.3-beta", "1.2.3", True),
+            ("mold 1.2.30", "1.2.3", False),
         ],
     )
     def test_a_token_must_equal_the_declared_version_or_extend_it(
@@ -140,6 +148,17 @@ class TestVersionMatching:
     ) -> None:
         """A pre- or post-release suffix stays part of the token it qualifies."""
         assert reports_version(printed, wanted) is accepted
+
+
+class TestBoundedOutput:
+    """A truncated stream still names a line of its retained output."""
+
+    def test_the_truncation_marker_is_not_the_diagnostic_line(self) -> None:
+        """The marker counts dropped bytes; it does not say what failed."""
+        outcome = Ran(exit_code=1, stdout="", stderr=bounded("bad line\n" + "x" * 5000))
+
+        assert "bytes truncated" not in last_line(outcome)
+        assert last_line(outcome)
 
 
 class TestChecks:
@@ -219,8 +238,35 @@ class TestChecks:
         )
 
         assert outcome.exit_code == 0, outcome.stdout
-        log = tmp_path / "out" / "checks" / "collect.stdout.log"
+        log = tmp_path / "out" / "checks" / "00-collect.stdout.log"
         assert "collected 12 tests" in log.read_text(encoding="utf-8")
+
+    def test_checks_whose_names_sanitise_alike_keep_separate_logs(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A later check must not overwrite an earlier check's evidence."""
+        manifest = (
+            "[[checks]]\n"
+            'name = "a/b"\n'
+            f"command = ['{sys.executable}', '-c', 'print(\"first\")']\n"
+            "[[checks]]\n"
+            'name = "a-b"\n'
+            f"command = ['{sys.executable}', '-c', 'print(\"second\")']\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest),
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 0, outcome.stdout
+        logs = tmp_path / "out" / "checks"
+        first = (logs / "00-a-b.stdout.log").read_text(encoding="utf-8")
+        second = (logs / "01-a-b.stdout.log").read_text(encoding="utf-8")
+        assert first.strip() == "first"
+        assert second.strip() == "second"
 
     def test_a_hung_check_is_bounded_by_its_timeout(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]

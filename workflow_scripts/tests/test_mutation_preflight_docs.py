@@ -80,7 +80,7 @@ class TestLoader:
     def test_a_marked_fence_is_loaded(self, tmp_path: Path) -> None:
         """The marker names the fence, and the body is returned without it."""
         path = _written(
-            tmp_path, "<!-- tested-example: first -->\n\n```toml\na = 1\n```\n"
+            tmp_path, "<!-- tested-example: first -->\n```toml\na = 1\n```\n"
         )
 
         example = load_examples(path)["first"]
@@ -111,19 +111,23 @@ class TestLoader:
 
     def test_a_duplicate_identifier_is_refused(self, tmp_path: Path) -> None:
         """Two examples under one name would leave one of them untested."""
-        marked = "<!-- tested-example: same -->\n\n```toml\na = 1\n```\n"
+        marked = "<!-- tested-example: same -->\n```toml\na = 1\n```\n"
         path = _written(tmp_path, marked + "\n" + marked)
 
         with pytest.raises(ExampleError, match="duplicate tested-example"):
             load_examples(path)
 
-    def test_a_marker_separated_from_its_fence_by_prose_is_refused(
-        self, tmp_path: Path
+    @pytest.mark.parametrize(
+        "gap",
+        ["\nProse here.\n\n", "\n"],
+        ids=["prose", "blank-line"],
+    )
+    def test_a_gap_between_marker_and_fence_is_refused(
+        self, tmp_path: Path, gap: str
     ) -> None:
-        """A fence the marker does not abut is a fence with no marker."""
+        """The marker must be the line above its fence; any gap separates them."""
         path = _written(
-            tmp_path,
-            "<!-- tested-example: first -->\n\nProse here.\n\n```toml\na = 1\n```\n",
+            tmp_path, f"<!-- tested-example: first -->\n{gap}```toml\na = 1\n```\n"
         )
 
         with pytest.raises(ExampleError, match="prose intervenes"):
@@ -131,7 +135,7 @@ class TestLoader:
 
     def test_an_unterminated_fence_is_refused(self, tmp_path: Path) -> None:
         """An unclosed fence would swallow the rest of the document."""
-        path = _written(tmp_path, "<!-- tested-example: first -->\n\n```toml\na = 1\n")
+        path = _written(tmp_path, "<!-- tested-example: first -->\n```toml\na = 1\n")
 
         with pytest.raises(ExampleError, match="never closed"):
             load_examples(path)

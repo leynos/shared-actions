@@ -3,8 +3,8 @@
 A fenced block is an example when the line immediately above its opening fence
 is ``<!-- tested-example: <identifier> -->``. Loading fails on an unmarked
 fence, an unterminated fence, a marker that precedes no fence, a marker
-separated from its fence by prose, a fence nested inside a blockquote, and a
-duplicate identifier, so a document
+separated from its fence by prose or a blank line, a fence nested inside a
+blockquote, and a duplicate identifier, so a document
 cannot drift away from the examples its tests load from the shipped text rather
 than from a copied fixture.
 
@@ -146,14 +146,16 @@ def _pending_marker(
 
 
 def _intervening(
-    pending: str | None, prose: int | None, line: str, line_number: int
+    pending: str | None, prose: int | None, line_number: int
 ) -> int | None:
-    """Return the line prose first intervenes on, if it does."""
+    """Return the line prose first intervenes on, if it does.
+
+    A blank line counts: the marker must be the line above its fence, so even
+    an empty line between them is a separation, not layout.
+    """
     if pending is None:
         return prose
     if prose is not None:
-        return prose
-    if not line.strip():
         return prose
     return line_number
 
@@ -208,7 +210,7 @@ def load_examples(path: Path) -> dict[str, Example]:
             # Prose between a marker and its fence is only a separation if a
             # fence follows; without one the marker precedes no fence at all,
             # which the end of the document reports.
-            prose = _intervening(pending, prose, lines[index], index + 1)
+            prose = _intervening(pending, prose, index + 1)
             index += 1
             continue
         _refuse_prose(path, pending, prose)

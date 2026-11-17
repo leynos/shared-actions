@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run python
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["cyclopts>=3.24,<4.0", "packaging>=24,<27", "plumbum>=1.8,<3.0"]
+# dependencies = ["cyclopts>=3.24,<6.0", "packaging>=24,<27", "plumbum>=1.8,<3.0"]
 # ///
 """Validate a mutation lane's environment before it enumerates any mutant.
 

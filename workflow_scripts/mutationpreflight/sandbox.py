@@ -98,6 +98,38 @@ def _is_copied(declared: str, copied: tuple[str, ...]) -> bool:
     return any(_covers(entry, declared) for entry in copied)
 
 
+def _path_finding(
+    repo_root: Path, declared: str, copied: tuple[str, ...] | None
+) -> tuple[str | None, str | None]:
+    """Return one path's finding, and the envelope category it belongs to.
+
+    The first usable answer wins: a syntactic problem outranks an absence,
+    which outranks a symlink leaving the checkout, which outranks the copy
+    question. *copied* is ``None`` when that last question cannot be asked.
+    """
+    problem = path_problem(declared)
+    if problem is not None:
+        return f"sandbox path {declared!r} {problem}", None
+    if not (repo_root / declared).exists():
+        finding = (
+            f"sandbox path {declared!r} is not in the checkout, so the "
+            f"declaration names a requirement nothing satisfies"
+        )
+        return finding, "missing_in_checkout"
+    resolved = _resolved_problem(repo_root, declared)
+    if resolved is not None:
+        return f"sandbox path {declared!r} {resolved}", None
+    if copied is None or _is_copied(declared, copied):
+        return None, None
+    finding = (
+        f"sandbox path {declared!r} is not materialized in mutants/: add it "
+        f"to [tool.mutmut] also_copy, because mutmut copies only "
+        f"{list(MUTMUT_DEFAULT_COPIES)} and root {list(MUTMUT_DEFAULT_GLOBS)} "
+        f"besides source_paths and also_copy"
+    )
+    return finding, "not_copied"
+
+
 def _review_paths(
     repo_root: Path, declared_paths: tuple[str, ...], copied: tuple[str, ...] | None
 ) -> tuple[list[str], dict[str, object]]:
@@ -108,34 +140,14 @@ def _review_paths(
     depends on knowing what mutmut would copy.
     """
     findings: list[str] = []
-    missing: list[str] = []
-    not_copied: list[str] = []
+    categories: dict[str, list[str]] = {"missing_in_checkout": [], "not_copied": []}
     for declared in declared_paths:
-        problem = path_problem(declared)
-        if problem is not None:
-            findings.append(f"sandbox path {declared!r} {problem}")
-            continue
-        if not (repo_root / declared).exists():
-            missing.append(declared)
-            findings.append(
-                f"sandbox path {declared!r} is not in the checkout, so the "
-                f"declaration names a requirement nothing satisfies"
-            )
-            continue
-        resolved = _resolved_problem(repo_root, declared)
-        if resolved is not None:
-            findings.append(f"sandbox path {declared!r} {resolved}")
-            continue
-        if copied is None or _is_copied(declared, copied):
-            continue
-        not_copied.append(declared)
-        findings.append(
-            f"sandbox path {declared!r} is not materialized in mutants/: add it "
-            f"to [tool.mutmut] also_copy, because mutmut copies only "
-            f"{list(MUTMUT_DEFAULT_COPIES)} and root {list(MUTMUT_DEFAULT_GLOBS)} "
-            f"besides source_paths and also_copy"
-        )
-    return findings, {"missing_in_checkout": missing, "not_copied": not_copied}
+        finding, category = _path_finding(repo_root, declared, copied)
+        if finding is not None:
+            findings.append(finding)
+        if category is not None:
+            categories[category].append(declared)
+    return findings, categories
 
 
 def run_sandbox_phase(repo_root: Path, declaration: Declaration) -> PhaseResult:

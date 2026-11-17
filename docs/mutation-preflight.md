@@ -26,7 +26,6 @@ Both reusable workflows expose `preflight`, default `false`, so no existing
 caller starts checking requirements it has not declared:
 
 <!-- tested-example: opt-in -->
-
 ```yaml
 jobs:
   mutation:
@@ -83,7 +82,6 @@ copied fails here, with the reason spelled out, instead of failing the baseline
 inside the sandbox.
 
 <!-- tested-example: sandbox-paths -->
-
 ```toml
 [tool.mutation-preflight]
 sandbox_paths = [
@@ -109,7 +107,6 @@ there; declare the tools the run needs instead.
 External commands the run invokes, and optionally the version each must report:
 
 <!-- tested-example: require-commands -->
-
 ```toml
 [[tool.mutation-preflight.require_commands]]
 name = "mold"
@@ -132,7 +129,6 @@ version_args = ["--version"]
 A locked native dependency whose interpreter support the run depends on:
 
 <!-- tested-example: native -->
-
 ```toml
 [tool.mutation-preflight.native]
 package = "tei-rapporteur"
@@ -170,7 +166,6 @@ support boundary before any mutant is enumerated.
 Bounded commands run from a declared boundary:
 
 <!-- tested-example: checks -->
-
 ```toml
 [[tool.mutation-preflight.checks]]
 name = "subprocess-fixture"
@@ -271,7 +266,6 @@ The environment variables a workflow sets are `INPUT_LANE`,
 `INPUT_OUTPUT_DIR`. The helper can be run by hand the same way:
 
 <!-- tested-example: manual-run -->
-
 ```sh
 INPUT_LANE=mutmut INPUT_PROJECT_PYTHON=3.13 \
   uv run --script workflow_scripts/mutation_preflight.py

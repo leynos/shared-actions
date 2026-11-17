@@ -30,16 +30,12 @@ _NO_SOURCE_PATHS: typ.Final[str] = (
 )
 
 
-def _setup_cfg_table(root: Path) -> dict[str, object] | None:
-    """Return ``setup.cfg``'s ``[mutmut]`` section, flattened as mutmut reads it."""
-    path = root / "setup.cfg"
-    if not path.is_file():
-        return None
-    parser = ConfigParser()
-    try:
-        parser.read(path, encoding="utf-8")
-    except (OSError, UnicodeDecodeError, ConfigError):
-        return None
+def _flattened_section(parser: ConfigParser) -> dict[str, object] | None:
+    """Return the parsed ``[mutmut]`` section, or ``None`` when it is absent.
+
+    Reading a value can raise ``InterpolationSyntaxError``, a ``ConfigError``,
+    so the caller keeps this inside its ``try``.
+    """
     if not parser.has_section("mutmut"):
         return None
     section = parser["mutmut"]
@@ -56,6 +52,20 @@ def _setup_cfg_table(root: Path) -> dict[str, object] | None:
     return table
 
 
+def _setup_cfg_table(root: Path) -> tuple[dict[str, object] | None, str | None]:
+    """Return ``setup.cfg``'s ``[mutmut]`` section, or why it went unread."""
+    path = root / "setup.cfg"
+    if not path.is_file():
+        return None, None
+    parser = ConfigParser()
+    try:
+        parser.read(path, encoding="utf-8")
+        table = _flattened_section(parser)
+    except (OSError, UnicodeDecodeError, ConfigError) as error:
+        return None, f"{path} could not be read: {error}"
+    return table, None
+
+
 def _mutmut_table(root: Path) -> tuple[dict[str, object] | None, str | None]:
     """Return the mutmut configuration the run will use, or why it is unknown."""
     pyproject = root / "pyproject.toml"
@@ -66,10 +76,14 @@ def _mutmut_table(root: Path) -> tuple[dict[str, object] | None, str | None]:
         table = nested_table(document or {}, "tool", "mutmut")
         if table is not None:
             return table, None
-    table = _setup_cfg_table(root)
-    if table is None:
-        return None, _NO_CONFIG
-    return table, None
+    table, problem = _setup_cfg_table(root)
+    if table is not None:
+        return table, None
+    if problem is not None:
+        # An unreadable setup.cfg is not the same fact as one without a
+        # [mutmut] section, and saying the section is absent would mislead.
+        return None, problem
+    return None, _NO_CONFIG
 
 
 def mutmut_copy_set(root: Path) -> tuple[tuple[str, ...] | None, tuple[str, ...]]:

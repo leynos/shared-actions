@@ -15,6 +15,7 @@ import typing as typ
 
 import pytest
 
+from workflow_scripts.mutationpreflight import interpreters
 from workflow_scripts.tests.mutation_preflight_support import (
     POSIX_SYMLINKS_ONLY,
     RULE_AVAILABLE,
@@ -235,6 +236,31 @@ class TestInterpreter:
         phase = next(item for item in report["phases"] if item["name"] == "interpreter")
         assert phase["detail"]["requires_python"] == "2026-01-01"
 
+    def test_a_rule_that_will_not_load_leaves_support_unknown(
+        self,
+        tmp_path: Path,
+        run_preflight: typ.Callable[..., Outcome],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A rule that judged nothing must not fail the interpreter it never read."""
+        monkeypatch.setattr(
+            interpreters,
+            "_load_shared_rule",
+            lambda: (None, "the shared rule could not be loaded"),
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(requires_python=">=3.12"),
+            project_python="3.13",
+            helper_python="3.13",
+        )
+
+        assert outcome.exit_code == 0, outcome.stdout
+        assert outcome.phases["interpreter"]["status"] == "unknown"
+        assert "could not be loaded" in outcome.findings("interpreter")
+
 
 class TestSandbox:
     """Declared paths are checked against what mutmut actually copies."""
@@ -413,6 +439,33 @@ class TestSandbox:
         assert outcome.exit_code == 0, outcome.stdout
         assert outcome.phases["sandbox"]["status"] == "unknown"
         assert "neither pyproject.toml's [tool.mutmut]" in outcome.findings("sandbox")
+
+    @pytest.mark.parametrize(
+        "contents",
+        ["[mutmut]\nalso_copy = data/100%.json\n", "this is not an ini file\n"],
+        ids=["interpolation", "syntax"],
+    )
+    def test_an_unreadable_setup_cfg_is_not_a_missing_section(
+        self,
+        tmp_path: Path,
+        run_preflight: typ.Callable[..., Outcome],
+        contents: str,
+    ) -> None:
+        """A setup.cfg that will not parse is unreadable, not without a section."""
+        root = repository(
+            tmp_path / "repo", Checkout(manifest='sandbox_paths = ["conftest.py"]\n')
+        )
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "example"\n', encoding="utf-8"
+        )
+        (root / "setup.cfg").write_text(contents, encoding="utf-8")
+
+        outcome = run_preflight(root, project_python="3.13")
+
+        assert outcome.exit_code == 0, outcome.stdout
+        assert outcome.phases["sandbox"]["status"] == "unknown"
+        assert "setup.cfg could not be read" in outcome.findings("sandbox")
+        assert "is present, so what mutmut copies" not in outcome.findings("sandbox")
 
     @pytest.mark.parametrize(
         ("declared", "expected"),

@@ -54,7 +54,9 @@ def _load_shared_rule() -> tuple[typ.Callable[..., list[str]] | None, str]:
     return rule, ""
 
 
-def judge(requirement: object, interpreter: str, *, subject: str) -> list[str]:
+def judge(
+    requirement: object, interpreter: str, *, subject: str
+) -> tuple[list[str], str]:
     """Return why *interpreter* falls outside *requirement*, using #565's rule.
 
     Parameters
@@ -68,15 +70,17 @@ def judge(requirement: object, interpreter: str, *, subject: str) -> list[str]:
 
     Returns
     -------
-    list[str]
-        One finding per violation, or the reason the shared rule could not be
-        loaded.
+    tuple[list[str], str]
+        One finding per violation, and separately the reason the shared rule
+        could not be loaded. The two are distinct: a rule that will not load
+        judged nothing, so it leaves support unknown rather than failing the
+        interpreter it never read.
 
     """
     rule, problem = _load_shared_rule()
     if rule is None:
-        return [problem]
-    return list(rule(requirement, interpreter, subject=subject))
+        return [], problem
+    return list(rule(requirement, interpreter, subject=subject)), ""
 
 
 def _project_requirement(repo_root: Path) -> tuple[object, str | None]:
@@ -126,9 +130,12 @@ def _judge_project_range(
             f"interpreter compatibility is unknown rather than established"
         )
         return
-    blocking.extend(
-        judge(requirement, interpreter, subject="the project's requires-python")
+    violations, problem = judge(
+        requirement, interpreter, subject="the project's requires-python"
     )
+    blocking.extend(violations)
+    if problem:
+        unknown.append(problem)
 
 
 def run_interpreter_phase(repo_root: Path, runtimes: Runtimes) -> PhaseResult:

@@ -42,12 +42,22 @@ def _check_cwd(repo_root: Path, check: Check) -> tuple[Path | None, str]:
     return directory, ""
 
 
-def write_logs(directory: Path, name: str, outcome: Ran) -> None:
-    """Write one check's bounded streams, so a failure keeps its evidence."""
-    stem = "".join(
+def log_stem(index: int, name: str) -> str:
+    """Return a log filename stem unique to one declared check.
+
+    The name is sanitised for the filesystem, which maps distinct names such as
+    ``a/b`` and ``a-b`` onto one stem. The check's position keeps them apart,
+    so a later check never overwrites the evidence of an earlier failure.
+    """
+    sanitised = "".join(
         character if character.isalnum() or character in "-_" else "-"
         for character in name
     )
+    return f"{index:02d}-{sanitised}"
+
+
+def write_logs(directory: Path, stem: str, name: str, outcome: Ran) -> None:
+    """Write one check's bounded streams, so a failure keeps its evidence."""
     try:
         directory.mkdir(parents=True, exist_ok=True)
         (directory / f"{stem}.stdout.log").write_text(outcome.stdout, encoding="utf-8")
@@ -61,7 +71,7 @@ def write_logs(directory: Path, name: str, outcome: Ran) -> None:
 
 
 def _review_check(
-    repo_root: Path, check: Check, output_dir: Path
+    repo_root: Path, check: Check, output_dir: Path, index: int
 ) -> tuple[str | None, object]:
     """Return one check's finding, and the evidence it left behind."""
     directory, problem = _check_cwd(repo_root, check)
@@ -76,7 +86,7 @@ def _review_check(
     if outcome is None:
         finding = f"check {check.name!r} could not run from {check.cwd!r}: {problem}"
         return finding, problem
-    write_logs(output_dir / "checks", check.name, outcome)
+    write_logs(output_dir / "checks", log_stem(index, check.name), check.name, outcome)
     evidence: dict[str, object] = {
         "exit_code": outcome.exit_code,
         "cwd": check.cwd,
@@ -116,8 +126,8 @@ def run_checks_phase(
     if not declaration.checks:
         return PhaseResult("checks", SKIPPED, (), {"reason": _NO_CHECKS})
     pairs = [
-        (check, _review_check(repo_root, check, output_dir))
-        for check in declaration.checks
+        (check, _review_check(repo_root, check, output_dir, index))
+        for index, check in enumerate(declaration.checks)
     ]
     findings = [finding for _, (finding, _) in pairs if finding is not None]
     detail = {check.name: evidence for check, (_, evidence) in pairs}

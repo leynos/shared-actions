@@ -99,6 +99,7 @@ jobs:
 | `mdtablefix-version`    | `0.6.1`                   | Exact mdtablefix release to install when `install-mdtablefix` is `"true"`.                                                                                  |
 | `mdtablefix-sha256`     | (empty)                   | Optional SHA-256 digest for the installed mdtablefix executable.                                                                                            |
 | `install-clang-lld`     | `false`                   | `"true"` installs clang and lld through `setup-rust` on Linux runners; elsewhere it skips with a notice. Sets no linker flag.                               |
+| `preflight`             | `false`                   | Validate the declared mutation environment before any mutant is enumerated; see [Mutation environment preflight](mutation-preflight.md).                    |
 
 ## Installing mold
 
@@ -133,6 +134,24 @@ checksum; a supplied digest replaces that checksum. The pinned action works
 whether the reusable workflow source needs a separate checkout or is already
 available in a local `act` workspace. It installs a trusted prebuilt release
 binary; it does not compile mdtablefix from source.
+
+## Validating the environment first
+
+Set `preflight: true` once the repository declares what its mutation run needs
+in `[tool.mutation-preflight]` (or `.github/mutation-preflight.toml`). The
+preflight runs in each mutants shard, after the toolchain is installed and
+before `cargo mutants`, so a missing linker or helper binary, a version that is
+not the one declared, or a failing declared check stops the shard before it
+enumerates a single mutant. It runs per shard rather than as its own job on
+purpose: the declared commands are installed by steps in that job, so a
+separate job would inspect a different environment from the one the mutants run
+in.
+
+`sandbox_paths` is refused on this lane, because cargo-mutants copies the whole
+working tree; declare `require_commands`, `native` and `checks` instead. The
+shard uploads `mutation-preflight-diagnostics-<target>-<shard>` under
+`always()`. The full declaration schema and phase contract are in
+[Mutation environment preflight](mutation-preflight.md).
 
 ## Notes
 

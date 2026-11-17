@@ -748,16 +748,19 @@ class TestEnvelope:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """The envelope is complete even when nothing has been mutated."""
+        # Both commands name the running interpreter: it exists on every
+        # platform, so this test checks the envelope rather than which tools
+        # the host happens to have. Literal strings, because a Windows
+        # interpreter path holds backslashes a basic string would read as
+        # escapes.
         manifest = (
             'sandbox_paths = ["README.md"]\n'
             "[[require_commands]]\n"
-            'name = "mold"\n'
+            f"name = '{sys.executable}'\n"
             "[native]\n"
             'package = "tei-rapporteur"\n'
             "[[checks]]\n"
             'name = "collect"\n'
-            # A TOML literal string, because a Windows interpreter path holds
-            # backslashes, which a basic string would read as escapes.
             f"command = ['{sys.executable}', '-c', 'print(1)']\n"
         )
 

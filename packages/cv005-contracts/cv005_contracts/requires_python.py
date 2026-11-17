@@ -6,6 +6,13 @@ that excludes it, `uv sync` refuses the interpreter and the coverage step
 fails, which is the regression create-labels #114 and docx-comment-extractor
 #44 hit when a resolver picked 3.13 against `>=3.14`. This module reads the
 declaration, when there is one, and reports the mismatch.
+
+The judging itself is `requirement_violations`, which asks one question of one
+PEP 508 string and one interpreter. The coverage clause asks it of the
+project's declaration; the mutation preflight asks it of a locked native
+dependency's supported range. Sharing the function keeps the awkward case —
+a bare `X.Y` interpreter, which uv may resolve to any patch — decided in one
+place rather than twice.
 """
 
 from __future__ import annotations
@@ -59,29 +66,59 @@ def requires_python_violations(repo_root: Path, interpreter: str) -> list[str]:
     requirement = project.get("requires-python") if isinstance(project, dict) else None
     if requirement is None:
         return []
-    return _judge(requirement, interpreter)
+    return requirement_violations(
+        requirement, interpreter, subject="the project's requires-python"
+    )
 
 
-def _judge(requirement: object, interpreter: str) -> list[str]:
-    """Compare the interpreter with one `requires-python` value."""
+def requirement_violations(
+    requirement: object, interpreter: str, *, subject: str
+) -> list[str]:
+    """Return why the interpreter falls outside one PEP 508 requirement.
+
+    `requires_python_violations` is this function with the subject named as
+    the project's own declaration. A caller with a different requirement to
+    enforce — the mutation preflight checking a locked native dependency's
+    supported range — passes its own subject rather than repeating the
+    judging, so the bare-`X.Y` rule below cannot drift between them.
+
+    Parameters
+    ----------
+    requirement : object
+        The requirement string as declared; any other type is refused.
+    interpreter : str
+        The interpreter, such as `3.13` or `3.13.5`.
+    subject : str
+        What the requirement constrains, named in every finding.
+
+    Returns
+    -------
+    list[str]
+        One finding when the interpreter is not accepted, or when either
+        side cannot be read; empty when it is accepted.
+
+    Examples
+    --------
+    >>> requirement_violations(">=3.14", "3.13", subject="tei-rapporteur")
+    ["the interpreter '3.13' is outside tei-rapporteur '>=3.14'"]
+    >>> requirement_violations(">=3.12,<3.14", "3.13", subject="the project")
+    []
+
+    """
     if not isinstance(requirement, str):
-        return [f"requires-python must be a string, not {requirement!r}"]
+        return [f"{subject} must be a string, not {requirement!r}"]
     try:
         accepted = SpecifierSet(requirement)
         candidates = _candidates(interpreter, accepted)
     except (InvalidSpecifier, InvalidVersion, ValueError) as error:
         message = (
-            f"requires-python {requirement!r} or interpreter {interpreter!r} "
+            f"{subject} {requirement!r} or interpreter {interpreter!r} "
             f"is invalid: {error}"
         )
         return [message]
     if any(accepted.contains(version, prereleases=True) for version in candidates):
         return []
-    message = (
-        f"the configured interpreter {interpreter!r} is outside the project's "
-        f"requires-python {requirement!r}, so `uv sync` would refuse it"
-    )
-    return [message]
+    return [f"the interpreter {interpreter!r} is outside {subject} {requirement!r}"]
 
 
 def _candidates(interpreter: str, accepted: SpecifierSet) -> list[Version]:

@@ -127,7 +127,7 @@ A locked native dependency whose interpreter support the run depends on:
 package = "tei-rapporteur"
 revision = "a1b2c3d4"
 supported_python = ">=3.9,<3.15"
-probe = ["python", "-c", "import tei_rapporteur"]
+probe = ["uv", "run", "python", "-c", "import tei_rapporteur"]
 ```
 
 - `package` is looked up in `uv.lock` case- and separator-insensitively
@@ -140,8 +140,12 @@ probe = ["python", "-c", "import tei_rapporteur"]
   naming the package, because compatibility that cannot be established is not
   compatibility that holds.
 - `probe` is the smallest build/import check that exercises the extension. It
-  runs from the checkout root after the lock identity is checked, and a
-  non-zero exit fails the phase with the first diagnostic the probe printed.
+  runs from the checkout root, with the ambient environment, after the lock
+  identity is checked, and a non-zero exit fails the phase with the first
+  diagnostic the probe printed. Declare the command the mutation run itself
+  would use — `uv run …` when the dependency lives in the project environment —
+  because a bare `python` sees only what the job's ambient interpreter has
+  installed.
 - `PYO3_USE_ABI3_FORWARD_COMPATIBILITY` is reported but never treated as proof
   of support; the ABI forward-compatibility escape hatch skips a version check
   rather than passing one.

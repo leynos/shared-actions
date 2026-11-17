@@ -58,7 +58,7 @@ inputs:
   refresh-base-images:
     description: Pull base images from their registry before exporting them (disable for local-only images).
     required: false
-    default: true
+    default: 'true'
   polythene-path:
     description: Override the path to the polythene CLI entry point.
     required: false

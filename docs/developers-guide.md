@@ -191,9 +191,9 @@ whether uv targeted the venv path or the base interpreter.
 
 ## Python process utilities and Linux package validation
 
-Linux package validation uses the `polythene` command from the
-[`polythene-isolate` distribution](../pyproject.toml), pinned to commit
-`542c86ef4b83a5e5583afa4bec88b7c339851497`. Upstream
+Linux package validation, including RPM validation, uses the `polythene`
+command from the [`polythene-isolate` distribution](../pyproject.toml#L21-L22),
+pinned to commit `542c86ef4b83a5e5583afa4bec88b7c339851497`. Upstream
 [PR 154](https://github.com/leynos/polythene/pull/154) explains that the PyPI
 name `polythene` was not theirs to claim, so the distribution uses
 `polythene-isolate`; the Python import package and console script remain

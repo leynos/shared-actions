@@ -17,7 +17,7 @@ from workflow_scripts.tests.mutation_preflight_support import (
     Checkout,
     Outcome,
     lock_document,
-    repository,
+    outcome_for,
 )
 
 if typ.TYPE_CHECKING:
@@ -37,11 +37,10 @@ class TestCommands:
         empty_path: None,
     ) -> None:
         """An absent command is the failure, and it is named."""
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(manifest='[[require_commands]]\nname = "mdtablefix"\n'),
-            ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest='[[require_commands]]\nname = "mdtablefix"\n'),
             project_python="3.13",
         )
 
@@ -59,12 +58,11 @@ class TestCommands:
         """The installed tool lets the same declaration pass."""
         install_tool("mold", 'echo "mold 2.41.0 (compatible with GNU ld)"')
 
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    manifest='[[require_commands]]\nname = "mold"\nversion = "2.41"\n'
-                ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest='[[require_commands]]\nname = "mold"\nversion = "2.41"\n'
             ),
             project_python="3.13",
         )
@@ -82,13 +80,10 @@ class TestCommands:
         """``2.4`` must not accept ``2.41.0``, which is what a substring test does."""
         install_tool("mold", 'echo "mold 2.41.0"')
 
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    manifest='[[require_commands]]\nname = "mold"\nversion = "2.4"\n'
-                ),
-            ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest='[[require_commands]]\nname = "mold"\nversion = "2.4"\n'),
             project_python="3.13",
         )
 
@@ -118,8 +113,10 @@ class TestChecks:
             'env = { MARKER = "declared", PYTHONPATH = ".." }\n'
         )
 
-        outcome = run_preflight(
-            repository(tmp_path / "repo", Checkout(manifest=manifest)),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest),
             project_python="3.13",
         )
 
@@ -141,8 +138,10 @@ class TestChecks:
             f"command = ['{sys.executable}', '-c', '{script}']\n"
         )
 
-        outcome = run_preflight(
-            repository(tmp_path / "repo", Checkout(manifest=manifest)),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest),
             project_python="3.13",
         )
 
@@ -162,8 +161,10 @@ class TestChecks:
             f"command = ['{sys.executable}', '-c', '{script}']\n"
         )
 
-        outcome = run_preflight(
-            repository(tmp_path / "repo", Checkout(manifest=manifest)),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest),
             project_python="3.13",
         )
 
@@ -183,8 +184,10 @@ class TestChecks:
             "timeout_seconds = 1\n"
         )
 
-        outcome = run_preflight(
-            repository(tmp_path / "repo", Checkout(manifest=manifest)),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest),
             project_python="3.13",
         )
 
@@ -213,18 +216,17 @@ class TestNative:
         """The pinned package and the range it supports are both reported."""
         manifest = '[native]\npackage = "tei-rapporteur"\nsupported_python = ">=3.14"\n'
 
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    manifest=manifest,
-                    extra={
-                        "uv.lock": lock_document(
-                            "0.3.1",
-                            'git = "https://example.invalid/tei.git?rev=abc123"',
-                        )
-                    },
-                ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest=manifest,
+                extra={
+                    "uv.lock": lock_document(
+                        "0.3.1",
+                        'git = "https://example.invalid/tei.git?rev=abc123"',
+                    )
+                },
             ),
             project_python="3.13",
         )
@@ -240,13 +242,12 @@ class TestNative:
         """No declared range is reported as unknown, never as compatible."""
         manifest = '[native]\npackage = "tei-rapporteur"\n'
 
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    manifest=manifest,
-                    extra={"uv.lock": lock_document("0.3.1", 'registry = "x"')},
-                ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest=manifest,
+                extra={"uv.lock": lock_document("0.3.1", 'registry = "x"')},
             ),
             project_python="3.13",
         )
@@ -266,18 +267,17 @@ class TestNative:
             'supported_python = ">=3.12"\n'
         )
 
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    manifest=manifest,
-                    extra={
-                        "uv.lock": lock_document(
-                            "0.3.1",
-                            'git = "https://example.invalid/tei.git?rev=abc123"',
-                        )
-                    },
-                ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest=manifest,
+                extra={
+                    "uv.lock": lock_document(
+                        "0.3.1",
+                        'git = "https://example.invalid/tei.git?rev=abc123"',
+                    )
+                },
             ),
             project_python="3.13",
         )
@@ -297,13 +297,12 @@ class TestNative:
             f"probe = ['{sys.executable}', '-c', '{script}']\n"
         )
 
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    manifest=manifest,
-                    extra={"uv.lock": lock_document("0.3.1", 'registry = "x"')},
-                ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest=manifest,
+                extra={"uv.lock": lock_document("0.3.1", 'registry = "x"')},
             ),
             project_python="3.13",
         )
@@ -337,17 +336,16 @@ class TestEnvelope:
             f"command = ['{sys.executable}', '-c', 'print(1)']\n"
         )
 
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    manifest=manifest,
-                    also_copy=("conftest.py", "README.md"),
-                    extra={
-                        "README.md": "# example\n",
-                        "uv.lock": lock_document("0.3.1", 'registry = "x"'),
-                    },
-                ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest=manifest,
+                also_copy=("conftest.py", "README.md"),
+                extra={
+                    "README.md": "# example\n",
+                    "uv.lock": lock_document("0.3.1", 'registry = "x"'),
+                },
             ),
             project_python="3.13",
         )
@@ -375,7 +373,7 @@ class TestEnvelope:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """The JSON report is the artefact a later stage reads, so it always exists."""
-        outcome = run_preflight(repository(tmp_path / "repo"), project_python="3.13")
+        outcome = outcome_for(run_preflight, tmp_path / "repo", project_python="3.13")
 
         report = json.loads(
             (tmp_path / "out" / "mutation-preflight.json").read_text(encoding="utf-8")
@@ -397,7 +395,7 @@ class TestEnvelope:
         summary = tmp_path / "summary.md"
         monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
 
-        outcome = run_preflight(repository(tmp_path / "repo"), project_python="3.13")
+        outcome = outcome_for(run_preflight, tmp_path / "repo", project_python="3.13")
 
         assert outcome.exit_code == 0, outcome.stdout
         rendered = summary.read_text(encoding="utf-8")
@@ -408,8 +406,8 @@ class TestEnvelope:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """A lane this helper cannot check fails instead of borrowing another's."""
-        outcome = run_preflight(
-            repository(tmp_path / "repo"), lane="stryker", project_python="3.13"
+        outcome = outcome_for(
+            run_preflight, tmp_path / "repo", lane="stryker", project_python="3.13"
         )
 
         assert outcome.exit_code == 2

@@ -124,3 +124,31 @@ class Outcome:
     def detail(self, phase: str) -> dict[str, object]:
         """Return one phase's evidence table."""
         return typ.cast("dict[str, object]", self.phases[phase]["detail"])
+
+
+def outcome_for(
+    runner: typ.Callable[..., Outcome],
+    root: Path,
+    checkout: Checkout | None = None,
+    **inputs: str,
+) -> Outcome:
+    """Write *checkout* at *root* and return what the preflight reported.
+
+    Parameters
+    ----------
+    runner : Callable[..., Outcome]
+        The ``run_preflight`` fixture.
+    root : Path
+        Where the checkout is written.
+    checkout : Checkout | None
+        What to write; ``None`` leaves *root* as the test prepared it.
+    **inputs : str
+        ``INPUT_*`` values for the run.
+
+    Returns
+    -------
+    Outcome
+        The exit status, phases and verdict the run emitted.
+
+    """
+    return runner(repository(root, checkout), **inputs)

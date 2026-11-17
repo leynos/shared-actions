@@ -18,6 +18,7 @@ import pytest
 from workflow_scripts.tests.mutation_preflight_support import (
     Checkout,
     Outcome,
+    outcome_for,
     repository,
 )
 
@@ -44,7 +45,7 @@ class TestManifest:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """No declaration is not a failure: only the interpreter is checked."""
-        outcome = run_preflight(repository(tmp_path / "repo"), project_python="3.13")
+        outcome = outcome_for(run_preflight, tmp_path / "repo", project_python="3.13")
 
         assert outcome.exit_code == 0, outcome.stdout
         assert outcome.result == "pass", outcome.stdout
@@ -77,10 +78,10 @@ class TestManifest:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """A typo would otherwise read as a requirement that is being checked."""
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo", Checkout(manifest='sandbox_path = ["README.md"]\n')
-            ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest='sandbox_path = ["README.md"]\n'),
             project_python="3.13",
         )
 
@@ -92,10 +93,10 @@ class TestManifest:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """cargo-mutants copies the working tree, so the requirement is vacuous."""
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo", Checkout(manifest='sandbox_paths = ["README.md"]\n')
-            ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest='sandbox_paths = ["README.md"]\n'),
             lane="cargo",
             project_python="3.13",
         )
@@ -117,8 +118,10 @@ class TestInterpreter:
         interpreter: str,
     ) -> None:
         """A bare minor, a patch and the upper bound's own minor are accepted."""
-        outcome = run_preflight(
-            repository(tmp_path / "repo", Checkout(requires_python=">=3.12,<3.15")),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(requires_python=">=3.12,<3.15"),
             project_python=interpreter,
             helper_python="3.13",
         )
@@ -138,8 +141,10 @@ class TestInterpreter:
         interpreter: str,
     ) -> None:
         """A lower bound, an upper bound and another minor are all refused."""
-        outcome = run_preflight(
-            repository(tmp_path / "repo", Checkout(requires_python=requirement)),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(requires_python=requirement),
             project_python=interpreter,
             helper_python="3.13",
         )
@@ -154,8 +159,10 @@ class TestInterpreter:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """A helper runtime inside the floor is not evidence about the project."""
-        outcome = run_preflight(
-            repository(tmp_path / "repo", Checkout(requires_python=">=3.14")),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(requires_python=">=3.14"),
             project_python="3.13",
             helper_python="3.13.5",
         )
@@ -172,8 +179,10 @@ class TestInterpreter:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """The workflow's helper scripts need 3.13 regardless of the project."""
-        outcome = run_preflight(
-            repository(tmp_path / "repo", Checkout(requires_python=">=3.9")),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(requires_python=">=3.9"),
             project_python="3.12",
             helper_python="3.12.9",
         )
@@ -185,8 +194,8 @@ class TestInterpreter:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """A missing input cannot prove the project refuses its own range."""
-        outcome = run_preflight(
-            repository(tmp_path / "repo"), project_python="", helper_python="3.13"
+        outcome = outcome_for(
+            run_preflight, tmp_path / "repo", project_python="", helper_python="3.13"
         )
 
         assert outcome.exit_code == 0, outcome.stdout
@@ -201,10 +210,10 @@ class TestSandbox:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """The README is outside mutmut's copy set and absent, so it is named."""
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo", Checkout(manifest='sandbox_paths = ["README.md"]\n')
-            ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest='sandbox_paths = ["README.md"]\n'),
             project_python="3.13",
         )
 
@@ -217,14 +226,13 @@ class TestSandbox:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """The declared path is satisfied by the copy entry that materialises it."""
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    also_copy=("conftest.py", "README.md"),
-                    manifest='sandbox_paths = ["README.md"]\n',
-                    extra={"README.md": "# example\n"},
-                ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                also_copy=("conftest.py", "README.md"),
+                manifest='sandbox_paths = ["README.md"]\n',
+                extra={"README.md": "# example\n"},
             ),
             project_python="3.13",
         )
@@ -237,13 +245,12 @@ class TestSandbox:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """A suite that reads .github/workflows needs that tree in mutants/."""
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    manifest='sandbox_paths = [".github/workflows/ci.yml"]\n',
-                    extra={".github/workflows/ci.yml": "jobs: {}\n"},
-                ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest='sandbox_paths = [".github/workflows/ci.yml"]\n',
+                extra={".github/workflows/ci.yml": "jobs: {}\n"},
             ),
             project_python="3.13",
         )
@@ -256,13 +263,12 @@ class TestSandbox:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """A template outside source_paths is not copied just by existing."""
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    manifest='sandbox_paths = ["templates/report.j2"]\n',
-                    extra={"templates/report.j2": "{}\n"},
-                ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest='sandbox_paths = ["templates/report.j2"]\n',
+                extra={"templates/report.j2": "{}\n"},
             ),
             project_python="3.13",
         )
@@ -271,41 +277,39 @@ class TestSandbox:
         assert "templates/report.j2" in outcome.findings("sandbox")
         assert outcome.detail("sandbox")["not_copied"] == ["templates/report.j2"]
 
-    def test_a_rust_toolchain_file_is_named(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    @pytest.mark.parametrize(
+        ("declared", "contents"),
+        [
+            ("rust-toolchain.toml", '[toolchain]\nchannel = "stable"\n'),
+            ("fixtures/nested/data.json", "{}\n"),
+        ],
+        ids=["toolchain-file", "nested-fixture"],
+    )
+    def test_a_file_outside_the_copy_set_is_named(
+        self,
+        tmp_path: Path,
+        run_preflight: typ.Callable[..., Outcome],
+        declared: str,
+        contents: str,
     ) -> None:
-        """A toolchain file the tests read is a sandbox requirement like any other."""
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    manifest='sandbox_paths = ["rust-toolchain.toml"]\n',
-                    extra={"rust-toolchain.toml": '[toolchain]\nchannel = "stable"\n'},
-                ),
+        """A toolchain file and a nested fixture are requirements like any other.
+
+        Neither sits under ``source_paths``, so existing is not enough: the
+        declaration has to be materialised by ``also_copy``.
+        """
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest=f'sandbox_paths = ["{declared}"]\n',
+                extra={declared: contents},
             ),
             project_python="3.13",
         )
 
         assert outcome.exit_code == 1
-        assert "rust-toolchain.toml" in outcome.findings("sandbox")
-
-    def test_a_nested_fixture_is_named(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """A fixture tree outside tests/ must be declared, not assumed."""
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    manifest='sandbox_paths = ["fixtures/nested/data.json"]\n',
-                    extra={"fixtures/nested/data.json": "{}\n"},
-                ),
-            ),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 1
-        assert "fixtures/nested/data.json" in outcome.findings("sandbox")
+        assert declared in outcome.findings("sandbox")
+        assert outcome.detail("sandbox")["not_copied"] == [declared]
 
     @pytest.mark.parametrize(
         ("declared", "expected"),
@@ -324,16 +328,15 @@ class TestSandbox:
         expected: str,
     ) -> None:
         """Absolute, escaping, build-output and cache paths are all refused."""
-        outcome = run_preflight(
-            repository(
-                tmp_path / "repo",
-                Checkout(
-                    also_copy=("conftest.py", declared),
-                    manifest=f'sandbox_paths = ["{declared}"]\n',
-                    extra={declared.lstrip("./"): "x\n"}
-                    if not declared.startswith("/")
-                    else {},
-                ),
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                also_copy=("conftest.py", declared),
+                manifest=f'sandbox_paths = ["{declared}"]\n',
+                extra={declared.lstrip("./"): "x\n"}
+                if not declared.startswith("/")
+                else {},
             ),
             project_python="3.13",
         )

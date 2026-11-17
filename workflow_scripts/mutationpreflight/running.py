@@ -133,7 +133,8 @@ def run_command(
             env=dict(env),
         )
     except ProcessTimedOut:
-        return None, f"it did not finish within {timeout} seconds"
+        unit = "second" if timeout == 1 else "seconds"
+        return None, f"it did not finish within {timeout} {unit}"
     except (OSError, ProcessExecutionError) as error:
         # OSError covers the spawn itself: a path that is not executable, a
         # working directory that cannot be entered, or a full process table.

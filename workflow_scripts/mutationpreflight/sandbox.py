@@ -132,7 +132,7 @@ def _path_finding(
 
 def _review_paths(
     repo_root: Path, declared_paths: tuple[str, ...], copied: tuple[str, ...] | None
-) -> tuple[list[str], dict[str, object]]:
+) -> tuple[list[str], dict[str, list[str]]]:
     """Return every finding, with the paths classified for the envelope.
 
     *copied* is ``None`` when mutmut's copy set could not be established: the

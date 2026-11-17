@@ -74,14 +74,39 @@ class Checkout:
 
 
 def write_file(root: Path, relative: str, text: str = "") -> None:
-    """Write *text* at *relative* under *root*, creating parent directories."""
+    """Write *text* at *relative* under *root*, creating parent directories.
+
+    Parameters
+    ----------
+    root : Path
+        The checkout the file belongs to.
+    relative : str
+        The file's path, relative to *root*.
+    text : str
+        What to write; an empty file by default.
+
+    """
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
 
 
 def repository(root: Path, checkout: Checkout | None = None) -> Path:
-    """Write a mutation-ready checkout and return its root."""
+    """Write a mutation-ready checkout and return its root.
+
+    Parameters
+    ----------
+    root : Path
+        Where the checkout is written.
+    checkout : Checkout | None
+        What to declare and write; the defaults when ``None``.
+
+    Returns
+    -------
+    Path
+        *root*, after the fixture files are written.
+
+    """
     knobs = checkout or Checkout()
     project = '[project]\nname = "example"\n'
     if knobs.requires_python is not None:
@@ -100,7 +125,21 @@ def repository(root: Path, checkout: Checkout | None = None) -> Path:
 
 
 def lock_document(version: str, source: str) -> str:
-    """Return a ``uv.lock`` pinning one package at *version* from *source*."""
+    """Return a ``uv.lock`` pinning one package at *version* from *source*.
+
+    Parameters
+    ----------
+    version : str
+        The version the lock records for ``tei-rapporteur``.
+    source : str
+        The body of the lock entry's ``source`` table.
+
+    Returns
+    -------
+    str
+        A lock document a declaration can be checked against.
+
+    """
     return (
         "version = 1\n\n"
         "[[package]]\n"
@@ -135,12 +174,36 @@ class Outcome:
     stdout: str
 
     def findings(self, phase: str) -> str:
-        """Return one phase's findings joined, for substring assertions."""
+        """Return one phase's findings joined, for substring assertions.
+
+        Parameters
+        ----------
+        phase : str
+            The phase name whose findings are returned.
+
+        Returns
+        -------
+        str
+            The findings, one per line; empty when the phase has none.
+
+        """
         found = self.phases.get(phase, {}).get("findings", [])
         return "\n".join(str(item) for item in found)
 
     def detail(self, phase: str) -> dict[str, object]:
-        """Return one phase's evidence table."""
+        """Return one phase's evidence table.
+
+        Parameters
+        ----------
+        phase : str
+            The phase name whose detail is returned.
+
+        Returns
+        -------
+        dict[str, object]
+            The phase's ``detail`` object as the envelope published it.
+
+        """
         return typ.cast("dict[str, object]", self.phases[phase]["detail"])
 
 

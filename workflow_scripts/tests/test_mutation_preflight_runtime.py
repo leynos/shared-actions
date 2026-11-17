@@ -15,7 +15,13 @@ import typing as typ
 
 import pytest
 
-from workflow_scripts.mutationpreflight.models import Ran
+from workflow_scripts.mutationpreflight.models import (
+    PhaseResult,
+    Ran,
+    Report,
+    Runtimes,
+)
+from workflow_scripts.mutationpreflight.reporting import render_summary
 from workflow_scripts.mutationpreflight.running import (
     bounded,
     last_line,
@@ -135,6 +141,7 @@ class TestVersionMatching:
             ("mold 2.4", "2.4", True),
             ("mold 1.2.3rc1", "1.2.3", False),
             ("mold 1.2.3.post1", "1.2.3", False),
+            ("mold 1.2.3beta1", "1.2.3", False),
             ("mold 1.2.3", "1.2.3", True),
             ("mold 0.9.0rc1", "0.9.0rc1", True),
             ("mold 0.9.0rc1", "0.9.0", False),
@@ -288,7 +295,9 @@ class TestChecks:
         )
 
         assert outcome.exit_code == 1
-        assert "did not finish within 1 seconds" in outcome.findings("checks")
+        finding = outcome.findings("checks")
+        assert "did not finish within 1 second" in finding
+        assert "1 seconds" not in finding
 
     @POSIX_SHIMS_ONLY
     def test_a_relative_command_path_is_resolved_against_its_cwd(
@@ -586,3 +595,40 @@ class TestEnvelope:
 
         assert outcome.exit_code == 2
         assert outcome.result == "fail"
+
+
+class TestSummaryRow:
+    """A finding cannot escape the table row it is rendered in."""
+
+    def test_a_multiline_finding_stays_in_one_row(self) -> None:
+        """ConfigParser's multi-line message must not end the row early."""
+        finding = "setup.cfg could not be read: File contains no section\nheaders"
+        report = Report(
+            lane="mutmut",
+            runtimes=Runtimes(helper="3.14.7", project="3.13"),
+            results=(PhaseResult("sandbox", "unknown", (finding,)),),
+            verdict="pass",
+        )
+
+        rendered = render_summary(report)
+
+        rows = [line for line in rendered.splitlines() if line.startswith("| sandbox")]
+        assert rows == [
+            (
+                "| sandbox | unknown | setup.cfg could not be read: File contains "
+                "no section headers |"
+            )
+        ]
+
+    def test_a_backslash_cannot_neutralise_the_pipe_escape(self) -> None:
+        """Escaping the pipe after a backslash would leave the pipe unescaped."""
+        report = Report(
+            lane="mutmut",
+            runtimes=Runtimes(helper="3.14.7", project="3.13"),
+            results=(PhaseResult("sandbox", "fail", ("a\\|b",)),),
+            verdict="fail",
+        )
+
+        rendered = render_summary(report)
+
+        assert "a\\\\\\|b" in rendered

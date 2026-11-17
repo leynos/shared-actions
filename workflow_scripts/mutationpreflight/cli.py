@@ -60,6 +60,12 @@ _DEFAULT_OPTIONS: typ.Final[Options] = Options()
 def require_lane(lane: str) -> None:
     """Refuse a lane this helper cannot check, before it reads anything.
 
+    Parameters
+    ----------
+    lane : str
+        The lane the caller asked for. Only the values in ``LANES`` —
+        ``mutmut`` and ``cargo`` — name checks this helper can run.
+
     Raises
     ------
     SystemExit
@@ -75,7 +81,15 @@ def require_lane(lane: str) -> None:
 
 
 def emit_findings(results: typ.Iterable[PhaseResult]) -> None:
-    """Publish each finding on standard error, prefixed with its phase."""
+    """Publish each finding on standard error, prefixed with its phase.
+
+    Parameters
+    ----------
+    results : Iterable[PhaseResult]
+        The phases whose findings are published. Each finding becomes one
+        ``mutation_preflight_finding`` line naming the phase it came from.
+
+    """
     for result in results:
         for finding in result.findings:
             emit(

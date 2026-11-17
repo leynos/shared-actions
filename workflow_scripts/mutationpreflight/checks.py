@@ -48,6 +48,19 @@ def log_stem(index: int, name: str) -> str:
     The name is sanitised for the filesystem, which maps distinct names such as
     ``a/b`` and ``a-b`` onto one stem. The check's position keeps them apart,
     so a later check never overwrites the evidence of an earlier failure.
+
+    Parameters
+    ----------
+    index : int
+        The check's position in the declaration.
+    name : str
+        The check's declared name.
+
+    Returns
+    -------
+    str
+        The position as two digits, then the sanitised name.
+
     """
     sanitised = "".join(
         character if character.isalnum() or character in "-_" else "-"
@@ -57,7 +70,25 @@ def log_stem(index: int, name: str) -> str:
 
 
 def write_logs(directory: Path, stem: str, name: str, outcome: Ran) -> None:
-    """Write one check's bounded streams, so a failure keeps its evidence."""
+    """Write one check's bounded streams, so a failure keeps its evidence.
+
+    Parameters
+    ----------
+    directory : Path
+        The ``checks/`` directory the logs are written into.
+    stem : str
+        The filename stem that keeps this check's logs apart.
+    name : str
+        The check's declared name, used when a log error is reported.
+    outcome : Ran
+        The bounded streams to write as ``<stem>.stdout.log`` and
+        ``<stem>.stderr.log``.
+
+    An ``OSError`` while writing is reported as a
+    ``mutation_preflight_log_error`` line rather than raised, so one unwritable
+    log does not discard the phase's verdict.
+
+    """
     try:
         directory.mkdir(parents=True, exist_ok=True)
         (directory / f"{stem}.stdout.log").write_text(outcome.stdout, encoding="utf-8")

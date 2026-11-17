@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import typing as typ
 from pathlib import Path
@@ -95,6 +96,20 @@ def phase_envelope(result: PhaseResult) -> dict[str, object]:
     }
 
 
+def _table_ready(findings: typ.Iterable[str]) -> list[str]:
+    """Return findings that cannot break the row they are rendered in.
+
+    A finding can carry a multi-line message, such as the one ``ConfigParser``
+    raises, and an embedded newline would end the table row early. Whitespace
+    runs collapse to one space. A backslash is escaped before ``|`` so a
+    backslash already in the text cannot neutralise the pipe escape.
+    """
+    return [
+        re.sub(r"\s+", " ", finding).replace("\\", "\\\\").replace("|", "\\|")
+        for finding in findings
+    ]
+
+
 def render_summary(report: Report) -> str:
     """Render every phase as job-summary Markdown.
 
@@ -120,7 +135,7 @@ def render_summary(report: Report) -> str:
         "| ----- | ------ | -------- |",
     ]
     for result in report.results:
-        findings = "<br>".join(result.findings).replace("|", "\\|") or "-"
+        findings = "<br>".join(_table_ready(result.findings)) or "-"
         lines.append(f"| {result.name} | {result.status} | {findings} |")
     lines.append("")
     return "\n".join(lines)

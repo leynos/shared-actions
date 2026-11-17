@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import typing as typ
+from pathlib import Path
 
 import pytest
 
@@ -25,8 +26,11 @@ from workflow_scripts.tests.mutation_preflight_support import (
     repository,
 )
 
-if typ.TYPE_CHECKING:
-    from pathlib import Path
+
+def _materializable(declared: str) -> bool:
+    """Return whether *declared* names a path inside the fixture checkout."""
+    path = Path(declared)
+    return not path.is_absolute() and ".." not in path.parts
 
 
 class TestManifest:
@@ -393,9 +397,7 @@ class TestSandbox:
             Checkout(
                 also_copy=("conftest.py", declared),
                 manifest=f'sandbox_paths = ["{declared}"]\n',
-                extra={declared.lstrip("./"): "x\n"}
-                if not declared.startswith("/")
-                else {},
+                extra={declared: "x\n"} if _materializable(declared) else {},
             ),
             project_python="3.13",
         )

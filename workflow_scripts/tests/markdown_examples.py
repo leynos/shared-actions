@@ -2,9 +2,10 @@
 
 A fenced block is an example when the line immediately above its opening fence
 is ``<!-- tested-example: <identifier> -->``. Loading fails on an unmarked
-fence, an unterminated fence, a marker that precedes no fence, and a duplicate
-identifier, so a document cannot drift away from the examples its tests load
-from the shipped text rather than from a copied fixture.
+fence, an unterminated fence, a marker that precedes no fence, a marker
+separated from its fence by prose, and a duplicate identifier, so a document
+cannot drift away from the examples its tests load from the shipped text rather
+than from a copied fixture.
 
 Validation raises rather than asserts: only ``test_*.py`` files are exempt from
 ``S101``, and this is a support module. The message is the same either way, and
@@ -111,6 +112,47 @@ def _record(
     examples[pending] = Example(pending, located.language, located.body)
 
 
+def _pending_marker(
+    path: Path, pending: str | None, identifier: str, line_number: int
+) -> str:
+    """Return the marker now pending, refusing one that never reached a fence."""
+    if pending is not None:
+        message = f"{path}:{line_number}: the marker for {pending!r} precedes no fence"
+        raise ExampleError(message)
+    return identifier
+
+
+def _intervening(
+    pending: str | None, prose: int | None, line: str, line_number: int
+) -> int | None:
+    """Return the line prose first intervenes on, if it does."""
+    if pending is None:
+        return prose
+    if prose is not None:
+        return prose
+    if not line.strip():
+        return prose
+    return line_number
+
+
+def _refuse_prose(path: Path, pending: str | None, prose: int | None) -> None:
+    """Refuse a fence that its marker's prose separated from it."""
+    if prose is None:
+        return
+    message = (
+        f"{path}:{prose}: the marker for {pending!r} must be the "
+        f"line above its fence; prose intervenes"
+    )
+    raise ExampleError(message)
+
+
+def _refuse_unfenced(path: Path, pending: str | None) -> None:
+    """Refuse a document whose last marker reached no fence."""
+    if pending is not None:
+        message = f"{path}: the marker for {pending!r} precedes no fence"
+        raise ExampleError(message)
+
+
 def load_examples(path: Path) -> dict[str, Example]:
     """Return every marked example in *path*, refusals named by line.
 
@@ -128,28 +170,29 @@ def load_examples(path: Path) -> dict[str, Example]:
     lines = path.read_text(encoding="utf-8").splitlines()
     examples: dict[str, Example] = {}
     pending: str | None = None
+    prose: int | None = None
     index = 0
     while index < len(lines):
         identifier = _marker(lines[index])
         if identifier is not None:
-            if pending is not None:
-                message = (
-                    f"{path}:{index + 1}: the marker for {pending!r} precedes no fence"
-                )
-                raise ExampleError(message)
-            pending = identifier
+            pending = _pending_marker(path, pending, identifier, index + 1)
+            prose = None
             index += 1
             continue
         opening = _opening(lines[index])
         if opening is None:
+            # Prose between a marker and its fence is only a separation if a
+            # fence follows; without one the marker precedes no fence at all,
+            # which the end of the document reports.
+            prose = _intervening(pending, prose, lines[index], index + 1)
             index += 1
             continue
+        _refuse_prose(path, pending, prose)
         fence, language = opening
         body, after = _read_body(path, lines, index + 1, fence)
         _record(path, examples, pending, _Located(index + 1, language, body))
         pending = None
+        prose = None
         index = after
-    if pending is not None:
-        message = f"{path}: the marker for {pending!r} precedes no fence"
-        raise ExampleError(message)
+    _refuse_unfenced(path, pending)
     return examples

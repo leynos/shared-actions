@@ -10,11 +10,13 @@ passing once the requirement is declared or satisfied.
 
 from __future__ import annotations
 
+import json
 import typing as typ
 
 import pytest
 
 from workflow_scripts.tests.mutation_preflight_support import (
+    POSIX_SYMLINKS_ONLY,
     RULE_AVAILABLE,
     Checkout,
     Outcome,
@@ -211,6 +213,27 @@ class TestInterpreter:
         assert outcome.exit_code == 0, outcome.stdout
         assert outcome.phases["interpreter"]["status"] == "unknown"
         assert "not checked" in outcome.findings("interpreter")
+
+    def test_a_requires_python_that_is_not_text_still_publishes_its_report(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """TOML can hand back a date, and the report is JSON, not Python."""
+        root = repository(tmp_path / "repo", Checkout())
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "example"\nrequires-python = 2026-01-01\n',
+            encoding="utf-8",
+        )
+
+        outcome = run_preflight(root, project_python="3.13")
+
+        assert outcome.exit_code == 0, outcome.stdout
+        assert outcome.phases["interpreter"]["status"] == "unknown"
+        assert "is not a range" in outcome.findings("interpreter")
+        report = json.loads(
+            (tmp_path / "out" / "mutation-preflight.json").read_text(encoding="utf-8")
+        )
+        phase = next(item for item in report["phases"] if item["name"] == "interpreter")
+        assert phase["detail"]["requires_python"] == "2026-01-01"
 
 
 class TestSandbox:
@@ -432,3 +455,65 @@ class TestSandbox:
 
         assert outcome.exit_code == 1
         assert "keep one" in outcome.findings("manifest")
+
+    def test_the_deprecated_paths_to_mutate_still_names_the_source_tree(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """The deprecated key still names the tree, so the copy set is knowable."""
+        root = repository(
+            tmp_path / "repo",
+            Checkout(manifest='sandbox_paths = ["workflow_scripts/example.py"]\n'),
+        )
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "example"\n\n'
+            "[tool.mutmut]\n"
+            'paths_to_mutate = ["workflow_scripts/"]\n',
+            encoding="utf-8",
+        )
+
+        outcome = run_preflight(root, project_python="3.13")
+
+        assert outcome.exit_code == 0, outcome.stdout
+        assert outcome.phases["sandbox"]["status"] == "pass"
+
+    @POSIX_SYMLINKS_ONLY
+    def test_a_sandbox_path_resolving_outside_the_checkout_is_refused(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A link would carry something the declaration did not name."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "helper.py").write_text("VALUE = 1\n", encoding="utf-8")
+        root = repository(
+            tmp_path / "repo",
+            Checkout(
+                also_copy=("conftest.py", "fixtures"),
+                manifest='sandbox_paths = ["fixtures"]\n',
+            ),
+        )
+        (root / "fixtures").symlink_to(outside, target_is_directory=True)
+
+        outcome = run_preflight(root, project_python="3.13")
+
+        assert outcome.exit_code == 1
+        assert "outside the checkout" in outcome.findings("sandbox")
+
+    @POSIX_SYMLINKS_ONLY
+    def test_a_sandbox_path_resolving_into_a_cache_is_refused(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A link into .venv would copy the cache the rule exists to exclude."""
+        root = repository(
+            tmp_path / "repo",
+            Checkout(
+                also_copy=("conftest.py", "fixtures"),
+                manifest='sandbox_paths = ["fixtures"]\n',
+            ),
+        )
+        (root / ".venv").mkdir()
+        (root / "fixtures").symlink_to(root / ".venv", target_is_directory=True)
+
+        outcome = run_preflight(root, project_python="3.13")
+
+        assert outcome.exit_code == 1
+        assert "tool cache" in outcome.findings("sandbox")

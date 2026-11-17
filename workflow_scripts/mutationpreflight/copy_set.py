@@ -25,8 +25,8 @@ _NO_CONFIG: typ.Final[str] = (
     "is present, so what mutmut copies cannot be established"
 )
 _NO_SOURCE_PATHS: typ.Final[str] = (
-    "the mutmut configuration declares no source_paths, so the copy set "
-    "cannot be established; mutmut would guess it"
+    "the mutmut configuration declares neither source_paths nor the deprecated "
+    "paths_to_mutate, so the copy set cannot be established; mutmut would guess it"
 )
 
 
@@ -44,7 +44,7 @@ def _setup_cfg_table(root: Path) -> dict[str, object] | None:
         return None
     section = parser["mutmut"]
     table: dict[str, object] = {}
-    for key in ("source_paths", "also_copy"):
+    for key in ("source_paths", "paths_to_mutate", "also_copy"):
         if key not in section:
             continue
         raw = section[key]
@@ -91,7 +91,11 @@ def mutmut_copy_set(root: Path) -> tuple[tuple[str, ...] | None, tuple[str, ...]
     if table is None:
         return None, (problem or "the mutmut configuration could not be read",)
     try:
-        source_paths = strings(table.get("source_paths"), "[tool.mutmut] source_paths")
+        # mutmut 3.6.0 reads ``paths_to_mutate`` when ``source_paths`` is empty,
+        # warning that it is deprecated; the copy set is the same either way.
+        source_paths = strings(
+            table.get("source_paths"), "[tool.mutmut] source_paths"
+        ) or strings(table.get("paths_to_mutate"), "[tool.mutmut] paths_to_mutate")
         also_copy = strings(table.get("also_copy"), "[tool.mutmut] also_copy")
     except DeclarationError as error:
         return None, (str(error),)

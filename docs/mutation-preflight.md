@@ -69,6 +69,9 @@ Paths that must survive into mutmut's `mutants/` copy. Each entry is:
 - present in the checkout (a missing path is a finding, not a pass);
 - not inside build output or a cache (`.venv`, `target`, `.pytest_cache`,
   `mutants` and similar are refused);
+- not a symlink resolving outside the checkout or into one of those
+  directories, because the sandbox would then carry something the declaration
+  did not name;
 - either covered by mutmut's default copy set, by a root-level `test*.py`
   glob, or by an `also_copy` entry.
 
@@ -171,7 +174,7 @@ Bounded commands run from a declared boundary:
 ```toml
 [[tool.mutation-preflight.checks]]
 name = "subprocess-fixture"
-command = ["python", "-m", "pytest", "-q", "test_cli.py", "-k", "subprocess"]
+command = ["uv", "run", "python", "-m", "pytest", "-q", "test_cli.py", "-k", "subprocess"]
 cwd = "tests"
 timeout_seconds = 120
 env = { PYTHONPATH = "..:/declared" }
@@ -180,6 +183,15 @@ env = { PYTHONPATH = "..:/declared" }
 The test path is written relative to `cwd`, not to the checkout, because the
 command runs from `cwd`: selecting `tests/test_cli.py` from inside `tests`
 would run `tests/tests/test_cli.py`.
+
+A command's executable is resolved on the `PATH` of the preflight process,
+which is the helper's environment; the declared `env` layers onto the command's
+environment but does not change that lookup. Name the interpreter the mutation
+run itself uses (`uv run python …`, as above) rather than a bare `python`: a
+bare name finds only what the helper has installed, so a `pytest` that lives in
+the project environment would not be found. A command written as a path
+(`./scripts/check.sh`) is resolved against its declared `cwd`, not against the
+directory the preflight was started in.
 
 This is the contract a subprocess or nested-pytest fixture needs, made explicit:
 `cwd` is the working directory, `env` is layered over the ambient environment,

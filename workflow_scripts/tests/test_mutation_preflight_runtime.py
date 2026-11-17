@@ -9,9 +9,13 @@ does.
 from __future__ import annotations
 
 import json
+import stat
 import sys
 import typing as typ
 
+import pytest
+
+from workflow_scripts.mutationpreflight.running import reports_version
 from workflow_scripts.tests.mutation_preflight_support import (
     POSIX_SHIMS_ONLY,
     POSIX_SYMLINKS_ONLY,
@@ -25,8 +29,6 @@ from workflow_scripts.tests.mutation_preflight_support import (
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 class TestCommands:
@@ -93,6 +95,49 @@ class TestCommands:
         assert outcome.exit_code == 1
         assert "does not report '2.4'" in outcome.findings("commands")
         assert "2.41.0" in outcome.findings("commands")
+
+    @POSIX_SHIMS_ONLY
+    def test_a_failed_version_probe_is_not_a_pass(
+        self,
+        tmp_path: Path,
+        run_preflight: typ.Callable[..., Outcome],
+        install_tool: typ.Callable[..., None],
+    ) -> None:
+        """A crashing probe has established nothing, whatever it printed."""
+        install_tool("mold", 'echo "mold 2.41.0"; exit 3')
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest='[[require_commands]]\nname = "mold"\nversion = "2.41"\n'
+            ),
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 1
+        assert "exited 3" in outcome.findings("commands")
+
+
+class TestVersionMatching:
+    """A reported version is compared as a token, not searched for as text."""
+
+    @pytest.mark.parametrize(
+        ("printed", "wanted", "accepted"),
+        [
+            ("mold 2.41.0", "2.4", False),
+            ("mold 2.4.1", "2.4", True),
+            ("mold 2.4", "2.4", True),
+            ("mold 1.2.3rc1", "1.2.3", False),
+            ("mold 1.2.3.post1", "1.2.3", False),
+            ("mold 1.2.3", "1.2.3", True),
+        ],
+    )
+    def test_a_token_must_equal_the_declared_version_or_extend_it(
+        self, printed: str, wanted: str, *, accepted: bool
+    ) -> None:
+        """A pre- or post-release suffix stays part of the token it qualifies."""
+        assert reports_version(printed, wanted) is accepted
 
 
 class TestChecks:
@@ -196,6 +241,28 @@ class TestChecks:
 
         assert outcome.exit_code == 1
         assert "did not finish within 1 seconds" in outcome.findings("checks")
+
+    @POSIX_SHIMS_ONLY
+    def test_a_relative_command_path_is_resolved_against_its_cwd(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A path command must resolve where it runs, not where the helper started."""
+        manifest = (
+            '[[checks]]\nname = "collect"\ncommand = ["./probe"]\ncwd = "fixtures"\n'
+        )
+        root = repository(
+            tmp_path / "repo",
+            Checkout(manifest=manifest),
+        )
+        probe = root / "fixtures" / "probe"
+        probe.parent.mkdir(parents=True)
+        probe.write_text("#!/bin/sh\necho collected\n", encoding="utf-8")
+        probe.chmod(probe.stat().st_mode | stat.S_IXUSR)
+
+        outcome = run_preflight(root, project_python="3.13")
+
+        assert outcome.exit_code == 0, outcome.stdout
+        assert outcome.phases["checks"]["status"] == "pass"
 
     @POSIX_SYMLINKS_ONLY
     def test_a_cwd_resolving_outside_the_checkout_is_refused(

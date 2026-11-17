@@ -7,10 +7,9 @@ a job that never finishes.
 
 from __future__ import annotations
 
+import os
 import typing as typ
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
+from pathlib import Path
 
 from plumbum import CommandNotFound, ProcessExecutionError, ProcessTimedOut, local
 
@@ -19,7 +18,20 @@ from .models import Ran
 
 
 def bounded(text: str) -> str:
-    """Return at most ``LOG_BOUND_BYTES`` bytes of *text*, marking the rest."""
+    """Return at most ``LOG_BOUND_BYTES`` bytes of *text*, marking the rest.
+
+    Parameters
+    ----------
+    text : str
+        The stream to bound.
+
+    Returns
+    -------
+    str
+        *text* unchanged when it fits, else the kept prefix and a line naming
+        how many bytes were dropped.
+
+    """
     encoded = text.encode("utf-8", "replace")
     if len(encoded) <= LOG_BOUND_BYTES:
         return text
@@ -29,12 +41,43 @@ def bounded(text: str) -> str:
 
 
 def last_line(outcome: Ran) -> str:
-    """Return the last non-empty line a command printed, for a one-line finding."""
+    """Return the last non-empty line a command printed, for a one-line finding.
+
+    Parameters
+    ----------
+    outcome : Ran
+        The command's bounded result.
+
+    Returns
+    -------
+    str
+        The last non-empty line of standard error, else of standard output,
+        else a phrase saying the command printed nothing.
+
+    """
     for text in (outcome.stderr, outcome.stdout):
         printed = [line.strip() for line in text.splitlines() if line.strip()]
         if printed:
             return printed[-1]
     return "it printed nothing"
+
+
+def _is_path(name: str) -> bool:
+    """Return whether *name* is a path rather than a bare command name."""
+    separators = [separator for separator in (os.sep, os.altsep) if separator]
+    return any(separator in name for separator in separators)
+
+
+def _executable(name: str, cwd: Path) -> str:
+    """Return the name to look up, anchored at *cwd* when it is a relative path.
+
+    A bare name is resolved through ``PATH``. A name carrying a path separator
+    would otherwise be resolved against the process's working directory, which
+    is not the directory the command is about to run in.
+    """
+    if not _is_path(name) or Path(name).is_absolute():
+        return name
+    return str((cwd / name).resolve())
 
 
 def run_command(
@@ -61,8 +104,10 @@ def run_command(
 
     """
     try:
-        binary = local[command[0]]
+        binary = local[_executable(command[0], cwd)]
     except CommandNotFound:
+        if _is_path(command[0]):
+            return None, f"{command[0]!r} is not an executable file in {str(cwd)!r}"
         return None, f"{command[0]!r} is not on PATH"
     try:
         completed = binary.run(
@@ -94,9 +139,29 @@ def reports_version(printed: str, wanted: str) -> bool:
     A substring test would accept ``2.4`` for ``2.41.0``, which is the kind of
     near-miss this phase exists to catch, so the declared version must equal a
     dotted token in the output or be its dotted prefix: ``2.4`` accepts
-    ``2.4.0`` and rejects ``2.41.0``.
+    ``2.4.0`` and rejects ``2.41.0``. A pre- or post-release suffix stays in the
+    token and makes it a different release, so neither ``1.2.3rc1`` nor
+    ``1.2.3.post1`` reports the stable ``1.2.3``.
+
+    Parameters
+    ----------
+    printed : str
+        What the command wrote to both streams, joined.
+    wanted : str
+        The version the declaration requires.
+
+    Returns
+    -------
+    bool
+        Whether a token in *printed* equals *wanted* or extends it by dotted
+        components.
+
     """
     for token in VERSION_TOKEN.findall(printed):
+        # A suffix makes the token a different release from the stable version
+        # it resembles, whatever the dotted components in front of it say.
+        if not all(part.isdigit() for part in token.split(".")):
+            continue
         if token == wanted or token.startswith(f"{wanted}."):
             return True
     return False

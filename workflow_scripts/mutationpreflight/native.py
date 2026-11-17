@@ -62,7 +62,16 @@ def _source_text(package: dict[str, object]) -> str:
 
 
 def abi3_escape_hatch() -> str:
-    """Return the ABI3 compatibility setting, without reading it as proof."""
+    """Return the ABI3 compatibility setting, without reading it as proof.
+
+    Returns
+    -------
+    str
+        ``PYO3_USE_ABI3_FORWARD_COMPATIBILITY`` as the environment spells it,
+        or ``"unset"``. The value is recorded for diagnosis only: setting it
+        makes a build skip a version check rather than establish support.
+
+    """
     return os.environ.get("PYO3_USE_ABI3_FORWARD_COMPATIBILITY", "") or "unset"
 
 

@@ -110,6 +110,18 @@ class TestLoader:
         with pytest.raises(ExampleError, match="duplicate tested-example"):
             load_examples(path)
 
+    def test_a_marker_separated_from_its_fence_by_prose_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """A fence the marker does not abut is a fence with no marker."""
+        path = _written(
+            tmp_path,
+            "<!-- tested-example: first -->\n\nProse here.\n\n```toml\na = 1\n```\n",
+        )
+
+        with pytest.raises(ExampleError, match="prose intervenes"):
+            load_examples(path)
+
     def test_an_unterminated_fence_is_refused(self, tmp_path: Path) -> None:
         """An unclosed fence would swallow the rest of the document."""
         path = _written(tmp_path, "<!-- tested-example: first -->\n\n```toml\na = 1\n")

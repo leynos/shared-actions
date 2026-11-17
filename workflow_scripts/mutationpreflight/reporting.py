@@ -29,7 +29,21 @@ _NO_DECLARATION: typ.Final[str] = (
 
 
 def manifest_phase(loaded: Loaded) -> PhaseResult:
-    """Return the manifest phase for what reading the declaration produced."""
+    """Return the manifest phase for what reading the declaration produced.
+
+    Parameters
+    ----------
+    loaded : Loaded
+        What reading the declaration produced: its source, the parsed
+        declaration when one was accepted, and why it was refused otherwise.
+
+    Returns
+    -------
+    PhaseResult
+        ``skipped`` when the repository declares nothing, ``fail`` when the
+        declaration was refused, ``pass`` otherwise.
+
+    """
     if loaded.source is None:
         return PhaseResult("manifest", SKIPPED, (), {"reason": _NO_DECLARATION})
     detail: dict[str, object] = {"source": str(loaded.source)}
@@ -58,7 +72,21 @@ def verdict(results: typ.Sequence[PhaseResult]) -> str:
 
 
 def phase_envelope(result: PhaseResult) -> dict[str, object]:
-    """Return one phase's machine-readable envelope entry."""
+    """Return one phase's machine-readable envelope entry.
+
+    Parameters
+    ----------
+    result : PhaseResult
+        The phase to publish.
+
+    Returns
+    -------
+    dict[str, object]
+        The phase's name, status, findings and evidence. Every value is
+        JSON-serialisable, because the same entry is logged and written to the
+        report.
+
+    """
     return {
         "name": result.name,
         "status": result.status,

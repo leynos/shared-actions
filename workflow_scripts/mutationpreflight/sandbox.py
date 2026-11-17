@@ -46,13 +46,34 @@ def path_problem(declared: str) -> str | None:
     parts = [part for part in path.parts if part not in ("", ".")]
     if ".." in parts:
         return "escapes the checkout"
+    return _excluded_problem(parts, "is under")
+
+
+def _excluded_problem(parts: typ.Iterable[str], phrase: str) -> str | None:
+    """Return why *parts* names build output, a tool cache or the VCS store.
+
+    *phrase* opens the finding, so the same rule can describe a declared path
+    and the path a symlink resolves to.
+    """
     for part in parts:
         if part in EXCLUDED_DIRECTORIES:
             return (
-                f"is under {part!r}, which is build output, a tool cache or the "
+                f"{phrase} {part!r}, which is build output, a tool cache or the "
                 f"version-control store; the sandbox must not carry it"
             )
     return None
+
+
+def _resolved_problem(repo_root: Path, declared: str) -> str | None:
+    """Return why what *declared* resolves to cannot be a sandbox path."""
+    root = repo_root.resolve()
+    resolved = (root / declared).resolve()
+    if not resolved.is_relative_to(root):
+        return (
+            f"resolves to {str(resolved)!r} outside the checkout, so the sandbox "
+            f"would carry something the declaration did not name"
+        )
+    return _excluded_problem(resolved.relative_to(root).parts, "resolves into")
 
 
 def _covers(entry: str, wanted: str) -> bool:
@@ -100,6 +121,10 @@ def _review_paths(
                 f"sandbox path {declared!r} is not in the checkout, so the "
                 f"declaration names a requirement nothing satisfies"
             )
+            continue
+        resolved = _resolved_problem(repo_root, declared)
+        if resolved is not None:
+            findings.append(f"sandbox path {declared!r} {resolved}")
             continue
         if copied is None or _is_copied(declared, copied):
             continue

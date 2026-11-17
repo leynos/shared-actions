@@ -93,7 +93,11 @@ MAX_CHECK_TIMEOUT_SECONDS: typ.Final[int] = 900
 VERSION_TIMEOUT_SECONDS: typ.Final[int] = 60
 
 #: A dotted version token in a command's output, used for exact comparison.
-VERSION_TOKEN: typ.Final[re.Pattern[str]] = re.compile(r"\d+(?:\.\d+)+")
+#: A PEP 440 pre/post/dev suffix stays part of the token, so ``1.2.3rc1`` is
+#: not read as the stable ``1.2.3`` it merely resembles.
+VERSION_TOKEN: typ.Final[re.Pattern[str]] = re.compile(
+    r"\d+(?:\.\d+)+(?:\.?(?:a|b|rc|post|dev)\d*)?", re.IGNORECASE
+)
 
 #: The checkout this helper belongs to. The package sits one directory below
 #: ``workflow_scripts/``, which sits one below the repository root.

@@ -36,6 +36,14 @@ def _review_command(
         return finding, problem
     printed = f"{outcome.stdout}\n{outcome.stderr}"
     evidence: object = bounded(printed.strip())
+    if outcome.exit_code != 0:
+        # A probe that failed has not established anything, whatever it printed:
+        # a version string in the output of a crashing command is not a pass.
+        finding = (
+            f"required command {requirement.name!r} exited {outcome.exit_code} "
+            f"when asked for its version: {last_line(outcome)!r}"
+        )
+        return finding, evidence
     if requirement.version and not reports_version(printed, requirement.version):
         finding = (
             f"required command {requirement.name!r} does not report "

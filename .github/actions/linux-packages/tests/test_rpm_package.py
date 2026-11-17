@@ -51,7 +51,9 @@ def test_rpm_package_metadata(
 
     try:
         with polythene_rootfs(
-            packaging_project_paths.polythene_command, RPM_BASE_IMAGE
+            packaging_project_paths.polythene_command,
+            RPM_BASE_IMAGE,
+            refresh_registry_image=True,
         ) as rootfs:
             shutil.copy(rpm_package_path, rootfs.root / rpm_package_path.name)
             info_output = rootfs.exec("rpm", "-qip", rpm_package_path.name)

@@ -189,6 +189,30 @@ path, resolved target, file status, and symlink status.
 passed to `uv sync` and `uv pip install` at INFO level so CI logs can identify
 whether uv targeted the venv path or the base interpreter.
 
+## Python process utilities and Linux package validation
+
+Linux package validation uses the `polythene` command from the
+[`polythene-isolate` distribution](../pyproject.toml), pinned to commit
+`542c86ef4b83a5e5583afa4bec88b7c339851497`. Upstream
+[PR 154](https://github.com/leynos/polythene/pull/154) documents the naming
+distinction: the distribution is `polythene-isolate`, while the Python import
+package and console script remain `polythene`. Declare the distribution name in
+project dependencies. The package-test rootfs helper only runs `podman pull`
+when `refresh_registry_image=True`; the Debian and RPM registry-image tests opt
+in, while the default path does not pre-pull.
+
+[`cmd_utils.py`](../cmd_utils.py) converts Plumbum process errors to
+`RunResult`; `_normalize_exit_code()` maps `None` or a value whose integer
+conversion raises `ValueError` to exit code `1`. `_run_handler()` converts a
+`TimeoutError` to `ProcessTimedOut`, retaining its message (or using
+`Command timed out`) and the command's formatted arguments.
+
+The coverage action's
+[`process_error_to_run_result()`](../.github/actions/generate-coverage/scripts/cmd_utils_loader.py)
+loads `cmd_utils` lazily through `_get_cmd_utils()`. If the loaded module
+lacks that conversion function, the adapter raises `CmdUtilsImportError`, names
+the missing symbol, and chains the original `AttributeError`.
+
 ## Makefile Tool Resolution
 
 The `Makefile` resolves optional local tool installations before falling back

@@ -55,6 +55,10 @@ inputs:
     description: Container image used for RPM package validation.
     required: false
     default: docker.io/library/rockylinux:9
+  refresh-base-images:
+    description: Pull base images from their registry before exporting them (disable for local-only images).
+    required: false
+    default: true
   polythene-path:
     description: Override the path to the polythene CLI entry point.
     required: false
@@ -105,6 +109,7 @@ runs:
         INPUT_VERIFY_COMMAND: ${{ inputs.verify-command }}
         INPUT_DEB_BASE_IMAGE: ${{ inputs.deb-base-image }}
         INPUT_RPM_BASE_IMAGE: ${{ inputs.rpm-base-image }}
+        INPUT_REFRESH_BASE_IMAGES: ${{ inputs.refresh-base-images }}
         INPUT_POLYTHENE_PATH: ${{ inputs.polythene-path }}
         INPUT_POLYTHENE_STORE: ${{ inputs.polythene-store }}
         INPUT_SANDBOX_TIMEOUT: ${{ inputs.sandbox-timeout }}

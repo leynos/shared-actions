@@ -194,12 +194,16 @@ whether uv targeted the venv path or the base interpreter.
 Linux package validation uses the `polythene` command from the
 [`polythene-isolate` distribution](../pyproject.toml), pinned to commit
 `542c86ef4b83a5e5583afa4bec88b7c339851497`. Upstream
-[PR 154](https://github.com/leynos/polythene/pull/154) documents the naming
-distinction: the distribution is `polythene-isolate`, while the Python import
-package and console script remain `polythene`. Declare the distribution name in
-project dependencies. The package-test rootfs helper only runs `podman pull`
-when `refresh_registry_image=True`; the Debian and RPM registry-image tests opt
-in, while the default path does not pre-pull.
+[PR 154](https://github.com/leynos/polythene/pull/154) explains that the PyPI
+name `polythene` was not theirs to claim, so the distribution uses
+`polythene-isolate`; the Python import package and console script remain
+`polythene`. Declare the distribution name in project dependencies. In
+production, the `validate-linux-packages` action runs `podman pull` for each
+configured base image before Polythene uses it; `refresh-base-images` defaults
+to `true` and can be set to `false` for a local-only image. This production
+input is separate from the Linux package test helper's `refresh_registry_image`
+option, which defaults to `false`; the Debian and RPM registry-image tests opt
+in, while the helper's default path does not pre-pull.
 
 [`cmd_utils.py`](../cmd_utils.py) converts Plumbum process errors to
 `RunResult`; `_normalize_exit_code()` maps `None` or a value whose integer

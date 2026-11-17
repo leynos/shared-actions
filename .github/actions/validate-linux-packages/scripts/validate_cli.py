@@ -31,6 +31,7 @@ from validate_packages import (
     validate_rpm_package,
 )
 from validate_polythene import (
+    PolytheneRootfsOptions,
     PolytheneSession,
     default_polythene_command,
     polythene_rootfs,
@@ -47,11 +48,12 @@ app = App()
 _env_config = cyclopts_config.Env("INPUT_", command=False)
 existing_config = getattr(app, "config", ()) or ()
 app.config = (*tuple(existing_config), _env_config)
+_BOOLEAN_INPUTS = {"true": True, "false": False}
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ValidationInputs:
-    """Raw CLI parameters collected before normalization."""
+    """Raw CLI and action inputs collected before normalization."""
 
     project_dir: Path | None = None
     package_name: str | None = None
@@ -67,6 +69,7 @@ class ValidationInputs:
     verify_command: list[str] | None = None
     deb_base_image: str = "docker.io/library/debian:bookworm"
     rpm_base_image: str = "docker.io/library/rockylinux:9"
+    refresh_base_images: bool = True
     polythene_path: Path | None = None
     polythene_store: Path | None = None
     sandbox_timeout: str | None = None
@@ -79,6 +82,16 @@ def _optional_path(value: Path | None) -> Path | None:
     if value == Path():
         return None
     return value
+
+
+def _refresh_base_images_input() -> bool:
+    """Read the action's boolean refresh policy from its input environment."""
+    value = os.environ.get("INPUT_REFRESH_BASE_IMAGES", "true").strip().casefold()
+    try:
+        return _BOOLEAN_INPUTS[value]
+    except KeyError as exc:
+        message = f"refresh-base-images must be true or false, received {value!r}"
+        raise ValidationError(message) from exc
 
 
 @dataclasses.dataclass(frozen=True)
@@ -98,6 +111,7 @@ class ValidationConfig:
     polythene_command: tuple[str, ...]
     timeout: int | None
     base_images: dict[str, str]
+    refresh_base_images: bool = True
 
     @property
     def deb_version(self) -> str:
@@ -221,6 +235,7 @@ def main(
         verify_command=verify_command,
         deb_base_image=deb_base_image,
         rpm_base_image=rpm_base_image,
+        refresh_base_images=_refresh_base_images_input(),
         polythene_path=_optional_path(polythene_path),
         polythene_store=_optional_path(polythene_store),
         sandbox_timeout=sandbox_timeout,
@@ -290,28 +305,7 @@ def _build_config(inputs: ValidationInputs) -> ValidationConfig:
     )
     verify_tuple = tuple(normalize_command(inputs.verify_command))
 
-    polythene_path = inputs.polythene_path
-    if polythene_path is None:
-        polythene_command = default_polythene_command()
-    else:
-        # The helper is launched via ``uv run`` which reads the script directly,
-        # so the file only needs to exist and does not require the executable bit.
-        if not polythene_path.exists():
-            message = f"polythene script not found: {polythene_path}"
-            raise ValidationError(message)
-        try:
-            with polythene_path.open("r"):
-                pass
-        except PermissionError as exc:
-            message = (
-                "polythene script is not readable due to permission error: "
-                f"{polythene_path}"
-            )
-            raise ValidationError(message) from exc
-        except OSError as exc:
-            message = f"polythene script could not be read: {polythene_path} ({exc})"
-            raise ValidationError(message) from exc
-        polythene_command = (polythene_path.as_posix(),)
+    polythene_command = _polythene_command(inputs.polythene_path)
 
     return ValidationConfig(
         packages_dir=packages_dir_value,
@@ -326,11 +320,33 @@ def _build_config(inputs: ValidationInputs) -> ValidationConfig:
         verify_command=verify_tuple,
         polythene_command=polythene_command,
         timeout=timeout_value,
+        refresh_base_images=inputs.refresh_base_images,
         base_images={
             "deb": inputs.deb_base_image,
             "rpm": inputs.rpm_base_image,
         },
     )
+
+
+def _polythene_command(path: Path | None) -> tuple[str, ...]:
+    """Resolve the Polythene CLI path and report unreadable overrides."""
+    if path is None:
+        return default_polythene_command()
+    if not path.exists():
+        message = f"polythene script not found: {path}"
+        raise ValidationError(message)
+
+    # The helper is launched via ``uv run`` and does not need an executable bit.
+    try:
+        with path.open("r"):
+            pass
+    except PermissionError as exc:
+        message = f"polythene script is not readable due to permission error: {path}"
+        raise ValidationError(message) from exc
+    except OSError as exc:
+        message = f"polythene script could not be read: {path} ({exc})"
+        raise ValidationError(message) from exc
+    return (path.as_posix(),)
 
 
 def _prepare_paths(
@@ -606,7 +622,10 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
             config.polythene_command,
             image,
             store_dir,
-            timeout=config.timeout,
+            options=PolytheneRootfsOptions(
+                timeout=config.timeout,
+                refresh_base_images=config.refresh_base_images,
+            ),
         )
 
     validate_fn(command, package_path, config, sandbox_factory)

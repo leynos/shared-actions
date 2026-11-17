@@ -6,25 +6,26 @@ isolated root filesystem using the `polythene` sandbox.
 
 ## Inputs
 
-| Name             | Type   | Default                             | Description                                                                                                      | Required |
-| ---------------- | ------ | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------- |
-| project-dir      | string | `.`                                 | Directory containing the generated packages.                                                                     | no       |
-| package-name     | string | _empty_                             | Package identifier recorded in the package metadata.                                                             | no       |
-| bin-name         | string | —                                   | Installed binary name to validate.                                                                               | yes      |
-| target           | string | `x86_64-unknown-linux-gnu`          | Target triple used when building the artefacts.                                                                  | no       |
-| version          | string | —                                   | Semantic version recorded in the package metadata. Leading `v` prefixes are ignored.                             | yes      |
-| release          | string | _empty_                             | Package release or revision.                                                                                     | no       |
-| arch             | string | _empty_                             | Override the nfpm architecture (auto-detected from `target` when blank).                                         | no       |
-| formats          | string | `deb`                               | Comma-, space-, or newline-separated list of package formats to validate (`deb`, `rpm`, …).                      | no       |
-| packages-dir     | string | _empty_                             | Directory containing the built packages.                                                                         | no       |
-| expected-paths   | string | _empty_                             | Additional absolute paths that must be present in the package payload (defaults to `/usr/bin/<bin-name>`).       | no       |
-| executable-paths | string | _empty_                             | Subset of `expected-paths` that must be executable. Defaults to `/usr/bin/<bin-name>`.                           | no       |
-| verify-command   | string | _empty_                             | Optional command executed inside the sandbox after installation (for example `"/usr/bin/<bin-name> --version"`). | no       |
-| deb-base-image   | string | `docker.io/library/debian:bookworm` | Container image used to verify Debian packages.                                                                  | no       |
-| rpm-base-image   | string | `docker.io/library/rockylinux:9`    | Container image used to verify RPM packages.                                                                     | no       |
-| polythene-path   | string | _empty_                             | Override path to the polythene CLI. Falls back to the `polythene` entry point provided by the action runtime.    | no       |
-| polythene-store  | string | _empty_                             | Reuse an existing polythene store directory. A temporary directory is used when blank.                           | no       |
-| sandbox-timeout  | string | _empty_                             | Timeout (seconds) applied to sandbox pull and exec operations.                                                   | no       |
+| Name                | Type    | Default                             | Description                                                                                                        | Required |
+| ------------------- | ------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------- |
+| project-dir         | string  | `.`                                 | Directory containing the generated packages.                                                                       | no       |
+| package-name        | string  | _empty_                             | Package identifier recorded in the package metadata.                                                               | no       |
+| bin-name            | string  | —                                   | Installed binary name to validate.                                                                                 | yes      |
+| target              | string  | `x86_64-unknown-linux-gnu`          | Target triple used when building the artefacts.                                                                    | no       |
+| version             | string  | —                                   | Semantic version recorded in the package metadata. Leading `v` prefixes are ignored.                               | yes      |
+| release             | string  | _empty_                             | Package release or revision.                                                                                       | no       |
+| arch                | string  | _empty_                             | Override the nfpm architecture (auto-detected from `target` when blank).                                           | no       |
+| formats             | string  | `deb`                               | Comma-, space-, or newline-separated list of package formats to validate (`deb`, `rpm`, …).                        | no       |
+| packages-dir        | string  | _empty_                             | Directory containing the built packages.                                                                           | no       |
+| expected-paths      | string  | _empty_                             | Additional absolute paths that must be present in the package payload (defaults to `/usr/bin/<bin-name>`).         | no       |
+| executable-paths    | string  | _empty_                             | Subset of `expected-paths` that must be executable. Defaults to `/usr/bin/<bin-name>`.                             | no       |
+| verify-command      | string  | _empty_                             | Optional command executed inside the sandbox after installation (for example `"/usr/bin/<bin-name> --version"`).   | no       |
+| deb-base-image      | string  | `docker.io/library/debian:bookworm` | Container image used to verify Debian packages.                                                                    | no       |
+| rpm-base-image      | string  | `docker.io/library/rockylinux:9`    | Container image used to verify RPM packages.                                                                       | no       |
+| refresh-base-images | boolean | `true`                              | Pull each base image with Podman before Polythene uses it. Set to `false` for a base image available only locally. | no       |
+| polythene-path      | string  | _empty_                             | Override path to the polythene CLI. Falls back to the `polythene` entry point provided by the action runtime.      | no       |
+| polythene-store     | string  | _empty_                             | Reuse an existing polythene store directory. A temporary directory is used when blank.                             | no       |
+| sandbox-timeout     | string  | _empty_                             | Timeout (seconds) applied to sandbox pull and exec operations.                                                     | no       |
 
 ## Outputs
 
@@ -87,6 +88,16 @@ The action expects packages to be available in `<project-dir>/dist` unless
 installs them with `dpkg -i`; RPM packages use `rpm -i --nodeps`. Both flows
 verify the package metadata, ensure the expected files exist, and optionally
 run a supplied command inside the sandbox.
+
+The action runs `podman pull` for each configured base image before Polythene
+uses it, refreshing registry tags by default. For a base image available only
+in the local Podman store, override the image and disable that refresh:
+
+```yaml
+with:
+  deb-base-image: localhost/debian:bookworm
+  refresh-base-images: false
+```
 
 ## Release History
 

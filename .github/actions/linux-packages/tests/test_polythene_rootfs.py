@@ -10,6 +10,32 @@ if typ.TYPE_CHECKING:
     import pytest
 
 
+class _FakePodmanCommand:
+    """Represent a Podman command without resolving a host executable."""
+
+    def __init__(self, argv: tuple[str, ...]) -> None:
+        """Store command arguments for indexing and display."""
+        self.argv = argv
+
+    def __getitem__(self, value: str | tuple[str, ...]) -> _FakePodmanCommand:
+        """Return a command with the requested arguments appended."""
+        if not isinstance(value, tuple):
+            value = (value,)
+        return _FakePodmanCommand(self.argv + value)
+
+    def __str__(self) -> str:
+        """Render the command as a space-separated argument list."""
+        return " ".join(self.argv)
+
+
+class _FakeLocal:
+    """Build fake commands without searching PATH for Podman."""
+
+    def __getitem__(self, command: str) -> _FakePodmanCommand:
+        """Return a fake local command rooted at ``command``."""
+        return _FakePodmanCommand((command,))
+
+
 def _stub_polythene_rootfs_calls(
     monkeypatch: pytest.MonkeyPatch,
     events: list[str],
@@ -41,6 +67,7 @@ def _stub_polythene_rootfs_calls(
         return ""
 
     monkeypatch.setattr(packaging_utils, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(packaging_utils, "local", _FakeLocal())
     monkeypatch.setattr(packaging_utils, "polythene_cmd", fake_polythene_cmd)
     monkeypatch.setattr(packaging_utils, "polythene_exec", fake_polythene_exec)
 

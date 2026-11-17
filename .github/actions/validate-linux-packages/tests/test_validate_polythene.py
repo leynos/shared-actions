@@ -169,7 +169,7 @@ def test_polythene_rootfs_yields_configured_session(
         command,
         "docker.io/library/debian:bookworm",
         store,
-        timeout=12,
+        options=validate_polythene_module.PolytheneRootfsOptions(timeout=12),
     ) as session:
         assert session.command == command
         assert session.uid == "session-uid"
@@ -186,6 +186,123 @@ def test_polythene_rootfs_yields_configured_session(
     exec_argv = run_calls[1][0]
     assert "--isolation" in exec_argv
     assert exec_argv[exec_argv.index("--isolation") + 1] == "proot"
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        pytest.param("docker.io/library/debian:bookworm", id="debian-default"),
+        pytest.param("docker.io/library/rockylinux:9", id="rpm-default"),
+        pytest.param("registry.example.com/acme/base:stable", id="custom-registry"),
+    ],
+)
+def test_polythene_rootfs_refreshes_base_image_before_polythene_pull(
+    validate_polythene_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    image: str,
+) -> None:
+    """Refresh the registry image before Polythene exports it."""
+    calls: list[tuple[tuple[str, ...], int | None]] = []
+
+    def _run_text(command: object, *, timeout: int | None = None) -> str:
+        """Record calls and return a uid for Polythene's pull command."""
+        argv = tuple(getattr(command, "argv", ()))
+        calls.append((argv, timeout))
+        if argv[:2] == ("uv", "run") and "pull" in argv:
+            return "session-uid\n"
+        return ""
+
+    monkeypatch.setattr(validate_polythene_module, "run_text", _run_text)
+    monkeypatch.setattr(validate_polythene_module, "local", _FakeLocal([]))
+
+    store = tmp_path / "store"
+    with validate_polythene_module.polythene_rootfs(
+        ("polythene",),
+        image,
+        store,
+        options=validate_polythene_module.PolytheneRootfsOptions(
+            timeout=42,
+            refresh_base_images=True,
+        ),
+    ):
+        pass
+
+    assert calls[0] == (("podman", "pull", image), 42)
+    assert calls[1][0][:4] == ("uv", "run", "polythene", "pull")
+    assert calls[1][0][4] == image
+    assert calls[1][1] == 42
+
+
+def test_polythene_rootfs_preserves_local_only_image_when_refresh_disabled(
+    validate_polythene_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A local-only image does not trigger a registry pull when disabled."""
+    calls: list[tuple[str, ...]] = []
+
+    def _run_text(command: object, *, timeout: int | None = None) -> str:
+        """Record calls and return a uid for Polythene's pull command."""
+        argv = tuple(getattr(command, "argv", ()))
+        calls.append(argv)
+        return "session-uid\n" if "pull" in argv else ""
+
+    monkeypatch.setattr(validate_polythene_module, "run_text", _run_text)
+    monkeypatch.setattr(validate_polythene_module, "local", _FakeLocal([]))
+
+    image = "localhost/custom:dev"
+    with validate_polythene_module.polythene_rootfs(
+        ("polythene",),
+        image,
+        tmp_path / "store",
+        options=validate_polythene_module.PolytheneRootfsOptions(
+            refresh_base_images=False,
+        ),
+    ):
+        pass
+
+    assert calls[0][:4] == ("uv", "run", "polythene", "pull")
+    assert calls[0][4] == image
+    assert all(call[:1] != ("podman",) for call in calls)
+
+
+def test_polythene_rootfs_stops_when_base_image_refresh_fails(
+    validate_polythene_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A failed Podman refresh is surfaced before Polythene is invoked."""
+    calls: list[tuple[str, ...]] = []
+    cause = validate_polythene_module.ValidationError("registry unavailable")
+
+    def _run_text(command: object, *, timeout: int | None = None) -> str:
+        """Fail the Podman pull and reject any subsequent command."""
+        argv = tuple(getattr(command, "argv", ()))
+        calls.append(argv)
+        raise cause
+
+    monkeypatch.setattr(validate_polythene_module, "run_text", _run_text)
+    monkeypatch.setattr(validate_polythene_module, "local", _FakeLocal([]))
+
+    with (
+        pytest.raises(
+            validate_polythene_module.ValidationError,
+            match="podman pull failed: registry unavailable",
+        ) as excinfo,
+        validate_polythene_module.polythene_rootfs(
+            ("polythene",),
+            "docker.io/library/debian:bookworm",
+            tmp_path / "store",
+            options=validate_polythene_module.PolytheneRootfsOptions(
+                refresh_base_images=True,
+            ),
+        ),
+    ):
+        pass
+
+    assert calls == [("podman", "pull", "docker.io/library/debian:bookworm")]
+    assert excinfo.value.__cause__ is cause
 
 
 def test_polythene_rootfs_honours_environment_isolation_override(

@@ -102,6 +102,84 @@ def _prepare_polythene_stub(
     return calls, exec_calls
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("true", True),
+        ("false", False),
+        (" TRUE ", True),
+        ("False\n", False),
+    ],
+)
+def test_refresh_base_images_input_accepts_booleans(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    raw: str,
+    expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+) -> None:
+    """Accepted values trim, case-fold, and map to the matching boolean."""
+    module = validate_cli_module
+    monkeypatch.setenv("INPUT_REFRESH_BASE_IMAGES", raw)
+
+    result = module._refresh_base_images_input()
+
+    assert result is expected
+
+
+def test_refresh_base_images_input_defaults_to_enabled(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unset input keeps registry refreshes enabled."""
+    module = validate_cli_module
+    monkeypatch.delenv("INPUT_REFRESH_BASE_IMAGES", raising=False)
+
+    result = module._refresh_base_images_input()
+
+    assert result is True
+
+
+@pytest.mark.parametrize("raw", ["yes", "0", ""])
+def test_refresh_base_images_input_rejects_unknown_values(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    raw: str,
+) -> None:
+    """Unknown or blank values fail instead of defaulting silently."""
+    module = validate_cli_module
+    monkeypatch.setenv("INPUT_REFRESH_BASE_IMAGES", raw)
+
+    with pytest.raises(module.ValidationError, match="refresh-base-images"):
+        module._refresh_base_images_input()
+
+
+def test_main_rejects_invalid_refresh_input_before_polythene(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An invalid refresh value stops validation before Polythene is invoked."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    package_dir = project_dir / "dist"
+    _write_package(package_dir / "rust-toy-app_1.2.3-1_amd64.deb")
+
+    calls, exec_calls = _prepare_polythene_stub(module, tmp_path)
+    monkeypatch.setattr(module, "get_command", lambda _name: object())
+    monkeypatch.setenv("INPUT_REFRESH_BASE_IMAGES", "yes")
+
+    with pytest.raises(module.ValidationError, match="refresh-base-images"):
+        module.main(
+            project_dir=project_dir,
+            bin_name="rust-toy-app",
+            version="1.2.3",
+            formats=["deb"],
+        )
+
+    assert calls == []
+    assert exec_calls == []
+
+
 def test_polythene_store_accepts_executable_override(
     validate_cli_module: object,
     tmp_path: Path,

@@ -37,6 +37,10 @@ documents how to use the `install-nixie` action.
 - [Migrating to `install-clang-lld`](./migrating-to-setup-rust-clang-lld.md)
   – replacing a handwritten `apt-get install clang lld` step with
   `setup-rust`'s input.
+- [`validate-linux-packages` README](../.github/actions/validate-linux-packages/README.md)
+  – the full input table and sandbox store guidance.
+- [Migrating to registry image refresh in `validate-linux-packages`](./migrating-to-validate-linux-packages-image-refresh.md)
+  – the new `refresh-base-images` default and its opt-out.
 
 ## Node.js 24 action dependencies
 
@@ -1288,6 +1292,47 @@ coverage process, keeping the inherited `PATH` after it. An executable that a
 test creates and then runs therefore resolves against the coverage environment
 and can import the project development dependencies that `uv sync` installed
 there.
+
+## `validate-linux-packages` action
+
+`validate-linux-packages` installs a Debian or RPM package inside an isolated
+root filesystem and checks its metadata, expected paths, and optional verify
+command. See the
+[action README](../.github/actions/validate-linux-packages/README.md) for the
+full input table.
+
+### Registry image refreshes
+
+`refresh-base-images` defaults to `true`, so the action runs `podman pull` for
+the `deb-base-image` and `rpm-base-image` before Polythene exports either. A
+caller that accepts the default now reaches the registry on every validation
+run. On a persistent runner this refreshes a moved image tag instead of
+silently reusing a stale local copy.
+
+Set `refresh-base-images: false` when the base image exists only in the local
+Podman store, or when a run must stay offline. Override the image and disable
+the pull together:
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/validate-linux-packages@<sha>
+  with:
+    bin-name: rust-toy-app
+    version: 1.2.3
+    deb-base-image: localhost/debian:bookworm
+    refresh-base-images: false
+```
+
+See
+[Migrating to registry image refresh](./migrating-to-validate-linux-packages-image-refresh.md)
+for the upgrade notes.
+
+### `polythene` and `polythene-isolate`
+
+The action runs the `polythene` executable it finds on `PATH`, unless
+`polythene-path` names a script. It does not install `polythene-isolate`, so
+the executable must already be present on the runner. `polythene-isolate` is
+the distribution name used by this repository's local tooling and tests; the
+Python import package and console script remain `polythene`.
 
 ## Test timeouts: four tiers, outermost last
 

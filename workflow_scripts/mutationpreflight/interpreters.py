@@ -13,10 +13,12 @@ import typing as typ
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
+    from .ports import RequirementRule, Run
+
 from packaging.version import InvalidVersion, Version
 
 from .constants import HELPER_PYTHON_FLOOR, SHARED_RULE
-from .models import PhaseResult, Runtimes, phase_outcome
+from .models import PhaseResult, phase_outcome
 from .toml_documents import read_document
 
 _NO_PROJECT_PYTHON: typ.Final[str] = (
@@ -25,13 +27,21 @@ _NO_PROJECT_PYTHON: typ.Final[str] = (
 )
 
 
-def _load_shared_rule() -> tuple[typ.Callable[..., list[str]] | None, str]:
+def load_shared_rule() -> tuple[RequirementRule | None, str]:
     """Return the shared interpreter rule (#565), or why it is unavailable.
 
     It is loaded by path rather than imported as a package: the caller's
     environment holds the caller's dependencies, not this repository's, and
     importing ``cv005_contracts`` would pull its whole contract graph in for
     one pure function.
+
+    Returns
+    -------
+    tuple[RequirementRule | None, str]
+        The rule, and the reason it is absent when it could not be loaded. The
+        rule is loaded once at the command line and carried in the run, so no
+        phase below it re-reads the checkout to find it.
+
     """
     if not SHARED_RULE.is_file():
         return None, f"the shared requires-python rule is absent: {SHARED_RULE}"
@@ -55,12 +65,15 @@ def _load_shared_rule() -> tuple[typ.Callable[..., list[str]] | None, str]:
 
 
 def judge(
-    requirement: object, interpreter: str, *, subject: str
-) -> tuple[list[str], str]:
+    run: Run, requirement: object, interpreter: str, *, subject: str
+) -> tuple[list[str], list[str]]:
     """Return why *interpreter* falls outside *requirement*, using #565's rule.
 
     Parameters
     ----------
+    run : Run
+        The run whose shared rule decides the range, and the reason it is
+        absent when it could not be loaded.
     requirement : object
         The PEP 508 range to judge.
     interpreter : str
@@ -70,17 +83,16 @@ def judge(
 
     Returns
     -------
-    tuple[list[str], str]
-        One finding per violation, and separately the reason the shared rule
-        could not be loaded. The two are distinct: a rule that will not load
-        judged nothing, so it leaves support unknown rather than failing the
+    tuple[list[str], list[str]]
+        One finding per violation, and separately the findings that leave
+        support unknown. The two are distinct: a rule that will not load judged
+        nothing, so it leaves support unknown rather than failing the
         interpreter it never read.
 
     """
-    rule, problem = _load_shared_rule()
-    if rule is None:
-        return [], problem
-    return list(rule(requirement, interpreter, subject=subject)), ""
+    if run.rule is None:
+        return [], [run.rule_problem]
+    return list(run.rule(requirement, interpreter, subject=subject)), []
 
 
 def _project_requirement(repo_root: Path) -> tuple[object, str | None]:
@@ -119,7 +131,7 @@ def _helper_floor_violations(helper_python: str) -> list[str]:
 
 
 def _judge_project_range(
-    requirement: object, interpreter: str, blocking: list[str], unknown: list[str]
+    run: Run, requirement: object, blocking: list[str], unknown: list[str]
 ) -> None:
     """Extend *blocking* or *unknown* from the project's declared range."""
     if requirement is None:
@@ -130,23 +142,21 @@ def _judge_project_range(
             f"interpreter compatibility is unknown rather than established"
         )
         return
-    violations, problem = judge(
-        requirement, interpreter, subject="the project's requires-python"
+    violations, indeterminate = judge(
+        run, requirement, run.runtimes.project, subject="the project's requires-python"
     )
     blocking.extend(violations)
-    if problem:
-        unknown.append(problem)
+    unknown.extend(indeterminate)
 
 
-def run_interpreter_phase(repo_root: Path, runtimes: Runtimes) -> PhaseResult:
+def run_interpreter_phase(run: Run) -> PhaseResult:
     """Judge the project interpreter, reporting both runtimes separately.
 
     Parameters
     ----------
-    repo_root : Path
-        The checkout whose ``requires-python`` is judged.
-    runtimes : Runtimes
-        The helper and project interpreters, kept apart.
+    run : Run
+        The checkout whose ``requires-python`` is judged, both interpreters,
+        and the shared rule that decides the range.
 
     Returns
     -------
@@ -156,6 +166,7 @@ def run_interpreter_phase(repo_root: Path, runtimes: Runtimes) -> PhaseResult:
         could not be read.
 
     """
+    runtimes = run.runtimes
     detail: dict[str, object] = {
         "helper_python": runtimes.helper,
         "project_python": runtimes.project,
@@ -166,11 +177,11 @@ def run_interpreter_phase(repo_root: Path, runtimes: Runtimes) -> PhaseResult:
     if not runtimes.project:
         indeterminate.append(_NO_PROJECT_PYTHON)
         return phase_outcome("interpreter", blocking, indeterminate, detail)
-    requirement, problem = _project_requirement(repo_root)
+    requirement, problem = _project_requirement(run.root)
     # TOML may hand back a non-string for a misdeclared value (an unquoted date,
     # for instance), and the report is JSON: keep the evidence serializable.
     detail["requires_python"] = None if requirement is None else str(requirement)
     if problem is not None:
         indeterminate.append(problem)
-    _judge_project_range(requirement, runtimes.project, blocking, indeterminate)
+    _judge_project_range(run, requirement, blocking, indeterminate)
     return phase_outcome("interpreter", blocking, indeterminate, detail)

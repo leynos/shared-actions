@@ -103,10 +103,16 @@ VERSION_TIMEOUT_SECONDS: typ.Final[int] = 60
 #: absent, so ``1.2.3-rc1``, ``1.2.3_rc1`` and ``1.2.3-beta`` are separate
 #: releases too. An attached suffix keeps its required digit, which is what
 #: stops ``1.2.3build`` being read as the ``1.2.3b`` it never meant.
-VERSION_TOKEN: typ.Final[re.Pattern[str]] = re.compile(
-    r"\d+(?:\.\d+)+"
+#:
+#: The suffix repeats, because a development build of a pre-release is another
+#: release again: ``1.2.3rc1.dev1`` must not report the ``1.2.3rc1`` it merely
+#: begins with.
+_VERSION_SUFFIX: typ.Final[str] = (
     r"(?:[._-](?:alpha|beta|a|b|rc|post|dev)\d*"
-    r"|\.?(?:alpha|beta|a|b|rc|post|dev)\d+)?",
+    r"|\.?(?:alpha|beta|a|b|rc|post|dev)\d+)"
+)
+VERSION_TOKEN: typ.Final[re.Pattern[str]] = re.compile(
+    rf"\d+(?:\.\d+)+{_VERSION_SUFFIX}*",
     re.IGNORECASE,
 )
 

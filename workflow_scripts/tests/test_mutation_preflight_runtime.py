@@ -23,7 +23,9 @@ from workflow_scripts.mutationpreflight.models import (
 )
 from workflow_scripts.mutationpreflight.reporting import render_summary
 from workflow_scripts.mutationpreflight.running import (
+    TRUNCATION_PREFIX,
     bounded,
+    complete_stream,
     last_line,
     reports_version,
 )
@@ -133,6 +135,29 @@ class TestCommands:
         if case.finding:
             assert case.finding in outcome.findings("commands")
 
+    @POSIX_SHIMS_ONLY
+    def test_a_version_probe_selects_the_validated_project_interpreter(
+        self,
+        tmp_path: Path,
+        run_preflight: typ.Callable[..., Outcome],
+        install_tool: typ.Callable[..., None],
+    ) -> None:
+        """A probe that runs the project must not inherit another interpreter."""
+        # The shim fails unless the run passed the project interpreter to it,
+        # so the phase's verdict is the assertion rather than a record of it.
+        install_tool(
+            "probe",
+            'echo "probe 2.4.1"\ntest "$UV_PYTHON" = "3.13" || exit 9',
+        )
+        manifest = '[[require_commands]]\nname = "probe"\nversion = "2.4.1"\n'
+
+        outcome = _commands_outcome(run_preflight, tmp_path / "repo", manifest)
+
+        assert outcome.exit_code == 0, outcome.stdout
+        assert outcome.phases["commands"]["status"] == "pass", (
+            f"the probe must see UV_PYTHON=3.13: {outcome.findings('commands')}"
+        )
+
 
 class TestVersionMatching:
     """A reported version is compared as a token, not searched for as text."""
@@ -154,6 +179,10 @@ class TestVersionMatching:
             ("mold 0.9.0rc1", "0.9.0", False),
             ("mold 1.2.3build", "1.2.3", True),
             ("mold 1.2.30", "1.2.3", False),
+            ("mold 1.2.3rc1", "1.2.3rc1", True),
+            ("mold 1.2.3rc1.dev1", "1.2.3rc1", False),
+            ("mold 1.2.3rc1.dev1", "1.2.3", False),
+            ("mold 1.2.3.rc1", "1.2.3", False),
         ],
     )
     def test_a_token_must_equal_the_declared_version_or_extend_it(
@@ -174,6 +203,42 @@ class TestBoundedOutput:
         assert "bytes truncated" in outcome.stderr
         assert "bytes truncated" not in last_line(outcome)
         assert last_line(outcome)
+
+    def test_a_stream_the_bound_holds_exactly_is_not_truncated(self) -> None:
+        """The bound is a ceiling, so a stream exactly at it is complete."""
+        text = "x" * LOG_BOUND_BYTES
+
+        assert bounded(text) == text, (
+            "a stream the bound holds exactly must be kept whole"
+        )
+        assert "bytes truncated" not in bounded(text)
+
+    def test_one_byte_past_the_bound_is_truncated(self) -> None:
+        """A byte over the ceiling is counted and marked, not lost silently."""
+        text = "x" * (LOG_BOUND_BYTES + 1)
+
+        kept = bounded(text)
+
+        assert kept.partition("\n")[0] == "x" * LOG_BOUND_BYTES, (
+            "the retained prefix must be the bound's worth of bytes"
+        )
+        assert "bytes truncated" in kept, (
+            "a stream over the bound must say how much was dropped"
+        )
+
+    def test_a_token_cut_at_the_bound_is_not_matched(self) -> None:
+        """A version that ends at the bound is unproven, so it is not a match."""
+        marker = f"{TRUNCATION_PREFIX}900 bytes truncated]"
+
+        cut = complete_stream(f"probe 2.4{marker}")
+        earlier = complete_stream(f"probe 2.41.0\n2.4{marker}")
+
+        assert not reports_version(cut, "2.4"), (
+            "the token the truncation may have extended must not satisfy a pin"
+        )
+        assert reports_version(earlier, "2.41.0"), (
+            "a complete token printed before the flood still counts"
+        )
 
 
 class TestNative:
@@ -220,6 +285,82 @@ class TestNative:
         assert outcome.exit_code == 0, outcome.stdout
         assert outcome.phases["native"]["status"] == "unknown"
         return outcome
+
+    def test_a_declared_name_finds_the_lock_entry_it_canonicalises_to(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """An underscore declaration must find the lock's hyphenated entry."""
+        manifest = (
+            "[native]\n"
+            'package = "tei_rapporteur"\n'
+            'revision = "abc123"\n'
+            'supported_python = ">=3.12"\n'
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            self._checkout(
+                manifest, 'git = "https://example.invalid/tei.git?rev=abc123"'
+            ),
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 0, outcome.stdout
+        detail = outcome.detail("native")
+        assert detail["locked_version"] == "0.3.1", (
+            "the locked record must be read through the canonical name"
+        )
+        assert "not in uv.lock" not in outcome.findings("native"), (
+            "a name the lock canonicalises to must not be reported as absent"
+        )
+
+    def test_a_supported_range_with_a_matching_pin_passes(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """Supported support is reported as a pass, not merely as not-unknown."""
+        manifest = (
+            "[native]\n"
+            'package = "tei-rapporteur"\n'
+            'revision = "abc123"\n'
+            'supported_python = ">=3.12"\n'
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            self._checkout(
+                manifest, 'git = "https://example.invalid/tei.git?rev=abc123"'
+            ),
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 0, outcome.stdout
+        assert outcome.phases["native"]["status"] == "pass", (
+            "a supported range and a matching pin must pass the native phase"
+        )
+
+    def test_a_passing_probe_is_recorded_with_its_exit_code(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A probe that exits zero is recorded as the evidence it produced."""
+        manifest = (
+            "[native]\n"
+            'package = "tei-rapporteur"\n'
+            'supported_python = ">=3.12"\n'
+            f"probe = ['{sys.executable}', '-c', 'print(1)']\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            self._checkout(manifest),
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 0, outcome.stdout
+        probe = typ.cast("dict[str, object]", outcome.detail("native")["probe"])
+        assert probe["exit_code"] == 0, "the probe's exit status must be recorded"
 
     def test_unknown_support_stays_unknown(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
@@ -449,7 +590,11 @@ class TestEnvelope:
         assert [phase["name"] for phase in report["phases"]] == [
             "manifest",
             "interpreter",
-        ]
+            "native",
+            "sandbox",
+            "commands",
+            "checks",
+        ], "a phase the declaration would have enabled is reported, not omitted"
         assert outcome.phases["manifest"]["status"] == "skipped"
 
     def test_an_unwritable_report_fails_the_run(

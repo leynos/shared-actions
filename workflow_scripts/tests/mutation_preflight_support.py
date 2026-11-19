@@ -151,6 +151,14 @@ def lock_document(version: str, source: str) -> str:
     )
 
 
+class MissingResultError(KeyError):
+    """Raised when a phase reported no result under the name a test asked for."""
+
+    def __init__(self, phase: str, name: str) -> None:
+        """Name the phase and the result a test expected to find."""
+        super().__init__(f"{phase} reported no result named {name!r}")
+
+
 @dc.dataclass(frozen=True, slots=True)
 class Outcome:
     """What one preflight run reported.
@@ -165,6 +173,9 @@ class Outcome:
         The final verdict line's value.
     stdout : str
         Everything the run printed, for assertions on ordering.
+    stderr : str
+        Everything the run wrote to standard error, where findings and usage
+        errors are published.
 
     """
 
@@ -172,6 +183,7 @@ class Outcome:
     phases: dict[str, dict[str, object]]
     result: str
     stdout: str
+    stderr: str = ""
 
     def findings(self, phase: str) -> str:
         """Return one phase's findings joined, for substring assertions.
@@ -189,6 +201,34 @@ class Outcome:
         """
         found = self.phases.get(phase, {}).get("findings", [])
         return "\n".join(str(item) for item in found)
+
+    def evidence(self, phase: str, name: str) -> dict[str, object]:
+        """Return the evidence one named result left in a phase's detail table.
+
+        Parameters
+        ----------
+        phase : str
+            The phase whose ``results`` are searched.
+        name : str
+            The declared name of the result to return.
+
+        Returns
+        -------
+        dict[str, object]
+            The result's evidence, as the envelope published it.
+
+        Raises
+        ------
+        KeyError
+            When the phase reported no result under *name*, so a test cannot
+            pass by reading another result's evidence.
+
+        """
+        results = typ.cast("list[dict[str, object]]", self.detail(phase)["results"])
+        for result in results:
+            if result["name"] == name:
+                return typ.cast("dict[str, object]", result["evidence"])
+        raise MissingResultError(phase, name)
 
     def detail(self, phase: str) -> dict[str, object]:
         """Return one phase's evidence table.

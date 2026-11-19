@@ -178,12 +178,23 @@ class Ran:
         Its standard output, truncated at ``LOG_BOUND_BYTES``.
     stderr : str
         Its standard error, truncated at ``LOG_BOUND_BYTES``.
+    timed_out : bool
+        Whether the command was stopped at its declared ceiling. A timed-out
+        result still carries the streams captured up to that point.
+    stdout_truncated : bool
+        Whether bytes were dropped from standard output, so a token that ends
+        at the bound is not mistaken for a complete one.
+    stderr_truncated : bool
+        Whether bytes were dropped from standard error.
 
     """
 
     exit_code: int
     stdout: str
     stderr: str
+    timed_out: bool = False
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
 
 
 @dc.dataclass(frozen=True, slots=True)

@@ -7,12 +7,13 @@ treated as proof that the interpreter is supported.
 
 from __future__ import annotations
 
-import os
 import re
 import typing as typ
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
+
+    from .ports import Run
 
 from .constants import MAX_CHECK_TIMEOUT_SECONDS, SKIPPED
 from .interpreters import judge
@@ -23,7 +24,8 @@ from .lockfile import (
     source_text,
 )
 from .models import Declaration, NativeRequirement, PhaseResult, Ran, phase_outcome
-from .running import first_diagnostic, run_command
+from .ports import Invocation, project_environment
+from .running import first_diagnostic
 
 _NO_NATIVE: typ.Final[str] = "no native dependency declared"
 
@@ -71,20 +73,6 @@ def _revision_finding(
     )
 
 
-def abi3_escape_hatch() -> str:
-    """Return the ABI3 compatibility setting, without reading it as proof.
-
-    Returns
-    -------
-    str
-        ``PYO3_USE_ABI3_FORWARD_COMPATIBILITY`` as the environment spells it,
-        or ``"unset"``. The value is recorded for diagnosis only: setting it
-        makes a build skip a version check rather than establish support.
-
-    """
-    return os.environ.get("PYO3_USE_ABI3_FORWARD_COMPATIBILITY", "") or "unset"
-
-
 def _locked_identity(
     repo_root: Path, native: NativeRequirement
 ) -> tuple[dict[str, object], list[str], list[str]]:
@@ -109,9 +97,10 @@ def _locked_identity(
 
 
 def _support_findings(
-    native: NativeRequirement, project_python: str
+    native: NativeRequirement, run: Run
 ) -> tuple[list[str], list[str]]:
     """Return why the interpreter is out of range, or why support is unknown."""
+    project_python = run.runtimes.project
     if not native.supported_python:
         unknown = (
             f"no supported-python range is declared for {native.package}, so "
@@ -124,16 +113,12 @@ def _support_findings(
             f"declared support {native.supported_python!r} was not checked"
         )
         return [], [unknown]
-    violations, problem = judge(
+    return judge(
+        run,
         native.supported_python,
         project_python,
         subject=f"{native.package}'s supported-python",
     )
-    if problem:
-        # The shared rule judged nothing, so support stays unknown rather than
-        # failing an interpreter against a range it never read.
-        return violations, [problem]
-    return violations, []
 
 
 def _probe_detail(
@@ -151,7 +136,7 @@ def _probe_detail(
 
 
 def _probe_findings(
-    native: NativeRequirement, repo_root: Path, *, execute: bool
+    native: NativeRequirement, run: Run, *, execute: bool
 ) -> tuple[list[str], list[str], dict[str, object] | None]:
     """Run the declared probe, returning its blocking, unknown and evidence.
 
@@ -165,11 +150,14 @@ def _probe_findings(
     if not execute:
         blocked = _PROBE_BLOCKED.format(package=native.package)
         return [], [blocked], {"command": list(native.probe), "skipped": blocked}
-    outcome, problem = run_command(
-        native.probe,
-        cwd=repo_root,
-        env={},
-        timeout=MAX_CHECK_TIMEOUT_SECONDS,
+    outcome, problem = run.runner(
+        Invocation(
+            native.probe,
+            cwd=run.root,
+            env=project_environment(run),
+            timeout=MAX_CHECK_TIMEOUT_SECONDS,
+            ambient=run.ambient,
+        )
     )
     evidence = _probe_detail(native.probe, outcome, problem)
     if outcome is None:
@@ -185,9 +173,8 @@ def _probe_findings(
 
 
 def run_native_phase(
-    repo_root: Path,
+    run: Run,
     declaration: Declaration,
-    project_python: str,
     *,
     execute_probe: bool = True,
 ) -> PhaseResult:
@@ -195,12 +182,11 @@ def run_native_phase(
 
     Parameters
     ----------
-    repo_root : Path
-        The checkout whose ``uv.lock`` pins the dependency.
+    run : Run
+        The checkout whose ``uv.lock`` pins the dependency, both interpreters,
+        the runner and the recorded ABI3 setting.
     declaration : Declaration
         The repository's declaration, whose ``native`` table is checked.
-    project_python : str
-        The interpreter the caller selected for the project.
     execute_probe : bool
         Whether the declared probe may run. False when an earlier prerequisite
         failed, so the probe is recorded as skipped instead of acting under the
@@ -218,13 +204,13 @@ def run_native_phase(
     if native is None:
         return PhaseResult("native", SKIPPED, (), {"reason": _NO_NATIVE})
     identity: dict[str, object] = {"package": native.package}
-    locked_detail, lock_blocking, lock_unknown = _locked_identity(repo_root, native)
+    locked_detail, lock_blocking, lock_unknown = _locked_identity(run.root, native)
     identity.update(locked_detail)
     identity["supported_python"] = native.supported_python
-    identity["abi3_forward_compatibility"] = abi3_escape_hatch()
-    support_blocking, support_unknown = _support_findings(native, project_python)
+    identity["abi3_forward_compatibility"] = run.abi3
+    support_blocking, support_unknown = _support_findings(native, run)
     probe_blocking, probe_unknown, probe_detail = _probe_findings(
-        native, repo_root, execute=execute_probe
+        native, run, execute=execute_probe
     )
     if probe_detail is not None:
         identity["probe"] = probe_detail

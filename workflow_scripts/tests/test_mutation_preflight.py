@@ -16,9 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from workflow_scripts.mutationpreflight import interpreters
+from workflow_scripts.mutationpreflight import cli
 from workflow_scripts.tests.mutation_preflight_support import (
-    POSIX_SYMLINKS_ONLY,
     RULE_AVAILABLE,
     Checkout,
     Outcome,
@@ -46,8 +45,22 @@ class TestManifest:
 
         assert outcome.exit_code == 0, outcome.stdout
         assert outcome.result == "pass", outcome.stdout
-        assert outcome.phases["manifest"]["status"] == "skipped"
-        assert set(outcome.phases) == {"manifest", "interpreter"}
+        assert outcome.phases["manifest"]["status"] == "skipped", (
+            "the manifest phase must report skipped",
+            outcome.stdout,
+        )
+        assert set(outcome.phases) == {
+            "manifest",
+            "interpreter",
+            "native",
+            "sandbox",
+            "commands",
+            "checks",
+        }, "a phase the declaration would have enabled is reported, not omitted"
+        for phase in ("native", "sandbox", "commands", "checks"):
+            assert outcome.phases[phase]["status"] == "skipped", phase
+            reason = str(outcome.detail(phase)["reason"])
+            assert "declares no mutation environment" in reason, (phase, reason)
 
     def test_two_declarations_are_refused_rather_than_ranked(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
@@ -65,11 +78,18 @@ class TestManifest:
 
         outcome = run_preflight(root, project_python="3.13")
 
-        assert outcome.exit_code == 1
-        assert "keep one" in outcome.findings("manifest")
-        assert set(outcome.phases) == {"manifest", "interpreter"}, (
-            "a refused manifest must not be half-applied to later phases"
+        assert outcome.exit_code == 1, outcome.stdout
+        assert "keep one" in outcome.findings("manifest"), (
+            "the finding must name the duplicate declarations"
         )
+        for phase in ("native", "sandbox", "commands", "checks"):
+            assert outcome.phases[phase]["status"] == "skipped", phase
+            reason = str(outcome.detail(phase)["reason"])
+            assert "was refused" in reason, (
+                "a refused manifest must not be half-applied to later phases",
+                phase,
+                reason,
+            )
 
     def test_an_unrecognized_key_is_refused(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
@@ -82,9 +102,13 @@ class TestManifest:
             project_python="3.13",
         )
 
-        assert outcome.exit_code == 1
-        assert "sandbox_path" in outcome.findings("manifest")
-        assert "supported keys" in outcome.findings("manifest")
+        assert outcome.exit_code == 1, outcome.stdout
+        assert "sandbox_path" in outcome.findings("manifest"), (
+            "the finding must name the unrecognised key"
+        )
+        assert "supported keys" in outcome.findings("manifest"), (
+            "the finding must name the supported keys"
+        )
 
     def test_a_declaration_that_is_not_a_table_is_refused(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
@@ -96,8 +120,36 @@ class TestManifest:
 
         outcome = run_preflight(root, project_python="3.13")
 
-        assert outcome.exit_code == 1
-        assert "not as a table" in outcome.findings("manifest")
+        assert outcome.exit_code == 1, outcome.stdout
+        assert "not as a table" in outcome.findings("manifest"), (
+            "the finding must name the non-table declaration"
+        )
+
+    def test_an_environment_entry_the_os_cannot_pass_is_refused(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A key carrying '=' cannot be spawned, so it is refused when declared."""
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest=(
+                    "[[checks]]\n"
+                    'name = "collect"\n'
+                    'command = ["true"]\n'
+                    'env = { "APP=MODE" = "test" }\n'
+                )
+            ),
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 1, outcome.stdout
+        assert "checks[0].env" in outcome.findings("manifest"), (
+            "the refusal must name the environment table that cannot be passed"
+        )
+        assert "Traceback" not in outcome.stderr, (
+            "an unpassable entry must be a named finding, not an escaping error"
+        )
 
     def test_sandbox_paths_are_refused_on_the_cargo_lane(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
@@ -111,10 +163,10 @@ class TestManifest:
             project_python="3.13",
         )
 
-        assert outcome.exit_code == 1
+        assert outcome.exit_code == 1, outcome.stdout
         assert "cargo-mutants copies the whole working tree" in outcome.findings(
             "manifest"
-        )
+        ), "the finding must name why the key is refused"
 
 
 class TestInterpreter:
@@ -138,7 +190,10 @@ class TestInterpreter:
         )
 
         assert outcome.exit_code == 0, outcome.stdout
-        assert outcome.phases["interpreter"]["status"] == "pass"
+        assert outcome.phases["interpreter"]["status"] == "pass", (
+            "the interpreter phase must report pass",
+            outcome.stdout,
+        )
 
     @RULE_AVAILABLE
     @pytest.mark.parametrize(
@@ -161,11 +216,13 @@ class TestInterpreter:
             helper_python="3.13",
         )
 
-        assert outcome.exit_code == 1
+        assert outcome.exit_code == 1, outcome.stdout
         assert "outside the project's requires-python" in outcome.findings(
             "interpreter"
+        ), "the finding must name the project's requires-python"
+        assert requirement in outcome.findings("interpreter"), (
+            "the finding must quote the refused requirement"
         )
-        assert requirement in outcome.findings("interpreter")
 
     @RULE_AVAILABLE
     def test_the_helper_and_project_runtimes_are_reported_separately(
@@ -181,9 +238,15 @@ class TestInterpreter:
         )
 
         detail = outcome.detail("interpreter")
-        assert detail["helper_python"] == "3.13.5"
-        assert detail["project_python"] == "3.13"
-        assert detail["same_runtime"] is False
+        assert detail["helper_python"] == "3.13.5", (
+            "the helper runtime is reported exactly"
+        )
+        assert detail["project_python"] == "3.13", (
+            "the project runtime is reported exactly"
+        )
+        assert detail["same_runtime"] is False, (
+            "a helper patch release is not the project runtime"
+        )
         assert outcome.findings("interpreter").count("outside") == 1, (
             "only the project's range is violated, not the helper's"
         )
@@ -200,8 +263,10 @@ class TestInterpreter:
             helper_python="3.12.9",
         )
 
-        assert outcome.exit_code == 1
-        assert "below the helper floor 3.13" in outcome.findings("interpreter")
+        assert outcome.exit_code == 1, outcome.stdout
+        assert "below the helper floor 3.13" in outcome.findings("interpreter"), (
+            "the finding must name the helper floor"
+        )
 
     def test_no_project_interpreter_is_reported_as_unknown(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
@@ -216,8 +281,13 @@ class TestInterpreter:
         )
 
         assert outcome.exit_code == 0, outcome.stdout
-        assert outcome.phases["interpreter"]["status"] == "unknown"
-        assert "not checked" in outcome.findings("interpreter")
+        assert outcome.phases["interpreter"]["status"] == "unknown", (
+            "the interpreter phase must report unknown",
+            outcome.stdout,
+        )
+        assert "not checked" in outcome.findings("interpreter"), (
+            "the finding must say the project runtime was not checked"
+        )
 
     def test_a_requires_python_that_is_not_text_still_publishes_its_report(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
@@ -232,13 +302,20 @@ class TestInterpreter:
         outcome = run_preflight(root, project_python="3.13")
 
         assert outcome.exit_code == 0, outcome.stdout
-        assert outcome.phases["interpreter"]["status"] == "unknown"
-        assert "is not a range" in outcome.findings("interpreter")
+        assert outcome.phases["interpreter"]["status"] == "unknown", (
+            "the interpreter phase must report unknown",
+            outcome.stdout,
+        )
+        assert "is not a range" in outcome.findings("interpreter"), (
+            "the finding must refuse a non-text requires-python"
+        )
         report = json.loads(
             (tmp_path / "out" / "mutation-preflight.json").read_text(encoding="utf-8")
         )
         phase = next(item for item in report["phases"] if item["name"] == "interpreter")
-        assert phase["detail"]["requires_python"] == "2026-01-01"
+        assert phase["detail"]["requires_python"] == "2026-01-01", (
+            "the report must publish the refused value verbatim"
+        )
 
     def test_a_rule_that_will_not_load_leaves_support_unknown(
         self,
@@ -247,9 +324,11 @@ class TestInterpreter:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A rule that judged nothing must not fail the interpreter it never read."""
+        # Patched where the command line reads it, which is the point the
+        # rule enters the run.
         monkeypatch.setattr(
-            interpreters,
-            "_load_shared_rule",
+            cli,
+            "load_shared_rule",
             lambda: (None, "the shared rule could not be loaded"),
         )
 
@@ -262,313 +341,10 @@ class TestInterpreter:
         )
 
         assert outcome.exit_code == 0, outcome.stdout
-        assert outcome.phases["interpreter"]["status"] == "unknown"
-        assert "could not be loaded" in outcome.findings("interpreter")
-
-
-class TestSandbox:
-    """Declared paths are checked against what mutmut actually copies."""
-
-    def test_a_missing_readme_is_named(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """The README is outside mutmut's copy set and absent, so it is named."""
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(manifest='sandbox_paths = ["README.md"]\n'),
-            project_python="3.13",
+        assert outcome.phases["interpreter"]["status"] == "unknown", (
+            "the interpreter phase must report unknown",
+            outcome.stdout,
         )
-
-        assert outcome.exit_code == 1
-        assert "sandbox path 'README.md' is not in the checkout" in outcome.findings(
-            "sandbox"
+        assert "could not be loaded" in outcome.findings("interpreter"), (
+            "the finding must name the rule that would not load"
         )
-
-    def test_a_readme_passes_once_also_copy_names_it(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """The declared path is satisfied by the copy entry that materializes it."""
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(
-                also_copy=("conftest.py", "README.md"),
-                manifest='sandbox_paths = ["README.md"]\n',
-                extra={"README.md": "# example\n"},
-            ),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 0, outcome.stdout
-        assert outcome.phases["sandbox"]["status"] == "pass"
-        assert outcome.detail("sandbox")["not_copied"] == []
-
-    def test_a_hidden_workflow_tree_is_named_not_copied(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """A suite that reads .github/workflows needs that tree in mutants/."""
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(
-                manifest='sandbox_paths = [".github/workflows/ci.yml"]\n',
-                extra={".github/workflows/ci.yml": "jobs: {}\n"},
-            ),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 1
-        assert ".github/workflows/ci.yml" in outcome.findings("sandbox")
-        assert "also_copy" in outcome.findings("sandbox")
-
-    def test_a_generator_sibling_is_named_not_copied(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """A template outside source_paths is not copied just by existing."""
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(
-                manifest='sandbox_paths = ["templates/report.j2"]\n',
-                extra={"templates/report.j2": "{}\n"},
-            ),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 1
-        assert "templates/report.j2" in outcome.findings("sandbox")
-        assert outcome.detail("sandbox")["not_copied"] == ["templates/report.j2"]
-
-    @pytest.mark.parametrize(
-        ("declared", "contents"),
-        [
-            ("rust-toolchain.toml", '[toolchain]\nchannel = "stable"\n'),
-            ("fixtures/nested/data.json", "{}\n"),
-        ],
-        ids=["toolchain-file", "nested-fixture"],
-    )
-    def test_a_file_outside_the_copy_set_is_named(
-        self,
-        tmp_path: Path,
-        run_preflight: typ.Callable[..., Outcome],
-        declared: str,
-        contents: str,
-    ) -> None:
-        """A toolchain file and a nested fixture are requirements like any other.
-
-        Neither sits under ``source_paths``, so existing is not enough: the
-        declaration has to be materialized by ``also_copy``.
-        """
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(
-                manifest=f'sandbox_paths = ["{declared}"]\n',
-                extra={declared: contents},
-            ),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 1
-        assert declared in outcome.findings("sandbox")
-        assert outcome.detail("sandbox")["not_copied"] == [declared]
-
-    @pytest.mark.parametrize(
-        ("declared", "expected"),
-        [
-            ("/etc/passwd", "is absolute"),
-            ("../outside", "escapes the checkout"),
-            ("target/debug/example", "build output"),
-            (".venv/lib/x.py", "tool cache"),
-        ],
-    )
-    def test_an_unusable_path_is_refused(
-        self,
-        tmp_path: Path,
-        run_preflight: typ.Callable[..., Outcome],
-        declared: str,
-        expected: str,
-    ) -> None:
-        """Absolute, escaping, build-output and cache paths are all refused."""
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(
-                also_copy=("conftest.py", declared),
-                manifest=f'sandbox_paths = ["{declared}"]\n',
-                extra={declared: "x\n"} if _materializable(declared) else {},
-            ),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 1
-        assert expected in outcome.findings("sandbox")
-
-    def test_a_repository_without_mutmut_configuration_reports_unknown(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """Without a copy set the comparison cannot be made, and says so."""
-        root = repository(
-            tmp_path / "repo", Checkout(manifest='sandbox_paths = ["conftest.py"]\n')
-        )
-        (root / "pyproject.toml").write_text(
-            '[project]\nname = "example"\n', encoding="utf-8"
-        )
-
-        outcome = run_preflight(root, project_python="3.13")
-
-        assert outcome.exit_code == 0, outcome.stdout
-        assert outcome.phases["sandbox"]["status"] == "unknown"
-        assert "cannot be established" in outcome.findings("sandbox")
-
-    def test_a_setup_cfg_without_a_mutmut_section_is_unknown_not_a_crash(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """An absent section is unknown configuration, not a lookup failure."""
-        root = repository(
-            tmp_path / "repo", Checkout(manifest='sandbox_paths = ["conftest.py"]\n')
-        )
-        (root / "pyproject.toml").write_text(
-            '[project]\nname = "example"\n', encoding="utf-8"
-        )
-        (root / "setup.cfg").write_text(
-            "[metadata]\nname = example\n", encoding="utf-8"
-        )
-
-        outcome = run_preflight(root, project_python="3.13")
-
-        assert outcome.exit_code == 0, outcome.stdout
-        assert outcome.phases["sandbox"]["status"] == "unknown"
-        assert "neither pyproject.toml's [tool.mutmut]" in outcome.findings("sandbox")
-
-    @pytest.mark.parametrize(
-        "contents",
-        ["[mutmut]\nalso_copy = data/100%.json\n", "this is not an ini file\n"],
-        ids=["interpolation", "syntax"],
-    )
-    def test_an_unreadable_setup_cfg_is_not_a_missing_section(
-        self,
-        tmp_path: Path,
-        run_preflight: typ.Callable[..., Outcome],
-        contents: str,
-    ) -> None:
-        """A setup.cfg that will not parse is unreadable, not without a section."""
-        root = repository(
-            tmp_path / "repo", Checkout(manifest='sandbox_paths = ["conftest.py"]\n')
-        )
-        (root / "pyproject.toml").write_text(
-            '[project]\nname = "example"\n', encoding="utf-8"
-        )
-        (root / "setup.cfg").write_text(contents, encoding="utf-8")
-
-        outcome = run_preflight(root, project_python="3.13")
-
-        assert outcome.exit_code == 0, outcome.stdout
-        assert outcome.phases["sandbox"]["status"] == "unknown"
-        assert "setup.cfg could not be read" in outcome.findings("sandbox")
-        assert "is present, so what mutmut copies" not in outcome.findings("sandbox")
-
-    @pytest.mark.parametrize(
-        ("declared", "expected"),
-        [
-            ("../outside", "escapes the checkout"),
-            ("README.md", "is not in the checkout"),
-        ],
-    )
-    def test_a_path_is_decided_though_the_copy_set_is_unknown(
-        self,
-        tmp_path: Path,
-        run_preflight: typ.Callable[..., Outcome],
-        declared: str,
-        expected: str,
-    ) -> None:
-        """Neither question depends on knowing what mutmut would copy."""
-        root = repository(
-            tmp_path / "repo", Checkout(manifest=f'sandbox_paths = ["{declared}"]\n')
-        )
-        (root / "pyproject.toml").write_text(
-            '[project]\nname = "example"\n', encoding="utf-8"
-        )
-
-        outcome = run_preflight(root, project_python="3.13")
-
-        assert outcome.exit_code == 1
-        assert expected in outcome.findings("sandbox")
-
-    def test_a_prepared_checkout_is_read_as_the_test_wrote_it(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """Passing no checkout must not overwrite the one the test prepared."""
-        root = repository(
-            tmp_path / "repo", Checkout(manifest='sandbox_paths = ["README.md"]\n')
-        )
-        with (root / "pyproject.toml").open("a", encoding="utf-8") as handle:
-            handle.write('\n[tool.mutation-preflight]\nsandbox_paths = ["README.md"]\n')
-
-        outcome = outcome_for(run_preflight, root, project_python="3.13")
-
-        assert outcome.exit_code == 1
-        assert "keep one" in outcome.findings("manifest")
-
-    def test_the_deprecated_paths_to_mutate_still_names_the_source_tree(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """The deprecated key still names the tree, so the copy set is knowable."""
-        root = repository(
-            tmp_path / "repo",
-            Checkout(manifest='sandbox_paths = ["workflow_scripts/example.py"]\n'),
-        )
-        (root / "pyproject.toml").write_text(
-            '[project]\nname = "example"\n\n'
-            "[tool.mutmut]\n"
-            'paths_to_mutate = ["workflow_scripts/"]\n',
-            encoding="utf-8",
-        )
-
-        outcome = run_preflight(root, project_python="3.13")
-
-        assert outcome.exit_code == 0, outcome.stdout
-        assert outcome.phases["sandbox"]["status"] == "pass"
-
-    @POSIX_SYMLINKS_ONLY
-    def test_a_sandbox_path_resolving_outside_the_checkout_is_refused(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """A link would carry something the declaration did not name."""
-        outside = tmp_path / "outside"
-        outside.mkdir()
-        (outside / "helper.py").write_text("VALUE = 1\n", encoding="utf-8")
-        root = repository(
-            tmp_path / "repo",
-            Checkout(
-                also_copy=("conftest.py", "fixtures"),
-                manifest='sandbox_paths = ["fixtures"]\n',
-            ),
-        )
-        (root / "fixtures").symlink_to(outside, target_is_directory=True)
-
-        outcome = run_preflight(root, project_python="3.13")
-
-        assert outcome.exit_code == 1
-        assert "outside the checkout" in outcome.findings("sandbox")
-
-    @POSIX_SYMLINKS_ONLY
-    def test_a_sandbox_path_resolving_into_a_cache_is_refused(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """A link into .venv would copy the cache the rule exists to exclude."""
-        root = repository(
-            tmp_path / "repo",
-            Checkout(
-                also_copy=("conftest.py", "fixtures"),
-                manifest='sandbox_paths = ["fixtures"]\n',
-            ),
-        )
-        (root / ".venv").mkdir()
-        (root / "fixtures").symlink_to(root / ".venv", target_is_directory=True)
-
-        outcome = run_preflight(root, project_python="3.13")
-
-        assert outcome.exit_code == 1
-        assert "tool cache" in outcome.findings("sandbox")

@@ -26,24 +26,28 @@ def _ignored(_directory: str, names: list[str]) -> set[str]:
 def _copy_entry(repo_root: Path, destination: Path, entry: str) -> None:
     """Copy one contract entry, keeping its place in the tree.
 
-    A symlink is copied as a link, not followed: the sandbox must carry what
-    the declaration named, so a link that leaves the checkout is still visible
-    to the containment check rather than silently replaced by its target.
+    A symlink whose target is inside the checkout is materialized by content,
+    because that is what mutmut's ``copytree`` does: it follows links and
+    copies what they point at, so a fixture tree linked to a sibling directory
+    arrives complete rather than dangling. A link that leaves the checkout is
+    kept as a link, so the sandbox still shows something the declaration did
+    not name instead of importing it silently.
     """
     source = repo_root / entry
     if not source.exists() and not source.is_symlink():
         return
     target = destination / entry
     target.parent.mkdir(parents=True, exist_ok=True)
-    if source.is_symlink():
+    root = repo_root.resolve()
+    if source.is_symlink() and not source.resolve().is_relative_to(root):
         target.symlink_to(source.readlink(), target_is_directory=source.is_dir())
         return
     if source.is_dir():
         shutil.copytree(
-            source, target, symlinks=True, dirs_exist_ok=True, ignore=_ignored
+            source, target, symlinks=False, dirs_exist_ok=True, ignore=_ignored
         )
         return
-    shutil.copy2(source, target, follow_symlinks=False)
+    shutil.copy2(source, target)
 
 
 def materialize(
@@ -74,9 +78,7 @@ def materialize(
         for pattern in contract.globs:
             for source in sorted(repo_root.glob(pattern)):
                 if source.is_file():
-                    shutil.copy2(
-                        source, destination / source.name, follow_symlinks=False
-                    )
+                    shutil.copy2(source, destination / source.name)
     except OSError as error:
         shutil.rmtree(destination, ignore_errors=True)
         return None, (f"the check sandbox could not be materialized: {error}",)

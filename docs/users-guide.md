@@ -41,6 +41,9 @@ documents how to use the `install-nixie` action.
   – the full input table and sandbox store guidance.
 - [Migrating to registry image refresh in `validate-linux-packages`](./migrating-to-validate-linux-packages-image-refresh.md)
   – the new `refresh-base-images` default and its opt-out.
+- [Migrating to the mutation environment
+  preflight](./migrating-to-mutation-preflight.md) – adopting the opt-in
+  preflight that runs before mutmut and cargo-mutants.
 
 ## Node.js 24 action dependencies
 
@@ -1577,6 +1580,67 @@ still reaches verification and upload; a hard job cancellation can stop the job
 before those steps run, and diagnostics are then best-effort. A run with no
 relevant changes remains an intentional skip and produces no failure
 diagnostics.
+
+### Mutation environment preflight
+
+Mutation testing copies the repository into a sandbox before it exercises a
+mutant. A check can pass in the checkout and fail inside that copy, because the
+copy carries only the files the mutation tool copies. The mutation environment
+preflight runs before mutation testing and fails the job when the environment
+the run will use cannot satisfy the repository's declared requirements. The
+failure then names the missing prerequisite rather than appearing as a baseline
+error inside `mutants/`.
+
+The preflight is opt-in. `mutation-mutmut.yml` and `mutation-cargo.yml` both
+expose a `preflight` boolean input, default `false`; when it is false no step
+runs and the job is unchanged. Set it in the caller workflow:
+
+```yaml
+jobs:
+  mutation:
+    uses: leynos/shared-actions/.github/workflows/mutation-mutmut.yml@<sha>
+    with:
+      preflight: true
+```
+
+In the mutmut workflow the preflight runs after change detection and before
+mutmut, so an unchanged day costs nothing. In the cargo workflow it runs once
+per shard, before cargo-mutants and after the installs and setup commands, so
+it sees the tools that shard will see. That lane also takes a `project-python`
+input, which the preflight uses to judge a declared `native.supported_python`
+range against the interpreter the crate is built and tested with.
+
+A repository declares its requirements once, in `[tool.mutation-preflight]` in
+`pyproject.toml` or in `.github/mutation-preflight.toml`. Declaring both in one
+checkout is refused, so exactly one source of truth binds the run. A repository
+that declares nothing is not an error: the `manifest` phase reports `skipped`,
+the interpreter is still checked, and the requirement phases report `skipped`.
+
+Six phases run in order: `manifest`, `interpreter`, `native`, `sandbox`,
+`commands` and `checks`. Each reports one of four statuses:
+
+| Status    | Meaning                                                        |
+| --------- | -------------------------------------------------------------- |
+| `pass`    | The phase established what it checks.                          |
+| `fail`    | The phase found something that must stop the run.              |
+| `skipped` | The phase does not apply, or nothing was declared for it.      |
+| `unknown` | The helper could not decide, and says so rather than guessing. |
+
+*Table: the four preflight statuses. A run fails only on `fail`; `unknown` is
+surfaced but does not block.*
+
+Every run writes a phase/result envelope to `mutation-preflight.json`, plus
+bounded per-check logs under `checks/`, in its output directory. The workflows
+upload that directory under `always()`, so a failed preflight still publishes
+its evidence: `mutation-preflight-diagnostics-mutmut` in the mutmut lane, and
+`mutation-preflight-diagnostics-<slug>-<shard>` in the cargo lane. The JSON
+report is the machine-readable verdict, and the same phases appear as a table
+in the job summary.
+
+For the declaration schema and the per-phase rules, see
+[`docs/mutation-preflight.md`](mutation-preflight.md). To adopt the preflight
+in an existing caller, see the
+[mutation environment preflight migration guide](migrating-to-mutation-preflight.md).
 
 ## The problem
 

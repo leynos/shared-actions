@@ -143,17 +143,41 @@ def _check_timeout(table: dict[str, object], where: str) -> int:
     return min(typ.cast("int", value), MAX_CHECK_TIMEOUT_SECONDS)
 
 
-def _check_environment(
-    table: dict[str, object], where: str
-) -> tuple[tuple[str, str], ...]:
-    """Return one check's environment, refusing anything but a string table."""
+def _unpassable(key: str, item: str) -> bool:
+    """Return whether the operating system cannot pass the entry *key*=*item*."""
+    if not key:
+        return True
+    if "=" in key:
+        return True
+    return "\x00" in key or "\x00" in item
+
+
+def _environment(table: dict[str, object], where: str) -> dict[str, object]:
+    """Return one check's environment table, refusing any other shape."""
     value = table.get("env", {})
     if not isinstance(value, dict):
         refuse(f"{where}.env", "a table of strings")
-    pairs = typ.cast("dict[str, object]", value)
+    return typ.cast("dict[str, object]", value)
+
+
+def _check_environment(
+    table: dict[str, object], where: str
+) -> tuple[tuple[str, str], ...]:
+    """Return one check's environment, refusing anything but a string table.
+
+    A key carrying ``=`` or a NUL cannot be passed to the operating system, so
+    it is refused here rather than surfacing as a spawn error the phase cannot
+    attribute.
+    """
+    pairs = _environment(table, where)
     for key, item in pairs.items():
         if not isinstance(key, str) or not isinstance(item, str):
             refuse(f"{where}.env", "a table of strings")
+        if _unpassable(key, item):
+            refuse(
+                f"{where}.env",
+                "a table whose keys and values the operating system can pass",
+            )
     return tuple(sorted(typ.cast("dict[str, str]", pairs).items()))
 
 

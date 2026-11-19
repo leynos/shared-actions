@@ -7,9 +7,7 @@ depend on mutation results existing.
 
 from __future__ import annotations
 
-import dataclasses as dc
 import json
-import os
 import re
 import sys
 import typing as typ
@@ -20,43 +18,36 @@ from .commands import run_commands_phase
 from .console import emit
 from .constants import FAILED, SKIPPED, SUCCEEDED
 from .interpreters import run_interpreter_phase
-from .models import Declaration, Loaded, PhaseResult, Report, Runtimes
+from .models import Declaration, Loaded, PhaseResult, Report
 from .native import run_native_phase
 from .sandbox import run_sandbox_phase
+
+if typ.TYPE_CHECKING:
+    from .ports import Run
 
 _NO_DECLARATION: typ.Final[str] = (
     "the repository declares no mutation environment requirements, so "
     "only the interpreter was checked"
 )
 
+_REFUSED_DECLARATION: typ.Final[str] = (
+    "the declaration at {source} was refused, so no requirement it names was checked"
+)
+
+#: The phases a parsed declaration enables, in the order they run. A run with
+#: no accepted declaration reports each of them as skipped, so a report never
+#: omits a phase because the declaration that would have named it was absent.
+_DECLARATION_PHASES: typ.Final[tuple[str, ...]] = (
+    "native",
+    "sandbox",
+    "commands",
+    "checks",
+)
+
 _CHECKS_BLOCKED: typ.Final[str] = (
     "the interpreter phase failed, so the declared checks were not run: they "
     "would execute the project under the interpreter that phase rejected"
 )
-
-
-@dc.dataclass(frozen=True, slots=True)
-class Run:
-    """What one preflight run checks, and where its evidence goes.
-
-    Attributes
-    ----------
-    root : Path
-        The checkout being validated.
-    runtimes : Runtimes
-        Both interpreters, reported separately.
-    output_dir : Path
-        Where the check logs are written.
-    mutmut_version : str
-        The mutmut release the run selects, whose copy contract the sandbox
-        and checks phases use.
-
-    """
-
-    root: Path
-    runtimes: Runtimes
-    output_dir: Path
-    mutmut_version: str
 
 
 def manifest_phase(loaded: Loaded) -> PhaseResult:
@@ -182,13 +173,21 @@ def _append_summary(path: Path, rendered: str) -> str:
     return ""
 
 
-def _write_json(output_dir: Path, report: Report) -> str:
-    """Write the machine-readable report, returning why it could not be written."""
+def _write_json(
+    output_dir: Path, report: Report, unpublished: typ.Sequence[str]
+) -> str:
+    """Write the machine-readable report, returning why it could not be written.
+
+    *unpublished* names the parts of the report that could not be published
+    elsewhere. The document records them, and its verdict fails, because a
+    report whose evidence is incomplete must not read as a pass.
+    """
     document = {
         "lane": report.lane,
         "helper_python": report.runtimes.helper,
         "project_python": report.runtimes.project,
-        "result": report.verdict,
+        "result": FAILED if unpublished else report.verdict,
+        "reporting": list(unpublished),
         "phases": [phase_envelope(result) for result in report.results],
     }
     destination = output_dir / "mutation-preflight.json"
@@ -203,13 +202,17 @@ def _write_json(output_dir: Path, report: Report) -> str:
     return ""
 
 
-def write_report(output_dir: Path, report: Report) -> tuple[str, ...]:
-    """Write the JSON report and append the Markdown summary, when asked to.
+def write_report(run: Run, report: Report) -> tuple[str, ...]:
+    """Append the Markdown summary, then write the JSON report.
+
+    The summary is appended first so the JSON report can record whether it was
+    published. The JSON is the machine-readable verdict, and a verdict that
+    claimed a pass while its summary had failed would be misleading.
 
     Parameters
     ----------
-    output_dir : Path
-        Where the JSON report and the check logs are written.
+    run : Run
+        The run whose summary path and output directory receive the report.
     report : Report
         The run to publish.
 
@@ -221,14 +224,30 @@ def write_report(output_dir: Path, report: Report) -> tuple[str, ...]:
         caller fails it rather than exiting successfully with nothing to show.
 
     """
-    written = _write_json(output_dir, report)
-    problems = [written] if written else []
-    summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary:
-        problem = _append_summary(Path(summary), render_summary(report))
+    problems: list[str] = []
+    if run.summary_path:
+        problem = _append_summary(Path(run.summary_path), render_summary(report))
         if problem:
             problems.append(problem)
+    written = _write_json(run.output_dir, report, problems)
+    if written:
+        problems.append(written)
     return tuple(problems)
+
+
+def _skipped_phases(loaded: Loaded) -> typ.Iterator[PhaseResult]:
+    """Yield the declaration phases as skipped, naming why none of them ran.
+
+    Without this, a repository that declares nothing would produce a report
+    mentioning only the manifest and the interpreter: a reader could not tell
+    whether the missing phases passed, failed, or were never applicable.
+    """
+    if loaded.source is None:
+        reason = _NO_DECLARATION
+    else:
+        reason = _REFUSED_DECLARATION.format(source=loaded.source)
+    for name in _DECLARATION_PHASES:
+        yield PhaseResult(name, SKIPPED, (), {"reason": reason})
 
 
 def _declaration_phases(
@@ -240,15 +259,11 @@ def _declaration_phases(
     interpreter verdict: a probe or a check run under a rejected interpreter
     would certify an environment the mutation run will not use.
     """
-    yield run_native_phase(
-        run.root, declaration, run.runtimes.project, execute_probe=interpreter_ok
-    )
+    yield run_native_phase(run, declaration, execute_probe=interpreter_ok)
     yield run_sandbox_phase(run.root, declaration, run.mutmut_version)
-    yield run_commands_phase(run.root, declaration)
+    yield run_commands_phase(run, declaration, probe_versions=interpreter_ok)
     if interpreter_ok:
-        yield run_checks_phase(
-            run.root, declaration, run.output_dir, run.mutmut_version
-        )
+        yield run_checks_phase(run, declaration)
         return
     yield PhaseResult("checks", SKIPPED, (), {"reason": _CHECKS_BLOCKED})
 
@@ -256,12 +271,14 @@ def _declaration_phases(
 def _all_phases(run: Run, loaded: Loaded) -> typ.Iterator[PhaseResult]:
     """Yield every phase in order, running each only when it is reached."""
     yield manifest_phase(loaded)
-    interpreter = run_interpreter_phase(run.root, run.runtimes)
+    interpreter = run_interpreter_phase(run)
     yield interpreter
-    if loaded.declaration is not None:
-        yield from _declaration_phases(
-            run, loaded.declaration, interpreter_ok=interpreter.status != FAILED
-        )
+    if loaded.declaration is None:
+        yield from _skipped_phases(loaded)
+        return
+    yield from _declaration_phases(
+        run, loaded.declaration, interpreter_ok=interpreter.status != FAILED
+    )
 
 
 def checked_phases(run: Run, loaded: Loaded) -> list[PhaseResult]:

@@ -8,20 +8,26 @@ from __future__ import annotations
 
 import typing as typ
 
-if typ.TYPE_CHECKING:
-    from pathlib import Path
-
 from .constants import SKIPPED, VERSION_TIMEOUT_SECONDS
 from .models import CommandRequirement, Declaration, PhaseResult, phase_outcome
+from .ports import Invocation, project_environment
 from .running import (
     bounded,
+    complete_stream,
     last_line,
     reports_version,
     resolution_problem,
-    run_command,
 )
 
+if typ.TYPE_CHECKING:
+    from .ports import Run
+
 _NO_COMMANDS: typ.Final[str] = "no require_commands declared"
+
+_PROBE_BLOCKED: typ.Final[str] = (
+    "the interpreter phase failed, so the version of {name!r} was not probed: "
+    "a probe that runs the project would use the interpreter that phase rejected"
+)
 
 
 def _unresolved(name: str, problem: str) -> tuple[str, str]:
@@ -33,8 +39,60 @@ def _unresolved(name: str, problem: str) -> tuple[str, str]:
     return finding, problem
 
 
+def _resolved_only(
+    run: Run, requirement: CommandRequirement
+) -> tuple[str | None, object]:
+    """Return whether *requirement* resolves, without asking its version."""
+    problem = resolution_problem(requirement.name, run.root)
+    if problem:
+        return _unresolved(requirement.name, problem)
+    return None, {"resolved": requirement.name}
+
+
+def _reported_version(
+    run: Run, requirement: CommandRequirement
+) -> tuple[str | None, object]:
+    """Return what *requirement* reports, and the finding when it does not hold."""
+    outcome, problem = run.runner(
+        Invocation(
+            (requirement.name, *requirement.version_args),
+            cwd=run.root,
+            env=project_environment(run),
+            timeout=VERSION_TIMEOUT_SECONDS,
+            ambient=run.ambient,
+        )
+    )
+    if outcome is None:
+        return _unresolved(requirement.name, problem)
+    # A token cut off at the truncation bound is unproven; complete tokens
+    # printed before the flood still count.
+    printed = f"{complete_stream(outcome.stdout)}\n{complete_stream(outcome.stderr)}"
+    evidence: object = bounded(printed.strip())
+    if outcome.timed_out:
+        finding = (
+            f"required command {requirement.name!r} {problem} when asked for "
+            f"its version"
+        )
+        return finding, evidence
+    if outcome.exit_code != 0:
+        # A probe that failed has not established anything, whatever it printed:
+        # a version string in the output of a crashing command is not a pass.
+        finding = (
+            f"required command {requirement.name!r} exited {outcome.exit_code} "
+            f"when asked for its version: {last_line(outcome)!r}"
+        )
+        return finding, evidence
+    if not reports_version(printed, requirement.version):
+        finding = (
+            f"required command {requirement.name!r} does not report "
+            f"{requirement.version!r}: it printed {last_line(outcome)!r}"
+        )
+        return finding, evidence
+    return None, evidence
+
+
 def _review_command(
-    repo_root: Path, requirement: CommandRequirement
+    run: Run, requirement: CommandRequirement, *, probe_versions: bool
 ) -> tuple[str | None, object]:
     """Return what one command reported, and the finding when it does not hold.
 
@@ -44,46 +102,29 @@ def _review_command(
     non-zero exit is not thereby missing.
     """
     if not requirement.version:
-        problem = resolution_problem(requirement.name, repo_root)
-        if problem:
-            return _unresolved(requirement.name, problem)
-        return None, {"resolved": requirement.name}
-    outcome, problem = run_command(
-        (requirement.name, *requirement.version_args),
-        cwd=repo_root,
-        env={},
-        timeout=VERSION_TIMEOUT_SECONDS,
-    )
-    if outcome is None:
-        return _unresolved(requirement.name, problem)
-    printed = f"{outcome.stdout}\n{outcome.stderr}"
-    evidence: object = bounded(printed.strip())
-    if outcome.exit_code != 0:
-        # A probe that failed has not established anything, whatever it printed:
-        # a version string in the output of a crashing command is not a pass.
-        finding = (
-            f"required command {requirement.name!r} exited {outcome.exit_code} "
-            f"when asked for its version: {last_line(outcome)!r}"
-        )
-        return finding, evidence
-    if requirement.version and not reports_version(printed, requirement.version):
-        finding = (
-            f"required command {requirement.name!r} does not report "
-            f"{requirement.version!r}: it printed {last_line(outcome)!r}"
-        )
-        return finding, evidence
-    return None, evidence
+        return _resolved_only(run, requirement)
+    if not probe_versions:
+        return _resolved_only(run, requirement)
+    return _reported_version(run, requirement)
 
 
-def run_commands_phase(repo_root: Path, declaration: Declaration) -> PhaseResult:
+def run_commands_phase(
+    run: Run, declaration: Declaration, *, probe_versions: bool = True
+) -> PhaseResult:
     """Check that every required command resolves, at the declared version.
 
     Parameters
     ----------
-    repo_root : Path
-        The working directory each version query runs from.
+    run : Run
+        The checkout each version query runs from, the runner, and the ambient
+        environment.
     declaration : Declaration
         The repository's declaration, whose ``require_commands`` are checked.
+    probe_versions : bool
+        Whether a pinned command may be asked for its version. False when the
+        interpreter phase failed, because a probe such as ``uv run python``
+        would act under the interpreter that phase rejected; resolution is
+        still checked.
 
     Returns
     -------
@@ -95,9 +136,23 @@ def run_commands_phase(repo_root: Path, declaration: Declaration) -> PhaseResult
     if not declaration.commands:
         return PhaseResult("commands", SKIPPED, (), {"reason": _NO_COMMANDS})
     pairs = [
-        (requirement, _review_command(repo_root, requirement))
+        (
+            requirement,
+            _review_command(run, requirement, probe_versions=probe_versions),
+        )
         for requirement in declaration.commands
     ]
     findings = [finding for _, (finding, _) in pairs if finding is not None]
-    detail = {requirement.name: evidence for requirement, (_, evidence) in pairs}
+    detail: dict[str, object] = {
+        "results": [
+            {
+                "index": index,
+                "name": requirement.name,
+                "evidence": evidence,
+            }
+            for index, (requirement, (_, evidence)) in enumerate(pairs)
+        ]
+    }
+    if not probe_versions and any(item.version for item in declaration.commands):
+        detail["version_probe"] = _PROBE_BLOCKED.format(name="a pinned command")
     return phase_outcome("commands", findings, [], detail)

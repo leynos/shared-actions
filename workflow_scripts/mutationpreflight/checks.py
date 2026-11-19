@@ -8,18 +8,17 @@ leaving it in a comment beside the fixture.
 from __future__ import annotations
 
 import dataclasses as dc
-import sys
 import typing as typ
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
-from .console import emit
 from .constants import FAILED, SKIPPED, UNKNOWN
 from .copy_set import mutmut_copy_set
 from .materialize import discard, materialize
 from .models import Check, Declaration, PhaseResult, Ran, phase_outcome
-from .running import last_line, run_command
+from .ports import Invocation, Run, project_environment
+from .running import last_line, timeout_message
 from .sandbox import path_problem
 
 _NO_CHECKS: typ.Final[str] = "no checks declared"
@@ -96,7 +95,7 @@ def log_stem(index: int, name: str) -> str:
     return f"{index:02d}-{sanitized}"
 
 
-def write_logs(directory: Path, stem: str, name: str, outcome: Ran) -> None:
+def write_logs(directory: Path, stem: str, name: str, outcome: Ran) -> str | None:
     """Write one check's bounded streams, so a failure keeps its evidence.
 
     Parameters
@@ -111,9 +110,13 @@ def write_logs(directory: Path, stem: str, name: str, outcome: Ran) -> None:
         The bounded streams to write as ``<stem>.stdout.log`` and
         ``<stem>.stderr.log``.
 
-    An ``OSError`` while writing is reported as a
-    ``mutation_preflight_log_error`` line rather than raised, so one unwritable
-    log does not discard the phase's verdict.
+    Returns
+    -------
+    str | None
+        Why the logs could not be written, or ``None`` when they were. An
+        unwritable log is returned rather than raised, so the finding names it
+        and the phase's verdict can fail: evidence nobody can read must not be
+        reported as a passing check.
 
     """
     try:
@@ -121,36 +124,53 @@ def write_logs(directory: Path, stem: str, name: str, outcome: Ran) -> None:
         (directory / f"{stem}.stdout.log").write_text(outcome.stdout, encoding="utf-8")
         (directory / f"{stem}.stderr.log").write_text(outcome.stderr, encoding="utf-8")
     except OSError as error:
-        emit(
-            "mutation_preflight_log_error",
-            f"could not write logs for check {name!r}: {error}",
-            stream=sys.stderr,
-        )
+        return f"check {name!r}'s logs could not be written: {error}"
+    return None
 
 
 def _review_check(
-    boundary: Boundary, check: Check, output_dir: Path, index: int
+    boundary: Boundary, check: Check, run: Run, index: int
 ) -> tuple[str | None, object]:
     """Return one check's finding, and the evidence it left behind."""
     directory, problem = _check_cwd(boundary.root, check, boundary.noun)
     if directory is None:
         return problem, problem
-    outcome, problem = run_command(
-        check.command,
-        cwd=directory,
-        env=dict(check.env),
-        timeout=check.timeout_seconds,
+    # The project's interpreter is selected first and the declaration's own
+    # environment layered over it, so an explicit override keeps the last word.
+    outcome, problem = run.runner(
+        Invocation(
+            check.command,
+            cwd=directory,
+            env={**project_environment(run), **dict(check.env)},
+            timeout=check.timeout_seconds,
+            ambient=run.ambient,
+        )
     )
     if outcome is None:
         finding = f"check {check.name!r} could not run from {check.cwd!r}: {problem}"
         return finding, problem
-    write_logs(output_dir / "checks", log_stem(index, check.name), check.name, outcome)
+    # Written before the finding is formed, so a check that timed out keeps the
+    # streams it produced before it was stopped.
+    log_problem = write_logs(
+        run.output_dir / "checks", log_stem(index, check.name), check.name, outcome
+    )
     evidence: dict[str, object] = {
         "exit_code": outcome.exit_code,
         "cwd": check.cwd,
+        "timed_out": outcome.timed_out,
         "stdout": outcome.stdout,
         "stderr": outcome.stderr,
     }
+    if log_problem is not None:
+        # Evidence that cannot be written is a failure of the check's own
+        # report, whatever the command itself exited with.
+        return log_problem, evidence
+    if outcome.timed_out:
+        finding = (
+            f"check {check.name!r} {timeout_message(check.timeout_seconds)} "
+            f"from {check.cwd!r}: {last_line(outcome)}"
+        )
+        return finding, evidence
     if outcome.exit_code != 0:
         finding = (
             f"check {check.name!r} failed with exit code {outcome.exit_code} "
@@ -160,23 +180,26 @@ def _review_check(
     return None, evidence
 
 
-def _run_checks(
-    boundary: Boundary, declaration: Declaration, output_dir: Path
-) -> PhaseResult:
+def _run_checks(run: Run, declaration: Declaration, boundary: Boundary) -> PhaseResult:
     """Run every declared check under *boundary*, recording where that was."""
     pairs = [
-        (check, _review_check(boundary, check, output_dir, index))
+        (check, _review_check(boundary, check, run, index))
         for index, check in enumerate(declaration.checks)
     ]
     findings = [finding for _, (finding, _) in pairs if finding is not None]
-    detail: dict[str, object] = {check.name: evidence for check, (_, evidence) in pairs}
-    detail["ran_in"] = boundary.where
+    # Keyed by position as well as name: two checks may share a name, and a
+    # mapping by name alone would silently drop one of their evidence entries.
+    detail: dict[str, object] = {
+        "ran_in": boundary.where,
+        "results": [
+            {"index": index, "name": check.name, "evidence": evidence}
+            for index, (check, (_, evidence)) in enumerate(pairs)
+        ],
+    }
     return phase_outcome("checks", findings, [], detail)
 
 
-def run_checks_phase(
-    repo_root: Path, declaration: Declaration, output_dir: Path, mutmut_version: str
-) -> PhaseResult:
+def run_checks_phase(run: Run, declaration: Declaration) -> PhaseResult:
     """Run each declared check from the boundary it declares.
 
     On the mutmut lane the checks run inside a copy built from that release's
@@ -186,37 +209,37 @@ def run_checks_phase(
 
     Parameters
     ----------
-    repo_root : Path
-        The checkout the declaration belongs to.
+    run : Run
+        The checkout the declaration belongs to, the selected mutmut release,
+        the runner, the ambient environment and the log directory.
     declaration : Declaration
         The repository's declaration, whose ``checks`` are run.
-    output_dir : Path
-        Where each check's bounded streams are written.
-    mutmut_version : str
-        The mutmut release whose copy contract the sandbox is built from.
 
     Returns
     -------
     PhaseResult
-        ``skipped`` when nothing is declared, ``unknown`` when the sandbox
-        cannot be established, ``fail`` when a check cannot run or exits
-        non-zero, ``pass`` otherwise.
+        ``skipped`` when nothing is declared, ``unknown`` when the selected
+        release's copy contract is not established, ``fail`` when the checkout
+        cannot be copied into a sandbox or a check cannot run, times out or
+        exits non-zero, ``pass`` otherwise. An I/O failure while building a
+        known sandbox is a failure rather than an unknown: nothing was checked,
+        and a run whose checks never ran has not passed.
 
     """
     if not declaration.checks:
         return PhaseResult("checks", SKIPPED, (), {"reason": _NO_CHECKS})
     if declaration.lane != "mutmut":
         return _run_checks(
-            Boundary(repo_root, _WHOLE_TREE, "checkout"), declaration, output_dir
+            run, declaration, Boundary(run.root, _WHOLE_TREE, "checkout")
         )
-    contract, problems = mutmut_copy_set(repo_root, mutmut_version)
+    contract, problems = mutmut_copy_set(run.root, run.mutmut_version)
     if contract is None:
         return PhaseResult("checks", UNKNOWN, problems, {"reason": _NO_SANDBOX})
-    sandbox, problems = materialize(repo_root, contract)
+    sandbox, problems = materialize(run.root, contract)
     if sandbox is None:
-        return PhaseResult("checks", FAILED, list(problems), {"reason": _NO_SANDBOX})
+        return PhaseResult("checks", FAILED, problems, {"reason": _NO_SANDBOX})
     try:
         boundary = Boundary(sandbox, str(sandbox), "sandbox")
-        return _run_checks(boundary, declaration, output_dir)
+        return _run_checks(run, declaration, boundary)
     finally:
         discard(sandbox)

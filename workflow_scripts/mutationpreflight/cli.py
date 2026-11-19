@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses as dc
+import os
 import platform
 import sys
 import typing as typ
@@ -13,8 +14,11 @@ from cyclopts import App, Parameter
 from .console import emit
 from .constants import FAILED, LANES, MUTMUT_PINNED_VERSION
 from .declaration import load_declaration
+from .interpreters import load_shared_rule
 from .models import PhaseResult, Report, Runtimes
-from .reporting import Run, checked_phases, verdict, write_report
+from .ports import Run
+from .reporting import checked_phases, verdict, write_report
+from .running import run_command
 
 app = App()
 
@@ -86,6 +90,51 @@ def require_lane(lane: str) -> None:
     raise SystemExit(2)
 
 
+def require_root(root: Path) -> None:
+    """Refuse a checkout the phases cannot read, before any of them runs.
+
+    Parameters
+    ----------
+    root : Path
+        The resolved ``repository`` input.
+
+    Raises
+    ------
+    SystemExit
+        Exits 2 when *root* is not a directory. Every phase reads it, and a
+        missing or mistyped path would otherwise be reported as a missing
+        declaration and a missing ``uv.lock`` rather than as the usage error it
+        is.
+
+    """
+    if root.is_dir():
+        return
+    emit("mutation_preflight_result", FAILED)
+    emit(
+        "mutation_preflight_error",
+        f"the repository {str(root)!r} is not a directory",
+        stream=sys.stderr,
+    )
+    raise SystemExit(2)
+
+
+def abi3_escape_hatch() -> str:
+    """Return the ABI3 compatibility setting, without reading it as proof.
+
+    Read here, at the command line, so no phase below reads the environment.
+    The value is recorded for diagnosis only: setting it makes a build skip a
+    version check rather than establish support.
+
+    Returns
+    -------
+    str
+        ``PYO3_USE_ABI3_FORWARD_COMPATIBILITY`` as the environment spells it,
+        or ``"unset"``.
+
+    """
+    return os.environ.get("PYO3_USE_ABI3_FORWARD_COMPATIBILITY", "") or "unset"
+
+
 def emit_findings(results: typ.Iterable[PhaseResult]) -> None:
     """Publish each finding on standard error, prefixed with its phase.
 
@@ -119,10 +168,10 @@ def main(
     Raises
     ------
     SystemExit
-        Exits 2 for an unknown lane, and 1 when any phase failed or the
-        diagnostics could not be published, so the mutation run never starts
-        on an environment that would have failed it, and never passes with
-        nothing to show.
+        Exits 2 for an unknown lane or an unreadable checkout, and 1 when any
+        phase failed or the diagnostics could not be published, so the
+        mutation run never starts on an environment that would have failed it,
+        and never passes with nothing to show.
 
     """
     require_lane(options.lane)
@@ -131,12 +180,21 @@ def main(
         project=options.project_python,
     )
     root = Path(options.repository).resolve()
-    destination = Path(options.output_dir)
+    require_root(root)
+    # Read here, at the command line, so every phase below receives its
+    # environment, its rule and its destinations instead of discovering them.
+    rule, rule_problem = load_shared_rule()
     run = Run(
         root=root,
         runtimes=runtimes,
-        output_dir=destination,
+        output_dir=Path(options.output_dir),
         mutmut_version=options.mutmut_version,
+        ambient=dict(os.environ),
+        summary_path=os.environ.get("GITHUB_STEP_SUMMARY", ""),
+        abi3=abi3_escape_hatch(),
+        rule=rule,
+        rule_problem=rule_problem,
+        runner=run_command,
     )
     results = checked_phases(run, load_declaration(root, options.lane))
     report = Report(
@@ -146,7 +204,7 @@ def main(
         verdict=verdict(results),
     )
     emit_findings(results)
-    problems = write_report(destination, report)
+    problems = write_report(run, report)
     if problems:
         # Evidence that cannot be published is a failure of the run, not a
         # warning beside a passing verdict: no one can read what it decided.

@@ -193,6 +193,10 @@ jobs:
         env:
           INPUT_LANE: mutmut
           INPUT_PROJECT_PYTHON: ${{ inputs.python-version }}
+          # The sandbox phase judges the declaration against this release's
+          # copy contract, so a caller that overrides the version is checked
+          # against the sandbox its own run will build.
+          INPUT_MUTMUT_VERSION: ${{ inputs.mutmut-version }}
           INPUT_OUTPUT_DIR: mutation-preflight-diagnostics
           WORKFLOW_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
         run: |
@@ -210,7 +214,7 @@ jobs:
         with:
           name: mutation-preflight-diagnostics-mutmut
           path: mutation-preflight-diagnostics/
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Run mutation testing
         id: mutation

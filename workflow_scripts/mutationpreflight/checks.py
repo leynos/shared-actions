@@ -7,6 +7,7 @@ leaving it in a comment beside the fixture.
 
 from __future__ import annotations
 
+import dataclasses as dc
 import sys
 import typing as typ
 
@@ -14,30 +15,56 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
 
 from .console import emit
-from .constants import SKIPPED
+from .constants import FAILED, SKIPPED, UNKNOWN
+from .copy_set import mutmut_copy_set
+from .materialize import discard, materialize
 from .models import Check, Declaration, PhaseResult, Ran, phase_outcome
 from .running import last_line, run_command
 from .sandbox import path_problem
 
 _NO_CHECKS: typ.Final[str] = "no checks declared"
+_WHOLE_TREE: typ.Final[str] = "the unmodified checkout, which this lane copies whole"
+_NO_SANDBOX: typ.Final[str] = (
+    "the checks' sandbox could not be established, so a check that passes "
+    "here would not have been shown to survive into the mutation run"
+)
 
 
-def _check_cwd(repo_root: Path, check: Check) -> tuple[Path | None, str]:
+@dc.dataclass(frozen=True, slots=True)
+class Boundary:
+    """The tree a check runs in, and how its findings name that tree.
+
+    Attributes
+    ----------
+    root : Path
+        The directory a check's ``cwd`` is anchored at.
+    where : str
+        The evidence's ``ran_in`` value: the path or the phrase naming *root*.
+    noun : str
+        The word a finding uses for *root*, such as ``sandbox``.
+
+    """
+
+    root: Path
+    where: str
+    noun: str
+
+
+def _check_cwd(root: Path, check: Check, noun: str) -> tuple[Path | None, str]:
     """Return the working directory *check* names, or why it is unusable."""
     problem = path_problem(check.cwd) if check.cwd != "." else None
     if problem is not None:
         return None, f"checks[{check.name!r}].cwd {problem}"
-    root = repo_root.resolve()
-    directory = (root / check.cwd).resolve()
-    if not directory.is_relative_to(root):
+    anchor = root.resolve()
+    directory = (anchor / check.cwd).resolve()
+    if not directory.is_relative_to(anchor):
         return None, (
             f"checks[{check.name!r}].cwd {check.cwd!r} resolves to {str(directory)!r} "
-            f"outside the checkout, so the check would run elsewhere"
+            f"outside the {noun}, so the check would run elsewhere"
         )
     if not directory.is_dir():
         return None, (
-            f"checks[{check.name!r}].cwd {check.cwd!r} is not a directory in "
-            f"the checkout"
+            f"checks[{check.name!r}].cwd {check.cwd!r} is not a directory in the {noun}"
         )
     return directory, ""
 
@@ -45,7 +72,7 @@ def _check_cwd(repo_root: Path, check: Check) -> tuple[Path | None, str]:
 def log_stem(index: int, name: str) -> str:
     """Return a log filename stem unique to one declared check.
 
-    The name is sanitised for the filesystem, which maps distinct names such as
+    The name is sanitized for the filesystem, which maps distinct names such as
     ``a/b`` and ``a-b`` onto one stem. The check's position keeps them apart,
     so a later check never overwrites the evidence of an earlier failure.
 
@@ -59,14 +86,14 @@ def log_stem(index: int, name: str) -> str:
     Returns
     -------
     str
-        The position as two digits, then the sanitised name.
+        The position as two digits, then the sanitized name.
 
     """
-    sanitised = "".join(
+    sanitized = "".join(
         character if character.isalnum() or character in "-_" else "-"
         for character in name
     )
-    return f"{index:02d}-{sanitised}"
+    return f"{index:02d}-{sanitized}"
 
 
 def write_logs(directory: Path, stem: str, name: str, outcome: Ran) -> None:
@@ -102,10 +129,10 @@ def write_logs(directory: Path, stem: str, name: str, outcome: Ran) -> None:
 
 
 def _review_check(
-    repo_root: Path, check: Check, output_dir: Path, index: int
+    boundary: Boundary, check: Check, output_dir: Path, index: int
 ) -> tuple[str | None, object]:
     """Return one check's finding, and the evidence it left behind."""
-    directory, problem = _check_cwd(repo_root, check)
+    directory, problem = _check_cwd(boundary.root, check, boundary.noun)
     if directory is None:
         return problem, problem
     outcome, problem = run_command(
@@ -133,33 +160,63 @@ def _review_check(
     return None, evidence
 
 
+def _run_checks(
+    boundary: Boundary, declaration: Declaration, output_dir: Path
+) -> PhaseResult:
+    """Run every declared check under *boundary*, recording where that was."""
+    pairs = [
+        (check, _review_check(boundary, check, output_dir, index))
+        for index, check in enumerate(declaration.checks)
+    ]
+    findings = [finding for _, (finding, _) in pairs if finding is not None]
+    detail: dict[str, object] = {check.name: evidence for check, (_, evidence) in pairs}
+    detail["ran_in"] = boundary.where
+    return phase_outcome("checks", findings, [], detail)
+
+
 def run_checks_phase(
-    repo_root: Path, declaration: Declaration, output_dir: Path
+    repo_root: Path, declaration: Declaration, output_dir: Path, mutmut_version: str
 ) -> PhaseResult:
     """Run each declared check from the boundary it declares.
+
+    On the mutmut lane the checks run inside a copy built from that release's
+    contract, because a check that only passes in the checkout has not been
+    shown to survive into ``mutants/``. The cargo lane copies the whole tree,
+    so the checkout itself is the representative sandbox there.
 
     Parameters
     ----------
     repo_root : Path
-        The checkout the declared working directories are resolved against.
+        The checkout the declaration belongs to.
     declaration : Declaration
         The repository's declaration, whose ``checks`` are run.
     output_dir : Path
         Where each check's bounded streams are written.
+    mutmut_version : str
+        The mutmut release whose copy contract the sandbox is built from.
 
     Returns
     -------
     PhaseResult
-        ``skipped`` when nothing is declared, ``fail`` when a check cannot run
-        or exits non-zero, ``pass`` otherwise.
+        ``skipped`` when nothing is declared, ``unknown`` when the sandbox
+        cannot be established, ``fail`` when a check cannot run or exits
+        non-zero, ``pass`` otherwise.
 
     """
     if not declaration.checks:
         return PhaseResult("checks", SKIPPED, (), {"reason": _NO_CHECKS})
-    pairs = [
-        (check, _review_check(repo_root, check, output_dir, index))
-        for index, check in enumerate(declaration.checks)
-    ]
-    findings = [finding for _, (finding, _) in pairs if finding is not None]
-    detail = {check.name: evidence for check, (_, evidence) in pairs}
-    return phase_outcome("checks", findings, [], detail)
+    if declaration.lane != "mutmut":
+        return _run_checks(
+            Boundary(repo_root, _WHOLE_TREE, "checkout"), declaration, output_dir
+        )
+    contract, problems = mutmut_copy_set(repo_root, mutmut_version)
+    if contract is None:
+        return PhaseResult("checks", UNKNOWN, problems, {"reason": _NO_SANDBOX})
+    sandbox, problems = materialize(repo_root, contract)
+    if sandbox is None:
+        return PhaseResult("checks", FAILED, list(problems), {"reason": _NO_SANDBOX})
+    try:
+        boundary = Boundary(sandbox, str(sandbox), "sandbox")
+        return _run_checks(boundary, declaration, output_dir)
+    finally:
+        discard(sandbox)

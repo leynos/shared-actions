@@ -8,57 +8,67 @@ treated as proof that the interpreter is supported.
 from __future__ import annotations
 
 import os
+import re
 import typing as typ
-
-from packaging.utils import canonicalize_name
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
 from .constants import MAX_CHECK_TIMEOUT_SECONDS, SKIPPED
 from .interpreters import judge
+from .lockfile import (
+    find_locked,
+    locked_packages,
+    pinned_revision,
+    source_text,
+)
 from .models import Declaration, NativeRequirement, PhaseResult, Ran, phase_outcome
-from .running import last_line, run_command
-from .toml_documents import read_document
+from .running import first_diagnostic, run_command
 
 _NO_NATIVE: typ.Final[str] = "no native dependency declared"
 
+#: A hexadecimal commit id short enough to be a prefix rather than a complete
+#: id. A declaration may name the full commit or any unambiguous prefix.
+_COMMIT_PREFIX: typ.Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{4,40}")
 
-def _locked_packages(repo_root: Path) -> tuple[list[dict[str, object]], str | None]:
-    """Return ``uv.lock``'s package records, or why they could not be read."""
-    lock = repo_root / "uv.lock"
-    if not lock.is_file():
-        return [], "uv.lock is absent, so no locked revision can be established"
-    document, problem = read_document(lock)
-    if problem is not None:
-        return [], problem
-    packages = (document or {}).get("package", [])
-    if not isinstance(packages, list):
-        return [], "uv.lock's package entry is not an array"
-    records = typ.cast("list[object]", packages)
-    tables = [item for item in records if isinstance(item, dict)]
-    return [typ.cast("dict[str, object]", item) for item in tables], None
+#: Why a probe was not run: its verdict would describe an environment the
+#: mutation run is not going to use.
+_PROBE_BLOCKED: typ.Final[str] = (
+    "the interpreter phase failed, so {package}'s probe was not run: it would "
+    "sync the project under the interpreter the phase rejected"
+)
 
 
-def _find_locked(
-    packages: list[dict[str, object]], name: str
-) -> dict[str, object] | None:
-    """Return the locked record for *name*, comparing canonical names."""
-    wanted = canonicalize_name(name)
-    for package in packages:
-        found = package.get("name")
-        if isinstance(found, str) and canonicalize_name(found) == wanted:
-            return package
-    return None
+def _revision_holds(declared: str, pinned: str) -> bool:
+    """Return whether *pinned* is the revision *declared* names."""
+    if pinned == declared:
+        return True
+    return bool(
+        _COMMIT_PREFIX.fullmatch(declared)
+        and pinned.lower().startswith(declared.lower())
+    )
 
 
-def _source_text(package: dict[str, object]) -> str:
-    """Return the locked record's source as text, for identity reporting."""
-    source = package.get("source", {})
-    if isinstance(source, dict):
-        entries = typ.cast("dict[str, object]", source)
-        return " ".join(f"{key}={value}" for key, value in sorted(entries.items()))
-    return str(source)
+def _revision_finding(
+    native: NativeRequirement, package: dict[str, object]
+) -> str | None:
+    """Return why the lock does not pin the declared revision, or ``None``."""
+    if not native.revision:
+        return None
+    pinned = pinned_revision(package)
+    if pinned is None:
+        source = source_text(package)
+        return (
+            f"uv.lock records no pinned revision for {native.package} at "
+            f"{source!r}, so the declared revision {native.revision!r} is not "
+            f"established"
+        )
+    if _revision_holds(native.revision, pinned):
+        return None
+    return (
+        f"uv.lock pins {native.package} at revision {pinned!r}, which is not the "
+        f"declared revision {native.revision!r}"
+    )
 
 
 def abi3_escape_hatch() -> str:
@@ -79,23 +89,21 @@ def _locked_identity(
     repo_root: Path, native: NativeRequirement
 ) -> tuple[dict[str, object], list[str], list[str]]:
     """Return the lock's record of *native*, and what that leaves open."""
-    packages, problem = _locked_packages(repo_root)
+    packages, problem = locked_packages(repo_root)
     if problem is not None:
         return {}, [], [problem]
-    locked = _find_locked(packages, native.package)
+    locked = find_locked(packages, native.package)
     if locked is None:
         finding = f"the declared native dependency {native.package!r} is not in uv.lock"
         return {}, [finding], []
-    source = _source_text(locked)
+    pinned = pinned_revision(locked)
     identity: dict[str, object] = {
         "locked_version": locked.get("version", ""),
-        "locked_source": source,
+        "locked_source": source_text(locked),
+        "locked_revision": pinned or "",
     }
-    if native.revision and native.revision not in source:
-        finding = (
-            f"uv.lock pins {native.package} at {source!r}, which is not the "
-            f"declared revision {native.revision!r}"
-        )
+    finding = _revision_finding(native, locked)
+    if finding is not None:
         return identity, [finding], []
     return identity, [], []
 
@@ -143,11 +151,20 @@ def _probe_detail(
 
 
 def _probe_findings(
-    native: NativeRequirement, repo_root: Path
-) -> tuple[list[str], dict[str, object] | None]:
-    """Run the declared probe, returning its finding and its evidence."""
+    native: NativeRequirement, repo_root: Path, *, execute: bool
+) -> tuple[list[str], list[str], dict[str, object] | None]:
+    """Run the declared probe, returning its blocking, unknown and evidence.
+
+    *execute* is false when an earlier prerequisite failed. The probe is then
+    recorded as skipped rather than run: a command that syncs the project
+    would otherwise act under the interpreter the preflight just refused, and
+    its verdict would describe an environment the mutation run will not use.
+    """
     if not native.probe:
-        return [], None
+        return [], [], None
+    if not execute:
+        blocked = _PROBE_BLOCKED.format(package=native.package)
+        return [], [blocked], {"command": list(native.probe), "skipped": blocked}
     outcome, problem = run_command(
         native.probe,
         cwd=repo_root,
@@ -157,18 +174,22 @@ def _probe_findings(
     evidence = _probe_detail(native.probe, outcome, problem)
     if outcome is None:
         finding = f"the native probe for {native.package} could not run: {problem}"
-        return [finding], evidence
+        return [finding], [], evidence
     if outcome.exit_code != 0:
         finding = (
             f"the native probe for {native.package} failed with exit code "
-            f"{outcome.exit_code}: {last_line(outcome)}"
+            f"{outcome.exit_code}: {first_diagnostic(outcome)}"
         )
-        return [finding], evidence
-    return [], evidence
+        return [finding], [], evidence
+    return [], [], evidence
 
 
 def run_native_phase(
-    repo_root: Path, declaration: Declaration, project_python: str
+    repo_root: Path,
+    declaration: Declaration,
+    project_python: str,
+    *,
+    execute_probe: bool = True,
 ) -> PhaseResult:
     """Check the declared native dependency's revision and interpreter range.
 
@@ -180,13 +201,17 @@ def run_native_phase(
         The repository's declaration, whose ``native`` table is checked.
     project_python : str
         The interpreter the caller selected for the project.
+    execute_probe : bool
+        Whether the declared probe may run. False when an earlier prerequisite
+        failed, so the probe is recorded as skipped instead of acting under the
+        environment that prerequisite rejected.
 
     Returns
     -------
     PhaseResult
-        ``skipped`` when nothing is declared, ``unknown`` when the lock or the
-        support range could not establish compatibility, ``fail`` otherwise
-        when a revision, a range or the probe does not hold.
+        ``skipped`` when nothing is declared, ``unknown`` when the lock, the
+        support range or a skipped probe could not establish compatibility,
+        ``fail`` otherwise when a revision, a range or the probe does not hold.
 
     """
     native = declaration.native
@@ -198,12 +223,14 @@ def run_native_phase(
     identity["supported_python"] = native.supported_python
     identity["abi3_forward_compatibility"] = abi3_escape_hatch()
     support_blocking, support_unknown = _support_findings(native, project_python)
-    probe_blocking, probe_detail = _probe_findings(native, repo_root)
+    probe_blocking, probe_unknown, probe_detail = _probe_findings(
+        native, repo_root, execute=execute_probe
+    )
     if probe_detail is not None:
         identity["probe"] = probe_detail
     return phase_outcome(
         "native",
         [*lock_blocking, *support_blocking, *probe_blocking],
-        [*lock_unknown, *support_unknown],
+        [*lock_unknown, *support_unknown, *probe_unknown],
         identity,
     )

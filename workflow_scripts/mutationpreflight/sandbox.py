@@ -11,13 +11,8 @@ import typing as typ
 from fnmatch import fnmatch
 from pathlib import Path, PurePosixPath
 
-from .constants import (
-    EXCLUDED_DIRECTORIES,
-    MUTMUT_DEFAULT_COPIES,
-    MUTMUT_DEFAULT_GLOBS,
-    SKIPPED,
-)
-from .copy_set import mutmut_copy_set
+from .constants import EXCLUDED_DIRECTORIES, SKIPPED
+from .copy_set import CopyContract, mutmut_copy_set
 from .models import Declaration, PhaseResult, phase_outcome
 
 _NO_SANDBOX: typ.Final[str] = "no sandbox_paths declared"
@@ -83,29 +78,29 @@ def _covers(entry: str, wanted: str) -> bool:
     return entry_path == wanted_path or entry_path in wanted_path.parents
 
 
-def _copied_by_default_glob(wanted: str) -> bool:
-    """Return whether one of mutmut's root-level default globs matches *wanted*."""
+def _copied_by_default_glob(wanted: str, globs: tuple[str, ...]) -> bool:
+    """Return whether a root-level glob of the selected release matches *wanted*."""
     path = PurePosixPath(wanted)
     return path.parent == PurePosixPath(".") and any(
-        fnmatch(path.name, pattern) for pattern in MUTMUT_DEFAULT_GLOBS
+        fnmatch(path.name, pattern) for pattern in globs
     )
 
 
-def _is_copied(declared: str, copied: tuple[str, ...]) -> bool:
-    """Return whether mutmut's copy set materializes *declared*."""
-    if _copied_by_default_glob(declared):
+def _is_copied(declared: str, contract: CopyContract) -> bool:
+    """Return whether the selected release's contract materializes *declared*."""
+    if _copied_by_default_glob(declared, contract.globs):
         return True
-    return any(_covers(entry, declared) for entry in copied)
+    return any(_covers(entry, declared) for entry in contract.paths)
 
 
 def _path_finding(
-    repo_root: Path, declared: str, copied: tuple[str, ...] | None
+    repo_root: Path, declared: str, contract: CopyContract | None
 ) -> tuple[str | None, str | None]:
     """Return one path's finding, and the envelope category it belongs to.
 
     The first usable answer wins: a syntactic problem outranks an absence,
     which outranks a symlink leaving the checkout, which outranks the copy
-    question. *copied* is ``None`` when that last question cannot be asked.
+    question. *contract* is ``None`` when that last question cannot be asked.
     """
     problem = path_problem(declared)
     if problem is not None:
@@ -119,30 +114,29 @@ def _path_finding(
     resolved = _resolved_problem(repo_root, declared)
     if resolved is not None:
         return f"sandbox path {declared!r} {resolved}", None
-    if copied is None or _is_copied(declared, copied):
+    if contract is None or _is_copied(declared, contract):
         return None, None
     finding = (
         f"sandbox path {declared!r} is not materialized in mutants/: add it "
-        f"to [tool.mutmut] also_copy, because mutmut copies only "
-        f"{list(MUTMUT_DEFAULT_COPIES)} and root {list(MUTMUT_DEFAULT_GLOBS)} "
-        f"besides source_paths and also_copy"
+        f"to [tool.mutmut] also_copy, because the selected mutmut copies only "
+        f"{list(contract.paths)} and root {list(contract.globs)}"
     )
     return finding, "not_copied"
 
 
 def _review_paths(
-    repo_root: Path, declared_paths: tuple[str, ...], copied: tuple[str, ...] | None
+    repo_root: Path, declared_paths: tuple[str, ...], contract: CopyContract | None
 ) -> tuple[list[str], dict[str, list[str]]]:
     """Return every finding, with the paths classified for the envelope.
 
-    *copied* is ``None`` when mutmut's copy set could not be established: the
-    syntax and existence of each path are still checked, because neither
+    *contract* is ``None`` when mutmut's copy set could not be established:
+    the syntax and existence of each path are still checked, because neither
     depends on knowing what mutmut would copy.
     """
     findings: list[str] = []
     categories: dict[str, list[str]] = {"missing_in_checkout": [], "not_copied": []}
     for declared in declared_paths:
-        finding, category = _path_finding(repo_root, declared, copied)
+        finding, category = _path_finding(repo_root, declared, contract)
         if finding is not None:
             findings.append(finding)
         if category is not None:
@@ -150,7 +144,9 @@ def _review_paths(
     return findings, categories
 
 
-def run_sandbox_phase(repo_root: Path, declaration: Declaration) -> PhaseResult:
+def run_sandbox_phase(
+    repo_root: Path, declaration: Declaration, mutmut_version: str
+) -> PhaseResult:
     """Compare the declared sandbox requirements with what mutmut will copy.
 
     Parameters
@@ -159,25 +155,29 @@ def run_sandbox_phase(repo_root: Path, declaration: Declaration) -> PhaseResult:
         The checkout the declaration belongs to.
     declaration : Declaration
         The repository's declaration, whose ``sandbox_paths`` are checked.
+    mutmut_version : str
+        The mutmut release the run selects. The comparison uses that release's
+        copy contract, never a different release's.
 
     Returns
     -------
     PhaseResult
         ``skipped`` when nothing is declared, ``unknown`` when mutmut's copy
-        set cannot be established, ``fail`` when a declared path is unusable
-        or would not survive into ``mutants/``.
+        contract cannot be established, ``fail`` when a declared path is
+        unusable or would not survive into ``mutants/``.
 
     """
     if not declaration.sandbox_paths:
         return PhaseResult("sandbox", SKIPPED, (), {"reason": _NO_SANDBOX})
-    copied, problems = mutmut_copy_set(repo_root)
+    contract, problems = mutmut_copy_set(repo_root, mutmut_version)
     detail: dict[str, object] = {
         "declared": list(declaration.sandbox_paths),
-        "copied": [] if copied is None else sorted(copied),
+        "mutmut_version": mutmut_version,
+        "copied": [] if contract is None else sorted(contract.paths),
     }
-    findings, classified = _review_paths(repo_root, declaration.sandbox_paths, copied)
+    findings, classified = _review_paths(repo_root, declaration.sandbox_paths, contract)
     detail.update(classified)
-    if copied is None:
+    if contract is None:
         # An unusable or absent path is a failure whether or not the copy set
         # could be established; only the copy question itself stays unknown.
         return phase_outcome("sandbox", findings, list(problems), detail)

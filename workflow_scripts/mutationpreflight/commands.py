@@ -13,15 +13,41 @@ if typ.TYPE_CHECKING:
 
 from .constants import SKIPPED, VERSION_TIMEOUT_SECONDS
 from .models import CommandRequirement, Declaration, PhaseResult, phase_outcome
-from .running import bounded, last_line, reports_version, run_command
+from .running import (
+    bounded,
+    last_line,
+    reports_version,
+    resolution_problem,
+    run_command,
+)
 
 _NO_COMMANDS: typ.Final[str] = "no require_commands declared"
+
+
+def _unresolved(name: str, problem: str) -> tuple[str, str]:
+    """Return the finding and evidence for a command that does not resolve."""
+    finding = (
+        f"required command {name!r} {problem}; install it "
+        f"before the mutation run, or stop declaring it"
+    )
+    return finding, problem
 
 
 def _review_command(
     repo_root: Path, requirement: CommandRequirement
 ) -> tuple[str | None, object]:
-    """Return what one command reported, and the finding when it does not hold."""
+    """Return what one command reported, and the finding when it does not hold.
+
+    An unpinned command is only required to resolve. Asking it for
+    ``--version`` without a declared version would impose a version interface
+    the declaration never named, and a tool that answers ``--version`` with a
+    non-zero exit is not thereby missing.
+    """
+    if not requirement.version:
+        problem = resolution_problem(requirement.name, repo_root)
+        if problem:
+            return _unresolved(requirement.name, problem)
+        return None, {"resolved": requirement.name}
     outcome, problem = run_command(
         (requirement.name, *requirement.version_args),
         cwd=repo_root,
@@ -29,11 +55,7 @@ def _review_command(
         timeout=VERSION_TIMEOUT_SECONDS,
     )
     if outcome is None:
-        finding = (
-            f"required command {requirement.name!r} {problem}; install it "
-            f"before the mutation run, or stop declaring it"
-        )
-        return finding, problem
+        return _unresolved(requirement.name, problem)
     printed = f"{outcome.stdout}\n{outcome.stderr}"
     evidence: object = bounded(printed.strip())
     if outcome.exit_code != 0:

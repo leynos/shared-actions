@@ -402,7 +402,7 @@ jobs:
         with:
           name: mutation-preflight-diagnostics-${{ matrix.slug }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/mutation-preflight-diagnostics/
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Run mutation testing
         shell: bash

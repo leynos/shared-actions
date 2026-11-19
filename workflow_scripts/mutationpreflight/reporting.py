@@ -7,6 +7,7 @@ depend on mutation results existing.
 
 from __future__ import annotations
 
+import dataclasses as dc
 import json
 import os
 import re
@@ -27,6 +28,35 @@ _NO_DECLARATION: typ.Final[str] = (
     "the repository declares no mutation environment requirements, so "
     "only the interpreter was checked"
 )
+
+_CHECKS_BLOCKED: typ.Final[str] = (
+    "the interpreter phase failed, so the declared checks were not run: they "
+    "would execute the project under the interpreter that phase rejected"
+)
+
+
+@dc.dataclass(frozen=True, slots=True)
+class Run:
+    """What one preflight run checks, and where its evidence goes.
+
+    Attributes
+    ----------
+    root : Path
+        The checkout being validated.
+    runtimes : Runtimes
+        Both interpreters, reported separately.
+    output_dir : Path
+        Where the check logs are written.
+    mutmut_version : str
+        The mutmut release the run selects, whose copy contract the sandbox
+        and checks phases use.
+
+    """
+
+    root: Path
+    runtimes: Runtimes
+    output_dir: Path
+    mutmut_version: str
 
 
 def manifest_phase(loaded: Loaded) -> PhaseResult:
@@ -102,7 +132,7 @@ def _table_ready(findings: typ.Iterable[str]) -> list[str]:
     A finding can carry a multi-line message, such as the one ``ConfigParser``
     raises, and an embedded newline would end the table row early. Whitespace
     runs collapse to one space. A backslash is escaped before ``|`` so a
-    backslash already in the text cannot neutralise the pipe escape.
+    backslash already in the text cannot neutralize the pipe escape.
     """
     return [
         re.sub(r"\s+", " ", finding).replace("\\", "\\\\").replace("|", "\\|")
@@ -141,17 +171,19 @@ def render_summary(report: Report) -> str:
     return "\n".join(lines)
 
 
-def _append_summary(path: Path, rendered: str) -> None:
-    """Append the rendered summary, naming the failure when it cannot be written."""
+def _append_summary(path: Path, rendered: str) -> str:
+    """Append the rendered summary, returning why it could not be written."""
     try:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(rendered)
     except OSError as error:
         emit("mutation_preflight_summary_error", str(error), stream=sys.stderr)
+        return f"the job summary {str(path)!r} could not be written: {error}"
+    return ""
 
 
-def _write_json(output_dir: Path, report: Report) -> None:
-    """Write the machine-readable report, naming the failure when it cannot be."""
+def _write_json(output_dir: Path, report: Report) -> str:
+    """Write the machine-readable report, returning why it could not be written."""
     document = {
         "lane": report.lane,
         "helper_python": report.runtimes.helper,
@@ -159,16 +191,19 @@ def _write_json(output_dir: Path, report: Report) -> None:
         "result": report.verdict,
         "phases": [phase_envelope(result) for result in report.results],
     }
+    destination = output_dir / "mutation-preflight.json"
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "mutation-preflight.json").write_text(
+        destination.write_text(
             json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
     except OSError as error:
         emit("mutation_preflight_report_error", str(error), stream=sys.stderr)
+        return f"the report {str(destination)!r} could not be written: {error}"
+    return ""
 
 
-def write_report(output_dir: Path, report: Report) -> None:
+def write_report(output_dir: Path, report: Report) -> tuple[str, ...]:
     """Write the JSON report and append the Markdown summary, when asked to.
 
     Parameters
@@ -178,51 +213,67 @@ def write_report(output_dir: Path, report: Report) -> None:
     report : Report
         The run to publish.
 
+    Returns
+    -------
+    tuple[str, ...]
+        Why the diagnostics could not be published, or an empty tuple when
+        they were. A run whose evidence cannot be read has not passed, so the
+        caller fails it rather than exiting successfully with nothing to show.
+
     """
-    _write_json(output_dir, report)
+    written = _write_json(output_dir, report)
+    problems = [written] if written else []
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if not summary:
-        return
-    _append_summary(Path(summary), render_summary(report))
+    if summary:
+        problem = _append_summary(Path(summary), render_summary(report))
+        if problem:
+            problems.append(problem)
+    return tuple(problems)
 
 
 def _declaration_phases(
-    root: Path, declaration: Declaration, project_python: str, output_dir: Path
+    run: Run, declaration: Declaration, *, interpreter_ok: bool
 ) -> typ.Iterator[PhaseResult]:
-    """Yield the phases a parsed declaration enables, running each when reached."""
-    yield run_native_phase(root, declaration, project_python)
-    yield run_sandbox_phase(root, declaration)
-    yield run_commands_phase(root, declaration)
-    yield run_checks_phase(root, declaration, output_dir)
+    """Yield the phases a parsed declaration enables, running each when reached.
+
+    The phases that execute the project's own environment are gated on the
+    interpreter verdict: a probe or a check run under a rejected interpreter
+    would certify an environment the mutation run will not use.
+    """
+    yield run_native_phase(
+        run.root, declaration, run.runtimes.project, execute_probe=interpreter_ok
+    )
+    yield run_sandbox_phase(run.root, declaration, run.mutmut_version)
+    yield run_commands_phase(run.root, declaration)
+    if interpreter_ok:
+        yield run_checks_phase(
+            run.root, declaration, run.output_dir, run.mutmut_version
+        )
+        return
+    yield PhaseResult("checks", SKIPPED, (), {"reason": _CHECKS_BLOCKED})
 
 
-def _all_phases(
-    root: Path, loaded: Loaded, runtimes: Runtimes, output_dir: Path
-) -> typ.Iterator[PhaseResult]:
+def _all_phases(run: Run, loaded: Loaded) -> typ.Iterator[PhaseResult]:
     """Yield every phase in order, running each only when it is reached."""
     yield manifest_phase(loaded)
-    yield run_interpreter_phase(root, runtimes)
+    interpreter = run_interpreter_phase(run.root, run.runtimes)
+    yield interpreter
     if loaded.declaration is not None:
         yield from _declaration_phases(
-            root, loaded.declaration, runtimes.project, output_dir
+            run, loaded.declaration, interpreter_ok=interpreter.status != FAILED
         )
 
 
-def checked_phases(
-    root: Path, loaded: Loaded, runtimes: Runtimes, output_dir: Path
-) -> list[PhaseResult]:
+def checked_phases(run: Run, loaded: Loaded) -> list[PhaseResult]:
     """Run every phase, emitting each as it finishes.
 
     Parameters
     ----------
-    root : Path
-        The checkout being validated.
+    run : Run
+        The checkout, both interpreters, the output directory and the selected
+        mutmut release.
     loaded : Loaded
         What reading the declaration produced.
-    runtimes : Runtimes
-        Both interpreters, reported separately.
-    output_dir : Path
-        Where the check logs are written.
 
     Returns
     -------
@@ -231,7 +282,7 @@ def checked_phases(
 
     """
     results: list[PhaseResult] = []
-    for result in _all_phases(root, loaded, runtimes, output_dir):
+    for result in _all_phases(run, loaded):
         emit("mutation_preflight_phase", phase_envelope(result))
         results.append(result)
     return results

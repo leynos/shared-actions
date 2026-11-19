@@ -7,11 +7,14 @@ a job that never finishes.
 
 from __future__ import annotations
 
+import dataclasses as dc
 import os
+import subprocess
+import threading
 import typing as typ
 from pathlib import Path
 
-from plumbum import CommandNotFound, ProcessExecutionError, ProcessTimedOut, local
+from plumbum import CommandNotFound, local
 
 from .constants import LOG_BOUND_BYTES, VERSION_TOKEN
 from .models import Ran
@@ -19,6 +22,34 @@ from .models import Ran
 #: How a bounded stream marks the bytes it dropped. ``last_line`` ignores it,
 #: so a truncated stream still names a line of its retained output.
 TRUNCATION_PREFIX: typ.Final[str] = "[... "
+
+#: How much of one stream is read at a time.
+_READ_CHUNK_BYTES: typ.Final[int] = 8192
+
+
+class _RunError(Exception):
+    """A command that produced no bounded result."""
+
+
+@dc.dataclass
+class _Capture:
+    """One stream's retained prefix, and how many bytes were dropped."""
+
+    kept: bytearray = dc.field(default_factory=bytearray)
+    dropped: int = 0
+
+    def take(self, chunk: bytes) -> None:
+        """Keep what still fits inside the bound, and count the remainder."""
+        room = max(0, LOG_BOUND_BYTES - len(self.kept))
+        kept = chunk[:room]
+        self.kept.extend(kept)
+        self.dropped += len(chunk) - len(kept)
+
+
+def _drain(stream: typ.IO[bytes], capture: _Capture) -> None:
+    """Read *stream* to its end, keeping only the captured prefix."""
+    while chunk := stream.read(_READ_CHUNK_BYTES):
+        capture.take(chunk)
 
 
 def bounded(text: str) -> str:
@@ -45,9 +76,13 @@ def bounded(text: str) -> str:
 
 
 def _diagnostic_lines(text: str) -> list[str]:
-    """Return the meaningful lines of *text*, without the truncation marker."""
-    present = [line.strip() for line in text.splitlines() if line.strip()]
-    return [line for line in present if not line.startswith(TRUNCATION_PREFIX)]
+    """Return the meaningful lines of *text*, without the truncation marker.
+
+    Leading whitespace is kept: it is what tells a compiler's first diagnostic
+    apart from the traceback frames indented beneath it.
+    """
+    present = [line.rstrip() for line in text.splitlines() if line.strip()]
+    return [line for line in present if not line.strip().startswith(TRUNCATION_PREFIX)]
 
 
 def last_line(outcome: Ran) -> str:
@@ -68,7 +103,42 @@ def last_line(outcome: Ran) -> str:
     for text in (outcome.stderr, outcome.stdout):
         printed = _diagnostic_lines(text)
         if printed:
-            return printed[-1]
+            return printed[-1].strip()
+    return "it printed nothing"
+
+
+def first_diagnostic(outcome: Ran) -> str:
+    """Return the first non-empty diagnostic line a command printed.
+
+    A compiler reports the failure that stopped it on its first line and
+    context afterwards, so a finding that quotes the last line quotes the
+    least useful one.
+
+    Parameters
+    ----------
+    outcome : Ran
+        The command's bounded result.
+
+    Returns
+    -------
+    str
+        The first non-empty line of standard error, else of standard output,
+        else a phrase saying the command printed nothing.
+
+    """
+    for text in (outcome.stderr, outcome.stdout):
+        printed = _diagnostic_lines(text)
+        if not printed:
+            continue
+        # A compiler's first diagnostic begins at the margin. A traceback's
+        # first line is its header and its frames are indented, so the line
+        # that names the failure is the first unindented one after them.
+        leading = [
+            line
+            for line in printed
+            if not line.startswith("Traceback") and not line[:1].isspace()
+        ]
+        return (leading or printed)[0].strip()
     return "it printed nothing"
 
 
@@ -95,6 +165,101 @@ def _executable(name: str, cwd: Path) -> str:
     return os.path.normpath(f"{cwd}{os.sep}{name}")
 
 
+def _unresolved(name: str, cwd: Path) -> str:
+    """Return why *name* cannot be looked up, in the terms its declaration used."""
+    if _is_path(name):
+        return f"{name!r} is not an executable file in {str(cwd)!r}"
+    return f"{name!r} is not on PATH"
+
+
+def resolution_problem(name: str, cwd: Path) -> str:
+    """Return why *name* cannot be resolved, or ``""`` when it can.
+
+    Parameters
+    ----------
+    name : str
+        The command name or path to look up.
+    cwd : Path
+        The directory a relative path is anchored at.
+
+    Returns
+    -------
+    str
+        The reason the name does not resolve, or an empty string when it does.
+
+    """
+    try:
+        local[_executable(name, cwd)]
+    except CommandNotFound:
+        return _unresolved(name, cwd)
+    return ""
+
+
+def _timeout_message(timeout: int) -> str:
+    """Return why a command was stopped, in the units its declaration used."""
+    unit = "second" if timeout == 1 else "seconds"
+    return f"it did not finish within {timeout} {unit}"
+
+
+def _spawn(
+    argv: list[str], *, cwd: Path, env: typ.Mapping[str, str]
+) -> subprocess.Popen[bytes]:
+    """Start *argv*, layering *env* over the ambient environment."""
+    # The declaration names the executable, and it is resolved through PLUMBUM
+    # before this call, so the arguments are not untrusted shell input.
+    return subprocess.Popen(  # noqa: S603
+        argv,
+        cwd=str(cwd),
+        env={**os.environ, **env},
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _read_streams(
+    process: subprocess.Popen[bytes], timeout: int
+) -> tuple[_Capture, _Capture]:
+    """Read both streams, keeping each one's first ``LOG_BOUND_BYTES``.
+
+    The bound applies while reading rather than after the command returns, so
+    a command that never stops printing cannot grow the preflight's memory.
+    A thread per stream keeps both pipes draining, so neither can fill and
+    stall the command.
+    """
+    captures = (_Capture(), _Capture())
+    threads = [
+        threading.Thread(target=_drain, args=(stream, capture), daemon=True)
+        for stream, capture in zip(
+            (process.stdout, process.stderr), captures, strict=True
+        )
+        if stream is not None
+    ]
+    for thread in threads:
+        thread.start()
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        raise _RunError(_timeout_message(timeout)) from None
+    finally:
+        for thread in threads:
+            thread.join(timeout=timeout)
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
+    return captures
+
+
+def _stream_text(capture: _Capture) -> str:
+    """Decode one bounded stream, marking the bytes that were dropped."""
+    text = bytes(capture.kept).decode("utf-8", "replace")
+    if not capture.dropped:
+        return text
+    return f"{text}\n{TRUNCATION_PREFIX}{capture.dropped} bytes truncated]"
+
+
 def run_command(
     command: tuple[str, ...], *, cwd: Path, env: typ.Mapping[str, str], timeout: int
 ) -> tuple[Ran | None, str]:
@@ -119,31 +284,24 @@ def run_command(
 
     """
     try:
-        binary = local[_executable(command[0], cwd)]
+        executable = local[_executable(command[0], cwd)].executable
     except CommandNotFound:
-        if _is_path(command[0]):
-            return None, f"{command[0]!r} is not an executable file in {str(cwd)!r}"
-        return None, f"{command[0]!r} is not on PATH"
+        return None, _unresolved(command[0], cwd)
     try:
-        completed = binary.run(
-            list(command[1:]),
-            retcode=None,
-            timeout=timeout,
-            cwd=str(cwd),
-            env=dict(env),
-        )
-    except ProcessTimedOut:
-        unit = "second" if timeout == 1 else "seconds"
-        return None, f"it did not finish within {timeout} {unit}"
-    except (OSError, ProcessExecutionError) as error:
+        process = _spawn([str(executable), *command[1:]], cwd=cwd, env=env)
+    except OSError as error:
         # OSError covers the spawn itself: a path that is not executable, a
         # working directory that cannot be entered, or a full process table.
         return None, f"it could not be started: {error}"
+    try:
+        stdout, stderr = _read_streams(process, timeout)
+    except _RunError as failure:
+        return None, str(failure)
     return (
         Ran(
-            exit_code=int(completed[0]),
-            stdout=bounded(str(completed[1])),
-            stderr=bounded(str(completed[2])),
+            exit_code=int(process.returncode or 0),
+            stdout=_stream_text(stdout),
+            stderr=_stream_text(stderr),
         ),
         "",
     )
@@ -156,9 +314,10 @@ def reports_version(printed: str, wanted: str) -> bool:
     near-miss this phase exists to catch, so the declared version must equal a
     dotted token in the output or be its dotted prefix: ``2.4`` accepts
     ``2.4.0`` and rejects ``2.41.0``. A pre- or post-release suffix stays in the
-    token and makes it a different release, so neither ``1.2.3rc1`` nor
-    ``1.2.3.post1`` reports the stable ``1.2.3``; a declaration that pins the
-    suffixed release itself, such as ``0.9.0rc1``, still matches it exactly.
+    token and makes it a different release, so none of ``1.2.3rc1``,
+    ``1.2.3.post1`` or ``1.2.3-rc1`` reports the stable ``1.2.3``; a
+    declaration that pins the suffixed release itself, such as ``0.9.0rc1``,
+    still matches it exactly.
 
     Parameters
     ----------

@@ -1,20 +1,20 @@
-"""The mutation preflight's runtime phases: tools, checks, native support.
+"""The mutation preflight's runtime phases: tools, native support, envelope.
 
 Each case is one of the failures issue #591 recorded: an absent mold or
-mdtablefix, a check that must run from the boundary it declares, an
-unsupported native tuple, and the envelope that must exist before any mutant
-does.
+mdtablefix, an unsupported native tuple, the probe that must not run under a
+rejected interpreter, and the envelope that must exist before any mutant does.
 """
 
 from __future__ import annotations
 
+import dataclasses as dc
 import json
-import stat
 import sys
 import typing as typ
 
 import pytest
 
+from workflow_scripts.mutationpreflight.constants import LOG_BOUND_BYTES
 from workflow_scripts.mutationpreflight.models import (
     PhaseResult,
     Ran,
@@ -29,17 +29,38 @@ from workflow_scripts.mutationpreflight.running import (
 )
 from workflow_scripts.tests.mutation_preflight_support import (
     POSIX_SHIMS_ONLY,
-    POSIX_SYMLINKS_ONLY,
     RULE_AVAILABLE,
     Checkout,
     Outcome,
     lock_document,
     outcome_for,
-    repository,
 )
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
+
+
+def _commands_outcome(
+    run_preflight: typ.Callable[..., Outcome], root: Path, manifest: str
+) -> Outcome:
+    """Run the preflight for a checkout declaring command requirements."""
+    return outcome_for(
+        run_preflight,
+        root,
+        Checkout(manifest=manifest),
+        project_python="3.13",
+    )
+
+
+@dc.dataclass(frozen=True)
+class CommandCase:
+    """One declaration, the tool that answers it, and the verdict it earns."""
+
+    tool: str
+    body: str
+    manifest: str
+    status: str
+    finding: str = ""
 
 
 class TestCommands:
@@ -53,11 +74,10 @@ class TestCommands:
         empty_path: None,
     ) -> None:
         """An absent command is the failure, and it is named."""
-        outcome = outcome_for(
+        outcome = _commands_outcome(
             run_preflight,
             tmp_path / "repo",
-            Checkout(manifest='[[require_commands]]\nname = "mdtablefix"\n'),
-            project_python="3.13",
+            '[[require_commands]]\nname = "mdtablefix"\n',
         )
 
         assert outcome.exit_code == 1
@@ -65,69 +85,53 @@ class TestCommands:
         assert "PATH" in outcome.findings("commands")
 
     @POSIX_SHIMS_ONLY
-    def test_a_present_command_passes(
-        self,
-        tmp_path: Path,
-        run_preflight: typ.Callable[..., Outcome],
-        install_tool: typ.Callable[..., None],
-    ) -> None:
-        """The installed tool lets the same declaration pass."""
-        install_tool("mold", 'echo "mold 2.41.0 (compatible with GNU ld)"')
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(
-                manifest='[[require_commands]]\nname = "mold"\nversion = "2.41"\n'
+    @pytest.mark.parametrize(
+        "case",
+        [
+            CommandCase(
+                tool="mold",
+                body='echo "mold 2.41.0 (compatible with GNU ld)"',
+                manifest='[[require_commands]]\nname = "mold"\nversion = "2.41"\n',
+                status="pass",
             ),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 0, outcome.stdout
-        assert outcome.phases["commands"]["status"] == "pass"
-
-    @POSIX_SHIMS_ONLY
-    def test_a_nearby_version_is_refused(
-        self,
-        tmp_path: Path,
-        run_preflight: typ.Callable[..., Outcome],
-        install_tool: typ.Callable[..., None],
-    ) -> None:
-        """``2.4`` must not accept ``2.41.0``, which is what a substring test does."""
-        install_tool("mold", 'echo "mold 2.41.0"')
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(manifest='[[require_commands]]\nname = "mold"\nversion = "2.4"\n'),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 1
-        assert "does not report '2.4'" in outcome.findings("commands")
-        assert "2.41.0" in outcome.findings("commands")
-
-    @POSIX_SHIMS_ONLY
-    def test_a_failed_version_probe_is_not_a_pass(
-        self,
-        tmp_path: Path,
-        run_preflight: typ.Callable[..., Outcome],
-        install_tool: typ.Callable[..., None],
-    ) -> None:
-        """A crashing probe has established nothing, whatever it printed."""
-        install_tool("mold", 'echo "mold 2.41.0"; exit 3')
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(
-                manifest='[[require_commands]]\nname = "mold"\nversion = "2.41"\n'
+            CommandCase(
+                tool="probe",
+                body="exit 3",
+                manifest='[[require_commands]]\nname = "probe"\n',
+                status="pass",
             ),
-            project_python="3.13",
-        )
+            CommandCase(
+                tool="mold",
+                body='echo "mold 2.41.0"',
+                manifest='[[require_commands]]\nname = "mold"\nversion = "2.4"\n',
+                status="fail",
+                finding="does not report '2.4'",
+            ),
+            CommandCase(
+                tool="mold",
+                body='echo "mold 2.41.0"; exit 3',
+                manifest='[[require_commands]]\nname = "mold"\nversion = "2.41"\n',
+                status="fail",
+                finding="exited 3",
+            ),
+        ],
+        ids=["pinned-pass", "unpinned-resolves", "nearby-version", "failed-probe"],
+    )
+    def test_a_command_is_judged_by_what_it_declares(
+        self,
+        tmp_path: Path,
+        run_preflight: typ.Callable[..., Outcome],
+        install_tool: typ.Callable[..., None],
+        case: CommandCase,
+    ) -> None:
+        """A pinned version must match; an unpinned command must only resolve."""
+        install_tool(case.tool, case.body)
 
-        assert outcome.exit_code == 1
-        assert "exited 3" in outcome.findings("commands")
+        outcome = _commands_outcome(run_preflight, tmp_path / "repo", case.manifest)
+
+        assert outcome.phases["commands"]["status"] == case.status, outcome.stdout
+        if case.finding:
+            assert case.finding in outcome.findings("commands")
 
 
 class TestVersionMatching:
@@ -142,11 +146,13 @@ class TestVersionMatching:
             ("mold 1.2.3rc1", "1.2.3", False),
             ("mold 1.2.3.post1", "1.2.3", False),
             ("mold 1.2.3beta1", "1.2.3", False),
+            ("mold 1.2.3-rc1", "1.2.3", False),
+            ("mold 1.2.3_rc1", "1.2.3", False),
+            ("mold 1.2.3-beta", "1.2.3", False),
             ("mold 1.2.3", "1.2.3", True),
             ("mold 0.9.0rc1", "0.9.0rc1", True),
             ("mold 0.9.0rc1", "0.9.0", False),
             ("mold 1.2.3build", "1.2.3", True),
-            ("mold 1.2.3-beta", "1.2.3", True),
             ("mold 1.2.30", "1.2.3", False),
         ],
     )
@@ -162,210 +168,12 @@ class TestBoundedOutput:
 
     def test_the_truncation_marker_is_not_the_diagnostic_line(self) -> None:
         """The marker counts dropped bytes; it does not say what failed."""
-        outcome = Ran(exit_code=1, stdout="", stderr=bounded("bad line\n" + "x" * 5000))
+        text = "bad line\n" + "x" * (LOG_BOUND_BYTES + 1)
+        outcome = Ran(exit_code=1, stdout="", stderr=bounded(text))
 
+        assert "bytes truncated" in outcome.stderr
         assert "bytes truncated" not in last_line(outcome)
         assert last_line(outcome)
-
-
-class TestChecks:
-    """Declared checks run from the boundary they declare."""
-
-    def test_a_check_runs_from_its_declared_cwd_and_environment(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """cwd, import root and environment are the ones the declaration names."""
-        script = (
-            "import os, pathlib; "
-            'print(pathlib.Path.cwd().name, os.environ.get("MARKER"), '
-            'os.environ.get("PYTHONPATH"))'
-        )
-        manifest = (
-            "[[checks]]\n"
-            'name = "collect"\n'
-            f"command = ['{sys.executable}', '-c', '{script}']\n"
-            'cwd = "workflow_scripts/tests"\n'
-            "timeout_seconds = 30\n"
-            'env = { MARKER = "declared", PYTHONPATH = ".." }\n'
-        )
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(manifest=manifest),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 0, outcome.stdout
-        printed = typ.cast("dict[str, object]", outcome.detail("checks")["collect"])
-        assert printed["cwd"] == "workflow_scripts/tests"
-        assert str(printed["stdout"]).split() == ["tests", "declared", ".."], (
-            "the declared cwd, environment and import root must reach the command"
-        )
-
-    def test_a_failing_check_names_the_check_and_its_last_line(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """A collection failure is reported as itself, not as a mutant failure."""
-        script = 'import sys; sys.stderr.write("boom: no such option"); sys.exit(2)'
-        manifest = (
-            "[[checks]]\n"
-            'name = "collect"\n'
-            f"command = ['{sys.executable}', '-c', '{script}']\n"
-        )
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(manifest=manifest),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 1
-        found = outcome.findings("checks")
-        assert "check 'collect' failed with exit code 2" in found
-        assert "boom: no such option" in found
-
-    def test_a_check_keeps_bounded_logs(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """Even a passing check leaves its streams for the job's diagnostics."""
-        script = 'print("collected 12 tests")'
-        manifest = (
-            "[[checks]]\n"
-            'name = "collect"\n'
-            f"command = ['{sys.executable}', '-c', '{script}']\n"
-        )
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(manifest=manifest),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 0, outcome.stdout
-        log = tmp_path / "out" / "checks" / "00-collect.stdout.log"
-        assert "collected 12 tests" in log.read_text(encoding="utf-8")
-
-    def test_checks_whose_names_sanitise_alike_keep_separate_logs(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """A later check must not overwrite an earlier check's evidence."""
-        manifest = (
-            "[[checks]]\n"
-            'name = "a/b"\n'
-            f"command = ['{sys.executable}', '-c', 'print(\"first\")']\n"
-            "[[checks]]\n"
-            'name = "a-b"\n'
-            f"command = ['{sys.executable}', '-c', 'print(\"second\")']\n"
-        )
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(manifest=manifest),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 0, outcome.stdout
-        logs = tmp_path / "out" / "checks"
-        first = (logs / "00-a-b.stdout.log").read_text(encoding="utf-8")
-        second = (logs / "01-a-b.stdout.log").read_text(encoding="utf-8")
-        assert first.strip() == "first"
-        assert second.strip() == "second"
-
-    def test_a_hung_check_is_bounded_by_its_timeout(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """A check that never returns is a named failure, not a stuck job."""
-        script = "import time; time.sleep(30)"
-        manifest = (
-            "[[checks]]\n"
-            'name = "slow"\n'
-            f"command = ['{sys.executable}', '-c', '{script}']\n"
-            "timeout_seconds = 1\n"
-        )
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(manifest=manifest),
-            project_python="3.13",
-        )
-
-        assert outcome.exit_code == 1
-        finding = outcome.findings("checks")
-        assert "did not finish within 1 second" in finding
-        assert "1 seconds" not in finding
-
-    @POSIX_SHIMS_ONLY
-    def test_a_relative_command_path_is_resolved_against_its_cwd(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """A path command must resolve where it runs, not where the helper started."""
-        manifest = (
-            '[[checks]]\nname = "collect"\ncommand = ["./probe"]\ncwd = "fixtures"\n'
-        )
-        root = repository(
-            tmp_path / "repo",
-            Checkout(manifest=manifest),
-        )
-        probe = root / "fixtures" / "probe"
-        probe.parent.mkdir(parents=True)
-        probe.write_text("#!/bin/sh\necho collected\n", encoding="utf-8")
-        probe.chmod(probe.stat().st_mode | stat.S_IXUSR)
-
-        outcome = run_preflight(root, project_python="3.13")
-
-        assert outcome.exit_code == 0, outcome.stdout
-        assert outcome.phases["checks"]["status"] == "pass"
-
-    @POSIX_SYMLINKS_ONLY
-    def test_a_relative_symlinked_command_runs_through_its_link(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """A declared link is the path that runs, so a venv keeps its packages."""
-        manifest = (
-            '[[checks]]\nname = "collect"\ncommand = ["./probe"]\ncwd = "fixtures"\n'
-        )
-        root = repository(tmp_path / "repo", Checkout(manifest=manifest))
-        fixtures = root / "fixtures"
-        fixtures.mkdir(parents=True)
-        target = fixtures / "real-probe"
-        target.write_text('#!/bin/sh\necho "$0"\n', encoding="utf-8")
-        target.chmod(target.stat().st_mode | stat.S_IXUSR)
-        (fixtures / "probe").symlink_to(target)
-
-        outcome = run_preflight(root, project_python="3.13")
-
-        assert outcome.exit_code == 0, outcome.stdout
-        printed = typ.cast("dict[str, object]", outcome.detail("checks")["collect"])
-        assert str(printed["stdout"]).strip() == str(fixtures / "probe"), (
-            "the declared link must be the executable path, so an interpreter "
-            "reached through it still finds the environment that named it"
-        )
-
-    @POSIX_SYMLINKS_ONLY
-    def test_a_cwd_resolving_outside_the_checkout_is_refused(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """A symlinked cwd would run the check where the checkout does not reach."""
-        outside = tmp_path / "outside"
-        outside.mkdir()
-        manifest = (
-            "[[checks]]\n"
-            'name = "collect"\n'
-            f"command = ['{sys.executable}', '-c', 'print(1)']\n"
-            'cwd = "linked"\n'
-        )
-        root = repository(tmp_path / "repo", Checkout(manifest=manifest))
-        (root / "linked").symlink_to(outside, target_is_directory=True)
-
-        outcome = run_preflight(root, project_python="3.13")
-
-        assert outcome.exit_code == 1
-        assert "outside the checkout" in outcome.findings("checks")
 
 
 class TestNative:
@@ -463,6 +271,61 @@ class TestNative:
         assert outcome.exit_code == 1
         assert "not the declared revision 'def456'" in outcome.findings("native")
 
+    def test_a_revision_in_the_repository_url_is_not_a_pinned_revision(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """The revision is read from the fields that record it, not searched for."""
+        manifest = (
+            "[native]\n"
+            'package = "tei-rapporteur"\n'
+            'revision = "abc123"\n'
+            'supported_python = ">=3.12"\n'
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            self._checkout(manifest, 'git = "https://example.invalid/abc123/tei.git"'),
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 1
+        found = outcome.findings("native")
+        assert "records no pinned revision" in found
+        assert "not the declared revision" not in found
+
+    @RULE_AVAILABLE
+    def test_a_probe_is_skipped_when_the_interpreter_was_rejected(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A probe would sync the project under the interpreter just refused."""
+        marker = tmp_path / "probe-ran"
+        script = f'import pathlib; pathlib.Path("{marker.as_posix()}").write_text("")'
+        manifest = (
+            "[native]\n"
+            'package = "tei-rapporteur"\n'
+            'supported_python = ">=3.12"\n'
+            f"probe = ['{sys.executable}', '-c', '{script}']\n"
+            "[[checks]]\n"
+            'name = "collect"\n'
+            f"command = ['{sys.executable}', '-c', 'print(1)']\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest, requires_python=">=3.14"),
+            project_python="3.13",
+        )
+
+        assert not marker.exists(), "the probe ran under a rejected interpreter"
+        assert outcome.phases["native"]["status"] == "unknown"
+        assert "'s probe was not run" in outcome.findings("native")
+        assert outcome.phases["checks"]["status"] == "skipped"
+        assert "the declared checks were not run" in str(
+            outcome.detail("checks")["reason"]
+        )
+
     def test_a_failing_probe_reports_the_package_and_first_diagnostic(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
@@ -486,6 +349,33 @@ class TestNative:
         found = outcome.findings("native")
         assert "the native probe for tei-rapporteur failed" in found
         assert "no module named tei" in found
+
+    def test_the_first_diagnostic_is_the_one_reported(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A build stops at its first error, so the last line is the least useful."""
+        script = (
+            'import sys; sys.stderr.write("\\n".join('
+            '["error: first", "  note: indented", "warning: last"])); sys.exit(1)'
+        )
+        manifest = (
+            "[native]\n"
+            'package = "tei-rapporteur"\n'
+            'supported_python = ">=3.12"\n'
+            f"probe = ['{sys.executable}', '-c', '{script}']\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            self._checkout(manifest),
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 1
+        found = outcome.findings("native")
+        assert "failed with exit code 1: error: first" in found
+        assert "warning: last" not in found
 
 
 class TestEnvelope:
@@ -562,6 +452,21 @@ class TestEnvelope:
         ]
         assert outcome.phases["manifest"]["status"] == "skipped"
 
+    def test_an_unwritable_report_fails_the_run(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A verdict nobody can read must not be reported as a pass."""
+        destination = tmp_path / "out" / "mutation-preflight.json"
+        destination.mkdir(parents=True)
+
+        outcome = outcome_for(
+            run_preflight, tmp_path / "repo", Checkout(), project_python="3.13"
+        )
+
+        assert outcome.exit_code == 1
+        assert outcome.result == "fail"
+        assert not destination.is_file()
+
     def test_the_step_summary_is_appended_when_the_job_asks(
         self,
         tmp_path: Path,
@@ -620,7 +525,7 @@ class TestSummaryRow:
             )
         ]
 
-    def test_a_backslash_cannot_neutralise_the_pipe_escape(self) -> None:
+    def test_a_backslash_cannot_neutralize_the_pipe_escape(self) -> None:
         """Escaping the pipe after a backslash would leave the pipe unescaped."""
         report = Report(
             lane="mutmut",

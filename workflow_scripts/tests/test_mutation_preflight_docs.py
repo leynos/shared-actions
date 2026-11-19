@@ -211,5 +211,8 @@ class TestPublishedExamples:
         for script in _SCRIPT_REFERENCE.findall(body):
             assert (_REPOSITORY_ROOT / script).is_file(), f"{script} is absent"
 
-        documented = set(_INPUT_VARIABLE.findall(DOCUMENT.read_text(encoding="utf-8")))
+        # The example's own body is part of the document, so leaving it in
+        # would make this assertion unable to fail.
+        prose = DOCUMENT.read_text(encoding="utf-8").replace(body, "", 1)
+        documented = set(_INPUT_VARIABLE.findall(prose))
         assert named <= documented, "the section must list every variable it uses"

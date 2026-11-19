@@ -75,11 +75,17 @@ Paths that must survive into mutmut's `mutants/` copy. Each entry is:
   glob, or by an `also_copy` entry.
 
 The last rule is the one that matters: the phase compares the declaration
-against what mutmut will **actually copy**, not against what exists. mutmut
-3.6.0 copies `tests/`, `test/`, `setup.cfg`, `pyproject.toml`, root `test*.py`,
-`source_paths` and `also_copy` — nothing else. A path that exists but is not
-copied fails here, with the reason spelled out, instead of failing the baseline
-inside the sandbox.
+against what mutmut will **actually copy**, not against what exists. mutmut 3.6
+copies `tests/`, `test/`, `setup.cfg`, `pyproject.toml`, root `test*.py`,
+`source_paths` and `also_copy` — nothing else; 3.7 adds `uv.lock`. A path that
+exists but is not copied fails here, with the reason spelled out, instead of
+failing the baseline inside the sandbox.
+
+The contract is chosen by the `mutmut-version` input of the reusable workflow,
+which the preflight reads as `INPUT_MUTMUT_VERSION`. A caller that overrides
+the version is judged against the sandbox its own run will build, never against
+a neighbouring release's. A release this helper does not know is reported as
+`unknown` rather than assumed to copy what a known release copies.
 
 <!-- tested-example: sandbox-paths -->
 ```toml
@@ -114,15 +120,19 @@ version = "2.40.4"
 
 [[tool.mutation-preflight.require_commands]]
 name = "mdtablefix"
-version_args = ["--version"]
 ```
 
 - `name` is resolved through `PATH`. A command that does not resolve is a
   finding naming the command and suggesting the install or the removal of the
   declaration.
 - `version` is matched as a whole dotted version token in the command's
-  output, so `2.4` rejects `2.41.0` while accepting `2.4.1`.
-- `version_args` defaults to `["--version"]`.
+  output, so `2.4` rejects `2.41.0` while accepting `2.4.1`. A pre-, post- or
+  dev-release suffix — attached, or separated by `.`, `_` or `-` — makes the
+  token a different release, so `1.2.3-rc1` does not report `1.2.3`; a
+  declaration that pins the suffixed release matches it exactly.
+- `version_args` defaults to `["--version"]` and is used only when `version`
+  is declared. An unpinned command is required only to resolve: asking it for a
+  version would impose an interface the declaration never named.
 
 ### `native`
 
@@ -140,8 +150,11 @@ probe = ["uv", "run", "python", "-c", "import tei_rapporteur"]
 - `package` is looked up in `uv.lock` case- and separator-insensitively
   (`tei-rapporteur` matches `tei_rapporteur`). A package the lock does not
   contain fails the phase.
-- `revision`, when declared, must appear in the locked source, so the lock is
-  known to pin the revision whose support was established.
+- `revision`, when declared, must be the revision the locked source records —
+  the `rev` entry, or the commit in a git source's `#fragment` — so the lock is
+  known to pin the revision whose support was established. A hex prefix of the
+  pinned commit is accepted. A revision that merely appears in the repository
+  URL is not a pin and is refused.
 - `supported_python`, when declared, is a PEP 508 range judged against the
   project interpreter. Leaving it out does not pass: it reports `unknown`,
   naming the package, because compatibility that cannot be established is not
@@ -191,10 +204,19 @@ directory the preflight was started in.
 This is the contract a subprocess or nested-pytest fixture needs, made explicit:
 `cwd` is the working directory, `env` is layered over the ambient environment,
 and a relative `PYTHONPATH` (resolved against `cwd` by the child) is how the
-fixture declares its import root. `cwd` must be a directory inside the checkout
+fixture declares its import root. `cwd` must be a directory inside the sandbox
 and is subject to the same escape rules as `sandbox_paths`; a symlink that
-resolves outside the checkout is refused as well, because the command would
-otherwise run somewhere the declaration did not name.
+resolves outside it is refused as well, because the command would otherwise run
+somewhere the declaration did not name.
+
+On the mutmut lane the checks run inside a fresh copy built from the selected
+release's copy contract — the same set of files the mutation run will receive —
+so a check cannot pass on a file that never reaches `mutants/`. A helper module
+or fixture directory a check needs must therefore be named in
+`[tool.mutmut] also_copy` (or be part of `source_paths`); the check fails in
+the sandbox until it is. The cargo lane copies the whole working tree, so its
+checks run in the checkout itself. Each phase's detail records where the checks
+ran (`ran_in`).
 
 `timeout_seconds` defaults to `300` and is capped at `900`, so a hung command
 cannot outlive the job. Each check's first 4 KiB of each stream is kept; later
@@ -212,14 +234,22 @@ dependencies to make either work.
 | `manifest`    | The declaration parses, names only known keys, and asks nothing the lane cannot check.                                             |
 | `interpreter` | The project interpreter satisfies `requires-python`; the helper runtime is reported separately and held to its own 3.13 floor.     |
 | `native`      | The locked native dependency is the declared revision and the project interpreter is in range; unestablished support is `unknown`. |
-| `sandbox`     | Every declared path exists, stays inside the checkout, is not build output, and is one mutmut will copy.                           |
+| `sandbox`     | Every declared path exists, stays inside the checkout, is not build output, and is one the selected release will copy.             |
 | `commands`    | Every required command resolves and reports the declared version.                                                                  |
-| `checks`      | Each bounded command succeeds from its declared working directory, environment and import root.                                    |
+| `checks`      | Each bounded command succeeds from its declared working directory, environment and import root, in the sandbox the run will use.   |
 
 Each phase reports one of four statuses: `pass`, `fail`, `skipped` (not
 applicable, or nothing declared for it) or `unknown` (could not decide; says so
 rather than guessing). A run fails only on `fail`; `unknown` is surfaced but
 does not block.
+
+A rejected interpreter gates the phases that would act under it. When the
+interpreter phase fails, a declared `native` probe is not run — the phase
+reports `unknown`, naming the package, because a probe that syncs the project
+would otherwise build into the environment that was just refused — and the
+`checks` phase reports `skipped` with the reason. The phases that only inspect
+files (`sandbox`, `commands`) still run, so their findings are not lost behind
+the interpreter failure.
 
 ### Interpreter separation
 
@@ -259,11 +289,17 @@ The output directory receives:
 
 The Markdown summary is appended to the job summary when `GITHUB_STEP_SUMMARY`
 is set. Both workflows upload the directory under `always()`, because a failed
-preflight is exactly the case whose diagnostics need publishing.
+preflight is exactly the case whose diagnostics need publishing, and the upload
+step treats a missing directory as an error rather than as nothing to publish.
+
+If the JSON report cannot be written, the run fails with a `reporting:` finding
+rather than exiting successfully with no artefact: a verdict nobody can read
+has not been published.
 
 The environment variables a workflow sets are `INPUT_LANE`,
-`INPUT_PROJECT_PYTHON`, `INPUT_HELPER_PYTHON`, `INPUT_REPOSITORY` and
-`INPUT_OUTPUT_DIR`. The helper can be run by hand the same way:
+`INPUT_PROJECT_PYTHON`, `INPUT_HELPER_PYTHON`, `INPUT_REPOSITORY`,
+`INPUT_OUTPUT_DIR` and `INPUT_MUTMUT_VERSION`. The helper can be run by hand
+the same way:
 
 <!-- tested-example: manual-run -->
 ```sh

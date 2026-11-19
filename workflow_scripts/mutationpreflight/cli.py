@@ -11,10 +11,10 @@ from pathlib import Path
 from cyclopts import App, Parameter
 
 from .console import emit
-from .constants import FAILED, LANES
+from .constants import FAILED, LANES, MUTMUT_PINNED_VERSION
 from .declaration import load_declaration
 from .models import PhaseResult, Report, Runtimes
-from .reporting import checked_phases, verdict, write_report
+from .reporting import Run, checked_phases, verdict, write_report
 
 app = App()
 
@@ -39,6 +39,9 @@ class Options:
         The checkout to validate.
     output_dir : str
         Where the JSON report and per-check logs are written.
+    mutmut_version : str
+        The mutmut release the run selects. The sandbox phase judges the
+        declaration against that release's copy contract.
 
     """
 
@@ -48,6 +51,9 @@ class Options:
     repository: typ.Annotated[str, Parameter(env_var="INPUT_REPOSITORY")] = "."
     output_dir: typ.Annotated[str, Parameter(env_var="INPUT_OUTPUT_DIR")] = (
         "mutation-preflight"
+    )
+    mutmut_version: typ.Annotated[str, Parameter(env_var="INPUT_MUTMUT_VERSION")] = (
+        MUTMUT_PINNED_VERSION
     )
 
 
@@ -113,8 +119,10 @@ def main(
     Raises
     ------
     SystemExit
-        Exits 2 for an unknown lane, and 1 when any phase failed, so the
-        mutation run never starts on an environment that would have failed it.
+        Exits 2 for an unknown lane, and 1 when any phase failed or the
+        diagnostics could not be published, so the mutation run never starts
+        on an environment that would have failed it, and never passes with
+        nothing to show.
 
     """
     require_lane(options.lane)
@@ -124,9 +132,13 @@ def main(
     )
     root = Path(options.repository).resolve()
     destination = Path(options.output_dir)
-    results = checked_phases(
-        root, load_declaration(root, options.lane), runtimes, destination
+    run = Run(
+        root=root,
+        runtimes=runtimes,
+        output_dir=destination,
+        mutmut_version=options.mutmut_version,
     )
+    results = checked_phases(run, load_declaration(root, options.lane))
     report = Report(
         lane=options.lane,
         runtimes=runtimes,
@@ -134,7 +146,18 @@ def main(
         verdict=verdict(results),
     )
     emit_findings(results)
+    problems = write_report(destination, report)
+    if problems:
+        # Evidence that cannot be published is a failure of the run, not a
+        # warning beside a passing verdict: no one can read what it decided.
+        for problem in problems:
+            emit(
+                "mutation_preflight_finding",
+                f"reporting: {problem}",
+                stream=sys.stderr,
+            )
+        emit("mutation_preflight_result", FAILED)
+        raise SystemExit(1)
     emit("mutation_preflight_result", report.verdict)
-    write_report(destination, report)
     if report.verdict == FAILED:
         raise SystemExit(1)

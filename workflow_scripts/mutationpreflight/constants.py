@@ -26,18 +26,22 @@ LANES: typ.Final[frozenset[str]] = frozenset({"mutmut", "cargo"})
 #: The helper scripts the workflows run need this interpreter.
 HELPER_PYTHON_FLOOR: typ.Final[str] = "3.13"
 
-#: What mutmut 3.6.0 materializes besides ``source_paths`` and ``also_copy``.
-#: Read from ``mutmut/configuration.py`` at the tag the workflow pins; bump
-#: this list together with ``mutmut-version``.
-MUTMUT_DEFAULT_COPIES: typ.Final[tuple[str, ...]] = (
-    "tests",
-    "test",
-    "setup.cfg",
-    "pyproject.toml",
-)
+#: What each mutmut release materializes besides ``source_paths`` and
+#: ``also_copy``, and the root-level globs it adds. Keyed by ``major.minor``,
+#: because the copy contract belongs to the release: a preflight that assumed
+#: one release's set while another ran would certify the wrong sandbox. Read
+#: from ``mutmut/configuration.py`` at each tag; extend this table when the
+#: workflow's supported range grows.
+MUTMUT_COPY_CONTRACTS: typ.Final[dict[str, tuple[tuple[str, ...], tuple[str, ...]]]] = {
+    "3.6": (("tests", "test", "setup.cfg", "pyproject.toml"), ("test*.py",)),
+    "3.7": (
+        ("tests", "test", "setup.cfg", "pyproject.toml", "uv.lock"),
+        ("test*.py",),
+    ),
+}
 
-#: Root-level globs mutmut 3.6.0 adds to its default copy set.
-MUTMUT_DEFAULT_GLOBS: typ.Final[tuple[str, ...]] = ("test*.py",)
+#: The mutmut release the workflow pins unless a caller overrides it.
+MUTMUT_PINNED_VERSION: typ.Final[str] = "3.6.0"
 
 #: Directories a mutation sandbox must never carry: they are build output, a
 #: tool cache or version control, and copying one either wastes the run or
@@ -94,13 +98,16 @@ VERSION_TIMEOUT_SECONDS: typ.Final[int] = 60
 
 #: A dotted version token in a command's output, used for exact comparison.
 #: A PEP 440 pre/post/dev suffix stays part of the token, so ``1.2.3rc1`` is
-#: not read as the stable ``1.2.3`` it merely resembles. The suffix needs at
-#: least one digit: without that, ``1.2.3build`` would be read as ``1.2.3b``,
-#: a different release from the stable version it prints. The spelled-out
-#: ``alpha`` and ``beta`` come first so a tool that prints them in full is not
-#: read as the stable release their first letter resembles.
+#: not read as the stable ``1.2.3`` it merely resembles. PEP 440 accepts a
+#: dot, hyphen or underscore before that suffix and allows the numeral to be
+#: absent, so ``1.2.3-rc1``, ``1.2.3_rc1`` and ``1.2.3-beta`` are separate
+#: releases too. An attached suffix keeps its required digit, which is what
+#: stops ``1.2.3build`` being read as the ``1.2.3b`` it never meant.
 VERSION_TOKEN: typ.Final[re.Pattern[str]] = re.compile(
-    r"\d+(?:\.\d+)+(?:\.?(?:alpha|beta|a|b|rc|post|dev)\d+)?", re.IGNORECASE
+    r"\d+(?:\.\d+)+"
+    r"(?:[._-](?:alpha|beta|a|b|rc|post|dev)\d*"
+    r"|\.?(?:alpha|beta|a|b|rc|post|dev)\d+)?",
+    re.IGNORECASE,
 )
 
 #: The checkout this helper belongs to. The package sits one directory below

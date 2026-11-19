@@ -179,7 +179,7 @@ runner temporary directory is written.
       declared.
 - [ ] Run the helper locally until every phase reports `pass`, `skipped` or
       `unknown`.
-- [ ] Set `preflight: true` and confirm the diagnostics artifact is uploaded.
+- [ ] Set `preflight: true` and confirm the diagnostics artefact is uploaded.
 - [ ] Leave the input enabled on the default branch so a regression blocks.
 
 ## Common errors and fixes

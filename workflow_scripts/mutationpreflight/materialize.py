@@ -28,6 +28,15 @@ def _keep_link(source: Path, target: Path) -> None:
     target.symlink_to(source.readlink(), target_is_directory=source.is_dir())
 
 
+def _kept_as_link(root: Path, source: Path, seen: frozenset[Path]) -> bool:
+    """Return whether *source* must be copied as a link rather than followed."""
+    if not source.is_symlink():
+        return False
+    if _escapes(root, source):
+        return True
+    return source.resolve() in seen
+
+
 def _copy_path(root: Path, source: Path, target: Path, seen: frozenset[Path]) -> None:
     """Copy one entry, applying the containment rule at every level.
 
@@ -53,13 +62,12 @@ def _copy_path(root: Path, source: Path, target: Path, seen: frozenset[Path]) ->
 
     """
     target.parent.mkdir(parents=True, exist_ok=True)
-    resolved = source.resolve()
-    if _escapes(root, source) or (source.is_symlink() and resolved in seen):
+    if _kept_as_link(root, source, seen):
         _keep_link(source, target)
         return
     if source.is_dir():
         target.mkdir(parents=True, exist_ok=True)
-        inner = seen | {resolved}
+        inner = seen | {source.resolve()}
         for child in sorted(source.iterdir()):
             if child.name in EXCLUDED_DIRECTORIES:
                 continue

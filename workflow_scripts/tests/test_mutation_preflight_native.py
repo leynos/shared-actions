@@ -12,6 +12,7 @@ import typing as typ
 
 from workflow_scripts.tests.mutation_preflight_support import (
     RULE_AVAILABLE,
+    Checkout,
     Outcome,
     locked_checkout,
     outcome_for,
@@ -20,9 +21,39 @@ from workflow_scripts.tests.mutation_preflight_support import (
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
+_REVISION_SOURCE = 'git = "https://example.invalid/tei.git?rev=abc123"'
+
+
+def _revision_checkout(
+    revision: str = "abc123",
+    package: str = "tei-rapporteur",
+    source: str = _REVISION_SOURCE,
+) -> Checkout:
+    """Return a checkout pinning *package* at *revision* under a supported range."""
+    return locked_checkout(
+        (
+            "[native]\n"
+            f'package = "{package}"\n'
+            f'revision = "{revision}"\n'
+            'supported_python = ">=3.12"\n'
+        ),
+        source,
+    )
+
 
 class TestNativeSupport:
     """A locked native dependency is named with its support boundary."""
+
+    def _pinned_run(
+        self,
+        runner: typ.Callable[..., Outcome],
+        root: Path,
+        **declaration: str,
+    ) -> Outcome:
+        """Return what the run reported for a revision-pinned declaration."""
+        return outcome_for(
+            runner, root, _revision_checkout(**declaration), project_python="3.13"
+        )
 
     def _unknown_outcome(
         self,
@@ -47,9 +78,7 @@ class TestNativeSupport:
         outcome = outcome_for(
             run_preflight,
             tmp_path / "repo",
-            locked_checkout(
-                manifest, 'git = "https://example.invalid/tei.git?rev=abc123"'
-            ),
+            locked_checkout(manifest, _REVISION_SOURCE),
             project_python="3.13",
         )
 
@@ -62,20 +91,8 @@ class TestNativeSupport:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """An underscore declaration must find the lock's hyphenated entry."""
-        manifest = (
-            "[native]\n"
-            'package = "tei_rapporteur"\n'
-            'revision = "abc123"\n'
-            'supported_python = ">=3.12"\n'
-        )
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            locked_checkout(
-                manifest, 'git = "https://example.invalid/tei.git?rev=abc123"'
-            ),
-            project_python="3.13",
+        outcome = self._pinned_run(
+            run_preflight, tmp_path / "repo", package="tei_rapporteur"
         )
 
         assert outcome.exit_code == 0, outcome.stdout
@@ -91,21 +108,7 @@ class TestNativeSupport:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """Supported support is reported as a pass, not merely as not-unknown."""
-        manifest = (
-            "[native]\n"
-            'package = "tei-rapporteur"\n'
-            'revision = "abc123"\n'
-            'supported_python = ">=3.12"\n'
-        )
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            locked_checkout(
-                manifest, 'git = "https://example.invalid/tei.git?rev=abc123"'
-            ),
-            project_python="3.13",
-        )
+        outcome = self._pinned_run(run_preflight, tmp_path / "repo")
 
         assert outcome.exit_code == 0, outcome.stdout
         assert outcome.phases["native"]["status"] == "pass", (
@@ -143,21 +146,7 @@ class TestNativeSupport:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """Dependency identity includes the revision, not just the name."""
-        manifest = (
-            "[native]\n"
-            'package = "tei-rapporteur"\n'
-            'revision = "def456"\n'
-            'supported_python = ">=3.12"\n'
-        )
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            locked_checkout(
-                manifest, 'git = "https://example.invalid/tei.git?rev=abc123"'
-            ),
-            project_python="3.13",
-        )
+        outcome = self._pinned_run(run_preflight, tmp_path / "repo", revision="def456")
 
         assert outcome.exit_code == 1
         assert "not the declared revision 'def456'" in outcome.findings("native")
@@ -166,18 +155,10 @@ class TestNativeSupport:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """The revision is read from the fields that record it, not searched for."""
-        manifest = (
-            "[native]\n"
-            'package = "tei-rapporteur"\n'
-            'revision = "abc123"\n'
-            'supported_python = ">=3.12"\n'
-        )
-
-        outcome = outcome_for(
+        outcome = self._pinned_run(
             run_preflight,
             tmp_path / "repo",
-            locked_checkout(manifest, 'git = "https://example.invalid/abc123/tei.git"'),
-            project_python="3.13",
+            source='git = "https://example.invalid/abc123/tei.git"',
         )
 
         assert outcome.exit_code == 1

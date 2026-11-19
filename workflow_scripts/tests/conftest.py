@@ -59,6 +59,10 @@ def run_preflight(
                 patch.delenv(key, raising=False)
             patch.setenv("INPUT_REPOSITORY", str(root))
             patch.setenv("INPUT_OUTPUT_DIR", str(tmp_path / "out"))
+            # The helper floor is a property of the helper, not of the host, so
+            # a run that does not name one still selects an interpreter the
+            # preflight accepts. A caller's own helper_python layers over it.
+            patch.setenv("INPUT_HELPER_PYTHON", "3.13")
             for key, value in inputs.items():
                 patch.setenv(f"INPUT_{key.upper()}", value)
             capsys.readouterr()

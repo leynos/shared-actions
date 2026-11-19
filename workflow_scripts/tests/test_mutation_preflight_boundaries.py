@@ -23,7 +23,7 @@ from workflow_scripts.mutationpreflight.declaration import load_declaration
 from workflow_scripts.mutationpreflight.interpreters import run_interpreter_phase
 from workflow_scripts.mutationpreflight.materialize import discard, materialize
 from workflow_scripts.mutationpreflight.models import Report, Runtimes
-from workflow_scripts.mutationpreflight.native import run_native_phase
+from workflow_scripts.mutationpreflight.native import judge_native
 from workflow_scripts.mutationpreflight.ports import Invocation, Run
 from workflow_scripts.mutationpreflight.reporting import checked_phases, write_report
 from workflow_scripts.mutationpreflight.sandbox import run_sandbox_phase
@@ -99,7 +99,7 @@ class TestQueryPhases:
 
         results = [
             run_interpreter_phase(run),
-            run_native_phase(run, loaded.declaration),
+            judge_native(run, loaded.declaration),
             run_sandbox_phase(run.root, loaded.declaration, run.mutmut_version),
         ]
 
@@ -108,6 +108,33 @@ class TestQueryPhases:
         assert not output.exists(), "a query phase must not create its output directory"
         names = [result.name for result in results]
         assert names == ["interpreter", "native", "sandbox"], names
+
+    def test_a_declared_probe_is_not_run_by_the_native_judgement(
+        self, tmp_path: Path
+    ) -> None:
+        """Judging the lock and range is a query; the probe is composed onto it."""
+        root = repository(
+            tmp_path / "repo",
+            Checkout(
+                manifest=(
+                    "[native]\npackage = \"tei-rapporteur\"\nprobe = ['false']\n"
+                ),
+                extra={"uv.lock": lock_document("0.3.1", 'registry = "x"')},
+            ),
+        )
+        run = _run(root, tmp_path / "out")
+        loaded = load_declaration(root, "mutmut")
+        assert loaded.declaration is not None, "the fixture declares requirements"
+
+        result = judge_native(run, loaded.declaration)
+
+        assert result.status in {"unknown", "skipped"}, (
+            "the judgement must not claim a probe it never ran: "
+            f"{result.status} {result.findings}"
+        )
+        assert "probe" not in result.detail, (
+            "the probe's evidence belongs to the composition, not the judgement"
+        )
 
     def test_write_report_is_the_only_writer(self, tmp_path: Path) -> None:
         """The command line's single write is the one that publishes the run."""
@@ -125,6 +152,49 @@ class TestQueryPhases:
         assert written.is_file(), "the report must be the artefact a later stage reads"
         assert not (output / "checks").exists(), (
             "a run with no checks must not create a checks directory"
+        )
+
+    def test_write_report_owns_the_summary_and_the_report(self, tmp_path: Path) -> None:
+        """A summary path is written by the publisher, never by a query phase."""
+        root = repository(
+            tmp_path / "repo",
+            Checkout(
+                manifest='sandbox_paths = ["README.md"]\n'
+                '[native]\npackage = "tei-rapporteur"\n',
+                also_copy=("conftest.py", "README.md"),
+                extra={
+                    "README.md": "# example\n",
+                    "uv.lock": lock_document("0.3.1", 'registry = "x"'),
+                },
+            ),
+        )
+        output = tmp_path / "out"
+        summary = tmp_path / "summary.md"
+        summary.write_text("", encoding="utf-8")
+        run = dc.replace(_run(root, output), summary_path=str(summary))
+        loaded = load_declaration(root, "mutmut")
+        assert loaded.declaration is not None, "the fixture declares requirements"
+        report = Report(
+            lane="mutmut", runtimes=run.runtimes, results=(), verdict="pass"
+        )
+
+        run_interpreter_phase(run)
+        judge_native(run, loaded.declaration)
+        run_sandbox_phase(run.root, loaded.declaration, run.mutmut_version)
+
+        assert summary.read_text(encoding="utf-8") == "", (
+            "a query phase must not append to the job summary"
+        )
+        assert not output.exists(), "a query phase must not write the report"
+
+        problems = write_report(run, report)
+
+        assert problems == (), "publishing a readable report must not report a problem"
+        assert "Mutation environment preflight" in summary.read_text(
+            encoding="utf-8"
+        ), "the job summary must be written by write_report alone"
+        assert (output / "mutation-preflight.json").is_file(), (
+            "the report must be written by write_report alone"
         )
 
 
@@ -197,7 +267,9 @@ class TestMaterialize:
         sandbox, problems = materialize(root, CopyContract(("linked",), ()))
 
         assert problems == (), "copying a link inside the checkout must succeed"
-        assert sandbox is not None
+        assert sandbox is not None, (
+            f"an internal link must be materialized, not refused: {problems}"
+        )
         try:
             copied = sandbox / "linked" / "widget.py"
             assert copied.read_text(encoding="utf-8") == "VALUE = 1\n", (
@@ -221,8 +293,12 @@ class TestMaterialize:
 
         sandbox, problems = materialize(root, CopyContract(("escape",), ()))
 
-        assert problems == ()
-        assert sandbox is not None
+        assert problems == (), (
+            f"keeping an escaping link must not itself fail the copy: {problems}"
+        )
+        assert sandbox is not None, (
+            f"the sandbox must still be built for an escaping link: {problems}"
+        )
         try:
             link = sandbox / "escape"
             assert link.is_symlink(), (
@@ -231,6 +307,66 @@ class TestMaterialize:
             )
             assert link.readlink() == outside, (
                 "the preserved link must name the target the declaration saw"
+            )
+        finally:
+            discard(sandbox)
+
+    @POSIX_SYMLINKS_ONLY
+    def test_a_link_nested_in_a_copied_directory_stays_a_link(
+        self, tmp_path: Path
+    ) -> None:
+        """The containment rule holds at every level of a copied directory."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("x", encoding="utf-8")
+        root = tmp_path / "repo"
+        (root / "pkg").mkdir(parents=True)
+        (root / "pkg" / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (root / "pkg" / "escape").symlink_to(outside, target_is_directory=True)
+
+        sandbox, problems = materialize(root, CopyContract(("pkg",), ()))
+
+        assert problems == (), (
+            f"copying a directory with a link must succeed: {problems}"
+        )
+        assert sandbox is not None, f"the sandbox must be built: {problems}"
+        try:
+            copied = sandbox / "pkg" / "module.py"
+            assert copied.read_text(encoding="utf-8") == "VALUE = 1\n", (
+                "the directory's own files must still be copied"
+            )
+            link = sandbox / "pkg" / "escape"
+            assert link.is_symlink(), (
+                "a link deeper in a copied tree must keep the containment rule"
+            )
+            assert link.readlink() == outside, (
+                "the nested link must name the target the checkout saw"
+            )
+        finally:
+            discard(sandbox)
+
+    @POSIX_SYMLINKS_ONLY
+    def test_a_glob_match_that_leaves_the_checkout_stays_a_link(
+        self, tmp_path: Path
+    ) -> None:
+        """A glob match receives the same containment rule as a declared entry."""
+        outside = tmp_path / "outside.txt"
+        outside.write_text("x", encoding="utf-8")
+        root = tmp_path / "repo"
+        root.mkdir()
+        (root / "escape.txt").symlink_to(outside)
+
+        sandbox, problems = materialize(root, CopyContract((), ("*.txt",)))
+
+        assert problems == (), f"copying a glob match must succeed: {problems}"
+        assert sandbox is not None, f"the sandbox must be built: {problems}"
+        try:
+            link = sandbox / "escape.txt"
+            assert link.is_symlink(), (
+                "a glob match that leaves the checkout must be kept as a link"
+            )
+            assert link.readlink() == outside, (
+                "the preserved link must name the target the checkout saw"
             )
         finally:
             discard(sandbox)
@@ -284,8 +420,12 @@ class TestCleanup:
         assert pid_file.is_file(), "the descendant must start before the timeout"
         try:
             assert outcome is not None, "a timeout must still return what was printed"
-            assert outcome.timed_out is True
-            assert problem == "it did not finish within 1 second"
+            assert outcome.timed_out is True, (
+                "a command stopped at its ceiling must be recorded as timed out"
+            )
+            assert problem == "it did not finish within 1 second", (
+                f"the reason must name the ceiling that stopped it: {problem!r}"
+            )
             assert "started" in outcome.stdout, (
                 "a timed-out command keeps what it printed before it was stopped"
             )
@@ -313,5 +453,9 @@ class TestUsageErrors:
         assert outcome.exit_code == 2, (
             "a path the phases cannot read is a usage error, not a phase failure"
         )
-        assert outcome.result == "fail"
-        assert "is not a directory" in outcome.stderr
+        assert outcome.result == "fail", (
+            "a usage error must fail the run rather than pass it silently"
+        )
+        assert "is not a directory" in outcome.stderr, (
+            f"the usage error must say what was wrong: {outcome.stderr!r}"
+        )

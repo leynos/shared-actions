@@ -422,21 +422,40 @@ def _stream_text(capture: _Capture) -> str:
     return f"{text}\n{TRUNCATION_PREFIX}{dropped} bytes truncated]"
 
 
-def complete_stream(text: str) -> str:
+def complete_stream(text: str, *, truncated: bool) -> str:
     """Return *text* without the token a truncation may have cut in half.
 
     A token that ends at the bound is unproven: the next dropped byte could
     have been the digit that would have made it a different release. Complete
     tokens earlier in the stream are kept, so a version printed before a flood
     still counts.
+
+    Parameters
+    ----------
+    text : str
+        One stream as the run recorded it.
+    truncated : bool
+        Whether the run dropped bytes from that stream. An untruncated stream
+        is returned unchanged, so output that merely resembles the marker is
+        not read as evidence that the stream was cut.
+
+    Returns
+    -------
+    str
+        *text* unchanged when the stream was complete, else its content up to
+        the token the bound may have cut in half.
+
     """
-    head, separator, _ = text.partition(TRUNCATION_PREFIX)
-    if not separator:
+    if not truncated:
         return text
-    head = head.rstrip("\n")
-    words = head.split()
-    if not words:
+    # The marker is the last line of a truncated stream and is written on its
+    # own line, so the retained text ends where the marker's newline begins.
+    # Whitespace before the marker is not part of any token.
+    head, _, _ = text.rpartition(f"\n{TRUNCATION_PREFIX}")
+    head = head.rstrip()
+    if not head:
         return ""
+    words = head.split()
     return head[: len(head) - len(words[-1])]
 
 

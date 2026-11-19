@@ -65,8 +65,12 @@ def _reported_version(
     if outcome is None:
         return _unresolved(requirement.name, problem)
     # A token cut off at the truncation bound is unproven; complete tokens
-    # printed before the flood still count.
-    printed = f"{complete_stream(outcome.stdout)}\n{complete_stream(outcome.stderr)}"
+    # printed before the flood still count. Only a stream the run dropped bytes
+    # from is read that way, so output that merely resembles the marker is kept.
+    printed = (
+        f"{complete_stream(outcome.stdout, truncated=outcome.stdout_truncated)}\n"
+        f"{complete_stream(outcome.stderr, truncated=outcome.stderr_truncated)}"
+    )
     evidence: object = bounded(printed.strip())
     if outcome.timed_out:
         finding = (
@@ -130,7 +134,8 @@ def run_commands_phase(
     -------
     PhaseResult
         ``skipped`` when nothing is declared, ``fail`` when a command does not
-        resolve or does not report the declared version, ``pass`` otherwise.
+        resolve or does not report the declared version, ``unknown`` when a
+        pinned command's version was not probed, ``pass`` otherwise.
 
     """
     if not declaration.commands:
@@ -153,6 +158,14 @@ def run_commands_phase(
             for index, (requirement, (_, evidence)) in enumerate(pairs)
         ]
     }
-    if not probe_versions and any(item.version for item in declaration.commands):
-        detail["version_probe"] = _PROBE_BLOCKED.format(name="a pinned command")
-    return phase_outcome("commands", findings, [], detail)
+    if probe_versions:
+        return phase_outcome("commands", findings, [], detail)
+    # A pin nobody probed was not established. The phase says so per command,
+    # so the status matches the native phase's rule for support it could not
+    # judge, and the finding names the command rather than a placeholder.
+    unprobed = [
+        _PROBE_BLOCKED.format(name=item.name)
+        for item in declaration.commands
+        if item.version
+    ]
+    return phase_outcome("commands", findings, unprobed, detail)

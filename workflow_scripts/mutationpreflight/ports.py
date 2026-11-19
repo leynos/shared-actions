@@ -54,7 +54,24 @@ class Runner(typ.Protocol):
     """Runs one invocation with a bounded result."""
 
     def __call__(self, invocation: Invocation) -> tuple[Ran | None, str]:
-        """Return the invocation's bounded result, or why it did not run."""
+        """Return the invocation's bounded result, or why it did not run.
+
+        Parameters
+        ----------
+        invocation : Invocation
+            The command, the working directory and environment it runs in, and
+            the ceiling on its wall clock.
+
+        Returns
+        -------
+        tuple[Ran | None, str]
+            The bounded result and the reason it was stopped or could not
+            produce one. A command that could not start returns ``None`` and
+            the reason. A command stopped at its ceiling returns its captured
+            streams with ``timed_out`` set and the reason. A command that
+            completed returns the result and an empty reason.
+
+        """
         ...
 
 
@@ -64,7 +81,25 @@ class RequirementRule(typ.Protocol):
     def __call__(
         self, requirement: object, interpreter: str, *, subject: str
     ) -> typ.Iterable[str]:
-        """Return one finding per violation of *requirement* by *interpreter*."""
+        """Return one finding per violation of *requirement* by *interpreter*.
+
+        Parameters
+        ----------
+        requirement : object
+            The PEP 508 range to judge.
+        interpreter : str
+            The interpreter version the range is judged against.
+        subject : str
+            What a finding names, such as ``the project's requires-python``.
+
+        Returns
+        -------
+        Iterable[str]
+            One finding per violation, in the order the range declares them.
+            An empty iterable means the interpreter is inside the range, so
+            acceptance is reported by returning nothing.
+
+        """
         ...
 
 

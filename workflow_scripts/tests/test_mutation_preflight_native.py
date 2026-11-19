@@ -87,6 +87,7 @@ class TestNativeSupport:
         assert "tei-rapporteur's supported-python" in found
         assert ">=3.14" in found
 
+    @RULE_AVAILABLE
     def test_a_declared_name_finds_the_lock_entry_it_canonicalises_to(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
@@ -104,6 +105,7 @@ class TestNativeSupport:
             "a name the lock canonicalises to must not be reported as absent"
         )
 
+    @RULE_AVAILABLE
     def test_a_supported_range_with_a_matching_pin_passes(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:

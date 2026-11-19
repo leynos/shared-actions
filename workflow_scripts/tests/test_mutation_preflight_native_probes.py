@@ -25,6 +25,7 @@ if typ.TYPE_CHECKING:
 class TestNativeProbe:
     """A probe is run only where its result means something."""
 
+    @RULE_AVAILABLE
     def test_a_passing_probe_is_recorded_with_its_exit_code(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:

@@ -7,6 +7,7 @@ treated as proof that the interpreter is supported.
 
 from __future__ import annotations
 
+import dataclasses as dc
 import re
 import typing as typ
 
@@ -15,7 +16,7 @@ if typ.TYPE_CHECKING:
 
     from .ports import Run
 
-from .constants import MAX_CHECK_TIMEOUT_SECONDS, SKIPPED
+from .constants import FAILED, MAX_CHECK_TIMEOUT_SECONDS, SKIPPED, UNKNOWN
 from .interpreters import judge
 from .lockfile import (
     find_locked,
@@ -130,26 +131,57 @@ def _probe_detail(
     return {
         "command": list(command),
         "exit_code": outcome.exit_code,
+        "timed_out": outcome.timed_out,
+        "problem": problem,
         "stderr": outcome.stderr,
         "stdout": outcome.stdout,
     }
 
 
-def _probe_findings(
-    native: NativeRequirement, run: Run, *, execute: bool
-) -> tuple[list[str], list[str], dict[str, object] | None]:
-    """Run the declared probe, returning its blocking, unknown and evidence.
+@dc.dataclass(frozen=True, slots=True)
+class Probe:
+    """What running, or withholding, a probe established.
 
-    *execute* is false when an earlier prerequisite failed. The probe is then
-    recorded as skipped rather than run: a command that syncs the project
-    would otherwise act under the interpreter the preflight just refused, and
-    its verdict would describe an environment the mutation run will not use.
+    Attributes
+    ----------
+    blocking : tuple[str, ...]
+        Why the probe stops the run: it could not start, timed out, or exited
+        non-zero.
+    indeterminate : tuple[str, ...]
+        Why the probe established nothing without failing: it was withheld
+        because an earlier prerequisite failed.
+    detail : dict[str, object] | None
+        The probe's envelope entry, or ``None`` when none was declared.
+
     """
-    if not native.probe:
-        return [], [], None
-    if not execute:
-        blocked = _PROBE_BLOCKED.format(package=native.package)
-        return [], [blocked], {"command": list(native.probe), "skipped": blocked}
+
+    blocking: tuple[str, ...] = ()
+    indeterminate: tuple[str, ...] = ()
+    detail: dict[str, object] | None = None
+
+
+def probe_native(run: Run, declaration: Declaration) -> Probe:
+    """Run the declared probe under the project interpreter.
+
+    Parameters
+    ----------
+    run : Run
+        The checkout the probe runs in, the runner, and the project
+        interpreter's selection.
+    declaration : Declaration
+        The repository's declaration, whose ``native`` probe is run.
+
+    Returns
+    -------
+    Probe
+        The probe's blocking findings and its evidence. A probe that exceeds
+        its ceiling is a failure, and the evidence keeps the reason it was
+        stopped, so a stalled build is not reported as a silent failure.
+
+    """
+    native = declaration.native
+    if native is None or not native.probe:
+        return Probe()
     outcome, problem = run.runner(
         Invocation(
             native.probe,
@@ -162,42 +194,102 @@ def _probe_findings(
     evidence = _probe_detail(native.probe, outcome, problem)
     if outcome is None:
         finding = f"the native probe for {native.package} could not run: {problem}"
-        return [finding], [], evidence
+        return Probe((finding,), detail=evidence)
+    if outcome.timed_out:
+        finding = (
+            f"the native probe for {native.package} {problem}: "
+            f"{first_diagnostic(outcome)}"
+        )
+        return Probe((finding,), detail=evidence)
     if outcome.exit_code != 0:
         finding = (
             f"the native probe for {native.package} failed with exit code "
             f"{outcome.exit_code}: {first_diagnostic(outcome)}"
         )
-        return [finding], [], evidence
-    return [], [], evidence
+        return Probe((finding,), detail=evidence)
+    return Probe(detail=evidence)
 
 
-def run_native_phase(
-    run: Run,
-    declaration: Declaration,
-    *,
-    execute_probe: bool = True,
-) -> PhaseResult:
-    """Check the declared native dependency's revision and interpreter range.
+def probe_blocked(declaration: Declaration) -> Probe:
+    """Return the evidence for a probe that must not run.
+
+    A probe is withheld when an earlier prerequisite failed. Running it would
+    act under the interpreter the preflight just refused, and its verdict would
+    describe an environment the mutation run will not use.
 
     Parameters
     ----------
-    run : Run
-        The checkout whose ``uv.lock`` pins the dependency, both interpreters,
-        the runner and the recorded ABI3 setting.
     declaration : Declaration
-        The repository's declaration, whose ``native`` table is checked.
-    execute_probe : bool
-        Whether the declared probe may run. False when an earlier prerequisite
-        failed, so the probe is recorded as skipped instead of acting under the
-        environment that prerequisite rejected.
+        The repository's declaration, whose ``native`` probe is withheld.
+
+    Returns
+    -------
+    Probe
+        The finding naming the withheld probe, and evidence that records it as
+        skipped rather than as a probe nobody attempted.
+
+    """
+    native = declaration.native
+    if native is None or not native.probe:
+        return Probe()
+    blocked = _PROBE_BLOCKED.format(package=native.package)
+    return Probe((), (blocked,), {"command": list(native.probe), "skipped": blocked})
+
+
+def with_probe(judged: PhaseResult, probe: Probe) -> PhaseResult:
+    """Return *judged* with the probe's findings and evidence folded in.
+
+    Parameters
+    ----------
+    judged : PhaseResult
+        The lock and support verdict, without a probe.
+    probe : Probe
+        What running or withholding the probe established.
 
     Returns
     -------
     PhaseResult
-        ``skipped`` when nothing is declared, ``unknown`` when the lock, the
-        support range or a skipped probe could not establish compatibility,
-        ``fail`` otherwise when a revision, a range or the probe does not hold.
+        The same phase, with the probe's blocking finding, if any, and its
+        evidence recorded. The judged verdict stands when no probe was
+        declared.
+
+    """
+    if probe.detail is None:
+        return judged
+    detail = {**judged.detail, "probe": probe.detail}
+    # The judged verdict already ranked its own findings; folding them back in
+    # with their own rank keeps the combined status the stricter of the two.
+    blocking = list(probe.blocking)
+    if judged.status == FAILED:
+        blocking = [*judged.findings, *blocking]
+    indeterminate = list(probe.indeterminate)
+    if judged.status == UNKNOWN:
+        indeterminate = [*judged.findings, *indeterminate]
+    return phase_outcome(judged.name, blocking, indeterminate, detail)
+
+
+def judge_native(run: Run, declaration: Declaration) -> PhaseResult:
+    """Judge the declared native dependency's revision and interpreter range.
+
+    The judgement is a query: it reads the lock and the declaration's range,
+    and runs nothing, so it can be shown to leave the checkout untouched. The
+    probe that exercises the built extension is composed onto its result by the
+    caller.
+
+    Parameters
+    ----------
+    run : Run
+        The checkout whose ``uv.lock`` pins the dependency, the project
+        interpreter and the recorded ABI3 setting.
+    declaration : Declaration
+        The repository's declaration, whose ``native`` table is judged.
+
+    Returns
+    -------
+    PhaseResult
+        ``skipped`` when nothing is declared, ``unknown`` when the lock or the
+        support range could not establish compatibility, ``fail`` when a
+        revision or a range does not hold, ``pass`` otherwise.
 
     """
     native = declaration.native
@@ -209,14 +301,9 @@ def run_native_phase(
     identity["supported_python"] = native.supported_python
     identity["abi3_forward_compatibility"] = run.abi3
     support_blocking, support_unknown = _support_findings(native, run)
-    probe_blocking, probe_unknown, probe_detail = _probe_findings(
-        native, run, execute=execute_probe
-    )
-    if probe_detail is not None:
-        identity["probe"] = probe_detail
     return phase_outcome(
         "native",
-        [*lock_blocking, *support_blocking, *probe_blocking],
-        [*lock_unknown, *support_unknown, *probe_unknown],
+        [*lock_blocking, *support_blocking],
+        [*lock_unknown, *support_unknown],
         identity,
     )

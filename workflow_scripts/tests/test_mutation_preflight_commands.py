@@ -15,6 +15,7 @@ import pytest
 
 from workflow_scripts.tests.mutation_preflight_support import (
     POSIX_SHIMS_ONLY,
+    RULE_AVAILABLE,
     Checkout,
     Outcome,
     outcome_for,
@@ -64,9 +65,13 @@ class TestCommands:
             '[[require_commands]]\nname = "mdtablefix"\n',
         )
 
-        assert outcome.exit_code == 1
-        assert "required command 'mdtablefix'" in outcome.findings("commands")
-        assert "PATH" in outcome.findings("commands")
+        assert outcome.exit_code == 1, outcome.stdout
+        assert "required command 'mdtablefix'" in outcome.findings("commands"), (
+            "the finding must name the command the declaration requires"
+        )
+        assert "PATH" in outcome.findings("commands"), (
+            "the finding must say where the command was looked for"
+        )
 
     @POSIX_SHIMS_ONLY
     @pytest.mark.parametrize(
@@ -115,7 +120,36 @@ class TestCommands:
 
         assert outcome.phases["commands"]["status"] == case.status, outcome.stdout
         if case.finding:
-            assert case.finding in outcome.findings("commands")
+            assert case.finding in outcome.findings("commands"), (
+                f"{case.tool!r} should have been reported as {case.finding!r}: "
+                f"{outcome.findings('commands')}"
+            )
+
+    @RULE_AVAILABLE
+    @POSIX_SHIMS_ONLY
+    def test_a_pin_that_was_not_probed_is_unknown(
+        self,
+        tmp_path: Path,
+        run_preflight: typ.Callable[..., Outcome],
+        install_tool: typ.Callable[..., None],
+    ) -> None:
+        """A version the preflight withheld is unknown, not a silent pass."""
+        install_tool("probe", 'echo "probe 2.4.1"')
+        manifest = '[[require_commands]]\nname = "probe"\nversion = "2.4.1"\n'
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest, requires_python=">=3.14"),
+            project_python="3.13",
+        )
+
+        assert outcome.phases["commands"]["status"] == "unknown", (
+            f"a pin nobody probed must not read as established: {outcome.stdout}"
+        )
+        assert "the version of 'probe' was not probed" in outcome.findings(
+            "commands"
+        ), "the finding must name the command whose version was withheld"
 
     @POSIX_SHIMS_ONLY
     def test_repeated_command_names_keep_their_own_evidence(

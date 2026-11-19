@@ -128,32 +128,23 @@ def write_logs(directory: Path, stem: str, name: str, outcome: Ran) -> str | Non
     return None
 
 
-def _review_check(
-    boundary: Boundary, check: Check, run: Run, index: int
-) -> tuple[str | None, object]:
-    """Return one check's finding, and the evidence it left behind."""
-    directory, problem = _check_cwd(boundary.root, check, boundary.noun)
-    if directory is None:
-        return problem, problem
-    # The project's interpreter is selected first and the declaration's own
-    # environment layered over it, so an explicit override keeps the last word.
-    outcome, problem = run.runner(
-        Invocation(
-            check.command,
-            cwd=directory,
-            env={**project_environment(run), **dict(check.env)},
-            timeout=check.timeout_seconds,
-            ambient=run.ambient,
-        )
-    )
-    if outcome is None:
-        finding = f"check {check.name!r} could not run from {check.cwd!r}: {problem}"
-        return finding, problem
-    # Written before the finding is formed, so a check that timed out keeps the
-    # streams it produced before it was stopped.
-    log_problem = write_logs(
-        run.output_dir / "checks", log_stem(index, check.name), check.name, outcome
-    )
+def _verdict(check: Check, outcome: Ran) -> tuple[str | None, dict[str, object]]:
+    """Return one check's finding and evidence, judged from its bounded result.
+
+    Parameters
+    ----------
+    check : Check
+        The declaration the result is judged against.
+    outcome : Ran
+        The command's bounded streams, exit status and timeout state.
+
+    Returns
+    -------
+    tuple[str | None, dict[str, object]]
+        The finding that fails the check, or ``None`` when it passed, and the
+        evidence the envelope records either way.
+
+    """
     evidence: dict[str, object] = {
         "exit_code": outcome.exit_code,
         "cwd": check.cwd,
@@ -161,10 +152,6 @@ def _review_check(
         "stdout": outcome.stdout,
         "stderr": outcome.stderr,
     }
-    if log_problem is not None:
-        # Evidence that cannot be written is a failure of the check's own
-        # report, whatever the command itself exited with.
-        return log_problem, evidence
     if outcome.timed_out:
         finding = (
             f"check {check.name!r} {timeout_message(check.timeout_seconds)} "
@@ -180,22 +167,83 @@ def _review_check(
     return None, evidence
 
 
+@dc.dataclass(frozen=True, slots=True)
+class Review:
+    """One check's verdict, its evidence, and the result its logs come from.
+
+    Attributes
+    ----------
+    finding : str | None
+        Why the check failed, or ``None`` when it passed.
+    evidence : object
+        The envelope entry for this check: its recorded result, or the reason
+        it never ran.
+    outcome : Ran | None
+        The bounded result to write logs from, or ``None`` when no command ran.
+
+    """
+
+    finding: str | None
+    evidence: object
+    outcome: Ran | None
+
+
+def _review_check(boundary: Boundary, check: Check, run: Run) -> Review:
+    """Return one check's verdict, and the result its logs are written from."""
+    directory, problem = _check_cwd(boundary.root, check, boundary.noun)
+    if directory is None:
+        return Review(problem, problem, None)
+    # The project's interpreter is selected first and the declaration's own
+    # environment layered over it, so an explicit override keeps the last word.
+    outcome, problem = run.runner(
+        Invocation(
+            check.command,
+            cwd=directory,
+            env={**project_environment(run), **dict(check.env)},
+            timeout=check.timeout_seconds,
+            ambient=run.ambient,
+        )
+    )
+    if outcome is None:
+        finding = f"check {check.name!r} could not run from {check.cwd!r}: {problem}"
+        return Review(finding, problem, None)
+    finding, evidence = _verdict(check, outcome)
+    return Review(finding, evidence, outcome)
+
+
 def _run_checks(run: Run, declaration: Declaration, boundary: Boundary) -> PhaseResult:
-    """Run every declared check under *boundary*, recording where that was."""
-    pairs = [
-        (check, _review_check(boundary, check, run, index))
-        for index, check in enumerate(declaration.checks)
-    ]
-    findings = [finding for _, (finding, _) in pairs if finding is not None]
+    """Run every declared check under *boundary*, recording where that was.
+
+    The logs are written here, at the orchestration edge, rather than by the
+    function that judges a result: a timed-out check keeps the streams it
+    produced before it was stopped, and a log that cannot be written is a named
+    finding that fails the check.
+    """
+    reviews = [_review_check(boundary, check, run) for check in declaration.checks]
+    findings: list[str] = []
     # Keyed by position as well as name: two checks may share a name, and a
     # mapping by name alone would silently drop one of their evidence entries.
-    detail: dict[str, object] = {
-        "ran_in": boundary.where,
-        "results": [
-            {"index": index, "name": check.name, "evidence": evidence}
-            for index, (check, (_, evidence)) in enumerate(pairs)
-        ],
-    }
+    results: list[dict[str, object]] = []
+    pairs = zip(declaration.checks, reviews, strict=True)
+    for index, (check, review) in enumerate(pairs):
+        finding = review.finding
+        if review.outcome is not None:
+            log_problem = write_logs(
+                run.output_dir / "checks",
+                log_stem(index, check.name),
+                check.name,
+                review.outcome,
+            )
+            if log_problem is not None:
+                # Evidence that cannot be written is a failure of the check's
+                # own report, whatever the command itself exited with.
+                finding = log_problem
+        if finding is not None:
+            findings.append(finding)
+        results.append(
+            {"index": index, "name": check.name, "evidence": review.evidence}
+        )
+    detail: dict[str, object] = {"ran_in": boundary.where, "results": results}
     return phase_outcome("checks", findings, [], detail)
 
 

@@ -50,7 +50,9 @@ class TestVersionMatching:
         self, printed: str, wanted: str, *, accepted: bool
     ) -> None:
         """A pre- or post-release suffix stays part of the token it qualifies."""
-        assert reports_version(printed, wanted) is accepted
+        assert reports_version(printed, wanted) is accepted, (
+            f"reports_version({printed!r}, {wanted!r}) must be {accepted}"
+        )
 
 
 class TestBoundedOutput:
@@ -61,9 +63,15 @@ class TestBoundedOutput:
         text = "bad line\n" + "x" * (LOG_BOUND_BYTES + 1)
         outcome = Ran(exit_code=1, stdout="", stderr=bounded(text))
 
-        assert "bytes truncated" in outcome.stderr
-        assert "bytes truncated" not in last_line(outcome)
-        assert last_line(outcome)
+        assert "bytes truncated" in outcome.stderr, (
+            "a bounded stream must say how many bytes were dropped"
+        )
+        assert "bytes truncated" not in last_line(outcome), (
+            "the marker counts bytes; it must not be read as the failing line"
+        )
+        assert last_line(outcome), (
+            "a truncated stream must still name the line it failed on"
+        )
 
     def test_a_stream_the_bound_holds_exactly_is_not_truncated(self) -> None:
         """The bound is a ceiling, so a stream exactly at it is complete."""
@@ -72,7 +80,9 @@ class TestBoundedOutput:
         assert bounded(text) == text, (
             "a stream the bound holds exactly must be kept whole"
         )
-        assert "bytes truncated" not in bounded(text)
+        assert "bytes truncated" not in bounded(text), (
+            "a stream the bound holds exactly must not be marked as truncated"
+        )
 
     def test_one_byte_past_the_bound_is_truncated(self) -> None:
         """A byte over the ceiling is counted and marked, not lost silently."""
@@ -91,12 +101,38 @@ class TestBoundedOutput:
         """A version that ends at the bound is unproven, so it is not a match."""
         marker = f"{TRUNCATION_PREFIX}900 bytes truncated]"
 
-        cut = complete_stream(f"probe 2.4{marker}")
-        earlier = complete_stream(f"probe 2.41.0\n2.4{marker}")
+        cut = complete_stream(f"probe 2.4\n{marker}", truncated=True)
+        earlier = complete_stream(f"probe 2.41.0\n2.4\n{marker}", truncated=True)
 
         assert not reports_version(cut, "2.4"), (
             "the token the truncation may have extended must not satisfy a pin"
         )
         assert reports_version(earlier, "2.41.0"), (
             "a complete token printed before the flood still counts"
+        )
+
+    def test_an_untruncated_stream_is_returned_unchanged(self) -> None:
+        """Output that resembles the marker is not evidence the stream was cut."""
+        printed = f"probe 2.4\n{TRUNCATION_PREFIX}900 bytes truncated]"
+
+        kept = complete_stream(printed, truncated=False)
+
+        assert kept == printed, (
+            "only a stream the run dropped bytes from may be read as truncated"
+        )
+        assert reports_version(kept, "2.4"), (
+            "a token in a complete stream must still satisfy a pin"
+        )
+
+    def test_whitespace_before_the_marker_does_not_keep_part_of_a_token(
+        self,
+    ) -> None:
+        """Trailing whitespace must not shrink how much of the token is cut."""
+        marker = f"{TRUNCATION_PREFIX}900 bytes truncated]"
+
+        kept = complete_stream(f"probe 2.4  \n{marker}", truncated=True)
+
+        assert kept == "probe ", (
+            "the whole token the bound may have cut in half must be dropped, "
+            "even when whitespace follows it before the marker"
         )

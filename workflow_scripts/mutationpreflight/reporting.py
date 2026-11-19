@@ -19,7 +19,7 @@ from .console import emit
 from .constants import FAILED, SKIPPED, SUCCEEDED
 from .interpreters import run_interpreter_phase
 from .models import Declaration, Loaded, PhaseResult, Report
-from .native import run_native_phase
+from .native import judge_native, probe_blocked, probe_native, with_probe
 from .sandbox import run_sandbox_phase
 
 if typ.TYPE_CHECKING:
@@ -259,7 +259,15 @@ def _declaration_phases(
     interpreter verdict: a probe or a check run under a rejected interpreter
     would certify an environment the mutation run will not use.
     """
-    yield run_native_phase(run, declaration, execute_probe=interpreter_ok)
+    # The lock and range are judged first, and the probe that exercises the
+    # built extension is composed onto that verdict only where the interpreter
+    # it would run under was accepted.
+    yield with_probe(
+        judge_native(run, declaration),
+        probe_native(run, declaration)
+        if interpreter_ok
+        else probe_blocked(declaration),
+    )
     yield run_sandbox_phase(run.root, declaration, run.mutmut_version)
     yield run_commands_phase(run, declaration, probe_versions=interpreter_ok)
     if interpreter_ok:

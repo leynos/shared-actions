@@ -41,9 +41,9 @@ documents how to use the `install-nixie` action.
   – the full input table and sandbox store guidance.
 - [Migrating to registry image refresh in `validate-linux-packages`](./migrating-to-validate-linux-packages-image-refresh.md)
   – the new `refresh-base-images` default and its opt-out.
-- [Migrating to the mutation environment
-  preflight](./migrating-to-mutation-preflight.md) – adopting the opt-in
-  preflight that runs before mutmut and cargo-mutants.
+- [Migration guide: v1.2.2 to v1.3.0](./v1-3-0-migration-guide.md) – adopting
+  the opt-in mutation environment preflight that runs before mutmut and
+  cargo-mutants.
 
 ## Node.js 24 action dependencies
 
@@ -1593,15 +1593,10 @@ error inside `mutants/`.
 
 The preflight is opt-in. `mutation-mutmut.yml` and `mutation-cargo.yml` both
 expose a `preflight` boolean input, default `false`; when it is false no step
-runs and the job is unchanged. Set it in the caller workflow:
-
-```yaml
-jobs:
-  mutation:
-    uses: leynos/shared-actions/.github/workflows/mutation-mutmut.yml@<sha>
-    with:
-      preflight: true
-```
+runs and the job is unchanged. Setting `preflight: true` on a mutation caller
+opts in; the tested `opt-in` example in
+[Mutation environment preflight](mutation-preflight.md#opting-in) shows the
+caller snippet, and is exercised by the test suite.
 
 In the mutmut workflow the preflight runs after change detection and before
 mutmut, so an unchanged day costs nothing. In the cargo workflow it runs once
@@ -1629,18 +1624,23 @@ Six phases run in order: `manifest`, `interpreter`, `native`, `sandbox`,
 *Table: the four preflight statuses. A run fails only on `fail`; `unknown` is
 surfaced but does not block.*
 
-Every run writes a phase/result envelope to `mutation-preflight.json`, plus
-bounded per-check logs under `checks/`, in its output directory. The workflows
-upload that directory under `always()`, so a failed preflight still publishes
-its evidence: `mutation-preflight-diagnostics-mutmut` in the mutmut lane, and
-`mutation-preflight-diagnostics-<slug>-<shard>` in the cargo lane. The JSON
-report is the machine-readable verdict, and the same phases appear as a table
-in the job summary.
+A run that reaches report creation writes a phase/result envelope to
+`mutation-preflight.json`, plus bounded per-check logs under `checks/`, in its
+output directory. The workflows upload that directory under `always()`, so a
+failed preflight still publishes its evidence:
+
+- `mutation-preflight-diagnostics-mutmut` in the mutmut lane;
+- `mutation-preflight-diagnostics-<slug>-<shard>` in the cargo lane.
+
+The JSON report is the machine-readable verdict, and the same phases appear as
+a table in the job summary. Diagnostics are available when the helper reaches
+report creation; a failure before that, such as `uv` failing to start the
+helper, leaves no report for the always-gated upload to publish.
 
 For the declaration schema and the per-phase rules, see
 [`docs/mutation-preflight.md`](mutation-preflight.md). To adopt the preflight
 in an existing caller, see the
-[mutation environment preflight migration guide](migrating-to-mutation-preflight.md).
+[v1.2.2 to v1.3.0 migration guide](v1-3-0-migration-guide.md).
 
 ## The problem
 

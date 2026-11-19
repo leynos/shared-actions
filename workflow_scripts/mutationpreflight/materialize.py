@@ -18,36 +18,62 @@ if typ.TYPE_CHECKING:
     from .copy_set import CopyContract
 
 
-def _ignored(_directory: str, names: list[str]) -> set[str]:
-    """Return the entries never copied into the sandbox."""
-    return {name for name in names if name in EXCLUDED_DIRECTORIES}
+def _escapes(root: Path, source: Path) -> bool:
+    """Return whether *source* is a link whose target leaves *root*."""
+    return source.is_symlink() and not source.resolve().is_relative_to(root)
 
 
-def _copy_entry(repo_root: Path, destination: Path, entry: str) -> None:
-    """Copy one contract entry, keeping its place in the tree.
+def _keep_link(source: Path, target: Path) -> None:
+    """Write *source*'s link at *target*, naming the target it already had."""
+    target.symlink_to(source.readlink(), target_is_directory=source.is_dir())
+
+
+def _copy_path(root: Path, source: Path, target: Path, seen: frozenset[Path]) -> None:
+    """Copy one entry, applying the containment rule at every level.
 
     A symlink whose target is inside the checkout is materialized by content,
     because that is what mutmut's ``copytree`` does: it follows links and
     copies what they point at, so a fixture tree linked to a sibling directory
     arrives complete rather than dangling. A link that leaves the checkout is
-    kept as a link, so the sandbox still shows something the declaration did
-    not name instead of importing it silently.
+    kept as a link wherever it appears, so a directory copied whole cannot
+    import a tree the declaration never named. A link that would re-enter a
+    directory already being copied is kept as a link as well, so a cycle is
+    preserved rather than followed forever.
+
+    Parameters
+    ----------
+    root : Path
+        The resolved checkout every link is judged against.
+    source : Path
+        The entry to copy.
+    target : Path
+        Where the entry is written in the sandbox.
+    seen : frozenset[Path]
+        The directories this branch is already copying, by resolved path.
+
     """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    resolved = source.resolve()
+    if _escapes(root, source) or (source.is_symlink() and resolved in seen):
+        _keep_link(source, target)
+        return
+    if source.is_dir():
+        target.mkdir(parents=True, exist_ok=True)
+        inner = seen | {resolved}
+        for child in sorted(source.iterdir()):
+            if child.name in EXCLUDED_DIRECTORIES:
+                continue
+            _copy_path(root, child, target / child.name, inner)
+        return
+    shutil.copy2(source, target)
+
+
+def _copy_entry(root: Path, repo_root: Path, destination: Path, entry: str) -> None:
+    """Copy one contract entry, keeping its place in the tree."""
     source = repo_root / entry
     if not source.exists() and not source.is_symlink():
         return
-    target = destination / entry
-    target.parent.mkdir(parents=True, exist_ok=True)
-    root = repo_root.resolve()
-    if source.is_symlink() and not source.resolve().is_relative_to(root):
-        target.symlink_to(source.readlink(), target_is_directory=source.is_dir())
-        return
-    if source.is_dir():
-        shutil.copytree(
-            source, target, symlinks=False, dirs_exist_ok=True, ignore=_ignored
-        )
-        return
-    shutil.copy2(source, target)
+    _copy_path(root, source, destination / entry, frozenset())
 
 
 def materialize(
@@ -73,12 +99,15 @@ def materialize(
     except OSError as error:
         return None, (f"the check sandbox could not be created: {error}",)
     try:
+        root = repo_root.resolve()
         for entry in contract.paths:
-            _copy_entry(repo_root, destination, entry)
+            _copy_entry(root, repo_root, destination, entry)
         for pattern in contract.globs:
             for source in sorted(repo_root.glob(pattern)):
                 if source.is_file():
-                    shutil.copy2(source, destination / source.name)
+                    # A glob match receives the same containment rule as a
+                    # declared entry, so an escaping link stays a link.
+                    _copy_path(root, source, destination / source.name, frozenset())
     except OSError as error:
         shutil.rmtree(destination, ignore_errors=True)
         return None, (f"the check sandbox could not be materialized: {error}",)

@@ -58,7 +58,9 @@ class TestChecks:
 
         assert outcome.exit_code == 0, outcome.stdout
         printed = outcome.evidence("checks", "collect")
-        assert printed["cwd"] == "workflow_scripts/tests"
+        assert printed["cwd"] == "workflow_scripts/tests", (
+            "the evidence must record the directory the check declared"
+        )
         assert str(printed["stdout"]).split() == ["tests", "declared", ".."], (
             "the declared cwd, environment and import root must reach the command"
         )
@@ -147,7 +149,10 @@ class TestCheckLogs:
 
         assert outcome.exit_code == 0, outcome.stdout
         log = tmp_path / "out" / "checks" / "00-collect.stdout.log"
-        assert "collected 12 tests" in log.read_text(encoding="utf-8")
+        assert "collected 12 tests" in log.read_text(encoding="utf-8"), (
+            "the stdout log must hold what the check printed, so a failure "
+            "keeps its evidence"
+        )
 
     def test_a_flooding_check_is_truncated_while_it_is_read(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]

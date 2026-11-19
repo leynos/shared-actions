@@ -136,6 +136,34 @@ class TestCommands:
             assert case.finding in outcome.findings("commands")
 
     @POSIX_SHIMS_ONLY
+    def test_repeated_command_names_keep_their_own_evidence(
+        self,
+        tmp_path: Path,
+        run_preflight: typ.Callable[..., Outcome],
+        install_tool: typ.Callable[..., None],
+    ) -> None:
+        """Two entries for one tool must not leave only the later probe's result."""
+        install_tool("probe", 'echo "probe 2.4.1"')
+        manifest = (
+            "[[require_commands]]\n"
+            'name = "probe"\nversion = "2.4.1"\n'
+            "[[require_commands]]\n"
+            'name = "probe"\nversion = "2.4"\n'
+            'version_args = ["--report"]\n'
+        )
+
+        outcome = _commands_outcome(run_preflight, tmp_path / "repo", manifest)
+
+        assert outcome.phases["commands"]["status"] == "pass", outcome.stdout
+        results = typ.cast(
+            "list[dict[str, object]]", outcome.detail("commands")["results"]
+        )
+        assert [(item["index"], item["name"]) for item in results] == [
+            (0, "probe"),
+            (1, "probe"),
+        ], "each declaration entry must keep its own indexed evidence"
+
+    @POSIX_SHIMS_ONLY
     def test_a_version_probe_selects_the_validated_project_interpreter(
         self,
         tmp_path: Path,
@@ -630,6 +658,34 @@ class TestEnvelope:
         rendered = summary.read_text(encoding="utf-8")
         assert "## Mutation environment preflight" in rendered
         assert "| interpreter | pass |" in rendered
+
+    def test_a_step_summary_that_cannot_be_written_fails_the_verdict(
+        self,
+        tmp_path: Path,
+        run_preflight: typ.Callable[..., Outcome],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A report whose summary failed must not be published as a pass."""
+        summary = tmp_path / "summary.md"
+        summary.mkdir()
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+
+        outcome = outcome_for(
+            run_preflight, tmp_path / "repo", Checkout(), project_python="3.13"
+        )
+
+        assert outcome.exit_code == 1, outcome.stdout
+        assert outcome.result == "fail"
+        written = json.loads(
+            (tmp_path / "out" / "mutation-preflight.json").read_text(encoding="utf-8")
+        )
+        assert written["result"] == "fail", (
+            "the JSON verdict must agree with the exit status when the summary "
+            "could not be appended"
+        )
+        assert written["reporting"], (
+            "the report must record why its summary was not published"
+        )
 
     def test_an_unknown_lane_is_refused(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]

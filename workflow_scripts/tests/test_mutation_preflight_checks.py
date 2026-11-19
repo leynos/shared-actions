@@ -241,6 +241,13 @@ class TestCheckLogs:
         assert second.strip() == "second", (
             "a name sanitized onto the same stem must not overwrite the first log"
         )
+        results = typ.cast(
+            "list[dict[str, object]]", outcome.detail("checks")["results"]
+        )
+        published = [(item["index"], item["name"]) for item in results]
+        assert published == [(0, "a/b"), (1, "a-b")], (
+            "each check's evidence must stay under its own index and name"
+        )
 
 
 def test_an_unwritable_log_fails_the_check(

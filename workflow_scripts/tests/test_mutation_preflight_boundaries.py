@@ -44,6 +44,11 @@ POSIX_PROCESSES_ONLY = pytest.mark.skipif(
     sys.platform == "win32", reason="needs a POSIX process group"
 )
 
+#: The most cleanup may take at the production grace: the one-second timeout
+#: plus one shared grace period, with room for the poll and process teardown.
+#: A grace waited per stream would take about eleven seconds and fail it.
+_PRODUCTION_CLEANUP_CEILING: typ.Final[float] = 8.5
+
 
 def _refuse(*_args: object, **_kwargs: object) -> typ.NoReturn:
     """Fail the test: a query phase has no command to run."""
@@ -235,11 +240,23 @@ class TestCleanup:
     """A command's cleanup is bounded even when a descendant holds its pipe."""
 
     @POSIX_PROCESSES_ONLY
+    @pytest.mark.parametrize(
+        ("grace", "ceiling"),
+        [
+            (0.1, 5.0),
+            (running._DRAIN_GRACE_SECONDS, _PRODUCTION_CLEANUP_CEILING),
+        ],
+        ids=["short-grace", "production-grace"],
+    )
     def test_a_descendant_holding_the_pipe_does_not_block_cleanup(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        grace: float,
+        ceiling: float,
     ) -> None:
         """A writer the preflight cannot reach must not stall its own report."""
-        monkeypatch.setattr(running, "_DRAIN_GRACE_SECONDS", 0.1)
+        monkeypatch.setattr(running, "_DRAIN_GRACE_SECONDS", grace)
         pid_file = tmp_path / "child.pid"
         script = (
             "import pathlib, subprocess, sys, time\n"
@@ -272,7 +289,7 @@ class TestCleanup:
             assert "started" in outcome.stdout, (
                 "a timed-out command keeps what it printed before it was stopped"
             )
-            assert elapsed < 5, (
+            assert elapsed < ceiling, (
                 "a pipe a descendant still holds must not stall the report"
             )
         finally:

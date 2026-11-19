@@ -12,6 +12,7 @@ import os
 import signal
 import subprocess
 import threading
+import time
 import typing as typ
 from pathlib import Path
 
@@ -30,10 +31,15 @@ TRUNCATION_PREFIX: typ.Final[str] = "[... "
 #: How much of one stream is read at a time.
 _READ_CHUNK_BYTES: typ.Final[int] = 8192
 
-#: How long a drain thread may keep reading after the command is gone. A
-#: descendant that inherited the pipe can outlive the command, so the reader is
-#: bounded rather than joined forever.
+#: How long the readers share to reach end-of-file after the command is gone.
+#: A descendant that inherited the pipe can outlive the command, so the readers
+#: are bounded rather than joined forever, and the bound is one period for the
+#: run rather than one per stream.
 _DRAIN_GRACE_SECONDS: typ.Final[int] = 5
+
+#: How long a reader may take to leave once it has been told to stop. A polled
+#: reader notices within one poll, so this bounds the wait for it.
+_DRAIN_STOP_SECONDS: typ.Final[float] = 1.0
 
 #: How long a polled reader waits before checking whether it should stop. The
 #: reader is cancellable, so this is the worst-case delay in cleanup, not a
@@ -343,6 +349,12 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
     process.wait()
 
 
+def _join_until(threads: typ.Iterable[threading.Thread], deadline: float) -> None:
+    """Join each thread, spending at most the time left before *deadline*."""
+    for thread in threads:
+        thread.join(timeout=max(0.0, deadline - time.monotonic()))
+
+
 def _read_streams(
     process: subprocess.Popen[bytes], timeout: int
 ) -> tuple[tuple[_Capture, _Capture], bool]:
@@ -380,13 +392,19 @@ def _read_streams(
     finally:
         # A normal command closes its pipes as it exits, so the readers reach
         # end-of-file within the grace period. A descendant can keep the write
-        # end open, so once the grace is spent the readers are told to stop
-        # rather than the preflight waiting on a writer it cannot reach.
-        for _, thread in readers:
-            thread.join(timeout=_DRAIN_GRACE_SECONDS)
+        # end open, so once the shared grace is spent the readers are told to
+        # stop, and then given only the time a poll needs to notice. One grace
+        # period covers every stream, so cleanup is bounded by it however many
+        # pipes a descendant holds open.
+        _join_until(
+            (thread for _, thread in readers),
+            time.monotonic() + _DRAIN_GRACE_SECONDS,
+        )
         stop.set()
-        for _, thread in readers:
-            thread.join(timeout=_DRAIN_GRACE_SECONDS)
+        _join_until(
+            (thread for _, thread in readers),
+            time.monotonic() + _DRAIN_STOP_SECONDS,
+        )
         # Closing a stream a reader still holds would wait for that reader's
         # lock, so a stream is closed only once its reader has finished.
         for stream, thread in readers:

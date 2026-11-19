@@ -95,9 +95,12 @@ class RequirementRule(typ.Protocol):
         Returns
         -------
         Iterable[str]
-            One finding per violation, in the order the range declares them.
-            An empty iterable means the interpreter is inside the range, so
-            acceptance is reported by returning nothing.
+            An empty iterable when the interpreter is inside the range, which
+            is how acceptance is reported. Otherwise the reasons the range does
+            not establish: the shared rule returns a single finding when the
+            interpreter falls outside the range, whether one bound or several
+            reject it, and it also returns a finding when the requirement or
+            the interpreter cannot be read.
 
         """
         ...

@@ -193,10 +193,15 @@ runner temporary directory is written.
   - **Fix:** pin the version the installed tool actually reports, or install the
     release the declaration names.
 
-- **Error:** `sandbox path 'fixtures/data.json' is not materialized in
-  mutants/: add it to [tool.mutmut] also_copy`
+<!-- markdownlint-disable MD013 -->
+
+- **Error:** `sandbox path 'fixtures/data.json' is not materialized in mutants/: add it to [tool.mutmut] also_copy, because the selected mutmut copies only
+  ['src'] and root ['*.json']`
   - **Fix:** add the path to `[tool.mutmut] also_copy`, or point the declaration
-    at a path mutmut already copies.
+    at a path mutmut already copies. The two lists are the selected release's
+    copy contract, so they name what the preflight read from `[tool.mutmut]`.
+
+<!-- markdownlint-enable MD013 -->
 
 - **Error:** `the declared native dependency 'tei-rapporteur' is not in uv.lock`
   - **Fix:** run `uv lock` so the dependency is recorded, and check the declared

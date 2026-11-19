@@ -31,11 +31,15 @@ _PROBE_BLOCKED: typ.Final[str] = (
 
 
 def _unresolved(name: str, problem: str) -> tuple[str, str]:
-    """Return the finding and evidence for a command that does not resolve."""
-    finding = (
-        f"required command {name!r} {problem}; install it "
-        f"before the mutation run, or stop declaring it"
-    )
+    """Return the finding and evidence for a command that cannot run."""
+    # A resolution failure already names the command it could not find; a
+    # startup failure or a timeout does not, so the name is added only when
+    # the reason does not carry it. Otherwise the finding says the name twice.
+    if problem.startswith(f"{name!r} "):
+        subject = f"required command {problem}"
+    else:
+        subject = f"required command {name!r} cannot run: {problem}"
+    finding = f"{subject}; install it before the mutation run, or stop declaring it"
     return finding, problem
 
 

@@ -69,6 +69,12 @@ class TestCommands:
         assert "required command 'mdtablefix'" in outcome.findings("commands"), (
             "the finding must name the command the declaration requires"
         )
+        assert "required command 'mdtablefix' is not on PATH" in outcome.findings(
+            "commands"
+        ), (
+            "the resolution reason already names the command, so the finding "
+            "must not repeat it"
+        )
         assert "PATH" in outcome.findings("commands"), (
             "the finding must say where the command was looked for"
         )

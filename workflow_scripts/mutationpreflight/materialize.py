@@ -37,6 +37,41 @@ def _kept_as_link(root: Path, source: Path, seen: frozenset[Path]) -> bool:
     return source.resolve() in seen
 
 
+def _escaping_ancestor(root: Path, source: Path) -> Path | None:
+    """Return the nearest ancestor of *source* that links out of *root*."""
+    for ancestor in source.parents:
+        if ancestor == root or not ancestor.is_relative_to(root):
+            return None
+        if _escapes(root, ancestor):
+            return ancestor
+    return None
+
+
+def _keep_link_at(destination: Path, root: Path, link: Path) -> None:
+    """Write *link* into the sandbox where it sits in the checkout."""
+    target = destination / link.relative_to(root)
+    if target.is_symlink() or target.exists():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _keep_link(link, target)
+
+
+def _copy_source(root: Path, destination: Path, source: Path, target: Path) -> None:
+    """Copy *source* to *target*, keeping an escaping ancestor as a link.
+
+    A declared path such as ``tests/escape/secret.txt`` may be reached through
+    a link that leaves the checkout. Writing the entry would copy a foreign
+    tree into the sandbox, so the link is preserved in its checkout-relative
+    place instead, and the entry keeps resolving through it as it does in the
+    checkout.
+    """
+    escape = _escaping_ancestor(root, source)
+    if escape is not None:
+        _keep_link_at(destination, root, escape)
+        return
+    _copy_path(root, source, target, frozenset())
+
+
 def _copy_path(root: Path, source: Path, target: Path, seen: frozenset[Path]) -> None:
     """Copy one entry, applying the containment rule at every level.
 
@@ -81,7 +116,7 @@ def _copy_entry(root: Path, repo_root: Path, destination: Path, entry: str) -> N
     source = repo_root / entry
     if not source.exists() and not source.is_symlink():
         return
-    _copy_path(root, source, destination / entry, frozenset())
+    _copy_source(root, destination, source, destination / entry)
 
 
 def materialize(
@@ -115,7 +150,7 @@ def materialize(
                 if source.is_file():
                     # A glob match receives the same containment rule as a
                     # declared entry, so an escaping link stays a link.
-                    _copy_path(root, source, destination / source.name, frozenset())
+                    _copy_source(root, destination, source, destination / source.name)
     except OSError as error:
         shutil.rmtree(destination, ignore_errors=True)
         return None, (f"the check sandbox could not be materialized: {error}",)

@@ -266,7 +266,9 @@ class TestMaterialize:
 
         sandbox, problems = materialize(root, CopyContract(("linked",), ()))
 
-        assert problems == (), "copying a link inside the checkout must succeed"
+        assert problems == (), (
+            f"copying a link inside the checkout must succeed: {problems}"
+        )
         assert sandbox is not None, (
             f"an internal link must be materialized, not refused: {problems}"
         )
@@ -341,6 +343,44 @@ class TestMaterialize:
             )
             assert link.readlink() == outside, (
                 "the nested link must name the target the checkout saw"
+            )
+        finally:
+            discard(sandbox)
+
+    @POSIX_SYMLINKS_ONLY
+    def test_a_path_beyond_an_escaping_link_keeps_the_link(
+        self, tmp_path: Path
+    ) -> None:
+        """A declared path behind an escaping link must not copy its target."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("x", encoding="utf-8")
+        root = tmp_path / "repo"
+        (root / "tests").mkdir(parents=True)
+        (root / "tests" / "escape").symlink_to(outside, target_is_directory=True)
+
+        sandbox, problems = materialize(
+            root, CopyContract(("tests/escape/secret.txt",), ())
+        )
+
+        assert problems == (), (
+            f"keeping the escaping ancestor must not fail the copy: {problems}"
+        )
+        assert sandbox is not None, f"the sandbox must be built: {problems}"
+        try:
+            link = sandbox / "tests" / "escape"
+            assert link.is_symlink(), (
+                "the link the declared path is reached through must be kept, so "
+                "the sandbox does not receive the external tree"
+            )
+            assert link.readlink() == outside, (
+                "the kept link must name the target the checkout saw"
+            )
+            assert sorted(entry.name for entry in (sandbox / "tests").iterdir()) == [
+                "escape"
+            ], "the declared file must not be copied into the sandbox as content"
+            assert (link / "secret.txt").is_file(), (
+                "the declared path must still resolve through the kept link"
             )
         finally:
             discard(sandbox)

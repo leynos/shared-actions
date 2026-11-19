@@ -202,10 +202,11 @@ class TestCheckLogs:
             encoding="utf-8"
         )
         retained = written.partition("[... ")[0].rstrip("\n")
-        # Every line is ten bytes, so the bound keeps whole lines and a
-        # partial one; only the whole ones can be read back as numbered.
-        complete = retained[: (LOG_BOUND_BYTES // 10) * 10]
-        numbers = [int(line.removeprefix("line-")) for line in complete.splitlines()]
+        # The bound cuts on a byte count, not a line boundary, and Windows
+        # writes two bytes per newline, so the last line the prefix holds may
+        # be partial. Every line before it was written whole.
+        complete = retained.splitlines()[:-1]
+        numbers = [int(line.removeprefix("line-")) for line in complete]
         assert numbers == list(range(len(numbers))), (
             "the retained prefix must be contiguous, so a reader can trust "
             "that the bytes before the marker are the ones the check wrote"

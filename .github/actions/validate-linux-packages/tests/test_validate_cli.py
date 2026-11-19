@@ -16,6 +16,13 @@ MODULE_PATH = SCRIPTS_DIR / "validate_cli.py"
 add_to_syspath(SCRIPTS_DIR)
 
 
+class _PolytheneOptions(typ.Protocol):
+    """Options forwarded to the Polythene rootfs context manager."""
+
+    refresh_base_images: bool
+    timeout: int | None
+
+
 @pytest.fixture
 def validate_cli_module() -> object:
     """Load the validate_cli module under test."""
@@ -46,9 +53,9 @@ def _write_package(path: Path) -> None:
 def _prepare_polythene_stub(
     module: object,
     tmp_path: Path,
-) -> tuple[list[tuple[str, str]], list[tuple[str, ...]]]:
+) -> tuple[list[tuple[str, str, bool]], list[tuple[str, ...]]]:
     """Replace the polythene hooks on ``module`` and return the recorded calls."""
-    calls: list[tuple[str, str]] = []
+    calls: list[tuple[str, str, bool]] = []
     exec_calls: list[tuple[str, ...]] = []
 
     script_path = tmp_path / "polythene.py"
@@ -63,10 +70,10 @@ def _prepare_polythene_stub(
         image: str,
         store: Path,
         *,
-        timeout: int | None = None,
+        options: _PolytheneOptions,
     ) -> typ.Iterable[object]:
         """Record the call, create the store and return a stub session context."""
-        calls.append((image, store.as_posix()))
+        calls.append((image, store.as_posix(), options.refresh_base_images))
         store.mkdir(parents=True, exist_ok=True)
         root = store / "rootfs"
         root.mkdir(parents=True, exist_ok=True)
@@ -93,6 +100,84 @@ def _prepare_polythene_stub(
     module.default_polythene_command = lambda: ("polythene",)
     module.polythene_rootfs = _polythene_stub
     return calls, exec_calls
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("true", True),
+        ("false", False),
+        (" TRUE ", True),
+        ("False\n", False),
+    ],
+)
+def test_refresh_base_images_input_accepts_booleans(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    raw: str,
+    expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+) -> None:
+    """Accepted values trim, case-fold, and map to the matching boolean."""
+    module = validate_cli_module
+    monkeypatch.setenv("INPUT_REFRESH_BASE_IMAGES", raw)
+
+    result = module._refresh_base_images_input()
+
+    assert result is expected
+
+
+def test_refresh_base_images_input_defaults_to_enabled(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unset input keeps registry refreshes enabled."""
+    module = validate_cli_module
+    monkeypatch.delenv("INPUT_REFRESH_BASE_IMAGES", raising=False)
+
+    result = module._refresh_base_images_input()
+
+    assert result is True
+
+
+@pytest.mark.parametrize("raw", ["yes", "0", ""])
+def test_refresh_base_images_input_rejects_unknown_values(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    raw: str,
+) -> None:
+    """Unknown or blank values fail instead of defaulting silently."""
+    module = validate_cli_module
+    monkeypatch.setenv("INPUT_REFRESH_BASE_IMAGES", raw)
+
+    with pytest.raises(module.ValidationError, match="refresh-base-images"):
+        module._refresh_base_images_input()
+
+
+def test_main_rejects_invalid_refresh_input_before_polythene(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An invalid refresh value stops validation before Polythene is invoked."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    package_dir = project_dir / "dist"
+    _write_package(package_dir / "rust-toy-app_1.2.3-1_amd64.deb")
+
+    calls, exec_calls = _prepare_polythene_stub(module, tmp_path)
+    monkeypatch.setattr(module, "get_command", lambda _name: object())
+    monkeypatch.setenv("INPUT_REFRESH_BASE_IMAGES", "yes")
+
+    with pytest.raises(module.ValidationError, match="refresh-base-images"):
+        module.main(
+            project_dir=project_dir,
+            bin_name="rust-toy-app",
+            version="1.2.3",
+            formats=["deb"],
+        )
+
+    assert calls == []
+    assert exec_calls == []
 
 
 def test_polythene_store_accepts_executable_override(
@@ -173,6 +258,7 @@ def test_main_invokes_deb_validation(
     calls, exec_calls = _prepare_polythene_stub(module, tmp_path)
 
     monkeypatch.setattr(module, "get_command", lambda _name: object())
+    monkeypatch.setenv("INPUT_REFRESH_BASE_IMAGES", "false")
 
     recorded: dict[str, object] = {}
 
@@ -206,7 +292,6 @@ def test_main_invokes_deb_validation(
     monkeypatch.setattr(module, "validate_deb_package", _validate_deb_package)
 
     monkeypatch.setattr(module, "_describe_mount", lambda _path: "fs info")
-
     module.main(
         project_dir=project_dir,
         bin_name="rust-toy-app",
@@ -232,6 +317,7 @@ def test_main_invokes_deb_validation(
 
     assert calls
     assert calls[0][0] == "docker.io/library/debian:bookworm"
+    assert calls[0][2] is False
     assert exec_calls
     assert exec_calls[0] == ("test", "-e", "/usr/bin/rust-toy-app")
 
@@ -251,7 +337,7 @@ def test_main_invokes_rpm_validation(
     calls, exec_calls = _prepare_polythene_stub(module, tmp_path)
 
     monkeypatch.setattr(module, "get_command", lambda _name: object())
-
+    monkeypatch.delenv("INPUT_REFRESH_BASE_IMAGES", raising=False)
     recorded: dict[str, object] = {}
 
     def _validate_rpm_package(
@@ -304,6 +390,7 @@ def test_main_invokes_rpm_validation(
 
     assert calls
     assert calls[0][0] == "docker.io/library/rockylinux:9"
+    assert calls[0][2] is True
     assert exec_calls
     assert exec_calls[0] == ("/usr/bin/rust-toy-app", "--version")
 
@@ -521,10 +608,10 @@ def test_validate_format_dispatches_to_handler(
         image: str,
         store_dir: Path,
         *,
-        timeout: int | None = None,
+        options: _PolytheneOptions,
     ) -> typ.Iterator[object]:
         """Record the rootfs arguments and yield a placeholder session."""
-        called["rootfs_args"] = (script, image, store_dir, timeout)
+        called["rootfs_args"] = (script, image, store_dir, options.timeout)
         yield object()
 
     monkeypatch.setattr(module, "polythene_rootfs", _fake_rootfs)

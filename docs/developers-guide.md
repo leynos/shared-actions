@@ -189,6 +189,41 @@ path, resolved target, file status, and symlink status.
 passed to `uv sync` and `uv pip install` at INFO level so CI logs can identify
 whether uv targeted the venv path or the base interpreter.
 
+## Python process utilities and Linux package validation
+
+The `validate-linux-packages` action, including its RPM validation, resolves the
+`polythene` executable from `PATH`, unless the `polythene-path` input names a
+script. The action does not install `polythene-isolate`: its `uv run` script
+declares only its own dependencies, so the executable must already exist on the
+runner or be supplied through `polythene-path`.
+
+This repository's [`pyproject.toml`](../pyproject.toml#L21-L22) separately pins
+the [`polythene-isolate` distribution](../pyproject.toml#L21-L22) to commit
+`542c86ef4b83a5e5583afa4bec88b7c339851497` for local tooling and tests. That
+pin does not determine which executable the action runs. Upstream
+[PR 154](https://github.com/leynos/polythene/pull/154) explains that the PyPI
+name `polythene` was not theirs to claim, so the distribution uses
+`polythene-isolate`; the Python import package and console script remain
+`polythene`. Declare the distribution name in project dependencies. In
+production, the `validate-linux-packages` action runs `podman pull` for each
+configured base image before Polythene uses it; `refresh-base-images` defaults
+to `true` and can be set to `false` for a local-only image. This production
+input is separate from the Linux package test helper's `refresh_registry_image`
+option, which defaults to `false`; the Debian and RPM registry-image tests opt
+in, while the helper's default path does not pre-pull.
+
+[`cmd_utils.py`](../cmd_utils.py) converts Plumbum process errors to
+`RunResult`; `_normalize_exit_code()` maps `None` or a value whose integer
+conversion raises `ValueError` to exit code `1`. `_run_handler()` converts a
+`TimeoutError` to `ProcessTimedOut`, retaining its message (or using
+`Command timed out`) and the command's formatted arguments.
+
+The coverage action's
+[`process_error_to_run_result()`](../.github/actions/generate-coverage/scripts/cmd_utils_loader.py)
+loads `cmd_utils` lazily through `_get_cmd_utils()`. If the loaded module
+lacks that conversion function, the adapter raises `CmdUtilsImportError`, names
+the missing symbol, and chains the original `AttributeError`.
+
 ## Makefile Tool Resolution
 
 The `Makefile` resolves optional local tool installations before falling back

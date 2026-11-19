@@ -11,7 +11,7 @@ import typing as typ
 from pathlib import Path
 
 import typer
-from cmd_utils_loader import run_cmd
+from cmd_utils_loader import process_error_to_run_result, run_cmd
 from common import _required_env
 from plumbum.cmd import uvx
 from plumbum.commands.processes import ProcessExecutionError
@@ -50,7 +50,7 @@ def main(
             f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}",
             err=True,
         )
-        raise typer.Exit(code=exc.retcode or 1) from exc
+        raise typer.Exit(code=process_error_to_run_result(exc).returncode) from exc
     output_path.write_text(output)
     rust_file.unlink()
     python_file.unlink()

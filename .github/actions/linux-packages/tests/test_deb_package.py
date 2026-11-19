@@ -55,7 +55,11 @@ def test_deb_package_installs(
             assert "Package: rust-toy-app" in control_txt
             assert f"Architecture: {deb_arch}" in control_txt
     try:
-        with polythene_rootfs(polythene, "docker.io/library/debian:bookworm") as rootfs:
+        with polythene_rootfs(
+            polythene,
+            "docker.io/library/debian:bookworm",
+            refresh_registry_image=True,
+        ) as rootfs:
             shutil.copy(deb, rootfs.root / deb.name)
             rootfs.exec("dpkg", "-i", deb.name)
             try:

@@ -343,10 +343,17 @@ def polythene_exec(polythene: Command, uid: str, store: str, *cmd: str) -> str:
 
 
 @contextlib.contextmanager
-def polythene_rootfs(polythene: Command, image: str) -> typ.Iterator[PolytheneRootfs]:
-    """Yield an exported rootfs for ``image`` or raise ``IsolationUnavailableError``."""
+def polythene_rootfs(
+    polythene: Command,
+    image: str,
+    *,
+    refresh_registry_image: bool = False,
+) -> typ.Iterator[PolytheneRootfs]:
+    """Yield an exported rootfs, optionally refreshing its registry image first."""
     with tempfile.TemporaryDirectory() as store:
         try:
+            if refresh_registry_image:
+                run_cmd(local["podman"]["pull", image])
             pull_output = polythene_cmd(polythene, "pull", image, "--store", store)
         except (
             ProcessExecutionError,

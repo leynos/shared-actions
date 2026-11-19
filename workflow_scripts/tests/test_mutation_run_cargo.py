@@ -1,4 +1,8 @@
-"""Unit tests for the cargo-mutants run wrapper script."""
+"""Unit tests for the cargo-mutants run wrapper script.
+
+The shard-boundary and exit-code-meaning tests below kill the
+``mutation_run_cargo`` survivors tracked in #342.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +13,7 @@ import typing as typ
 import pytest
 from plumbum import local
 
+from test_support.cyclopts_app_support import _invoke_cyclopts_successfully
 from workflow_scripts import mutation_run_cargo as run_cargo
 
 if typ.TYPE_CHECKING:
@@ -40,6 +45,29 @@ class TestBuildArguments:
         )
         assert arguments[-4:] == ["--file", "src/a.rs", "--file", "src/b.rs"]
 
+    def test_shard_boundary_at_two_emits_shard(self) -> None:
+        """A shard-count of exactly two still emits ``--shard`` (boundary).
+
+        Kills the shard-count boundary survivors tracked in #342.
+        """
+        arguments = run_cargo.build_arguments(
+            run_cargo.MutantsInvocation(shard=0, shard_count=2)
+        )
+        assert "--shard" in arguments, "shard-count 2 should still emit --shard"
+        assert arguments[arguments.index("--shard") + 1] == "0/2", (
+            "the shard argument should read index/count"
+        )
+
+    def test_single_shard_omits_shard(self) -> None:
+        """A shard-count of one leaves ``--shard`` out (boundary).
+
+        Kills the shard-count boundary survivors tracked in #342.
+        """
+        arguments = run_cargo.build_arguments(
+            run_cargo.MutantsInvocation(shard=0, shard_count=1)
+        )
+        assert "--shard" not in arguments, "shard-count 1 should not emit --shard"
+
     def test_shard_and_dir_and_excludes(self) -> None:
         """Sharding, target dir, and exclude globs are all emitted."""
         arguments = run_cargo.build_arguments(
@@ -70,19 +98,34 @@ class TestBuildArguments:
 class TestInterpretExitCode:
     """Classification of cargo-mutants exit codes."""
 
-    @pytest.mark.parametrize("code", [0, 2, 3])
-    def test_informative_codes_succeed(self, code: int) -> None:
-        """Missed mutants and timeouts are informative outcomes."""
-        success, meaning = run_cargo.interpret_exit_code(code)
-        assert success
-        assert meaning
+    @pytest.mark.parametrize(
+        ("code", "meaning"),
+        [(0, "all mutants caught"), (2, "missed mutants"), (3, "test timeouts")],
+    )
+    def test_informative_codes_succeed(self, code: int, meaning: str) -> None:
+        """Informative codes succeed and report their exact contract meaning."""
+        success, actual = run_cargo.interpret_exit_code(code)
+        assert success, f"code {code} should be classified as informative success"
+        assert actual == meaning, (
+            f"code {code} should map to the exact meaning {meaning!r}"
+        )
 
-    @pytest.mark.parametrize("code", [1, 4, 70, 99])
-    def test_fault_codes_fail(self, code: int) -> None:
-        """Usage errors, failing baselines, and unknowns are faults."""
-        success, meaning = run_cargo.interpret_exit_code(code)
-        assert not success
-        assert meaning
+    @pytest.mark.parametrize(
+        ("code", "meaning"),
+        [
+            (1, "usage error"),
+            (4, "baseline tests failing"),
+            (70, "internal error"),
+            (99, "unexpected exit code"),
+        ],
+    )
+    def test_fault_codes_fail(self, code: int, meaning: str) -> None:
+        """Faults report their exact meaning; unknown codes fall back verbatim."""
+        success, actual = run_cargo.interpret_exit_code(code)
+        assert not success, f"code {code} should be classified as a fault"
+        assert actual == meaning, (
+            f"code {code} should map to the exact meaning {meaning!r}"
+        )
 
 
 @pytest.fixture
@@ -120,7 +163,7 @@ class TestMainEntry:
         monkeypatch.setenv("FAKE_CARGO_EXIT", "2")
         monkeypatch.setitem(local.env, "FAKE_CARGO_EXIT", "2")
         monkeypatch.setenv("INPUT_FILES", "src/lib.rs")
-        run_cargo.app([])
+        _invoke_cyclopts_successfully(run_cargo.app, [])
         recorded = fake_cargo.read_text(encoding="utf-8").split()
         assert recorded[0] == "mutants"
         assert recorded[-2:] == ["--file", "src/lib.rs"]
@@ -299,7 +342,7 @@ class TestEmptyRunEndToEnd:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("INPUT_ALLOW_NO_MUTANTS", "true")
 
-        run_cargo.app([])
+        _invoke_cyclopts_successfully(run_cargo.app, [])
 
         output = capsys.readouterr().out
         assert "mutation_cargo_outcome=no mutants found (allowed)" in output, output
@@ -317,7 +360,7 @@ class TestEmptyRunEndToEnd:
         self._write_inventory(tmp_path, '[{"function": "a"}]')
         monkeypatch.chdir(tmp_path)
 
-        run_cargo.app([])
+        _invoke_cyclopts_successfully(run_cargo.app, [])
 
         output = capsys.readouterr().out
         assert "mutation_cargo_outcome=all mutants caught" in output, output

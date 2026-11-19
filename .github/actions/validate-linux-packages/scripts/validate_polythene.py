@@ -27,6 +27,23 @@ DEFAULT_POLYTHENE_COMMAND: Command = ("polythene",)
 DEFAULT_ISOLATION = "proot"
 
 
+@dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
+class PolytheneRootfsOptions:
+    """Options controlling Polythene rootfs pulls and session commands.
+
+    Parameters
+    ----------
+    timeout : int or None, optional
+        Timeout in seconds applied to Podman, Polythene, and session commands.
+    refresh_base_images : bool, optional
+        Pull registry images before Polythene exports them. Disable this when
+        an image is available only in the local Podman store.
+    """
+
+    timeout: int | None = None
+    refresh_base_images: bool = False
+
+
 @dataclasses.dataclass(slots=True)
 class _CommandArgsResult:
     """Return type for :func:`_build_command_args`."""
@@ -49,6 +66,7 @@ __all__ = sorted(
         "Command",
         "DEFAULT_ISOLATION",
         "DEFAULT_POLYTHENE_COMMAND",
+        "PolytheneRootfsOptions",
         "PolytheneSession",
         "default_polythene_command",
         "polythene_rootfs",
@@ -363,33 +381,37 @@ def polythene_rootfs(
     image: str,
     store: Path,
     *,
-    timeout: int | None = None,
+    options: PolytheneRootfsOptions | None = None,
 ) -> typ.Iterator[PolytheneSession]:
-    """Yield a :class:`PolytheneSession` for ``image`` using ``store``."""
+    """Yield a Polythene session for ``image`` using ``store`` and ``options``.
+
+    Parameters
+    ----------
+    polythene_command : Command
+        Command prefix used to invoke the Polythene CLI.
+    image : str
+        Container image to export as the session root filesystem.
+    store : Path
+        Persistent directory used by Polythene for the exported rootfs.
+    options : PolytheneRootfsOptions, optional
+        Timeout and registry-refresh policy for Podman and Polythene operations.
+
+    Yields
+    ------
+    PolytheneSession
+        Session backed by the exported root filesystem.
+    """
+    if options is None:
+        options = PolytheneRootfsOptions()
     ensure_directory(store)
-    pull_cmd = local["uv"][
-        "run",
-        *polythene_command,
-        "pull",
-        image,
-        "--store",
-        store.as_posix(),
-    ]
-    try:
-        pull_output = run_text(pull_cmd, timeout=timeout)
-    except ValidationError as exc:  # pragma: no cover - exercised in CI
-        message = f"polythene pull failed: {exc}"
-        raise ValidationError(message) from exc
-    uid = pull_output.splitlines()[-1].strip()
-    if not uid:
-        message = "polythene pull returned an empty identifier"
-        raise ValidationError(message)
+    _refresh_base_image(image, options)
+    uid = _pull_polythene_rootfs(polythene_command, image, store, options.timeout)
     isolation = os.environ.get("POLYTHENE_ISOLATION") or DEFAULT_ISOLATION
     session = PolytheneSession(
         polythene_command,
         uid,
         store,
-        timeout,
+        options.timeout,
         isolation=isolation,
     )
     ensure_directory(session.root, exist_ok=True)
@@ -413,3 +435,42 @@ def polythene_rootfs(
             ]()
         except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
             logger.debug("polythene cleanup failed: %s", exc)
+
+
+def _refresh_base_image(image: str, options: PolytheneRootfsOptions) -> None:
+    """Refresh a registry image when enabled, preserving validation errors."""
+    if not options.refresh_base_images:
+        return
+    podman_pull_cmd = local["podman"]["pull", image]
+    try:
+        run_text(podman_pull_cmd, timeout=options.timeout)
+    except ValidationError as exc:
+        message = f"podman pull failed: {exc}"
+        raise ValidationError(message) from exc
+
+
+def _pull_polythene_rootfs(
+    polythene_command: Command,
+    image: str,
+    store: Path,
+    timeout: int | None,
+) -> str:
+    """Pull an image through Polythene and return its session identifier."""
+    pull_cmd = local["uv"][
+        "run",
+        *polythene_command,
+        "pull",
+        image,
+        "--store",
+        store.as_posix(),
+    ]
+    try:
+        pull_output = run_text(pull_cmd, timeout=timeout)
+    except ValidationError as exc:  # pragma: no cover - exercised in CI
+        message = f"polythene pull failed: {exc}"
+        raise ValidationError(message) from exc
+    uid = pull_output.splitlines()[-1].strip()
+    if not uid:
+        message = "polythene pull returned an empty identifier"
+        raise ValidationError(message)
+    return uid

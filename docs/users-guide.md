@@ -1303,11 +1303,17 @@ full input table.
 
 ### Registry image refreshes
 
-`refresh-base-images` defaults to `true`, so the action runs `podman pull` for
-the `deb-base-image` and `rpm-base-image` before Polythene exports either. A
-caller that accepts the default now reaches the registry on every validation
-run. On a persistent runner this refreshes a moved image tag instead of
+`refresh-base-images` defaults to `true`. For each format requested in
+`formats` (the default is `deb` alone), the action runs `podman pull` for that
+format's base image, named by `deb-base-image` or `rpm-base-image`, immediately
+before Polythene exports it. A caller that accepts the default therefore
+reaches the registry once per requested format on each run that reaches the
+sandbox. On a persistent runner this refreshes a moved image tag instead of
 silently reusing a stale local copy.
+
+A run that skips the sandbox also skips the pull. When a package's architecture
+differs from the host's, the action validates metadata only, so no image is
+pulled and no refresh happens.
 
 Set `refresh-base-images: false` when the base image exists only in the local
 Podman store, or when a run must stay offline. Override the image and disable

@@ -204,15 +204,13 @@ class TestCheckLogs:
         assert len(retained_bytes) >= LOG_BOUND_BYTES, (
             "the bound must keep every byte it can hold"
         )
-        # The bound cuts on a byte count, not a line boundary, and Windows
-        # writes two bytes per newline, so the retained prefix may end
-        # part-way through a line. It must still be the stream's own opening.
-        expected = "".join(f"line-{index:04d}\n" for index in range(2000))
+        # The bound cuts on a byte count, and a platform may write a line
+        # ending in more than one byte and then translate it again when the
+        # log is written, so compare the prefix without its line endings. It
+        # must still be the stream's own opening, in order.
+        expected = "".join(f"line-{index:04d}" for index in range(2000))
         retained = (
-            retained_bytes.decode("utf-8", "ignore")
-            .replace("\r\n", "\n")
-            .replace("\r", "\n")
-            .rstrip("\n")
+            retained_bytes.decode("utf-8", "ignore").replace("\r", "").replace("\n", "")
         )
         assert expected.startswith(retained), (
             "the retained prefix must be the bytes the check wrote, in order, "

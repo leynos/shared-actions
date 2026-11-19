@@ -198,18 +198,25 @@ class TestCheckLogs:
         )
 
         assert outcome.exit_code == 0, outcome.stdout
-        written = (tmp_path / "out" / "checks" / "00-collect.stdout.log").read_text(
-            encoding="utf-8"
+        log = tmp_path / "out" / "checks" / "00-collect.stdout.log"
+        retained_bytes, separator, _ = log.read_bytes().partition(b"[... ")
+        assert separator, "a flooding check must be truncated, not kept whole"
+        assert len(retained_bytes) >= LOG_BOUND_BYTES, (
+            "the bound must keep every byte it can hold"
         )
-        retained = written.partition("[... ")[0].rstrip("\n")
         # The bound cuts on a byte count, not a line boundary, and Windows
-        # writes two bytes per newline, so the last line the prefix holds may
-        # be partial. Every line before it was written whole.
-        complete = retained.splitlines()[:-1]
-        numbers = [int(line.removeprefix("line-")) for line in complete]
-        assert numbers == list(range(len(numbers))), (
-            "the retained prefix must be contiguous, so a reader can trust "
-            "that the bytes before the marker are the ones the check wrote"
+        # writes two bytes per newline, so the retained prefix may end
+        # part-way through a line. It must still be the stream's own opening.
+        expected = "".join(f"line-{index:04d}\n" for index in range(2000))
+        retained = (
+            retained_bytes.decode("utf-8", "ignore")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .rstrip("\n")
+        )
+        assert expected.startswith(retained), (
+            "the retained prefix must be the bytes the check wrote, in order, "
+            "so a reader can trust what sits before the marker"
         )
 
     def test_checks_whose_names_sanitize_alike_keep_separate_logs(

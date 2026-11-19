@@ -151,6 +151,14 @@ def lock_document(version: str, source: str) -> str:
     )
 
 
+def locked_checkout(manifest: str, source: str = 'registry = "x"') -> Checkout:
+    """Return a checkout declaring *manifest*, with its native package locked."""
+    return Checkout(
+        manifest=manifest,
+        extra={"uv.lock": lock_document("0.3.1", source)},
+    )
+
+
 class MissingResultError(KeyError):
     """Raised when a phase reported no result under the name a test asked for."""
 

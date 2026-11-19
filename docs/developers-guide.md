@@ -3103,8 +3103,16 @@ exactly the case whose diagnostics need publishing. Both use
   the requirement is declared or satisfied.
 - `test_mutation_preflight_checks.py` — declared checks, their logs, and the
   sandbox copies a check runs against.
-- `test_mutation_preflight_runtime.py` — bounded capture, version matching,
-  native support, and the envelope.
+- `test_mutation_preflight_commands.py` — declared commands and the probe that
+  selects the project interpreter.
+- `test_mutation_preflight_output.py` — bounded capture and version-token
+  matching for what a command printed.
+- `test_mutation_preflight_native.py` — the declared native package, its lock
+  entry, revision and supported range.
+- `test_mutation_preflight_native_probes.py` — when a native probe runs, and
+  what a failing one reports.
+- `test_mutation_preflight_report.py` — the phase envelope, the JSON report
+  and the step summary.
 - `test_mutation_preflight_boundaries.py` — query phases that write nothing
   and run nothing, sandbox materialization, process-group cleanup, and usage
   errors.

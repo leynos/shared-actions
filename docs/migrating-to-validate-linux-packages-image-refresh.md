@@ -17,9 +17,11 @@ first, so a sandboxed validation uses the image the tag currently names.
 defaults pulls only `deb-base-image`. Requesting `rpm` as well pulls
 `rpm-base-image` too.
 
-A package whose architecture differs from the host's is validated from its
-metadata only: the action skips the sandbox, so it does not pull that format's
-image and the refresh never runs.
+A package is validated from its metadata only when its architecture is one the
+detected host cannot run: neither an alias of the host CPU nor an
+architecture-independent value such as `all` or `noarch`. That run skips the
+sandbox, so it does not pull that format's image and the refresh never runs. If
+the host architecture cannot be detected, the sandbox still runs.
 
 ## When to migrate
 
@@ -27,8 +29,13 @@ Nothing is required for a caller that uses registry images and accepts one pull
 per requested format. Review the change when a job:
 
 - uses a base image that exists only in the local Podman store;
-- runs without network access; or
+- must avoid registry traffic for the base image; or
 - pins an image tag that the registry no longer serves.
+
+Disabling the refresh does not make a run offline. The action still runs
+`apt update` and installs `podman`, `bubblewrap`, `proot`, and `mmdebstrap` on
+the runner before it validates, so a job without network access fails at that
+step whether or not the refresh is enabled.
 
 ## How to migrate
 

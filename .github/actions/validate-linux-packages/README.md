@@ -91,9 +91,11 @@ run a supplied command inside the sandbox.
 
 The action runs `podman pull` for the base image of each requested format
 before Polythene uses it, refreshing registry tags by default. Validation that
-skips the sandbox, because the package architecture differs from the host's,
-does not pull. For a base image available only in the local Podman store,
-override the image and disable that refresh:
+skips the sandbox does not pull; that happens when the package architecture is
+unsupported on the detected host, meaning it is neither an alias of the host
+CPU nor an architecture-independent value such as `all` or `noarch`. For a base
+image available only in the local Podman store, override the image and disable
+that refresh:
 
 ```yaml
 with:

@@ -1311,13 +1311,18 @@ reaches the registry once per requested format on each run that reaches the
 sandbox. On a persistent runner this refreshes a moved image tag instead of
 silently reusing a stale local copy.
 
-A run that skips the sandbox also skips the pull. When a package's architecture
-differs from the host's, the action validates metadata only, so no image is
-pulled and no refresh happens.
+A run that skips the sandbox also skips the pull. The action skips sandbox
+validation when the package architecture is one the detected host cannot run:
+it is neither an alias of the host CPU nor an architecture-independent value
+such as `all` or `noarch`. Such a run validates metadata only, so no image is
+pulled and no refresh happens. If the host architecture cannot be detected, the
+sandbox still runs.
 
 Set `refresh-base-images: false` when the base image exists only in the local
-Podman store, or when a run must stay offline. Override the image and disable
-the pull together:
+Podman store, or to avoid the image pull itself. It does not make the run
+offline: the action still runs `apt update` and installs `podman`, `bubblewrap`,
+`proot`, and `mmdebstrap` on the runner before it validates. Override the
+image and disable the pull together:
 
 ```yaml
 - uses: leynos/shared-actions/.github/actions/validate-linux-packages@<sha>

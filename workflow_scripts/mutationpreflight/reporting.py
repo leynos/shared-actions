@@ -261,13 +261,15 @@ def _declaration_phases(
     """
     # The lock and range are judged first, and the probe that exercises the
     # built extension is composed onto that verdict only where the interpreter
-    # it would run under was accepted.
-    yield with_probe(
-        judge_native(run, declaration),
-        probe_native(run, declaration)
+    # it would run under was accepted. The judgement is passed to the probe so
+    # the lock it ran against is the one the probe must leave behind.
+    judged = judge_native(run, declaration)
+    probe = (
+        probe_native(run, declaration, judged)
         if interpreter_ok
-        else probe_blocked(declaration),
+        else probe_blocked(declaration)
     )
+    yield with_probe(judged, probe)
     yield run_sandbox_phase(run.root, declaration, run.mutmut_version)
     yield run_commands_phase(run, declaration, probe_versions=interpreter_ok)
     if interpreter_ok:

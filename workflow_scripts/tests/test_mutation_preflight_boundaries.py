@@ -386,6 +386,41 @@ class TestMaterialize:
             discard(sandbox)
 
     @POSIX_SYMLINKS_ONLY
+    def test_overlapping_entries_keep_a_link_without_failing_the_copy(
+        self, tmp_path: Path
+    ) -> None:
+        """The default tests entry and an also_copy naming a link both copy it."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("x", encoding="utf-8")
+        root = tmp_path / "repo"
+        (root / "tests").mkdir(parents=True)
+        (root / "tests" / "test_module.py").write_text("", encoding="utf-8")
+        (root / "tests" / "escape").symlink_to(outside, target_is_directory=True)
+
+        sandbox, problems = materialize(
+            root, CopyContract(("tests", "tests/escape"), ())
+        )
+
+        assert problems == (), (
+            f"an overlapping entry must not fail the copy it overlaps: {problems}"
+        )
+        assert sandbox is not None, f"the sandbox must be built: {problems}"
+        try:
+            link = sandbox / "tests" / "escape"
+            assert link.is_symlink(), (
+                "the link the first entry kept must survive the second entry"
+            )
+            assert link.readlink() == outside, (
+                "the kept link must name the target the checkout saw"
+            )
+            assert (sandbox / "tests" / "test_module.py").is_file(), (
+                "the overlapping entry must not disturb the directory it sits in"
+            )
+        finally:
+            discard(sandbox)
+
+    @POSIX_SYMLINKS_ONLY
     def test_a_glob_match_that_leaves_the_checkout_stays_a_link(
         self, tmp_path: Path
     ) -> None:

@@ -28,6 +28,19 @@ def _keep_link(source: Path, target: Path) -> None:
     target.symlink_to(source.readlink(), target_is_directory=source.is_dir())
 
 
+def _keep_link_unless_present(source: Path, target: Path) -> None:
+    """Write *source*'s link at *target* unless the path is already written.
+
+    Overlapping contract entries reach the same sandbox path: the default
+    ``tests`` entry and an ``also_copy`` entry naming a link inside it both
+    copy that link. The first write is the one that counts, so a second is
+    left alone rather than raising on the existing path.
+    """
+    if target.is_symlink() or target.exists():
+        return
+    _keep_link(source, target)
+
+
 def _kept_as_link(root: Path, source: Path, seen: frozenset[Path]) -> bool:
     """Return whether *source* must be copied as a link rather than followed."""
     if not source.is_symlink():
@@ -50,10 +63,8 @@ def _escaping_ancestor(root: Path, source: Path) -> Path | None:
 def _keep_link_at(destination: Path, root: Path, link: Path) -> None:
     """Write *link* into the sandbox where it sits in the checkout."""
     target = destination / link.relative_to(root)
-    if target.is_symlink() or target.exists():
-        return
     target.parent.mkdir(parents=True, exist_ok=True)
-    _keep_link(link, target)
+    _keep_link_unless_present(link, target)
 
 
 def _copy_source(root: Path, destination: Path, source: Path, target: Path) -> None:
@@ -98,7 +109,7 @@ def _copy_path(root: Path, source: Path, target: Path, seen: frozenset[Path]) ->
     """
     target.parent.mkdir(parents=True, exist_ok=True)
     if _kept_as_link(root, source, seen):
-        _keep_link(source, target)
+        _keep_link_unless_present(source, target)
         return
     if source.is_dir():
         target.mkdir(parents=True, exist_ok=True)

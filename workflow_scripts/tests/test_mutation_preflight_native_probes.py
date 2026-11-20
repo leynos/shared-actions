@@ -14,6 +14,7 @@ from workflow_scripts.tests.mutation_preflight_support import (
     RULE_AVAILABLE,
     Checkout,
     Outcome,
+    lock_document,
     locked_checkout,
     outcome_for,
 )
@@ -78,6 +79,44 @@ class TestNativeProbe:
         assert outcome.phases["checks"]["status"] == "skipped"
         assert "the declared checks were not run" in str(
             outcome.detail("checks")["reason"]
+        )
+
+    @RULE_AVAILABLE
+    def test_a_probe_that_relocks_the_project_fails_the_phase(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A probe must not pass after moving the revision the lock records."""
+        pinned = lock_document(
+            "0.3.1", 'git = "https://example.invalid/tei.git?rev=abc123"'
+        )
+        relocked = lock_document(
+            "0.3.1", 'git = "https://example.invalid/tei.git?rev=def456"'
+        )
+        # The probe stands in for a tool that relocks the project, such as
+        # `uv run` without --locked: it succeeds, and leaves a different lock.
+        script = 'import shutil; shutil.copyfile("relocked.lock", "uv.lock")'
+        manifest = (
+            "[native]\n"
+            'package = "tei-rapporteur"\n'
+            'revision = "abc123"\n'
+            'supported_python = ">=3.12"\n'
+            f"probe = ['{sys.executable}', '-c', '{script}']\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest=manifest,
+                extra={"uv.lock": pinned, "relocked.lock": relocked},
+            ),
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 1, outcome.stdout
+        found = outcome.findings("native")
+        assert "changed uv.lock from revision 'abc123' to 'def456'" in found, (
+            f"the finding must name both revisions the probe stood between: {found}"
         )
 
     def test_a_failing_probe_reports_the_package_and_first_diagnostic(

@@ -124,15 +124,13 @@ class TestBoundedOutput:
             "a token in a complete stream must still satisfy a pin"
         )
 
-    def test_whitespace_before_the_marker_does_not_keep_part_of_a_token(
-        self,
-    ) -> None:
-        """Trailing whitespace must not shrink how much of the token is cut."""
+    def test_a_token_followed_by_whitespace_is_complete(self) -> None:
+        """Whitespace before the marker ends the token, so it is kept."""
         marker = f"{TRUNCATION_PREFIX}900 bytes truncated]"
 
         kept = complete_stream(f"probe 2.4  \n{marker}", truncated=True)
 
-        assert kept == "probe ", (
-            "the whole token the bound may have cut in half must be dropped, "
-            "even when whitespace follows it before the marker"
+        assert kept == "probe 2.4  ", (
+            "a token followed by retained whitespace is complete and must be "
+            "kept, because the dropped bytes began after the whitespace"
         )

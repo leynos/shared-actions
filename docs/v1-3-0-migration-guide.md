@@ -36,19 +36,33 @@ _Table 1: Obligations when moving from v1.2.2 to v1.3.0._
 
 ## 1. Enable the input
 
-Both reusable workflows take the same boolean input:
+Before, the caller pins the release it runs today:
 
 ```yaml
 jobs:
   mutation:
-    uses: leynos/shared-actions/.github/workflows/mutation-mutmut.yml@<sha>
+    uses: leynos/shared-actions/.github/workflows/mutation-mutmut.yml@<pinned-sha>
+```
+
+After, it pins a reviewed revision that contains the new inputs, and turns the
+preflight on:
+
+```yaml
+jobs:
+  mutation:
+    uses: leynos/shared-actions/.github/workflows/mutation-mutmut.yml@<reviewed-sha>
     with:
       preflight: true
 ```
 
-The cargo lane accepts the same input. It also accepts `project-python` when
-the mutated crate has Python bindings, so a declared `native.supported_python`
-range is judged against the interpreter the bindings are built and tested with.
+`<pinned-sha>` is the commit the caller pins today. `<reviewed-sha>` is a
+reviewed commit of the same workflow that contains `preflight`, such as the
+commit the v1.3.0 release tags.
+
+Both reusable workflows take the same boolean input. The cargo lane also accepts
+`project-python` when the mutated crate has Python bindings, so a declared
+`native.supported_python` range is judged against the interpreter the bindings
+are built and tested with.
 
 Leave the input at its default until the declaration in step 2 is complete.
 Setting it to `true` with no declaration is not an error, but it checks only
@@ -216,6 +230,16 @@ runner temporary directory is written.
   diagnostic>`
   - **Fix:** repair the build or import the probe exercises, under the project
     interpreter the run selected.
+
+<!-- markdownlint-disable MD013 -->
+
+- **Error:**
+  `the native probe for tei-rapporteur changed uv.lock from revision 'abc123' to 'def456'; run the probe with the lock enforced (uv's --locked or UV_LOCKED) so it cannot relock the project`
+  - **Fix:** run the probe so it cannot rewrite the lock, for example
+    `uv run --locked`, or relock the project first, so the revision the probe
+    works from is the one the declaration names.
+
+<!-- markdownlint-enable MD013 -->
 
 - **Error:** `check 'collect' failed with exit code 2 from '.': <last line>`
   - **Fix:** repair the declared check, or correct its `cwd`, `env` or test

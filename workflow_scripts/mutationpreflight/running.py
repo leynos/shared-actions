@@ -428,7 +428,8 @@ def complete_stream(text: str, *, truncated: bool) -> str:
     A token that ends at the bound is unproven: the next dropped byte could
     have been the digit that would have made it a different release. Complete
     tokens earlier in the stream are kept, so a version printed before a flood
-    still counts.
+    still counts; a token followed by whitespace is complete, because the
+    dropped bytes began after the whitespace that ended it.
 
     Parameters
     ----------
@@ -450,13 +451,17 @@ def complete_stream(text: str, *, truncated: bool) -> str:
         return text
     # The marker is the last line of a truncated stream and is written on its
     # own line, so the retained text ends where the marker's newline begins.
-    # Whitespace before the marker is not part of any token.
     head, _, _ = text.rpartition(f"\n{TRUNCATION_PREFIX}")
-    head = head.rstrip()
-    if not head:
+    trimmed = head.rstrip()
+    if not trimmed:
         return ""
-    words = head.split()
-    return head[: len(head) - len(words[-1])]
+    if len(trimmed) < len(head):
+        # Whitespace before the marker ends the last token, so the bound did
+        # not cut it: what follows the whitespace was dropped after a complete
+        # token, and the retained prefix is kept as printed.
+        return head
+    words = trimmed.split()
+    return trimmed[: len(trimmed) - len(words[-1])]
 
 
 def run_command(invocation: Invocation) -> tuple[Ran | None, str]:

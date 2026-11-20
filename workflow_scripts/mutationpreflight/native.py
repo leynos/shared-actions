@@ -160,7 +160,61 @@ class Probe:
     detail: dict[str, object] | None = None
 
 
-def probe_native(run: Run, declaration: Declaration) -> Probe:
+def _probe_findings(
+    native: NativeRequirement, outcome: Ran | None, problem: str
+) -> list[str]:
+    """Return why the probe did not establish the package, if it did not."""
+    if outcome is None:
+        reason = f"could not run: {problem}"
+    elif outcome.timed_out:
+        reason = f"{problem}: {first_diagnostic(outcome)}"
+    elif outcome.exit_code != 0:
+        reason = (
+            f"failed with exit code {outcome.exit_code}: {first_diagnostic(outcome)}"
+        )
+    else:
+        return []
+    return [f"the native probe for {native.package} {reason}"]
+
+
+def _relocked_finding(
+    run: Run, native: NativeRequirement, judged: PhaseResult
+) -> str | None:
+    """Return why the probe left a lock the judgement no longer describes.
+
+    The judgement read the lock before the probe ran. A probe that runs the
+    project through a tool which may relock it, such as ``uv run`` without
+    ``--locked``, could then certify an environment the judgement never saw.
+    The lock is read again, and a pin that moved is the probe's failure rather
+    than a success under the old revision.
+    """
+    if "locked_revision" not in judged.detail:
+        # The judgement never established the package's lock identity, so it
+        # has no revision the probe could have moved; its own findings stand.
+        return None
+    before = str(judged.detail["locked_revision"])
+    packages, problem = locked_packages(run.root)
+    if problem is not None:
+        return (
+            f"the native probe for {native.package} left uv.lock unreadable: {problem}"
+        )
+    locked = find_locked(packages, native.package)
+    if locked is None:
+        return (
+            f"the native probe for {native.package} left a uv.lock that no "
+            f"longer records the package"
+        )
+    after = pinned_revision(locked) or ""
+    if after == before:
+        return None
+    return (
+        f"the native probe for {native.package} changed uv.lock from revision "
+        f"{before!r} to {after!r}; run the probe with the lock enforced (uv's "
+        f"--locked or UV_LOCKED) so it cannot relock the project"
+    )
+
+
+def probe_native(run: Run, declaration: Declaration, judged: PhaseResult) -> Probe:
     """Run the declared probe under the project interpreter.
 
     Parameters
@@ -170,13 +224,19 @@ def probe_native(run: Run, declaration: Declaration) -> Probe:
         interpreter's selection.
     declaration : Declaration
         The repository's declaration, whose ``native`` probe is run.
+    judged : PhaseResult
+        The lock and range verdict the probe is composed onto. Its recorded
+        revision is what the probe's environment must still hold.
 
     Returns
     -------
     Probe
         The probe's blocking findings and its evidence. A probe that exceeds
         its ceiling is a failure, and the evidence keeps the reason it was
-        stopped, so a stalled build is not reported as a silent failure.
+        stopped, so a stalled build is not reported as a silent failure. A
+        probe that leaves a different lock than the one judged is a failure
+        too: its verdict would describe an environment the judgement never
+        saw.
 
     """
     native = declaration.native
@@ -192,22 +252,12 @@ def probe_native(run: Run, declaration: Declaration) -> Probe:
         )
     )
     evidence = _probe_detail(native.probe, outcome, problem)
-    if outcome is None:
-        finding = f"the native probe for {native.package} could not run: {problem}"
-        return Probe((finding,), detail=evidence)
-    if outcome.timed_out:
-        finding = (
-            f"the native probe for {native.package} {problem}: "
-            f"{first_diagnostic(outcome)}"
-        )
-        return Probe((finding,), detail=evidence)
-    if outcome.exit_code != 0:
-        finding = (
-            f"the native probe for {native.package} failed with exit code "
-            f"{outcome.exit_code}: {first_diagnostic(outcome)}"
-        )
-        return Probe((finding,), detail=evidence)
-    return Probe(detail=evidence)
+    findings = _probe_findings(native, outcome, problem)
+    if outcome is not None:
+        changed = _relocked_finding(run, native, judged)
+        if changed is not None:
+            findings.append(changed)
+    return Probe(tuple(findings), detail=evidence)
 
 
 def probe_blocked(declaration: Declaration) -> Probe:

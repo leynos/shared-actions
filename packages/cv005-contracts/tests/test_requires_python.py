@@ -13,6 +13,7 @@ import typing as typ
 import pytest
 from contract_fixtures import tree
 from cv005_contracts import violations
+from cv005_contracts.requires_python import requirement_violations
 from matrix_fixtures import write_repository
 
 if typ.TYPE_CHECKING:
@@ -112,6 +113,24 @@ def test_an_unreadable_or_invalid_declaration_is_refused(
     assert _clauses(tmp_path, text) == ["coverage.requires-python"]
 
 
+def test_a_requirement_can_be_judged_for_another_subject() -> None:
+    """The judging is shared, and the finding names what it constrains.
+
+    The mutation preflight asks the same question of a locked native
+    dependency's supported range. Reusing `requirement_violations` rather
+    than copying the bare-`X.Y` rule is what keeps the two answers equal,
+    and the subject is what makes the finding say which declaration
+    refused the interpreter.
+    """
+    found = requirement_violations(
+        ">=3.14", "3.13", subject="tei-rapporteur's supported-python"
+    )
+
+    assert found == [
+        ("the interpreter '3.13' is outside tei-rapporteur's supported-python '>=3.14'")
+    ]
+
+
 def test_a_repository_configuring_no_interpreter_is_not_judged(tmp_path: Path) -> None:
     """The clause runs only where `interpreter` is set, like `coverage.interpreter`."""
     found = _clauses(tmp_path, _project(">=3.14"), 'repository = "leynos/example"\n')
@@ -139,9 +158,7 @@ def test_an_empty_patch_range_is_refused(tmp_path: Path, requirement: str) -> No
 
 def test_a_major_only_interpreter_is_refused_not_an_error() -> None:
     """`3` names no minor, so it is a finding rather than an IndexError."""
-    from cv005_contracts.requires_python import _judge
-
-    found = _judge(">=3.12", "3")
+    found = requirement_violations(">=3.12", "3", subject="the project's range")
     assert len(found) == 1
     assert "no minor" in found[0]
 

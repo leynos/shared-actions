@@ -7,7 +7,7 @@ checked against ground truth over arbitrary intervals, not a fixed sample.
 
 from __future__ import annotations
 
-from cv005_contracts.requires_python import _judge
+from cv005_contracts.requires_python import requirement_violations
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -31,4 +31,5 @@ def test_a_bare_minor_is_accepted_exactly_when_some_patch_satisfies(
         ]
     )
     some_patch = any(lower <= p < upper and p not in excluded for p in PATCHES)
-    assert (_judge(requirement, "3.13") == []) is some_patch, requirement
+    accepted = requirement_violations(requirement, "3.13", subject="requires-python")
+    assert (accepted == []) is some_patch, requirement

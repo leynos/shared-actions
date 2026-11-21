@@ -29,6 +29,7 @@ from .native import (
 from .sandbox import run_sandbox_phase
 
 if typ.TYPE_CHECKING:
+    from .native import LockIdentity
     from .ports import Run
 
 _NO_DECLARATION: typ.Final[str] = (
@@ -240,6 +241,18 @@ def _skipped_phases(loaded: Loaded) -> typ.Iterator[PhaseResult]:
         yield PhaseResult(name, SKIPPED, (), {"reason": reason})
 
 
+def _lock_moved(before: LockIdentity | None, after: LockIdentity | None) -> bool:
+    """Return whether the checks moved a lock both readings established.
+
+    Either reading being absent means nothing was established to compare: the
+    judgement reports a lock it could not read or a package it did not find on
+    its own, so a missing baseline is not a change.
+    """
+    if before is None or after is None:
+        return False
+    return before != after
+
+
 def _declaration_phases(
     run: Run, declaration: Declaration, *, interpreter_ok: bool
 ) -> typ.Iterator[PhaseResult]:
@@ -270,12 +283,7 @@ def _declaration_phases(
         yield PhaseResult("checks", SKIPPED, (), {"reason": _CHECKS_BLOCKED})
     judged = judge_native(run, declaration)
     after = judged_identity(judged)
-    if (
-        native is not None
-        and before is not None
-        and after is not None
-        and before != after
-    ):
+    if native is not None and _lock_moved(before, after):
         yield changed_lock_phase(judged, native, before, after)
         return
     probe = (

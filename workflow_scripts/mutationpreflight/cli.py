@@ -14,10 +14,10 @@ from cyclopts import App, Parameter
 from .console import emit
 from .constants import FAILED, LANES, MUTMUT_PINNED_VERSION
 from .declaration import load_declaration
-from .interpreters import load_shared_rule
 from .models import PhaseResult, Report, Runtimes
 from .ports import Run
 from .reporting import checked_phases, verdict, write_report
+from .repository import FileRepository, load_shared_rule
 from .running import run_command
 
 app = App()
@@ -184,6 +184,7 @@ def main(
     # Read here, at the command line, so every phase below receives its
     # environment, its rule and its destinations instead of discovering them.
     rule, rule_problem = load_shared_rule()
+    files = FileRepository()
     run = Run(
         root=root,
         runtimes=runtimes,
@@ -194,9 +195,10 @@ def main(
         abi3=abi3_escape_hatch(),
         rule=rule,
         rule_problem=rule_problem,
+        files=files,
         runner=run_command,
     )
-    results = checked_phases(run, load_declaration(root, options.lane))
+    results = checked_phases(run, load_declaration(files, root, options.lane))
     report = Report(
         lane=options.lane,
         runtimes=runtimes,

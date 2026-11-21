@@ -7,9 +7,7 @@ depend on mutation results existing.
 
 from __future__ import annotations
 
-import json
 import re
-import sys
 import typing as typ
 from pathlib import Path
 
@@ -19,7 +17,15 @@ from .console import emit
 from .constants import FAILED, SKIPPED, SUCCEEDED
 from .interpreters import run_interpreter_phase
 from .models import Declaration, Loaded, PhaseResult, Report
-from .native import judge_native, probe_blocked, probe_native, with_probe
+from .native import (
+    changed_lock_phase,
+    judge_native,
+    judged_identity,
+    lock_identity,
+    probe_blocked,
+    probe_native,
+    with_probe,
+)
 from .sandbox import run_sandbox_phase
 
 if typ.TYPE_CHECKING:
@@ -34,14 +40,17 @@ _REFUSED_DECLARATION: typ.Final[str] = (
     "the declaration at {source} was refused, so no requirement it names was checked"
 )
 
-#: The phases a parsed declaration enables, in the order they run. A run with
-#: no accepted declaration reports each of them as skipped, so a report never
-#: omits a phase because the declaration that would have named it was absent.
+#: The phases a parsed declaration enables, in the order they run. The native
+#: judgement runs last, after everything that can rewrite the checkout: the
+#: declared checks run there on the cargo lane, so a lock they moved must be
+#: seen by the judgement rather than judged before them. A run with no accepted
+#: declaration reports each phase as skipped, so a report never omits a phase
+#: because the declaration that would have named it was absent.
 _DECLARATION_PHASES: typ.Final[tuple[str, ...]] = (
-    "native",
     "sandbox",
     "commands",
     "checks",
+    "native",
 )
 
 _CHECKS_BLOCKED: typ.Final[str] = (
@@ -162,27 +171,16 @@ def render_summary(report: Report) -> str:
     return "\n".join(lines)
 
 
-def _append_summary(path: Path, rendered: str) -> str:
-    """Append the rendered summary, returning why it could not be written."""
-    try:
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(rendered)
-    except OSError as error:
-        emit("mutation_preflight_summary_error", str(error), stream=sys.stderr)
-        return f"the job summary {str(path)!r} could not be written: {error}"
-    return ""
-
-
-def _write_json(
-    output_dir: Path, report: Report, unpublished: typ.Sequence[str]
-) -> str:
-    """Write the machine-readable report, returning why it could not be written.
+def _report_document(
+    report: Report, unpublished: typ.Sequence[str]
+) -> dict[str, object]:
+    """Return the machine-readable report document.
 
     *unpublished* names the parts of the report that could not be published
     elsewhere. The document records them, and its verdict fails, because a
     report whose evidence is incomplete must not read as a pass.
     """
-    document = {
+    return {
         "lane": report.lane,
         "helper_python": report.runtimes.helper,
         "project_python": report.runtimes.project,
@@ -190,16 +188,6 @@ def _write_json(
         "reporting": list(unpublished),
         "phases": [phase_envelope(result) for result in report.results],
     }
-    destination = output_dir / "mutation-preflight.json"
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        destination.write_text(
-            json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
-    except OSError as error:
-        emit("mutation_preflight_report_error", str(error), stream=sys.stderr)
-        return f"the report {str(destination)!r} could not be written: {error}"
-    return ""
 
 
 def write_report(run: Run, report: Report) -> tuple[str, ...]:
@@ -226,11 +214,13 @@ def write_report(run: Run, report: Report) -> tuple[str, ...]:
     """
     problems: list[str] = []
     if run.summary_path:
-        problem = _append_summary(Path(run.summary_path), render_summary(report))
-        if problem:
+        problem = run.files.append_summary(
+            Path(run.summary_path), render_summary(report)
+        )
+        if problem is not None:
             problems.append(problem)
-    written = _write_json(run.output_dir, report, problems)
-    if written:
+    written = run.files.write_report(run.output_dir, _report_document(report, problems))
+    if written is not None:
         problems.append(written)
     return tuple(problems)
 
@@ -258,24 +248,42 @@ def _declaration_phases(
     The phases that execute the project's own environment are gated on the
     interpreter verdict: a probe or a check run under a rejected interpreter
     would certify an environment the mutation run will not use.
+
+    The native judgement runs last. The declared checks run in the checkout on
+    the cargo lane, after the lock was read and before the mutation run starts,
+    so a check that relocked the project would leave an earlier judgement
+    describing an environment the run no longer uses. The identity the lock held
+    before the checks is therefore captured first and compared with the identity
+    the judgement reads after them: a lock that moved fails the native phase
+    rather than certifying a pin the run will not use. The probe is composed
+    onto that verdict only where the interpreter it would run under was
+    accepted, and the judgement is passed to it so the lock it ran against is
+    the one the probe must leave behind.
     """
-    # The lock and range are judged first, and the probe that exercises the
-    # built extension is composed onto that verdict only where the interpreter
-    # it would run under was accepted. The judgement is passed to the probe so
-    # the lock it ran against is the one the probe must leave behind.
+    native = declaration.native
+    before = lock_identity(run, native)
+    yield run_sandbox_phase(run, declaration)
+    yield run_commands_phase(run, declaration, probe_versions=interpreter_ok)
+    if interpreter_ok:
+        yield run_checks_phase(run, declaration)
+    else:
+        yield PhaseResult("checks", SKIPPED, (), {"reason": _CHECKS_BLOCKED})
     judged = judge_native(run, declaration)
+    after = judged_identity(judged)
+    if (
+        native is not None
+        and before is not None
+        and after is not None
+        and before != after
+    ):
+        yield changed_lock_phase(judged, native, before, after)
+        return
     probe = (
         probe_native(run, declaration, judged)
         if interpreter_ok
         else probe_blocked(declaration)
     )
     yield with_probe(judged, probe)
-    yield run_sandbox_phase(run.root, declaration, run.mutmut_version)
-    yield run_commands_phase(run, declaration, probe_versions=interpreter_ok)
-    if interpreter_ok:
-        yield run_checks_phase(run, declaration)
-        return
-    yield PhaseResult("checks", SKIPPED, (), {"reason": _CHECKS_BLOCKED})
 
 
 def _all_phases(run: Run, loaded: Loaded) -> typ.Iterator[PhaseResult]:

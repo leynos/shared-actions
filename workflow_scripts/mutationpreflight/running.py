@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import dataclasses as dc
 import os
+import shutil
 import signal
 import subprocess
 import threading
 import time
 import typing as typ
 from pathlib import Path
-
-from plumbum import CommandNotFound, local
 
 from .constants import LOG_BOUND_BYTES, VERSION_TOKEN
 from .models import Ran
@@ -257,25 +256,37 @@ def _unresolved(name: str, cwd: Path) -> str:
     return f"{name!r} is not on PATH"
 
 
-def _resolve(name: str, cwd: Path) -> tuple[str | None, str]:
+def _search_path(environment: typ.Mapping[str, str]) -> str | None:
+    """Return the ``PATH`` *environment* carries, under either spelling."""
+    return environment.get("PATH") or environment.get("Path")
+
+
+def _resolve(
+    name: str, cwd: Path, environment: typ.Mapping[str, str]
+) -> tuple[str | None, str]:
     """Return the executable *name* resolves to, or why it does not.
 
     An explicit path is checked as a file the operating system may execute,
-    following a symlink to its target, without running it. Only a bare name is
-    looked up through ``PATH``.
+    following a symlink to its target, without running it. A bare name is
+    looked up on the ``PATH`` the invocation's own environment carries, so a
+    check that declares a ``PATH`` selects the executable it names rather than
+    whichever one the helper's ambient ``PATH`` happens to hold.
     """
     if _is_path(name):
         candidate = Path(_executable(name, cwd))
         if not candidate.is_file() or not os.access(candidate, os.X_OK):
             return None, _unresolved(name, cwd)
         return str(candidate), ""
-    try:
-        return local[name].executable, ""
-    except CommandNotFound:
+    search = _search_path(environment)
+    # An environment without a PATH gives the child nothing to search, so the
+    # name cannot resolve even though the helper's own PATH could find it.
+    found = None if search is None else shutil.which(name, path=search)
+    if found is None:
         return None, _unresolved(name, cwd)
+    return found, ""
 
 
-def resolution_problem(name: str, cwd: Path) -> str:
+def resolution_problem(name: str, cwd: Path, environment: typ.Mapping[str, str]) -> str:
     """Return why *name* cannot be resolved, or ``""`` when it can.
 
     Parameters
@@ -284,6 +295,9 @@ def resolution_problem(name: str, cwd: Path) -> str:
         The command name or path to look up.
     cwd : Path
         The directory a relative path is anchored at.
+    environment : Mapping[str, str]
+        The environment the command will run in. A bare name is looked up on
+        its ``PATH``.
 
     Returns
     -------
@@ -291,7 +305,7 @@ def resolution_problem(name: str, cwd: Path) -> str:
         The reason the name does not resolve, or an empty string when it does.
 
     """
-    _, problem = _resolve(name, cwd)
+    _, problem = _resolve(name, cwd, environment)
     return problem
 
 
@@ -482,14 +496,19 @@ def run_command(invocation: Invocation) -> tuple[Ran | None, str]:
 
     """
     command = invocation.command
-    executable, problem = _resolve(command[0], invocation.cwd)
+    # The environment is merged before the executable is looked up, so a bare
+    # name resolves on the PATH the child will actually receive. Resolving
+    # first would let the ambient PATH pick a different executable than the
+    # declared one, or report a command missing when the declaration supplies it.
+    environment = {**invocation.ambient, **invocation.env}
+    executable, problem = _resolve(command[0], invocation.cwd, environment)
     if executable is None:
         return None, problem
     try:
         process = _spawn(
             [executable, *command[1:]],
             cwd=invocation.cwd,
-            environment={**invocation.ambient, **invocation.env},
+            environment=environment,
         )
     except (OSError, ValueError) as error:
         # OSError covers the spawn itself: a path that is not executable, a

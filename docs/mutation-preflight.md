@@ -170,6 +170,12 @@ probe = ["uv", "run", "python", "-c", "import tei_rapporteur"]
   of support; the ABI forward-compatibility escape hatch skips a version check
   rather than passing one.
 
+The lock's identity — version, source and revision — is read for the judgement
+and read again after the probe. An identity that moved fails the phase, because
+a probe that relocked the project would otherwise certify an environment the
+judgement never saw; run such a probe with `uv run --locked` or `UV_LOCKED` so
+it cannot rewrite the lock.
+
 The detail records the dependency identity and revision, the interpreter range
 and the probe's first diagnostic, so a failure names the pinned package and the
 support boundary before any mutant is enumerated.
@@ -192,14 +198,14 @@ The test path is written relative to `cwd`, not to the checkout, because the
 command runs from `cwd`: selecting `tests/test_cli.py` from inside `tests`
 would run `tests/tests/test_cli.py`.
 
-A command's executable is resolved on the `PATH` of the preflight process,
-which is the helper's environment; the declared `env` layers onto the command's
-environment but does not change that lookup. Name the interpreter the mutation
-run itself uses (`uv run python …`, as above) rather than a bare `python`: a
-bare name finds only what the helper has installed, so a `pytest` that lives in
-the project environment would not be found. A command written as a path
-(`./scripts/check.sh`) is resolved against its declared `cwd`, not against the
-directory the preflight was started in.
+A command's executable is resolved on the `PATH` of the environment it will run
+in: the helper's environment with the declared `env` layered over it, so a
+check that declares `PATH` selects the executable it names. Name the
+interpreter the mutation run itself uses (`uv run python …`, as above) rather
+than a bare `python`: a bare name finds only what that environment holds, so a
+`pytest` that lives in the project environment would not be found. A command
+written as a path (`./scripts/check.sh`) is resolved against its declared
+`cwd`, not against the directory the preflight was started in.
 
 This is the contract a subprocess or nested-pytest fixture needs, made explicit:
 `cwd` is the working directory, `env` is layered over the ambient environment,
@@ -233,10 +239,18 @@ dependencies to make either work.
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `manifest`    | The declaration parses, names only known keys, and asks nothing the lane cannot check.                                             |
 | `interpreter` | The project interpreter satisfies `requires-python`; the helper runtime is reported separately and held to its own 3.13 floor.     |
-| `native`      | The locked native dependency is the declared revision and the project interpreter is in range; unestablished support is `unknown`. |
 | `sandbox`     | Every declared path exists, stays inside the checkout, is not build output, and is one the selected release will copy.             |
 | `commands`    | Every required command resolves and reports the declared version.                                                                  |
 | `checks`      | Each bounded command succeeds from its declared working directory, environment and import root, in the sandbox the run will use.   |
+| `native`      | The locked native dependency is the declared revision and the project interpreter is in range; unestablished support is `unknown`. |
+
+The phases run in the order the table lists. The native judgement runs last
+because the declared checks run in the checkout on the cargo lane, and a check
+that relocks the project would otherwise leave an earlier judgement describing
+a lock the mutation run no longer uses. The lock's identity is read before the
+checks and read again by the judgement; if version, source or revision moved,
+the native phase fails and names both identities, and a declared probe is
+withheld because it would run under a lock the checks rewrote.
 
 Each phase reports one of four statuses: `pass`, `fail`, `skipped` (not
 applicable, or nothing declared for it) or `unknown` (could not decide; says so

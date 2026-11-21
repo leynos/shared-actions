@@ -19,6 +19,7 @@ import yaml
 
 from workflow_scripts.mutationpreflight.cli import Options
 from workflow_scripts.mutationpreflight.declaration import load_declaration
+from workflow_scripts.mutationpreflight.repository import FileRepository
 from workflow_scripts.tests.markdown_examples import (
     Example,
     ExampleError,
@@ -58,7 +59,7 @@ def _declaration(identifier: str, root: Path) -> Declaration:
     (root / "pyproject.toml").write_text(
         f"{_example(identifier).body}\n", encoding="utf-8"
     )
-    loaded = load_declaration(root, "mutmut")
+    loaded = load_declaration(FileRepository(), root, "mutmut")
     if loaded.declaration is None:
         message = f"the {identifier!r} example was refused: {loaded.findings}"
         raise ExampleError(message)
@@ -214,5 +215,84 @@ class TestPublishedExamples:
         # The example's own body is part of the document, so leaving it in
         # would make this assertion unable to fail.
         prose = DOCUMENT.read_text(encoding="utf-8").replace(body, "", 1)
+        documented = set(_INPUT_VARIABLE.findall(prose))
+        assert named <= documented, "the section must list every variable it uses"
+
+
+MIGRATION_DOCUMENT = _REPOSITORY_ROOT / "docs" / "v1-3-0-migration-guide.md"
+
+#: The migration guide's examples, one per documented step.
+_MIGRATION_IDENTIFIERS = (
+    "mutmut-caller-before",
+    "mutmut-caller-after",
+    "manual-run",
+)
+
+
+def _migration_example(identifier: str) -> Example:
+    """Return the example the migration guide publishes under *identifier*."""
+    return load_examples(MIGRATION_DOCUMENT)[identifier]
+
+
+def _mutation_job(identifier: str) -> dict[str, object]:
+    """Return the ``mutation`` job the *identifier* caller example defines."""
+    parsed = typ.cast(
+        "dict[str, object]", yaml.safe_load(_migration_example(identifier).body)
+    )
+    jobs = typ.cast("dict[str, object]", parsed["jobs"])
+    return typ.cast("dict[str, object]", jobs["mutation"])
+
+
+def _workflow_inputs(target: str) -> dict[str, object]:
+    """Return the ``workflow_call`` inputs of the workflow *target* names."""
+    workflow = _REPOSITORY_ROOT / target.removeprefix("leynos/shared-actions/")
+    assert workflow.is_file(), f"the example names {target}, which is absent"
+    document = typ.cast(
+        "dict[object, object]", yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    )
+    # PyYAML reads the unquoted ``on`` key as the boolean it resembles.
+    call = typ.cast("dict[str, object]", document.get("on") or document.get(True))
+    return typ.cast(
+        "dict[str, object]",
+        typ.cast("dict[str, object]", call["workflow_call"])["inputs"],
+    )
+
+
+class TestMigrationGuideExamples:
+    """The v1.3.0 guide's examples are exercised as the document ships them."""
+
+    def test_every_fence_carries_a_stable_identifier(self) -> None:
+        """The guide's examples are exactly the ones the tests know."""
+        assert tuple(load_examples(MIGRATION_DOCUMENT)) == _MIGRATION_IDENTIFIERS
+
+    def test_the_caller_examples_name_the_same_workflow(self) -> None:
+        """Before and after pin one workflow; only the after example opts in."""
+        before = _mutation_job("mutmut-caller-before")
+        after = _mutation_job("mutmut-caller-after")
+
+        target = str(after["uses"]).split("@", 1)[0]
+        assert str(before["uses"]).split("@", 1)[0] == target, (
+            "both examples must migrate the same caller"
+        )
+        assert "with" not in before, (
+            "the before example shows the caller unchanged, so it sets no input"
+        )
+        inputs = _workflow_inputs(target)
+        assert typ.cast("dict[str, object]", inputs["preflight"])["default"] is False
+        assert typ.cast("dict[str, object]", after["with"])["preflight"] is True
+
+    def test_the_manual_run_example_only_sets_variables_the_helper_reads(self) -> None:
+        """An INPUT_* name the helper does not read is silently ignored."""
+        body = _migration_example("manual-run").body
+        named = set(_INPUT_VARIABLE.findall(body))
+
+        assert named
+        assert named <= _helper_variables()
+        for script in _SCRIPT_REFERENCE.findall(body):
+            assert (_REPOSITORY_ROOT / script).is_file(), f"{script} is absent"
+
+        # The example's own body is part of the document, so leaving it in
+        # would make this assertion unable to fail.
+        prose = MIGRATION_DOCUMENT.read_text(encoding="utf-8").replace(body, "", 1)
         documented = set(_INPUT_VARIABLE.findall(prose))
         assert named <= documented, "the section must list every variable it uses"

@@ -82,6 +82,17 @@ One shared preflight contract, declared by the caller and checked by one helper:
 - Every phase publishes its evidence in one streaming envelope as it
   finishes, so a crash in a later phase still leaves the earlier verdicts in
   the log, and the JSON report exists whether or not mutation results do.
+- The phases touch the checkout only through one repository port,
+  `RepositoryFiles`, implemented by `FileRepository` in `repository.py`. A
+  judgement receives parsed documents, located paths and a materialized
+  sandbox, and asks for its logs, summary and report to be written; a phase
+  that reaches past the port is refused by the boundary test rather than
+  trusted.
+- The native judgement runs after the declared checks. On the cargo lane those
+  checks run in the checkout and can rewrite `uv.lock`, so the lock's identity
+  is read before the checks and read again by the judgement; an identity that
+  moved fails the native phase and withholds its probe, rather than certifying
+  a pin the mutation run will not use.
 - The interpreter phase reuses `requirement_violations` from
   `packages/cv005-contracts` — the rule closed in issue #565 — rather than
   restating it, so a bare `X.Y` is decided in one place.

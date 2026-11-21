@@ -1,67 +1,27 @@
 """Judging the project interpreter, and reporting both runtimes separately.
 
 The rule itself is not restated here. It is the closed cv005-contracts rule
-(#565), loaded by path from this checkout, so a bare ``X.Y`` is decided in one
-place rather than twice.
+(#565), loaded from this checkout by the repository adapter, so a bare ``X.Y``
+is decided in one place rather than twice.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import typing as typ
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
-
-    from .ports import RequirementRule, Run
+from pathlib import Path
 
 from packaging.version import InvalidVersion, Version
 
-from .constants import HELPER_PYTHON_FLOOR, SHARED_RULE
+from .constants import HELPER_PYTHON_FLOOR
 from .models import PhaseResult, phase_outcome
-from .toml_documents import read_document
+
+if typ.TYPE_CHECKING:
+    from .ports import Run
 
 _NO_PROJECT_PYTHON: typ.Final[str] = (
     "no project interpreter was supplied, so requires-python was not checked; "
     "set the workflow's python-version input"
 )
-
-
-def load_shared_rule() -> tuple[RequirementRule | None, str]:
-    """Return the shared interpreter rule (#565), or why it is unavailable.
-
-    It is loaded by path rather than imported as a package: the caller's
-    environment holds the caller's dependencies, not this repository's, and
-    importing ``cv005_contracts`` would pull its whole contract graph in for
-    one pure function.
-
-    Returns
-    -------
-    tuple[RequirementRule | None, str]
-        The rule, and the reason it is absent when it could not be loaded. The
-        rule is loaded once at the command line and carried in the run, so no
-        phase below it re-reads the checkout to find it.
-
-    """
-    if not SHARED_RULE.is_file():
-        return None, f"the shared requires-python rule is absent: {SHARED_RULE}"
-    spec = importlib.util.spec_from_file_location(
-        "_mutation_preflight_requires_python", SHARED_RULE
-    )
-    if spec is None or spec.loader is None:
-        absent = f"the shared requires-python rule could not be loaded: {SHARED_RULE}"
-        return None, absent
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
-    except (OSError, ImportError, SyntaxError) as error:
-        return None, f"the shared requires-python rule failed to load: {error}"
-    rule = getattr(module, "requirement_violations", None)
-    if rule is None:
-        return None, (
-            f"the shared rule at {SHARED_RULE} no longer exposes requirement_violations"
-        )
-    return rule, ""
 
 
 def judge(
@@ -95,20 +55,20 @@ def judge(
     return list(run.rule(requirement, interpreter, subject=subject)), []
 
 
-def _project_requirement(repo_root: Path) -> tuple[object, str | None]:
+def _project_requirement(run: Run) -> tuple[object, str | None]:
     """Return the project's declared ``requires-python``, or why it went unread.
 
     A read failure is returned separately from the range itself: both would
     otherwise be a ``str``, and a failure is a reason to report unknown support
     rather than a requirement to judge.
     """
-    path = repo_root / "pyproject.toml"
-    if not path.is_file():
+    documents = run.files.read_documents(run.root, (Path("pyproject.toml"),))
+    if not documents:
         return None, None
-    document, problem = read_document(path)
-    if problem is not None or document is None:
-        return None, problem or f"{path} could not be read"
-    project = document.get("project")
+    document = documents[0]
+    if document.problem:
+        return None, document.problem
+    project = (document.document or {}).get("project")
     if not isinstance(project, dict):
         return None, None
     return typ.cast("dict[str, object]", project).get("requires-python"), None
@@ -177,7 +137,7 @@ def run_interpreter_phase(run: Run) -> PhaseResult:
     if not runtimes.project:
         indeterminate.append(_NO_PROJECT_PYTHON)
         return phase_outcome("interpreter", blocking, indeterminate, detail)
-    requirement, problem = _project_requirement(run.root)
+    requirement, problem = _project_requirement(run)
     # TOML may hand back a non-string for a misdeclared value (an unquoted date,
     # for instance), and the report is JSON: keep the evidence serializable.
     detail["requires_python"] = None if requirement is None else str(requirement)

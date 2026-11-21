@@ -35,14 +35,22 @@ from .schema import (
     string,
     strings,
 )
-from .toml_documents import read_document
 
-#: Where a declaration may live, and the table path inside each file. The
-#: sidecar is a bare table, so its path is empty.
-_DECLARATION_LOCATIONS: typ.Final[tuple[tuple[Path, tuple[str, ...]], ...]] = (
-    (Path("pyproject.toml"), ("tool", "mutation-preflight")),
-    (Path(".github") / "mutation-preflight.toml", ()),
+if typ.TYPE_CHECKING:
+    from .ports import Document, RepositoryFiles
+
+#: Where a declaration may live, in the order a repository's intent is read.
+_DECLARATION_LOCATIONS: typ.Final[tuple[Path, ...]] = (
+    Path("pyproject.toml"),
+    Path(".github") / "mutation-preflight.toml",
 )
+
+#: The table path inside each file a declaration may live in. The sidecar is a
+#: bare table, so its path is empty.
+_LOCATION_KEYS: typ.Final[dict[str, tuple[str, ...]]] = {
+    "pyproject.toml": ("tool", "mutation-preflight"),
+    "mutation-preflight.toml": (),
+}
 
 _BOTH_DECLARED: typ.Final[str] = (
     "both pyproject.toml's [tool.mutation-preflight] and "
@@ -72,36 +80,33 @@ def _declaration_member(
 
 
 def _declared_tables(
-    root: Path,
+    documents: typ.Sequence[Document],
 ) -> tuple[list[tuple[Path, dict[str, object]]], Path | None, list[str]]:
     """Return every declaration table found, or the file that would not parse."""
     found: list[tuple[Path, dict[str, object]]] = []
-    for relative, keys in _DECLARATION_LOCATIONS:
-        path = root / relative
-        if not path.is_file():
-            continue
-        document, problem = read_document(path)
-        if problem is not None:
-            return found, path, [problem]
-        present, table = _declaration_member(document or {}, keys)
+    for document in documents:
+        if document.problem:
+            return found, document.path, [document.problem]
+        keys = _LOCATION_KEYS[document.path.name]
+        present, table = _declaration_member(document.document or {}, keys)
         if present and table is None:
             # Absent and misdeclared are different: one means the lane has not
             # opted in, the other is a declaration this helper cannot honour.
             message = (
-                f"{path} declares {'.'.join(keys)} but not as a table, so its "
-                f"requirements can be neither read nor ignored"
+                f"{document.path} declares {'.'.join(keys)} but not as a table, "
+                f"so its requirements can be neither read nor ignored"
             )
-            return found, path, [message]
+            return found, document.path, [message]
         if table is not None:
-            found.append((path, table))
+            found.append((document.path, table))
     return found, None, []
 
 
 def _declaration_table(
-    root: Path,
+    documents: typ.Sequence[Document],
 ) -> tuple[Path | None, dict[str, object] | None, list[str]]:
     """Return the declaration's file and table, insisting on one declaration."""
-    found, failed, problems = _declared_tables(root)
+    found, failed, problems = _declared_tables(documents)
     if failed is not None:
         return failed, None, problems
     if len(found) > 1:
@@ -236,11 +241,13 @@ def _declaration(table: dict[str, object], source: Path, lane: str) -> Declarati
     return declaration
 
 
-def load_declaration(root: Path, lane: str) -> Loaded:
+def load_declaration(files: RepositoryFiles, root: Path, lane: str) -> Loaded:
     """Return the repository's declaration for *lane*, or why it was refused.
 
     Parameters
     ----------
+    files : RepositoryFiles
+        How the declaration's documents are read.
     root : Path
         The checkout the declaration belongs to.
     lane : str
@@ -255,7 +262,9 @@ def load_declaration(root: Path, lane: str) -> Loaded:
         is a lane that has not opted in.
 
     """
-    source, table, findings = _declaration_table(root)
+    source, table, findings = _declaration_table(
+        files.read_documents(root, _DECLARATION_LOCATIONS)
+    )
     if source is None or table is None:
         return Loaded(source, None, tuple(findings))
     try:

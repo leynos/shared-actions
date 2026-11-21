@@ -289,7 +289,40 @@ def test_an_unwritable_log_fails_the_check(
 
 
 class TestCommandResolution:
-    """A path in a command is resolved against the directory it runs in."""
+    """A command is resolved against the boundary it will run in."""
+
+    @POSIX_SHIMS_ONLY
+    def test_a_declared_path_selects_a_bare_commands_executable(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A check that declares PATH must resolve its bare command there."""
+        bin_dir = tmp_path / "declared-bin"
+        bin_dir.mkdir()
+        marker = tmp_path / "ran"
+        shim = bin_dir / "preflight-declared-tool"
+        # A redirection needs no external command: the declared PATH holds only
+        # the shim, so a helper such as touch would not be found there.
+        shim.write_text(f"#!/bin/sh\n: > '{marker}'\n", encoding="utf-8")
+        shim.chmod(shim.stat().st_mode | stat.S_IXUSR)
+        manifest = (
+            "[[checks]]\n"
+            'name = "declared-path"\n'
+            "command = ['preflight-declared-tool']\n"
+            f"env = {{ PATH = '{bin_dir}' }}\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest),
+            project_python="3.13",
+        )
+
+        assert marker.exists(), (
+            "a bare command must resolve on the PATH the check declares, not the "
+            f"helper's ambient one: {outcome.findings('checks')}"
+        )
+        assert outcome.exit_code == 0, outcome.stdout
 
     @POSIX_SHIMS_ONLY
     def test_a_relative_command_path_is_resolved_against_its_cwd(
@@ -353,7 +386,7 @@ class TestCommandResolution:
         probe.chmod(probe.stat().st_mode | stat.S_IXUSR)
         (fixtures / "link").symlink_to(Path("sub") / "deep")
 
-        problem = resolution_problem("./link/../probe", fixtures)
+        problem = resolution_problem("./link/../probe", fixtures, {})
 
         assert problem == "", (
             "collapsing '..' lexically would name fixtures/probe and miss "
@@ -371,7 +404,7 @@ class TestCommandResolution:
         probe.write_text("#!/bin/sh\necho collected\n", encoding="utf-8")
         probe.chmod(probe.stat().st_mode & ~stat.S_IXUSR)
 
-        problem = resolution_problem("./tools/probe", tools)
+        problem = resolution_problem("./tools/probe", tools, {})
 
         assert "is not an executable file" in problem, (
             f"a file the operating system may not execute must not resolve: {problem}"

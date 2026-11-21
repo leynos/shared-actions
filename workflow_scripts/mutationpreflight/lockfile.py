@@ -2,7 +2,8 @@
 
 The lock is a document, not a text: a revision is read from the field that
 records it, so a commit id that merely appears in a repository URL is not
-mistaken for a pin.
+mistaken for a pin. Reading the document is the repository adapter's business;
+this module judges the records it returns.
 """
 
 from __future__ import annotations
@@ -10,45 +11,6 @@ from __future__ import annotations
 import typing as typ
 
 from packaging.utils import canonicalize_name
-
-from .toml_documents import read_document
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
-
-
-def locked_packages(
-    repo_root: Path,
-) -> tuple[list[dict[str, object]], str | None]:
-    """Return ``uv.lock``'s package records, or why they could not be read.
-
-    Parameters
-    ----------
-    repo_root : Path
-        The checkout whose ``uv.lock`` is read.
-
-    Returns
-    -------
-    tuple[list[dict[str, object]], str | None]
-        Every package record the lock declares, and why none could be read. An
-        unreadable lock is returned as a problem rather than an empty list, so
-        the native phase reports the lock as unavailable instead of reporting
-        every package as absent from it. A record that is not a table is
-        skipped: the lock's own shape has already been refused if it is not an
-        array.
-    """
-    lock = repo_root / "uv.lock"
-    if not lock.is_file():
-        return [], "uv.lock is absent, so no locked revision can be established"
-    document, problem = read_document(lock)
-    if problem is not None:
-        return [], problem
-    packages = (document or {}).get("package", [])
-    if not isinstance(packages, list):
-        return [], "uv.lock's package entry is not an array"
-    records = typ.cast("list[object]", packages)
-    tables = [item for item in records if isinstance(item, dict)]
-    return [typ.cast("dict[str, object]", item) for item in tables], None
 
 
 def find_locked(

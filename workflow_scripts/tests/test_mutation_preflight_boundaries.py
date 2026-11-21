@@ -17,15 +17,27 @@ import typing as typ
 import pytest
 
 from workflow_scripts.mutationpreflight import running
+from workflow_scripts.mutationpreflight.checks import run_checks_phase
 from workflow_scripts.mutationpreflight.constants import MAX_CHECK_TIMEOUT_SECONDS
 from workflow_scripts.mutationpreflight.copy_set import CopyContract
 from workflow_scripts.mutationpreflight.declaration import load_declaration
 from workflow_scripts.mutationpreflight.interpreters import run_interpreter_phase
-from workflow_scripts.mutationpreflight.materialize import discard, materialize
-from workflow_scripts.mutationpreflight.models import Report, Runtimes
+from workflow_scripts.mutationpreflight.models import (
+    Check,
+    Declaration,
+    NativeRequirement,
+    Report,
+    Runtimes,
+)
 from workflow_scripts.mutationpreflight.native import judge_native
-from workflow_scripts.mutationpreflight.ports import Invocation, Run
+from workflow_scripts.mutationpreflight.ports import (
+    Document,
+    Invocation,
+    LocatedPath,
+    Run,
+)
 from workflow_scripts.mutationpreflight.reporting import checked_phases, write_report
+from workflow_scripts.mutationpreflight.repository import FileRepository
 from workflow_scripts.mutationpreflight.sandbox import run_sandbox_phase
 from workflow_scripts.tests.mutation_preflight_support import (
     POSIX_SYMLINKS_ONLY,
@@ -68,6 +80,7 @@ def _run(root: Path, output_dir: Path) -> Run:
         abi3="unset",
         rule=None,
         rule_problem="the shared rule was not loaded",
+        files=FileRepository(),
         runner=_refuse,
     )
 
@@ -93,14 +106,14 @@ class TestQueryPhases:
         )
         output = tmp_path / "out"
         run = _run(root, output)
-        loaded = load_declaration(root, "mutmut")
+        loaded = load_declaration(FileRepository(), root, "mutmut")
         assert loaded.declaration is not None, "the fixture declares requirements"
         before = sorted(tmp_path.rglob("*"))
 
         results = [
             run_interpreter_phase(run),
             judge_native(run, loaded.declaration),
-            run_sandbox_phase(run.root, loaded.declaration, run.mutmut_version),
+            run_sandbox_phase(run, loaded.declaration),
         ]
 
         after = sorted(tmp_path.rglob("*"))
@@ -123,7 +136,7 @@ class TestQueryPhases:
             ),
         )
         run = _run(root, tmp_path / "out")
-        loaded = load_declaration(root, "mutmut")
+        loaded = load_declaration(FileRepository(), root, "mutmut")
         assert loaded.declaration is not None, "the fixture declares requirements"
 
         result = judge_native(run, loaded.declaration)
@@ -172,7 +185,7 @@ class TestQueryPhases:
         summary = tmp_path / "summary.md"
         summary.write_text("", encoding="utf-8")
         run = dc.replace(_run(root, output), summary_path=str(summary))
-        loaded = load_declaration(root, "mutmut")
+        loaded = load_declaration(FileRepository(), root, "mutmut")
         assert loaded.declaration is not None, "the fixture declares requirements"
         report = Report(
             lane="mutmut", runtimes=run.runtimes, results=(), verdict="pass"
@@ -180,7 +193,7 @@ class TestQueryPhases:
 
         run_interpreter_phase(run)
         judge_native(run, loaded.declaration)
-        run_sandbox_phase(run.root, loaded.declaration, run.mutmut_version)
+        run_sandbox_phase(run, loaded.declaration)
 
         assert summary.read_text(encoding="utf-8") == "", (
             "a query phase must not append to the job summary"
@@ -214,7 +227,7 @@ class TestStreaming:
             return []
 
         run = dc.replace(_run(root, tmp_path / "out"), rule=rule)
-        checked_phases(run, load_declaration(root, "mutmut"))
+        checked_phases(run, load_declaration(FileRepository(), root, "mutmut"))
 
         assert seen, "the interpreter phase must have judged the project's range"
         assert "mutation_preflight_phase=" in seen[0], (
@@ -242,7 +255,7 @@ class TestDeclarationRules:
             ),
         )
 
-        loaded = load_declaration(root, "mutmut")
+        loaded = load_declaration(FileRepository(), root, "mutmut")
 
         assert loaded.declaration is not None, "the declaration must parse"
         effective = loaded.declaration.checks[0].timeout_seconds
@@ -264,7 +277,9 @@ class TestMaterialize:
         (root / "real" / "widget.py").write_text("VALUE = 1\n", encoding="utf-8")
         (root / "linked").symlink_to(root / "real", target_is_directory=True)
 
-        sandbox, problems = materialize(root, CopyContract(("linked",), ()))
+        sandbox, problems = FileRepository().materialize(
+            root, CopyContract(("linked",), ())
+        )
 
         assert problems == (), (
             f"copying a link inside the checkout must succeed: {problems}"
@@ -281,7 +296,7 @@ class TestMaterialize:
                 "mutmut follows an internal link instead of copying the link"
             )
         finally:
-            discard(sandbox)
+            FileRepository().discard(sandbox)
 
     @POSIX_SYMLINKS_ONLY
     def test_a_link_leaving_the_checkout_stays_a_link(self, tmp_path: Path) -> None:
@@ -293,7 +308,9 @@ class TestMaterialize:
         root.mkdir()
         (root / "escape").symlink_to(outside, target_is_directory=True)
 
-        sandbox, problems = materialize(root, CopyContract(("escape",), ()))
+        sandbox, problems = FileRepository().materialize(
+            root, CopyContract(("escape",), ())
+        )
 
         assert problems == (), (
             f"keeping an escaping link must not itself fail the copy: {problems}"
@@ -311,7 +328,7 @@ class TestMaterialize:
                 "the preserved link must name the target the declaration saw"
             )
         finally:
-            discard(sandbox)
+            FileRepository().discard(sandbox)
 
     @POSIX_SYMLINKS_ONLY
     def test_a_link_nested_in_a_copied_directory_stays_a_link(
@@ -326,7 +343,9 @@ class TestMaterialize:
         (root / "pkg" / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
         (root / "pkg" / "escape").symlink_to(outside, target_is_directory=True)
 
-        sandbox, problems = materialize(root, CopyContract(("pkg",), ()))
+        sandbox, problems = FileRepository().materialize(
+            root, CopyContract(("pkg",), ())
+        )
 
         assert problems == (), (
             f"copying a directory with a link must succeed: {problems}"
@@ -345,7 +364,7 @@ class TestMaterialize:
                 "the nested link must name the target the checkout saw"
             )
         finally:
-            discard(sandbox)
+            FileRepository().discard(sandbox)
 
     @POSIX_SYMLINKS_ONLY
     def test_a_path_beyond_an_escaping_link_keeps_the_link(
@@ -359,7 +378,7 @@ class TestMaterialize:
         (root / "tests").mkdir(parents=True)
         (root / "tests" / "escape").symlink_to(outside, target_is_directory=True)
 
-        sandbox, problems = materialize(
+        sandbox, problems = FileRepository().materialize(
             root, CopyContract(("tests/escape/secret.txt",), ())
         )
 
@@ -383,7 +402,7 @@ class TestMaterialize:
                 "the declared path must still resolve through the kept link"
             )
         finally:
-            discard(sandbox)
+            FileRepository().discard(sandbox)
 
     @POSIX_SYMLINKS_ONLY
     def test_overlapping_entries_keep_a_link_without_failing_the_copy(
@@ -398,7 +417,7 @@ class TestMaterialize:
         (root / "tests" / "test_module.py").write_text("", encoding="utf-8")
         (root / "tests" / "escape").symlink_to(outside, target_is_directory=True)
 
-        sandbox, problems = materialize(
+        sandbox, problems = FileRepository().materialize(
             root, CopyContract(("tests", "tests/escape"), ())
         )
 
@@ -418,7 +437,7 @@ class TestMaterialize:
                 "the overlapping entry must not disturb the directory it sits in"
             )
         finally:
-            discard(sandbox)
+            FileRepository().discard(sandbox)
 
     @POSIX_SYMLINKS_ONLY
     def test_a_glob_match_that_leaves_the_checkout_stays_a_link(
@@ -431,7 +450,9 @@ class TestMaterialize:
         root.mkdir()
         (root / "escape.txt").symlink_to(outside)
 
-        sandbox, problems = materialize(root, CopyContract((), ("*.txt",)))
+        sandbox, problems = FileRepository().materialize(
+            root, CopyContract((), ("*.txt",))
+        )
 
         assert problems == (), f"copying a glob match must succeed: {problems}"
         assert sandbox is not None, f"the sandbox must be built: {problems}"
@@ -444,7 +465,7 @@ class TestMaterialize:
                 "the preserved link must name the target the checkout saw"
             )
         finally:
-            discard(sandbox)
+            FileRepository().discard(sandbox)
 
 
 class TestCleanup:
@@ -534,3 +555,132 @@ class TestUsageErrors:
         assert "is not a directory" in outcome.stderr, (
             f"the usage error must say what was wrong: {outcome.stderr!r}"
         )
+
+
+class RefusingRepository:
+    """A repository port that refuses every question without a filesystem call.
+
+    It answers each operation with one reason and touches no path. The checkout
+    it is given is a valid one whose own files would pass every phase, so a
+    phase that read the checkout directly would report a verdict this stand-in
+    never supplied.
+    """
+
+    #: The one reason every operation gives.
+    reason: typ.Final[str] = "the repository stand-in refuses to read the checkout"
+
+    def read_documents(
+        self, root: Path, relatives: tuple[Path, ...]
+    ) -> tuple[Document, ...]:
+        """Return each asked-for document as present but unreadable."""
+        return tuple(
+            Document(root / relative, None, self.reason) for relative in relatives
+        )
+
+    def read_lock_packages(
+        self, root: Path
+    ) -> tuple[list[dict[str, object]], str | None]:
+        """Refuse to read the lock."""
+        return [], self.reason
+
+    def read_mutmut_configuration(
+        self, root: Path
+    ) -> tuple[dict[str, object] | None, str | None]:
+        """Refuse to read the mutmut configuration."""
+        return None, self.reason
+
+    def locate(
+        self, root: Path, declared: str
+    ) -> tuple[LocatedPath | None, str | None]:
+        """Refuse to resolve a declared path."""
+        return None, self.reason
+
+    def is_directory(self, path: Path) -> bool:
+        """Refuse to establish that a path is a directory."""
+        return False
+
+    def materialize(
+        self, root: Path, contract: CopyContract
+    ) -> tuple[Path | None, tuple[str, ...]]:
+        """Refuse to build a sandbox."""
+        return None, (self.reason,)
+
+    def discard(self, sandbox: Path) -> None:
+        """Refuse to remove a sandbox; there is none to remove."""
+
+    def write_check_logs(
+        self, directory: Path, stem: str, name: str, outcome: object
+    ) -> str | None:
+        """Refuse to write a check's logs."""
+        return self.reason
+
+    def append_summary(self, path: Path, rendered: str) -> str | None:
+        """Refuse to append the job summary."""
+        return self.reason
+
+    def write_report(self, output_dir: Path, document: dict[str, object]) -> str | None:
+        """Refuse to write the report."""
+        return self.reason
+
+
+class TestRepositoryBoundary:
+    """Every judgement reads the checkout through the repository port."""
+
+    def test_the_judgement_phases_read_only_through_the_port(
+        self, tmp_path: Path
+    ) -> None:
+        """A refusing port leaves the phases without the checkout's own answers."""
+        root = repository(
+            tmp_path / "repo",
+            Checkout(
+                requires_python=">=3.12",
+                also_copy=("conftest.py", "README.md"),
+                extra={
+                    "README.md": "# example\n",
+                    "uv.lock": lock_document("0.3.1", 'registry = "x"'),
+                },
+            ),
+        )
+        output = tmp_path / "out"
+        declaration = Declaration(
+            source=root / "pyproject.toml",
+            lane="cargo",
+            sandbox_paths=("README.md",),
+            native=NativeRequirement(package="tei-rapporteur"),
+            checks=(
+                Check(
+                    name="collect",
+                    command=(sys.executable, "-c", "print(1)"),
+                    timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
+                ),
+            ),
+        )
+        real = _run(root, output)
+        # The checkout really does satisfy each phase: read directly, the
+        # interpreter, lock and sandbox path all hold.
+        assert run_interpreter_phase(real).status != "fail"
+        assert judge_native(real, declaration).status != "fail"
+        assert run_sandbox_phase(real, declaration).status != "fail"
+
+        refusing = dc.replace(real, files=RefusingRepository())
+        results = [
+            run_interpreter_phase(refusing),
+            judge_native(refusing, declaration),
+            run_sandbox_phase(refusing, declaration),
+            run_checks_phase(refusing, declaration),
+        ]
+
+        assert [result.status for result in results] == [
+            "unknown",
+            "unknown",
+            "fail",
+            "fail",
+        ], "a refusing port must leave every phase unable to read the checkout"
+        for result in results:
+            assert any(
+                RefusingRepository.reason in finding
+                for finding in (
+                    *result.findings,
+                    *result.detail.get("reason", "").splitlines(),
+                )
+            ), f"{result.name} must report the port's refusal: {result}"

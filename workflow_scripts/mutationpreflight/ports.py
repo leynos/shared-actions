@@ -1,9 +1,12 @@
 """The boundaries a phase reads the outside world through.
 
-A phase receives its runner, its environment, the shared interpreter rule and
-its output destinations from one ``Run``. Nothing below the command line reads
-``os.environ`` or writes a report of its own, so a query phase can be shown to
-be a query by passing it a runner that fails if it is called.
+A phase receives its runner, the repository's files, the shared interpreter
+rule and its output destinations from one ``Run``. Nothing below the command
+line reads ``os.environ``, resolves a path or writes a report of its own, so a
+query phase can be shown to be a query by passing it a runner that fails if it
+is called and a repository that refuses every question without touching the
+filesystem. The adapter that answers the repository's questions, and performs
+the writes a phase asks for, lives in ``repository``.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import typing as typ
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
+    from .copy_set import CopyContract
     from .models import Ran, Runtimes
 
 
@@ -107,6 +111,255 @@ class RequirementRule(typ.Protocol):
 
 
 @dc.dataclass(frozen=True, slots=True)
+class Document:
+    """One TOML document a repository holds, parsed or refused.
+
+    Attributes
+    ----------
+    path : Path
+        The file the document was read from.
+    document : dict[str, object] | None
+        The parsed table, or ``None`` when the file could not be read.
+    problem : str
+        Why the document could not be read, empty when it could. A present but
+        unreadable document is distinguished from an absent one by the
+        document's presence in the sequence the repository returns.
+
+    """
+
+    path: Path
+    document: dict[str, object] | None
+    problem: str
+
+
+@dc.dataclass(frozen=True, slots=True)
+class LocatedPath:
+    """What a declared path is in the checkout, as the repository found it.
+
+    Attributes
+    ----------
+    exists : bool
+        Whether the path exists, without following its final link.
+    resolved : str
+        The path with every link resolved, for naming what it became.
+    inside_root : bool
+        Whether the resolved path stays inside the checkout.
+    parts : tuple[str, ...]
+        The resolved path relative to the checkout, empty when it escapes.
+
+    """
+
+    exists: bool
+    resolved: str
+    inside_root: bool
+    parts: tuple[str, ...]
+
+
+class RepositoryFiles(typ.Protocol):
+    """Reads the documents a phase judges, and writes the evidence it produces.
+
+    Every operation is phrased as the question a phase asks, never as a path
+    operation: a phase receives a parsed document, the lock's package records,
+    a located path or a materialized sandbox, and hands back the log or report
+    it wants written. An adapter that refuses every question therefore leaves
+    the phase with a reportable problem rather than a crash, and a test can
+    show that a phase reads nothing without passing through this boundary.
+    """
+
+    def read_documents(
+        self, root: Path, relatives: tuple[Path, ...]
+    ) -> tuple[Document, ...]:
+        """Return every one of *relatives* present under *root*, parsed in order.
+
+        Parameters
+        ----------
+        root : Path
+            The checkout the documents are read from.
+        relatives : tuple[Path, ...]
+            The documents to read, relative to *root* and in the order the
+            caller wants them. An absent relative yields no entry, while a
+            present but unreadable one yields a ``Document`` carrying its
+            problem, so absence and refusal are never confused.
+
+        Returns
+        -------
+        tuple[Document, ...]
+            One document per present file, in the order asked for.
+
+        """
+        ...
+
+    def read_lock_packages(
+        self, root: Path
+    ) -> tuple[list[dict[str, object]], str | None]:
+        """Return ``uv.lock``'s package records, or why they could not be read.
+
+        Parameters
+        ----------
+        root : Path
+            The checkout whose lock is read.
+
+        Returns
+        -------
+        tuple[list[dict[str, object]], str | None]
+            Every package record the lock declares, and why none could be
+            read. Records that are not tables are skipped.
+
+        """
+        ...
+
+    def read_mutmut_configuration(
+        self, root: Path
+    ) -> tuple[dict[str, object] | None, str | None]:
+        """Return the mutmut configuration the run will use, or why it is unknown.
+
+        Parameters
+        ----------
+        root : Path
+            The checkout holding ``pyproject.toml`` or ``setup.cfg``.
+
+        Returns
+        -------
+        tuple[dict[str, object] | None, str | None]
+            The ``[tool.mutmut]`` table, else the ``[mutmut]`` section, and why
+            neither could be established when none was found.
+
+        """
+        ...
+
+    def locate(
+        self, root: Path, declared: str
+    ) -> tuple[LocatedPath | None, str | None]:
+        """Return what *declared* is under *root*, or why it could not be resolved.
+
+        Parameters
+        ----------
+        root : Path
+            The checkout the declared path is relative to.
+        declared : str
+            The path as a declaration spells it.
+
+        Returns
+        -------
+        tuple[LocatedPath | None, str | None]
+            The path's existence, resolved form and containment, or why the
+            operating system could not resolve it.
+
+        """
+        ...
+
+    def is_directory(self, path: Path) -> bool:
+        """Return whether *path* is a directory.
+
+        Parameters
+        ----------
+        path : Path
+            The resolved path to test.
+
+        Returns
+        -------
+        bool
+            Whether the path is a directory a command could be started in.
+
+        """
+        ...
+
+    def materialize(
+        self, root: Path, contract: CopyContract
+    ) -> tuple[Path | None, tuple[str, ...]]:
+        """Copy *contract* into a fresh directory, returning it or why not.
+
+        Parameters
+        ----------
+        root : Path
+            The checkout the contract describes.
+        contract : CopyContract
+            The selected release's copy contract.
+
+        Returns
+        -------
+        tuple[Path | None, tuple[str, ...]]
+            The materialized sandbox, or ``None`` and why it could not be
+            built.
+
+        """
+        ...
+
+    def discard(self, sandbox: Path) -> None:
+        """Remove a materialized sandbox once the checks have run.
+
+        Parameters
+        ----------
+        sandbox : Path
+            The directory ``materialize`` returned.
+
+        """
+        ...
+
+    def write_check_logs(
+        self, directory: Path, stem: str, name: str, outcome: Ran
+    ) -> str | None:
+        """Write one check's bounded streams, returning why they were not written.
+
+        Parameters
+        ----------
+        directory : Path
+            The ``checks/`` directory the logs are written into.
+        stem : str
+            The filename stem that keeps this check's logs apart.
+        name : str
+            The check's declared name, used when a log error is reported.
+        outcome : Ran
+            The bounded streams to write as ``<stem>.stdout.log`` and
+            ``<stem>.stderr.log``.
+
+        Returns
+        -------
+        str | None
+            Why the logs could not be written, or ``None`` when they were.
+
+        """
+        ...
+
+    def append_summary(self, path: Path, rendered: str) -> str | None:
+        """Append the rendered summary, returning why it could not be written.
+
+        Parameters
+        ----------
+        path : Path
+            The job summary file to append to.
+        rendered : str
+            The Markdown to append.
+
+        Returns
+        -------
+        str | None
+            Why the summary could not be written, or ``None`` when it was.
+
+        """
+        ...
+
+    def write_report(self, output_dir: Path, document: dict[str, object]) -> str | None:
+        """Write the machine-readable report, returning why it was not written.
+
+        Parameters
+        ----------
+        output_dir : Path
+            The directory the report is written into; it is created when it
+            does not exist.
+        document : dict[str, object]
+            The JSON-serializable report to publish.
+
+        Returns
+        -------
+        str | None
+            Why the report could not be written, or ``None`` when it was.
+
+        """
+        ...
+
+
+@dc.dataclass(frozen=True, slots=True)
 class Run:
     """What one preflight run checks, and where its evidence goes.
 
@@ -135,6 +388,9 @@ class Run:
         be loaded.
     rule_problem : str
         Why *rule* is ``None``, empty when it is loaded.
+    files : RepositoryFiles
+        How a phase reads the documents it judges and writes the evidence it
+        produces.
     runner : Runner
         How a phase runs a declared command.
 
@@ -149,6 +405,7 @@ class Run:
     abi3: str
     rule: RequirementRule | None
     rule_problem: str
+    files: RepositoryFiles
     runner: Runner
 
 

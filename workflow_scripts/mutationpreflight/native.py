@@ -11,22 +11,19 @@ import dataclasses as dc
 import re
 import typing as typ
 
-if typ.TYPE_CHECKING:
-    from pathlib import Path
-
-    from .ports import Run
-
 from .constants import FAILED, MAX_CHECK_TIMEOUT_SECONDS, SKIPPED, UNKNOWN
 from .interpreters import judge
 from .lockfile import (
     find_locked,
-    locked_packages,
     pinned_revision,
     source_text,
 )
 from .models import Declaration, NativeRequirement, PhaseResult, Ran, phase_outcome
 from .ports import Invocation, project_environment
 from .running import first_diagnostic
+
+if typ.TYPE_CHECKING:
+    from .ports import Run
 
 _NO_NATIVE: typ.Final[str] = "no native dependency declared"
 
@@ -74,27 +71,121 @@ def _revision_finding(
     )
 
 
+@dc.dataclass(frozen=True, slots=True)
+class LockIdentity:
+    """The lock's record of one package, as one comparable value.
+
+    Version, source and revision are compared together: a registry dependency
+    records no revision, so a relock that moves its version would otherwise
+    compare equal before and after.
+
+    Attributes
+    ----------
+    version : str
+        The locked version, empty when the record names none.
+    source : str
+        The record's source rendered as text, empty when it names none.
+    revision : str
+        The commit the record pins, empty when it records none.
+
+    """
+
+    version: str
+    source: str
+    revision: str
+
+    def render(self) -> str:
+        """Return the identity as the phrase a finding quotes."""
+        return (
+            f"version {self.version!r}, source {self.source!r}, "
+            f"revision {self.revision!r}"
+        )
+
+
+def _identity_of(package: dict[str, object]) -> LockIdentity:
+    """Return the identity one lock record holds."""
+    return LockIdentity(
+        version=str(package.get("version", "")),
+        source=source_text(package),
+        revision=pinned_revision(package) or "",
+    )
+
+
+def lock_identity(run: Run, native: NativeRequirement | None) -> LockIdentity | None:
+    """Return what the lock records for *native*, or ``None`` when it cannot say.
+
+    A lock that cannot be read, or that records no such package, yields
+    ``None`` rather than an identity. The judgement reports that state itself,
+    and a missing baseline must not read as a change when it is compared with a
+    later reading.
+
+    Parameters
+    ----------
+    run : Run
+        The checkout whose ``uv.lock`` is read, through its repository adapter.
+    native : NativeRequirement | None
+        The declared dependency, or ``None`` when the lane declares none.
+
+    Returns
+    -------
+    LockIdentity | None
+        The lock's record of the package, or ``None`` when it records none.
+
+    """
+    if native is None:
+        return None
+    packages, problem = run.files.read_lock_packages(run.root)
+    if problem is not None:
+        return None
+    locked = find_locked(packages, native.package)
+    return None if locked is None else _identity_of(locked)
+
+
+def judged_identity(judged: PhaseResult) -> LockIdentity | None:
+    """Return the identity *judged* recorded, or ``None`` when it recorded none.
+
+    Parameters
+    ----------
+    judged : PhaseResult
+        A native judgement to read the lock's identity back from.
+
+    Returns
+    -------
+    LockIdentity | None
+        The identity the judgement recorded, or ``None`` when the package was
+        absent from the lock or the lock could not be read.
+
+    """
+    if "locked_revision" not in judged.detail:
+        return None
+    return LockIdentity(
+        version=str(judged.detail.get("locked_version", "")),
+        source=str(judged.detail.get("locked_source", "")),
+        revision=str(judged.detail["locked_revision"]),
+    )
+
+
 def _locked_identity(
-    repo_root: Path, native: NativeRequirement
+    run: Run, native: NativeRequirement
 ) -> tuple[dict[str, object], list[str], list[str]]:
     """Return the lock's record of *native*, and what that leaves open."""
-    packages, problem = locked_packages(repo_root)
+    packages, problem = run.files.read_lock_packages(run.root)
     if problem is not None:
         return {}, [], [problem]
     locked = find_locked(packages, native.package)
     if locked is None:
         finding = f"the declared native dependency {native.package!r} is not in uv.lock"
         return {}, [finding], []
-    pinned = pinned_revision(locked)
-    identity: dict[str, object] = {
-        "locked_version": locked.get("version", ""),
-        "locked_source": source_text(locked),
-        "locked_revision": pinned or "",
+    identity = _identity_of(locked)
+    recorded: dict[str, object] = {
+        "locked_version": identity.version,
+        "locked_source": identity.source,
+        "locked_revision": identity.revision,
     }
     finding = _revision_finding(native, locked)
     if finding is not None:
-        return identity, [finding], []
-    return identity, [], []
+        return recorded, [finding], []
+    return recorded, [], []
 
 
 def _support_findings(
@@ -185,15 +276,16 @@ def _relocked_finding(
     The judgement read the lock before the probe ran. A probe that runs the
     project through a tool which may relock it, such as ``uv run`` without
     ``--locked``, could then certify an environment the judgement never saw.
-    The lock is read again, and a pin that moved is the probe's failure rather
-    than a success under the old revision.
+    The lock is read again, and an identity that moved -- version, source or
+    revision -- is the probe's failure rather than a success under the old
+    record.
     """
-    if "locked_revision" not in judged.detail:
+    before = judged_identity(judged)
+    if before is None:
         # The judgement never established the package's lock identity, so it
-        # has no revision the probe could have moved; its own findings stand.
+        # has nothing the probe could have moved; its own findings stand.
         return None
-    before = str(judged.detail["locked_revision"])
-    packages, problem = locked_packages(run.root)
+    packages, problem = run.files.read_lock_packages(run.root)
     if problem is not None:
         return (
             f"the native probe for {native.package} left uv.lock unreadable: {problem}"
@@ -204,14 +296,61 @@ def _relocked_finding(
             f"the native probe for {native.package} left a uv.lock that no "
             f"longer records the package"
         )
-    after = pinned_revision(locked) or ""
+    after = _identity_of(locked)
     if after == before:
         return None
     return (
-        f"the native probe for {native.package} changed uv.lock from revision "
-        f"{before!r} to {after!r}; run the probe with the lock enforced (uv's "
-        f"--locked or UV_LOCKED) so it cannot relock the project"
+        f"the native probe for {native.package} changed uv.lock from "
+        f"{before.render()} to {after.render()}; run the probe with the lock "
+        f"enforced (uv's --locked or UV_LOCKED) so it cannot relock the project"
     )
+
+
+def changed_lock_phase(
+    judged: PhaseResult,
+    native: NativeRequirement,
+    before: LockIdentity,
+    after: LockIdentity,
+) -> PhaseResult:
+    """Return *judged* failed by a declared check that rewrote the lock.
+
+    The checks run in the checkout on the cargo lane, after the lock was read
+    and before the mutation run starts. A check that relocks the project would
+    leave the judged pin describing an environment the run no longer uses, so
+    an identity that moved across the checks fails the native phase.
+
+    Parameters
+    ----------
+    judged : PhaseResult
+        The native judgement made after the checks ran.
+    native : NativeRequirement
+        The declared dependency whose lock moved.
+    before : LockIdentity
+        What the lock recorded before the checks ran.
+    after : LockIdentity
+        What the lock records now.
+
+    Returns
+    -------
+    PhaseResult
+        The native phase, failed, naming the identity that moved and the
+        remedy. The judgement's own findings are kept: a lock the checks moved
+        does not excuse a revision or range that already did not hold.
+
+    """
+    finding = (
+        f"a declared check changed uv.lock for {native.package} from "
+        f"{before.render()} to {after.render()}; run the checks with the lock "
+        f"enforced (uv's --locked or UV_LOCKED) so they cannot relock the project"
+    )
+    blocking = [*judged.findings, finding] if judged.status == FAILED else [finding]
+    indeterminate = list(judged.findings) if judged.status == UNKNOWN else []
+    detail = {**judged.detail, "before_checks": dc.asdict(before)}
+    if native.probe:
+        # A probe would run under a lock the checks have moved, so it is
+        # withheld, and the envelope records that rather than silence.
+        detail["probe"] = {"command": list(native.probe), "skipped": finding}
+    return phase_outcome("native", blocking, indeterminate, detail)
 
 
 def probe_native(run: Run, declaration: Declaration, judged: PhaseResult) -> Probe:
@@ -346,7 +485,7 @@ def judge_native(run: Run, declaration: Declaration) -> PhaseResult:
     if native is None:
         return PhaseResult("native", SKIPPED, (), {"reason": _NO_NATIVE})
     identity: dict[str, object] = {"package": native.package}
-    locked_detail, lock_blocking, lock_unknown = _locked_identity(run.root, native)
+    locked_detail, lock_blocking, lock_unknown = _locked_identity(run, native)
     identity.update(locked_detail)
     identity["supported_python"] = native.supported_python
     identity["abi3_forward_compatibility"] = run.abi3

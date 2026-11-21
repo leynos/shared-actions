@@ -80,10 +80,10 @@ class TestEnvelope:
         assert names == [
             "manifest",
             "interpreter",
-            "native",
             "sandbox",
             "commands",
             "checks",
+            "native",
         ]
         assert outcome.result == "pass"
 
@@ -102,10 +102,10 @@ class TestEnvelope:
         assert [phase["name"] for phase in report["phases"]] == [
             "manifest",
             "interpreter",
-            "native",
             "sandbox",
             "commands",
             "checks",
+            "native",
         ], "a phase the declaration would have enabled is reported, not omitted"
         assert outcome.phases["manifest"]["status"] == "skipped"
 

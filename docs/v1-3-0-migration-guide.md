@@ -38,6 +38,7 @@ _Table 1: Obligations when moving from v1.2.2 to v1.3.0._
 
 Before, the caller pins the release it runs today:
 
+<!-- tested-example: mutmut-caller-before -->
 ```yaml
 jobs:
   mutation:
@@ -47,6 +48,7 @@ jobs:
 After, it pins a reviewed revision that contains the new inputs, and turns the
 preflight on:
 
+<!-- tested-example: mutmut-caller-after -->
 ```yaml
 jobs:
   mutation:
@@ -121,6 +123,7 @@ The workflow sets the helper's inputs as environment variables. The same
 variables run the helper by hand from a `shared-actions` checkout, with
 `INPUT_REPOSITORY` pointing at the project:
 
+<!-- tested-example: manual-run -->
 ```sh
 INPUT_LANE=mutmut \
   INPUT_PROJECT_PYTHON=3.13 \
@@ -128,10 +131,11 @@ INPUT_LANE=mutmut \
   uv run --script workflow_scripts/mutation_preflight.py
 ```
 
-`INPUT_LANE` is `mutmut` or `cargo`. `INPUT_OUTPUT_DIR` names where the
-diagnostics are written and defaults to `mutation-preflight`. The mutmut lane
-also reads `INPUT_MUTMUT_VERSION`, because the sandbox contract belongs to the
-selected release.
+`INPUT_LANE` is `mutmut` or `cargo`. `INPUT_PROJECT_PYTHON` selects the
+interpreter the project's range is judged against. `INPUT_OUTPUT_DIR` names
+where the diagnostics are written and defaults to `mutation-preflight`. The
+mutmut lane also reads `INPUT_MUTMUT_VERSION`, because the sandbox contract
+belongs to the selected release.
 
 ## 5. Read the diagnostics
 
@@ -234,10 +238,17 @@ runner temporary directory is written.
 <!-- markdownlint-disable MD013 -->
 
 - **Error:**
-  `the native probe for tei-rapporteur changed uv.lock from revision 'abc123' to 'def456'; run the probe with the lock enforced (uv's --locked or UV_LOCKED) so it cannot relock the project`
+  `the native probe for tei-rapporteur changed uv.lock from version '0.3.1', source 'git=https://example.invalid/tei.git?rev=abc123', revision 'abc123' to version '0.3.1', source 'git=https://example.invalid/tei.git?rev=def456', revision 'def456'; run the probe with the lock enforced (uv's --locked or UV_LOCKED) so it cannot relock the project`
   - **Fix:** run the probe so it cannot rewrite the lock, for example
-    `uv run --locked`, or relock the project first, so the revision the probe
+    `uv run --locked`, or relock the project first, so the identity the probe
     works from is the one the declaration names.
+
+- **Error:**
+  `a declared check changed uv.lock for tei-rapporteur from version '0.3.1', source 'git=https://example.invalid/tei.git?rev=abc123', revision 'abc123' to version '0.3.1', source 'git=https://example.invalid/tei.git?rev=def456', revision 'def456'; run the checks with the lock enforced (uv's --locked or UV_LOCKED) so they cannot relock the project`
+  - **Fix:** run the check in locked mode, for example `uv run --locked`, so the
+    judgement after the checks describes the lock the mutation run will use.
+    The native phase reads the lock before the checks and again after them, and
+    fails when the identity moved.
 
 <!-- markdownlint-enable MD013 -->
 

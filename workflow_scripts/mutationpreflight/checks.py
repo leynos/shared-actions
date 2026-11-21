@@ -9,13 +9,10 @@ from __future__ import annotations
 
 import dataclasses as dc
 import typing as typ
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
+from pathlib import Path
 
 from .constants import FAILED, SKIPPED, UNKNOWN
 from .copy_set import mutmut_copy_set
-from .materialize import discard, materialize
 from .models import Check, Declaration, PhaseResult, Ran, phase_outcome
 from .ports import Invocation, Run, project_environment
 from .running import last_line, timeout_message
@@ -49,19 +46,27 @@ class Boundary:
     noun: str
 
 
-def _check_cwd(root: Path, check: Check, noun: str) -> tuple[Path | None, str]:
+def _check_cwd(
+    run: Run, root: Path, check: Check, noun: str
+) -> tuple[Path | None, str]:
     """Return the working directory *check* names, or why it is unusable."""
     problem = path_problem(check.cwd) if check.cwd != "." else None
     if problem is not None:
         return None, f"checks[{check.name!r}].cwd {problem}"
-    anchor = root.resolve()
-    directory = (anchor / check.cwd).resolve()
-    if not directory.is_relative_to(anchor):
+    located, resolution = run.files.locate(root, check.cwd)
+    if located is None:
         return None, (
-            f"checks[{check.name!r}].cwd {check.cwd!r} resolves to {str(directory)!r} "
-            f"outside the {noun}, so the check would run elsewhere"
+            f"checks[{check.name!r}].cwd {check.cwd!r} could not be resolved: "
+            f"{resolution}"
         )
-    if not directory.is_dir():
+    if not located.inside_root:
+        return None, (
+            f"checks[{check.name!r}].cwd {check.cwd!r} resolves to "
+            f"{located.resolved!r} outside the {noun}, so the check would run "
+            f"elsewhere"
+        )
+    directory = Path(located.resolved)
+    if not run.files.is_directory(directory):
         return None, (
             f"checks[{check.name!r}].cwd {check.cwd!r} is not a directory in the {noun}"
         )
@@ -93,39 +98,6 @@ def log_stem(index: int, name: str) -> str:
         for character in name
     )
     return f"{index:02d}-{sanitized}"
-
-
-def write_logs(directory: Path, stem: str, name: str, outcome: Ran) -> str | None:
-    """Write one check's bounded streams, so a failure keeps its evidence.
-
-    Parameters
-    ----------
-    directory : Path
-        The ``checks/`` directory the logs are written into.
-    stem : str
-        The filename stem that keeps this check's logs apart.
-    name : str
-        The check's declared name, used when a log error is reported.
-    outcome : Ran
-        The bounded streams to write as ``<stem>.stdout.log`` and
-        ``<stem>.stderr.log``.
-
-    Returns
-    -------
-    str | None
-        Why the logs could not be written, or ``None`` when they were. An
-        unwritable log is returned rather than raised, so the finding names it
-        and the phase's verdict can fail: evidence nobody can read must not be
-        reported as a passing check.
-
-    """
-    try:
-        directory.mkdir(parents=True, exist_ok=True)
-        (directory / f"{stem}.stdout.log").write_text(outcome.stdout, encoding="utf-8")
-        (directory / f"{stem}.stderr.log").write_text(outcome.stderr, encoding="utf-8")
-    except OSError as error:
-        return f"check {name!r}'s logs could not be written: {error}"
-    return None
 
 
 def _verdict(check: Check, outcome: Ran) -> tuple[str | None, dict[str, object]]:
@@ -190,7 +162,7 @@ class Review:
 
 def _review_check(boundary: Boundary, check: Check, run: Run) -> Review:
     """Return one check's verdict, and the result its logs are written from."""
-    directory, problem = _check_cwd(boundary.root, check, boundary.noun)
+    directory, problem = _check_cwd(run, boundary.root, check, boundary.noun)
     if directory is None:
         return Review(problem, problem, None)
     # The project's interpreter is selected first and the declaration's own
@@ -228,7 +200,7 @@ def _run_checks(run: Run, declaration: Declaration, boundary: Boundary) -> Phase
     for index, (check, review) in enumerate(pairs):
         finding = review.finding
         if review.outcome is not None:
-            log_problem = write_logs(
+            log_problem = run.files.write_check_logs(
                 run.output_dir / "checks",
                 log_stem(index, check.name),
                 check.name,
@@ -280,14 +252,15 @@ def run_checks_phase(run: Run, declaration: Declaration) -> PhaseResult:
         return _run_checks(
             run, declaration, Boundary(run.root, _WHOLE_TREE, "checkout")
         )
-    contract, problems = mutmut_copy_set(run.root, run.mutmut_version)
+    table, problem = run.files.read_mutmut_configuration(run.root)
+    contract, problems = mutmut_copy_set(run.mutmut_version, table, problem)
     if contract is None:
         return PhaseResult("checks", UNKNOWN, problems, {"reason": _NO_SANDBOX})
-    sandbox, problems = materialize(run.root, contract)
+    sandbox, problems = run.files.materialize(run.root, contract)
     if sandbox is None:
         return PhaseResult("checks", FAILED, problems, {"reason": _NO_SANDBOX})
     try:
         boundary = Boundary(sandbox, str(sandbox), "sandbox")
         return _run_checks(run, declaration, boundary)
     finally:
-        discard(sandbox)
+        run.files.discard(sandbox)

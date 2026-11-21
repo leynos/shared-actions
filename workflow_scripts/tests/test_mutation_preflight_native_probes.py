@@ -115,9 +115,13 @@ class TestNativeProbe:
 
         assert outcome.exit_code == 1, outcome.stdout
         found = outcome.findings("native")
-        assert "changed uv.lock from revision 'abc123' to 'def456'" in found, (
-            f"the finding must name both revisions the probe stood between: {found}"
-        )
+        assert (
+            "changed uv.lock from version '0.3.1', "
+            "source 'git=https://example.invalid/tei.git?rev=abc123', "
+            "revision 'abc123' to version '0.3.1', "
+            "source 'git=https://example.invalid/tei.git?rev=def456', "
+            "revision 'def456'" in found
+        ), f"the finding must name the identity the probe stood between: {found}"
 
     def test_a_failing_probe_reports_the_package_and_first_diagnostic(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
@@ -169,3 +173,55 @@ class TestNativeProbe:
         found = outcome.findings("native")
         assert "failed with exit code 1: error: first" in found
         assert "warning: last" not in found
+
+
+class TestChecksAndTheLock:
+    """The native judgement must describe the lock the checks leave behind."""
+
+    def test_a_check_that_relocks_the_project_fails_the_native_phase(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """The judgement runs after the checks, so a lock they moved is failed."""
+        pinned = lock_document(
+            "0.3.1", 'git = "https://example.invalid/tei.git?rev=abc123"'
+        )
+        relocked = lock_document(
+            "0.3.1", 'git = "https://example.invalid/tei.git?rev=def456"'
+        )
+        # The check stands in for a fixture that relocks the project, such as
+        # `uv run` without --locked: it succeeds, and leaves a different lock.
+        script = 'import shutil; shutil.copyfile("relocked.lock", "uv.lock")'
+        manifest = (
+            "[native]\n"
+            'package = "tei-rapporteur"\n'
+            'revision = "abc123"\n'
+            "[[checks]]\n"
+            'name = "relock"\n'
+            f"command = ['{sys.executable}', '-c', '{script}']\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest=manifest,
+                extra={"uv.lock": pinned, "relocked.lock": relocked},
+            ),
+            lane="cargo",
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 1, outcome.stdout
+        assert outcome.phases["checks"]["status"] == "pass", (
+            "the check itself succeeded; the phase that must fail is the judgement"
+        )
+        assert outcome.phases["native"]["status"] == "fail", (
+            "a lock the checks moved must not be certified as the judged one"
+        )
+        found = outcome.findings("native")
+        assert "a declared check changed uv.lock for tei-rapporteur" in found, (
+            f"the finding must name the check that moved the lock: {found}"
+        )
+        assert "revision 'def456'" in found, (
+            f"the finding must name the identity the lock now records: {found}"
+        )

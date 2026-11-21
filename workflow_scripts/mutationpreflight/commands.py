@@ -47,7 +47,7 @@ def _resolved_only(
     run: Run, requirement: CommandRequirement
 ) -> tuple[str | None, object]:
     """Return whether *requirement* resolves, without asking its version."""
-    problem = resolution_problem(requirement.name, run.root)
+    problem = resolution_problem(requirement.name, run.root, run.ambient)
     if problem:
         return _unresolved(requirement.name, problem)
     return None, {"resolved": requirement.name}

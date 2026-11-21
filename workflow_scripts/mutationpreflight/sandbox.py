@@ -15,6 +15,9 @@ from .constants import EXCLUDED_DIRECTORIES, SKIPPED
 from .copy_set import CopyContract, mutmut_copy_set
 from .models import Declaration, PhaseResult, phase_outcome
 
+if typ.TYPE_CHECKING:
+    from .ports import LocatedPath, RepositoryFiles, Run
+
 _NO_SANDBOX: typ.Final[str] = "no sandbox_paths declared"
 
 
@@ -59,16 +62,14 @@ def _excluded_problem(parts: typ.Iterable[str], phrase: str) -> str | None:
     return None
 
 
-def _resolved_problem(repo_root: Path, declared: str) -> str | None:
-    """Return why what *declared* resolves to cannot be a sandbox path."""
-    root = repo_root.resolve()
-    resolved = (root / declared).resolve()
-    if not resolved.is_relative_to(root):
+def _resolved_problem(located: LocatedPath) -> str | None:
+    """Return why what a declared path resolves to cannot be a sandbox path."""
+    if not located.inside_root:
         return (
-            f"resolves to {str(resolved)!r} outside the checkout, so the sandbox "
-            f"would carry something the declaration did not name"
+            f"resolves to {located.resolved!r} outside the checkout, so the "
+            f"sandbox would carry something the declaration did not name"
         )
-    return _excluded_problem(resolved.relative_to(root).parts, "resolves into")
+    return _excluded_problem(located.parts, "resolves into")
 
 
 def _covers(entry: str, wanted: str) -> bool:
@@ -94,7 +95,7 @@ def _is_copied(declared: str, contract: CopyContract) -> bool:
 
 
 def _path_finding(
-    repo_root: Path, declared: str, contract: CopyContract | None
+    files: RepositoryFiles, root: Path, declared: str, contract: CopyContract | None
 ) -> tuple[str | None, str | None]:
     """Return one path's finding, and the envelope category it belongs to.
 
@@ -105,13 +106,19 @@ def _path_finding(
     problem = path_problem(declared)
     if problem is not None:
         return f"sandbox path {declared!r} {problem}", None
-    if not (repo_root / declared).exists():
+    located, resolution = files.locate(root, declared)
+    if located is None:
+        return (
+            f"sandbox path {declared!r} could not be resolved in the checkout: "
+            f"{resolution}"
+        ), None
+    if not located.exists:
         finding = (
             f"sandbox path {declared!r} is not in the checkout, so the "
             f"declaration names a requirement nothing satisfies"
         )
         return finding, "missing_in_checkout"
-    resolved = _resolved_problem(repo_root, declared)
+    resolved = _resolved_problem(located)
     if resolved is not None:
         return f"sandbox path {declared!r} {resolved}", None
     if contract is None or _is_copied(declared, contract):
@@ -125,7 +132,10 @@ def _path_finding(
 
 
 def _review_paths(
-    repo_root: Path, declared_paths: tuple[str, ...], contract: CopyContract | None
+    files: RepositoryFiles,
+    root: Path,
+    declared_paths: tuple[str, ...],
+    contract: CopyContract | None,
 ) -> tuple[list[str], dict[str, list[str]]]:
     """Return every finding, with the paths classified for the envelope.
 
@@ -136,7 +146,7 @@ def _review_paths(
     findings: list[str] = []
     categories: dict[str, list[str]] = {"missing_in_checkout": [], "not_copied": []}
     for declared in declared_paths:
-        finding, category = _path_finding(repo_root, declared, contract)
+        finding, category = _path_finding(files, root, declared, contract)
         if finding is not None:
             findings.append(finding)
         if category is not None:
@@ -144,20 +154,16 @@ def _review_paths(
     return findings, categories
 
 
-def run_sandbox_phase(
-    repo_root: Path, declaration: Declaration, mutmut_version: str
-) -> PhaseResult:
+def run_sandbox_phase(run: Run, declaration: Declaration) -> PhaseResult:
     """Compare the declared sandbox requirements with what mutmut will copy.
 
     Parameters
     ----------
-    repo_root : Path
-        The checkout the declaration belongs to.
+    run : Run
+        The checkout the declaration belongs to, the selected mutmut release
+        and the repository adapter the comparison reads through.
     declaration : Declaration
         The repository's declaration, whose ``sandbox_paths`` are checked.
-    mutmut_version : str
-        The mutmut release the run selects. The comparison uses that release's
-        copy contract, never a different release's.
 
     Returns
     -------
@@ -169,13 +175,16 @@ def run_sandbox_phase(
     """
     if not declaration.sandbox_paths:
         return PhaseResult("sandbox", SKIPPED, (), {"reason": _NO_SANDBOX})
-    contract, problems = mutmut_copy_set(repo_root, mutmut_version)
+    table, problem = run.files.read_mutmut_configuration(run.root)
+    contract, problems = mutmut_copy_set(run.mutmut_version, table, problem)
     detail: dict[str, object] = {
         "declared": list(declaration.sandbox_paths),
-        "mutmut_version": mutmut_version,
+        "mutmut_version": run.mutmut_version,
         "copied": [] if contract is None else sorted(contract.paths),
     }
-    findings, classified = _review_paths(repo_root, declaration.sandbox_paths, contract)
+    findings, classified = _review_paths(
+        run.files, run.root, declaration.sandbox_paths, contract
+    )
     detail.update(classified)
     if contract is None:
         # An unusable or absent path is a failure whether or not the copy set

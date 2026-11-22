@@ -279,7 +279,7 @@ def _declaration_phases(
     """
     native = declaration.native
     before = lock_identity(run, native)
-    yield run_sandbox_phase(run, declaration)
+    yield run_sandbox_phase(run.files, run.root, run.mutmut_version, declaration)
     yield run_commands_phase(run, declaration, probe_versions=interpreter_ok)
     if interpreter_ok:
         yield run_checks_phase(run, declaration)

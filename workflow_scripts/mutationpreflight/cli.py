@@ -18,6 +18,7 @@ from .models import PhaseResult, Report, Runtimes
 from .ports import Run
 from .reporting import checked_phases, verdict, write_report
 from .repository import FileRepository, load_shared_rule
+from .resolution import resolution_problem
 from .running import run_command
 
 app = App()
@@ -196,6 +197,7 @@ def main(
         rule=rule,
         rule_problem=rule_problem,
         files=files,
+        resolver=resolution_problem,
         runner=run_command,
     )
     results = checked_phases(run, load_declaration(files, root, options.lane))

@@ -468,3 +468,30 @@ class TestPreflightWiring:
                     f"survive a failed preflight and stay off when the caller "
                     f"did not opt in"
                 )
+
+    @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
+    def test_a_missing_diagnostics_directory_fails_the_upload(
+        self, workflow_name: str
+    ) -> None:
+        """An absent artefact must fail, not pass as nothing to publish."""
+        guarded = [
+            (job_name, _steps(job))
+            for job_name, job in _jobs(workflow_name).items()
+            if PREFLIGHT_STEP in _step_names(_steps(job))
+        ]
+        assert guarded, f"{workflow_name} never runs the environment preflight"
+        for job_name, steps in guarded:
+            uploads = [
+                step for step in steps if step.get("name") == PREFLIGHT_UPLOAD_STEP
+            ]
+            assert uploads, (
+                f"{workflow_name}:{job_name} must upload its preflight diagnostics"
+            )
+            for step in uploads:
+                upload_with = typ.cast("dict[str, object]", step.get("with") or {})
+                assert upload_with.get("if-no-files-found") == "error", (
+                    f"{workflow_name}:{job_name} must fail when the diagnostics "
+                    f"directory is absent, got "
+                    f"{upload_with.get('if-no-files-found')!r}; a warning would "
+                    f"leave a failed preflight with no evidence and a green upload"
+                )

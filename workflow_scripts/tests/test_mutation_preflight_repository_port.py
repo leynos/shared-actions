@@ -15,10 +15,12 @@ import typing as typ
 
 from workflow_scripts.mutationpreflight import running
 from workflow_scripts.mutationpreflight.checks import run_checks_phase
+from workflow_scripts.mutationpreflight.commands import run_commands_phase
 from workflow_scripts.mutationpreflight.constants import MAX_CHECK_TIMEOUT_SECONDS
 from workflow_scripts.mutationpreflight.interpreters import run_interpreter_phase
 from workflow_scripts.mutationpreflight.models import (
     Check,
+    CommandRequirement,
     Declaration,
     NativeRequirement,
     Runtimes,
@@ -49,6 +51,12 @@ def _refuse(*_args: object, **_kwargs: object) -> typ.NoReturn:
     raise AssertionError(message)
 
 
+def refusing_resolver(name: str, cwd: Path, environment: typ.Mapping[str, str]) -> str:
+    """Fail the test: a query phase must not look a command up at all."""
+    message = f"a query phase must not resolve {name!r} in {cwd!r} with {environment!r}"
+    raise AssertionError(message)
+
+
 def _run(root: Path, output_dir: Path) -> Run:
     """Return a run whose runner fails if any phase reaches for a command."""
     return Run(
@@ -62,6 +70,7 @@ def _run(root: Path, output_dir: Path) -> Run:
         rule=None,
         rule_problem="the shared rule was not loaded",
         files=FileRepository(),
+        resolver=refusing_resolver,
         runner=_refuse,
     )
 
@@ -169,7 +178,12 @@ class TestRepositoryBoundary:
         # interpreter, lock and sandbox path all hold.
         assert run_interpreter_phase(real).status != "fail"
         assert judge_native(real, declaration).status != "fail"
-        assert run_sandbox_phase(real, declaration).status != "fail"
+        assert (
+            run_sandbox_phase(
+                real.files, real.root, real.mutmut_version, declaration
+            ).status
+            != "fail"
+        )
         # A check legitimately runs a command, so the real comparison uses the
         # production runner rather than the query-phase runner that refuses.
         executable = dc.replace(real, runner=running.run_command)
@@ -179,7 +193,9 @@ class TestRepositoryBoundary:
         results = [
             run_interpreter_phase(refusing),
             judge_native(refusing, declaration),
-            run_sandbox_phase(refusing, declaration),
+            run_sandbox_phase(
+                refusing.files, refusing.root, refusing.mutmut_version, declaration
+            ),
             run_checks_phase(refusing, declaration),
         ]
 
@@ -194,3 +210,42 @@ class TestRepositoryBoundary:
             assert RefusingRepository.reason in reported, (
                 f"{result.name} must report the port's refusal: {result}"
             )
+
+
+class RefusingResolver:
+    """A command resolver that refuses without reading the host's PATH."""
+
+    #: The reason every lookup gives.
+    reason: typ.Final[str] = "the resolver stand-in refuses to look the command up"
+
+    def __call__(self, name: str, cwd: Path, environment: typ.Mapping[str, str]) -> str:
+        """Refuse to resolve *name*, naming what was asked."""
+        return f"{self.reason} ({name!r} in {cwd!r})"
+
+
+class TestCommandBoundary:
+    """The commands phase resolves and runs only through its injected seams."""
+
+    def test_a_probe_free_commands_phase_asks_only_the_resolver(
+        self, tmp_path: Path
+    ) -> None:
+        """Without a version probe the phase must not touch PATH or the host."""
+        root = repository(tmp_path / "repo", Checkout())
+        declaration = Declaration(
+            source=root / "pyproject.toml",
+            lane="cargo",
+            commands=(CommandRequirement(name="preflight-declared-tool"),),
+        )
+        run = dc.replace(
+            _run(root, tmp_path / "out"),
+            files=RefusingRepository(),
+            resolver=RefusingResolver(),
+        )
+
+        result = run_commands_phase(run, declaration, probe_versions=False)
+
+        assert result.status == "fail"
+        reported = " ".join((*result.findings, str(result.detail)))
+        assert RefusingResolver.reason in reported, (
+            f"the finding must name the resolver's refusal: {result}"
+        )

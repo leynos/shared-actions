@@ -1,12 +1,15 @@
 """The boundaries a phase reads the outside world through.
 
-A phase receives its runner, the repository's files, the shared interpreter
-rule and its output destinations from one ``Run``. Nothing below the command
-line reads ``os.environ``, resolves a path or writes a report of its own, so a
-query phase can be shown to be a query by passing it a runner that fails if it
-is called and a repository that refuses every question without touching the
-filesystem. The adapter that answers the repository's questions, and performs
-the writes a phase asks for, lives in ``repository``.
+A phase receives its runner, its resolver, the repository's files, the shared
+interpreter rule and its output destinations from one ``Run``. Nothing below
+the command line reads ``os.environ``, resolves a path or writes a report of
+its own, so a query phase can be shown to be a query by passing it a runner
+that fails if it is called, a resolver that answers with a refusal and a
+repository that refuses every question without touching the filesystem. The
+protocols are narrow on purpose: each names the capability one phase needs, and
+``RepositoryFiles`` and ``RepositoryQuery`` combine them only so the composition
+root can wire one object. The adapter that answers the repository's questions,
+and performs the writes a phase asks for, lives in ``repository``.
 """
 
 from __future__ import annotations
@@ -155,15 +158,13 @@ class LocatedPath:
     parts: tuple[str, ...]
 
 
-class RepositoryFiles(typ.Protocol):
-    """Reads the documents a phase judges, and writes the evidence it produces.
+class DocumentReader(typ.Protocol):
+    """Reads the documents a judgement parses.
 
     Every operation is phrased as the question a phase asks, never as a path
-    operation: a phase receives a parsed document, the lock's package records,
-    a located path or a materialized sandbox, and hands back the log or report
-    it wants written. An adapter that refuses every question therefore leaves
-    the phase with a reportable problem rather than a crash, and a test can
-    show that a phase reads nothing without passing through this boundary.
+    operation: a phase receives a parsed document or the lock's package
+    records. An adapter that refuses every question therefore leaves the phase
+    with a reportable problem rather than a crash.
     """
 
     def read_documents(
@@ -227,6 +228,10 @@ class RepositoryFiles(typ.Protocol):
         """
         ...
 
+
+class PathLocator(typ.Protocol):
+    """Answers where a declared path is in the checkout, without copying it."""
+
     def locate(
         self, root: Path, declared: str
     ) -> tuple[LocatedPath | None, str | None]:
@@ -264,6 +269,10 @@ class RepositoryFiles(typ.Protocol):
         """
         ...
 
+
+class SandboxProvider(typ.Protocol):
+    """Builds the sandbox a check runs in, and removes it afterwards."""
+
     def materialize(
         self, root: Path, contract: CopyContract
     ) -> tuple[Path | None, tuple[str, ...]]:
@@ -295,6 +304,10 @@ class RepositoryFiles(typ.Protocol):
 
         """
         ...
+
+
+class EvidenceWriter(typ.Protocol):
+    """Writes the evidence a run publishes, and says when it cannot."""
 
     def write_check_logs(
         self, directory: Path, stem: str, name: str, outcome: Ran
@@ -359,6 +372,25 @@ class RepositoryFiles(typ.Protocol):
         ...
 
 
+class RepositoryQuery(DocumentReader, PathLocator, typ.Protocol):
+    """The questions a judgement asks of the checkout, and nothing that writes."""
+
+
+class RepositoryFiles(
+    DocumentReader,
+    PathLocator,
+    SandboxProvider,
+    EvidenceWriter,
+    typ.Protocol,
+):
+    """Everything a phase may ask of the checkout, and write back to it.
+
+    The narrow protocols above are what a phase actually depends on; this
+    combined one is the composition root's record of the adapter, so one object
+    can be wired once and passed down without each phase learning a new field.
+    """
+
+
 @dc.dataclass(frozen=True, slots=True)
 class Run:
     """What one preflight run checks, and where its evidence goes.
@@ -391,6 +423,9 @@ class Run:
     files : RepositoryFiles
         How a phase reads the documents it judges and writes the evidence it
         produces.
+    resolver : CommandResolver
+        How a phase establishes that a declared command would run, without
+        running it.
     runner : Runner
         How a phase runs a declared command.
 
@@ -406,6 +441,7 @@ class Run:
     rule: RequirementRule | None
     rule_problem: str
     files: RepositoryFiles
+    resolver: CommandResolver
     runner: Runner
 
 
@@ -437,3 +473,29 @@ def project_environment(run: Run) -> dict[str, str]:
     if not run.runtimes.project:
         return {}
     return {"UV_PYTHON": run.runtimes.project}
+
+
+class CommandResolver(typ.Protocol):
+    """Resolves a declared command against the environment it will run in."""
+
+    def __call__(self, name: str, cwd: Path, environment: typ.Mapping[str, str]) -> str:
+        """Return why *name* cannot be resolved, or ``""`` when it can.
+
+        Parameters
+        ----------
+        name : str
+            The command as the declaration spells it.
+        cwd : Path
+            The directory a relative path is anchored at.
+        environment : Mapping[str, str]
+            The environment the command will run in; a bare name is looked up
+            on its ``PATH``.
+
+        Returns
+        -------
+        str
+            The reason the name does not resolve, or an empty string when it
+            does.
+
+        """
+        ...

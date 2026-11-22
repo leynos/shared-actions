@@ -62,6 +62,12 @@ def _refuse(*_args: object, **_kwargs: object) -> typ.NoReturn:
     raise AssertionError(message)
 
 
+def refusing_resolver(name: str, cwd: Path, environment: typ.Mapping[str, str]) -> str:
+    """Fail the test: a query phase must not look a command up at all."""
+    message = f"a query phase must not resolve {name!r} in {cwd!r} with {environment!r}"
+    raise AssertionError(message)
+
+
 def _run(root: Path, output_dir: Path) -> Run:
     """Return a run whose runner fails if any phase reaches for a command."""
     return Run(
@@ -75,6 +81,7 @@ def _run(root: Path, output_dir: Path) -> Run:
         rule=None,
         rule_problem="the shared rule was not loaded",
         files=FileRepository(),
+        resolver=refusing_resolver,
         runner=_refuse,
     )
 
@@ -107,7 +114,9 @@ class TestQueryPhases:
         results = [
             run_interpreter_phase(run),
             judge_native(run, loaded.declaration),
-            run_sandbox_phase(run, loaded.declaration),
+            run_sandbox_phase(
+                run.files, run.root, run.mutmut_version, loaded.declaration
+            ),
         ]
 
         after = sorted(tmp_path.rglob("*"))
@@ -187,7 +196,7 @@ class TestQueryPhases:
 
         run_interpreter_phase(run)
         judge_native(run, loaded.declaration)
-        run_sandbox_phase(run, loaded.declaration)
+        run_sandbox_phase(run.files, run.root, run.mutmut_version, loaded.declaration)
 
         assert summary.read_text(encoding="utf-8") == "", (
             "a query phase must not append to the job summary"

@@ -9,15 +9,9 @@ from __future__ import annotations
 import typing as typ
 
 from .constants import SKIPPED, VERSION_TIMEOUT_SECONDS
+from .diagnostics import bounded, complete_stream, last_line, reports_version
 from .models import CommandRequirement, Declaration, PhaseResult, phase_outcome
 from .ports import Invocation, project_environment
-from .running import (
-    bounded,
-    complete_stream,
-    last_line,
-    reports_version,
-    resolution_problem,
-)
 
 if typ.TYPE_CHECKING:
     from .ports import Run
@@ -47,7 +41,7 @@ def _resolved_only(
     run: Run, requirement: CommandRequirement
 ) -> tuple[str | None, object]:
     """Return whether *requirement* resolves, without asking its version."""
-    problem = resolution_problem(requirement.name, run.root, run.ambient)
+    problem = run.resolver(requirement.name, run.root, run.ambient)
     if problem:
         return _unresolved(requirement.name, problem)
     return None, {"resolved": requirement.name}

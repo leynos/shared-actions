@@ -12,6 +12,7 @@ import re
 import typing as typ
 
 from .constants import FAILED, MAX_CHECK_TIMEOUT_SECONDS, SKIPPED, UNKNOWN
+from .diagnostics import first_diagnostic
 from .interpreters import judge
 from .lockfile import (
     find_locked,
@@ -20,7 +21,6 @@ from .lockfile import (
 )
 from .models import Declaration, NativeRequirement, PhaseResult, Ran, phase_outcome
 from .ports import Invocation, project_environment
-from .running import first_diagnostic
 
 if typ.TYPE_CHECKING:
     from .ports import Run

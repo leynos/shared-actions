@@ -14,10 +14,8 @@ import typing as typ
 from pathlib import Path
 
 from workflow_scripts.mutationpreflight.constants import LOG_BOUND_BYTES
-from workflow_scripts.mutationpreflight.running import (
-    TRUNCATION_PREFIX,
-    resolution_problem,
-)
+from workflow_scripts.mutationpreflight.diagnostics import TRUNCATION_PREFIX
+from workflow_scripts.mutationpreflight.resolution import resolution_problem
 from workflow_scripts.tests.mutation_preflight_support import (
     POSIX_SHIMS_ONLY,
     POSIX_SYMLINKS_ONLY,

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import dataclasses as dc
 import os
-import shutil
 import signal
 import subprocess
 import threading
@@ -17,15 +16,13 @@ import time
 import typing as typ
 from pathlib import Path
 
-from .constants import LOG_BOUND_BYTES, VERSION_TOKEN
+from .constants import LOG_BOUND_BYTES
+from .diagnostics import TRUNCATION_PREFIX, timeout_message
 from .models import Ran
+from .resolution import resolve
 
 if typ.TYPE_CHECKING:
     from .ports import Invocation
-
-#: How a bounded stream marks the bytes it dropped. ``last_line`` ignores it,
-#: so a truncated stream still names a line of its retained output.
-TRUNCATION_PREFIX: typ.Final[str] = "[... "
 
 #: How much of one stream is read at a time.
 _READ_CHUNK_BYTES: typ.Final[int] = 8192
@@ -127,204 +124,6 @@ def _drain(stream: typ.IO[bytes], capture: _Capture, stop: threading.Event) -> N
         _polled_drain(stream, capture, stop)
         return
     _blocking_drain(stream, capture)
-
-
-def bounded(text: str) -> str:
-    """Return at most ``LOG_BOUND_BYTES`` bytes of *text*, marking the rest.
-
-    Parameters
-    ----------
-    text : str
-        The stream to bound.
-
-    Returns
-    -------
-    str
-        *text* unchanged when it fits, else the kept prefix and a line naming
-        how many bytes were dropped.
-
-    """
-    encoded = text.encode("utf-8", "replace")
-    if len(encoded) <= LOG_BOUND_BYTES:
-        return text
-    kept = encoded[:LOG_BOUND_BYTES].decode("utf-8", "ignore")
-    dropped = len(encoded) - LOG_BOUND_BYTES
-    return f"{kept}\n{TRUNCATION_PREFIX}{dropped} bytes truncated]"
-
-
-def _diagnostic_lines(text: str) -> list[str]:
-    """Return the meaningful lines of *text*, without the truncation marker.
-
-    Leading whitespace is kept: it is what tells a compiler's first diagnostic
-    apart from the traceback frames indented beneath it.
-    """
-    present = [line.rstrip() for line in text.splitlines() if line.strip()]
-    return [line for line in present if not line.strip().startswith(TRUNCATION_PREFIX)]
-
-
-def last_line(outcome: Ran) -> str:
-    """Return the last non-empty line a command printed, for a one-line finding.
-
-    Parameters
-    ----------
-    outcome : Ran
-        The command's bounded result.
-
-    Returns
-    -------
-    str
-        The last non-empty line of standard error, else of standard output,
-        else a phrase saying the command printed nothing.
-
-    """
-    for text in (outcome.stderr, outcome.stdout):
-        printed = _diagnostic_lines(text)
-        if printed:
-            return printed[-1].strip()
-    return "it printed nothing"
-
-
-def first_diagnostic(outcome: Ran) -> str:
-    """Return the first non-empty diagnostic line a command printed.
-
-    A compiler reports the failure that stopped it on its first line and
-    context afterwards, so a finding that quotes the last line quotes the
-    least useful one.
-
-    Parameters
-    ----------
-    outcome : Ran
-        The command's bounded result.
-
-    Returns
-    -------
-    str
-        The first non-empty line of standard error, else of standard output,
-        else a phrase saying the command printed nothing.
-
-    """
-    for text in (outcome.stderr, outcome.stdout):
-        printed = _diagnostic_lines(text)
-        if not printed:
-            continue
-        # A compiler's first diagnostic begins at the margin. A traceback's
-        # first line is its header and its frames are indented, so the line
-        # that names the failure is the first unindented one after them.
-        leading = [
-            line
-            for line in printed
-            if not line.startswith("Traceback") and not line[:1].isspace()
-        ]
-        return (leading or printed)[0].strip()
-    return "it printed nothing"
-
-
-def _is_path(name: str) -> bool:
-    """Return whether *name* is a path rather than a bare command name."""
-    separators = [separator for separator in (os.sep, os.altsep) if separator]
-    return any(separator in name for separator in separators)
-
-
-def _executable(name: str, cwd: Path) -> str:
-    """Return the name to look up, anchored at *cwd* when it is a relative path.
-
-    A bare name is resolved through ``PATH``. A name carrying a path separator
-    would otherwise be resolved against the process's working directory, which
-    is not the directory the command is about to run in.
-
-    The anchor keeps the declaration's own parent components. Normalising them
-    away would interpret ``..`` before the operating system follows a symlink
-    in the path, so ``link/../probe`` would name a sibling of the link rather
-    than a sibling of its target. The path is passed through as written, and
-    the operating system resolves it.
-
-    The anchor is also lexical in the sense that the final link is not
-    followed: a virtual environment's ``bin/python`` is usually a symlink, and
-    an interpreter finds its own ``site-packages`` from the path it was started
-    with. Following the link here would run the target interpreter under the
-    link's path and lose the environment the declaration named.
-    """
-    if not _is_path(name) or Path(name).is_absolute():
-        return name
-    return str(Path(cwd) / name)
-
-
-def _unresolved(name: str, cwd: Path) -> str:
-    """Return why *name* cannot be looked up, in the terms its declaration used."""
-    if _is_path(name):
-        return f"{name!r} is not an executable file in {str(cwd)!r}"
-    return f"{name!r} is not on PATH"
-
-
-def _search_path(environment: typ.Mapping[str, str]) -> str | None:
-    """Return the ``PATH`` *environment* carries, under either spelling."""
-    return environment.get("PATH") or environment.get("Path")
-
-
-def _resolve(
-    name: str, cwd: Path, environment: typ.Mapping[str, str]
-) -> tuple[str | None, str]:
-    """Return the executable *name* resolves to, or why it does not.
-
-    An explicit path is checked as a file the operating system may execute,
-    following a symlink to its target, without running it. A bare name is
-    looked up on the ``PATH`` the invocation's own environment carries, so a
-    check that declares a ``PATH`` selects the executable it names rather than
-    whichever one the helper's ambient ``PATH`` happens to hold.
-    """
-    if _is_path(name):
-        candidate = Path(_executable(name, cwd))
-        if not candidate.is_file() or not os.access(candidate, os.X_OK):
-            return None, _unresolved(name, cwd)
-        return str(candidate), ""
-    search = _search_path(environment)
-    # An environment without a PATH gives the child nothing to search, so the
-    # name cannot resolve even though the helper's own PATH could find it.
-    found = None if search is None else shutil.which(name, path=search)
-    if found is None:
-        return None, _unresolved(name, cwd)
-    return found, ""
-
-
-def resolution_problem(name: str, cwd: Path, environment: typ.Mapping[str, str]) -> str:
-    """Return why *name* cannot be resolved, or ``""`` when it can.
-
-    Parameters
-    ----------
-    name : str
-        The command name or path to look up.
-    cwd : Path
-        The directory a relative path is anchored at.
-    environment : Mapping[str, str]
-        The environment the command will run in. A bare name is looked up on
-        its ``PATH``.
-
-    Returns
-    -------
-    str
-        The reason the name does not resolve, or an empty string when it does.
-
-    """
-    _, problem = _resolve(name, cwd, environment)
-    return problem
-
-
-def timeout_message(timeout: int) -> str:
-    """Return why a command was stopped, in the units its declaration used.
-
-    Parameters
-    ----------
-    timeout : int
-        The ceiling the declaration set, in seconds.
-
-    Returns
-    -------
-    str
-        A phrase naming the ceiling, with the unit agreeing with it.
-
-    """
-    unit = "second" if timeout == 1 else "seconds"
-    return f"it did not finish within {timeout} {unit}"
 
 
 def _spawn(
@@ -436,48 +235,6 @@ def _stream_text(capture: _Capture) -> str:
     return f"{text}\n{TRUNCATION_PREFIX}{dropped} bytes truncated]"
 
 
-def complete_stream(text: str, *, truncated: bool) -> str:
-    """Return *text* without the token a truncation may have cut in half.
-
-    A token that ends at the bound is unproven: the next dropped byte could
-    have been the digit that would have made it a different release. Complete
-    tokens earlier in the stream are kept, so a version printed before a flood
-    still counts; a token followed by whitespace is complete, because the
-    dropped bytes began after the whitespace that ended it.
-
-    Parameters
-    ----------
-    text : str
-        One stream as the run recorded it.
-    truncated : bool
-        Whether the run dropped bytes from that stream. An untruncated stream
-        is returned unchanged, so output that merely resembles the marker is
-        not read as evidence that the stream was cut.
-
-    Returns
-    -------
-    str
-        *text* unchanged when the stream was complete, else its content up to
-        the token the bound may have cut in half.
-
-    """
-    if not truncated:
-        return text
-    # The marker is the last line of a truncated stream and is written on its
-    # own line, so the retained text ends where the marker's newline begins.
-    head, _, _ = text.rpartition(f"\n{TRUNCATION_PREFIX}")
-    trimmed = head.rstrip()
-    if not trimmed:
-        return ""
-    if len(trimmed) < len(head):
-        # Whitespace before the marker ends the last token, so the bound did
-        # not cut it: what follows the whitespace was dropped after a complete
-        # token, and the retained prefix is kept as printed.
-        return head
-    words = trimmed.split()
-    return trimmed[: len(trimmed) - len(words[-1])]
-
-
 def run_command(invocation: Invocation) -> tuple[Ran | None, str]:
     """Run *invocation* with bounded output, or return why it could not run.
 
@@ -501,7 +258,7 @@ def run_command(invocation: Invocation) -> tuple[Ran | None, str]:
     # first would let the ambient PATH pick a different executable than the
     # declared one, or report a command missing when the declaration supplies it.
     environment = {**invocation.ambient, **invocation.env}
-    executable, problem = _resolve(command[0], invocation.cwd, environment)
+    executable, problem = resolve(command[0], invocation.cwd, environment)
     if executable is None:
         return None, problem
     try:
@@ -528,41 +285,3 @@ def run_command(invocation: Invocation) -> tuple[Ran | None, str]:
     if timed_out:
         return outcome, timeout_message(invocation.timeout)
     return outcome, ""
-
-
-def reports_version(printed: str, wanted: str) -> bool:
-    """Return whether *printed* reports *wanted* as a whole version token.
-
-    A substring test would accept ``2.4`` for ``2.41.0``, which is the kind of
-    near-miss this phase exists to catch, so the declared version must equal a
-    dotted token in the output or be its dotted prefix: ``2.4`` accepts
-    ``2.4.0`` and rejects ``2.41.0``. A pre- or post-release suffix stays in the
-    token and makes it a different release, so none of ``1.2.3rc1``,
-    ``1.2.3.post1`` or ``1.2.3-rc1`` reports the stable ``1.2.3``; a
-    declaration that pins the suffixed release itself, such as ``0.9.0rc1``,
-    still matches it exactly.
-
-    Parameters
-    ----------
-    printed : str
-        What the command wrote to both streams, joined.
-    wanted : str
-        The version the declaration requires.
-
-    Returns
-    -------
-    bool
-        Whether a token in *printed* equals *wanted* or extends it by dotted
-        components.
-
-    """
-    for token in VERSION_TOKEN.findall(printed):
-        if token == wanted:
-            return True
-        # A suffix makes the token a different release from the stable version
-        # it resembles, whatever the dotted components in front of it say.
-        if not all(part.isdigit() for part in token.split(".")):
-            continue
-        if token.startswith(f"{wanted}."):
-            return True
-    return False

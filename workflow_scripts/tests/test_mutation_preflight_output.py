@@ -10,14 +10,14 @@ from __future__ import annotations
 import pytest
 
 from workflow_scripts.mutationpreflight.constants import LOG_BOUND_BYTES
-from workflow_scripts.mutationpreflight.models import Ran
-from workflow_scripts.mutationpreflight.running import (
+from workflow_scripts.mutationpreflight.diagnostics import (
     TRUNCATION_PREFIX,
     bounded,
     complete_stream,
     last_line,
     reports_version,
 )
+from workflow_scripts.mutationpreflight.models import Ran
 
 
 class TestVersionMatching:

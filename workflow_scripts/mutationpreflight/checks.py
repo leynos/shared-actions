@@ -13,9 +13,9 @@ from pathlib import Path
 
 from .constants import FAILED, SKIPPED, UNKNOWN
 from .copy_set import copy_entry_problems, mutmut_copy_set
+from .diagnostics import last_line, timeout_message
 from .models import Check, Declaration, PhaseResult, Ran, phase_outcome
 from .ports import Invocation, Run, project_environment
-from .running import last_line, timeout_message
 from .schema import path_problem
 
 _NO_CHECKS: typ.Final[str] = "no checks declared"
@@ -219,13 +219,33 @@ def _run_checks(run: Run, declaration: Declaration, boundary: Boundary) -> Phase
     return phase_outcome("checks", findings, [], detail)
 
 
+def _checks_boundary(run: Run, declaration: Declaration) -> PhaseResult | Boundary:
+    """Return where the declared checks run, or the phase that refuses them.
+
+    Contract selection and the sandbox's lifecycle are kept here, apart from
+    running the checks. On the mutmut lane the boundary is a fresh copy built
+    from the selected release's contract; the cargo lane copies the whole tree,
+    so the checkout itself is the representative sandbox there.
+    """
+    if declaration.lane != "mutmut":
+        return Boundary(run.root, _WHOLE_TREE, "checkout")
+    table, problem = run.files.read_mutmut_configuration(run.root)
+    invalid = copy_entry_problems(table)
+    if invalid:
+        # An escaping copy entry would put the sandbox somewhere the checks
+        # must not run, so it is refused before anything is materialized.
+        return PhaseResult("checks", FAILED, invalid, {"reason": _NO_SANDBOX})
+    contract, problems = mutmut_copy_set(run.mutmut_version, table, problem)
+    if contract is None:
+        return PhaseResult("checks", UNKNOWN, problems, {"reason": _NO_SANDBOX})
+    sandbox, problems = run.files.materialize(run.root, contract)
+    if sandbox is None:
+        return PhaseResult("checks", FAILED, problems, {"reason": _NO_SANDBOX})
+    return Boundary(sandbox, str(sandbox), "sandbox")
+
+
 def run_checks_phase(run: Run, declaration: Declaration) -> PhaseResult:
     """Run each declared check from the boundary it declares.
-
-    On the mutmut lane the checks run inside a copy built from that release's
-    contract, because a check that only passes in the checkout has not been
-    shown to survive into ``mutants/``. The cargo lane copies the whole tree,
-    so the checkout itself is the representative sandbox there.
 
     Parameters
     ----------
@@ -248,24 +268,11 @@ def run_checks_phase(run: Run, declaration: Declaration) -> PhaseResult:
     """
     if not declaration.checks:
         return PhaseResult("checks", SKIPPED, (), {"reason": _NO_CHECKS})
-    if declaration.lane != "mutmut":
-        return _run_checks(
-            run, declaration, Boundary(run.root, _WHOLE_TREE, "checkout")
-        )
-    table, problem = run.files.read_mutmut_configuration(run.root)
-    invalid = copy_entry_problems(table)
-    if invalid:
-        # An escaping copy entry would put the sandbox somewhere the checks
-        # must not run, so it is refused before anything is materialized.
-        return PhaseResult("checks", FAILED, invalid, {"reason": _NO_SANDBOX})
-    contract, problems = mutmut_copy_set(run.mutmut_version, table, problem)
-    if contract is None:
-        return PhaseResult("checks", UNKNOWN, problems, {"reason": _NO_SANDBOX})
-    sandbox, problems = run.files.materialize(run.root, contract)
-    if sandbox is None:
-        return PhaseResult("checks", FAILED, problems, {"reason": _NO_SANDBOX})
+    boundary = _checks_boundary(run, declaration)
+    if isinstance(boundary, PhaseResult):
+        return boundary
     try:
-        boundary = Boundary(sandbox, str(sandbox), "sandbox")
         return _run_checks(run, declaration, boundary)
     finally:
-        run.files.discard(sandbox)
+        if boundary.root != run.root:
+            run.files.discard(boundary.root)

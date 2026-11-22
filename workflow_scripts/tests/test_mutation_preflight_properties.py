@@ -14,7 +14,7 @@ from workflow_scripts.mutationpreflight.constants import (
     EXCLUDED_DIRECTORIES,
     LOG_BOUND_BYTES,
 )
-from workflow_scripts.mutationpreflight.running import (
+from workflow_scripts.mutationpreflight.diagnostics import (
     TRUNCATION_PREFIX,
     bounded,
     reports_version,

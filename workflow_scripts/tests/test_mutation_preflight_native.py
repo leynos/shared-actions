@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import typing as typ
 
+import pytest
+
+from workflow_scripts.mutationpreflight import cli
 from workflow_scripts.tests.mutation_preflight_support import (
     RULE_AVAILABLE,
     Checkout,
@@ -167,3 +170,37 @@ class TestNativeSupport:
         found = outcome.findings("native")
         assert "records no pinned revision" in found
         assert "not the declared revision" not in found
+
+    def test_the_abi3_escape_hatch_is_recorded_and_never_proof(
+        self,
+        tmp_path: Path,
+        run_preflight: typ.Callable[..., Outcome],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Setting the escape hatch must not turn unknown support into a pass."""
+        monkeypatch.setenv("PYO3_USE_ABI3_FORWARD_COMPATIBILITY", "1")
+
+        unknown = self._unknown_outcome(
+            run_preflight,
+            tmp_path / "repo",
+            '[native]\npackage = "tei-rapporteur"\n',
+            project_python="3.13",
+        )
+
+        assert unknown.phases["native"]["status"] == "unknown", (
+            "an ABI3 escape hatch skips a version check; it does not prove support"
+        )
+        assert unknown.detail("native")["abi3_forward_compatibility"] == "1", (
+            "the recorded escape hatch must be the value the caller set"
+        )
+
+    def test_abi3_escape_hatch_reports_unset_when_absent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unset or empty escape hatch is recorded as unset, not as empty text."""
+        monkeypatch.delenv("PYO3_USE_ABI3_FORWARD_COMPATIBILITY", raising=False)
+
+        assert cli.abi3_escape_hatch() == "unset"
+
+        monkeypatch.setenv("PYO3_USE_ABI3_FORWARD_COMPATIBILITY", "")
+        assert cli.abi3_escape_hatch() == "unset"

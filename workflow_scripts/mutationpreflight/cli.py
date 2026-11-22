@@ -16,7 +16,8 @@ from .constants import FAILED, LANES, MUTMUT_PINNED_VERSION
 from .declaration import load_declaration
 from .models import PhaseResult, Report, Runtimes
 from .ports import Run
-from .reporting import checked_phases, verdict, write_report
+from .publication import write_report
+from .reporting import checked_phases, verdict
 from .repository import FileRepository, load_shared_rule
 from .resolution import resolution_problem
 from .running import run_command
@@ -208,7 +209,9 @@ def main(
         verdict=verdict(results),
     )
     emit_findings(results)
-    problems = write_report(run, report)
+    problems = write_report(
+        run.files, report, output_dir=run.output_dir, summary_path=run.summary_path
+    )
     if problems:
         # Evidence that cannot be published is a failure of the run, not a
         # warning beside a passing verdict: no one can read what it decided.

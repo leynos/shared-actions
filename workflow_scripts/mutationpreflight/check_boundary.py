@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import typing as typ
 
-from .checks import Boundary, run_checks
+from .checks import Boundary, Review, log_stem, run_checks
 from .constants import FAILED, SKIPPED, UNKNOWN
 from .copy_set import copy_entry_problems, mutmut_copy_set
-from .models import Declaration, PhaseResult
+from .models import Declaration, PhaseResult, phase_outcome
 
 if typ.TYPE_CHECKING:
     from .ports import Run
@@ -80,7 +80,34 @@ def run_checks_phase(run: Run, declaration: Declaration) -> PhaseResult:
     if isinstance(boundary, PhaseResult):
         return boundary
     try:
-        return run_checks(run, declaration, boundary)
+        reviews, results = run_checks(run, declaration, boundary)
+        findings = _write_logs(run, declaration, reviews)
+        detail: dict[str, object] = {"ran_in": boundary.where, "results": results}
+        return phase_outcome("checks", findings, [], detail)
     finally:
         if boundary.root != run.root:
             run.files.discard(boundary.root)
+
+
+def _write_logs(
+    run: Run, declaration: Declaration, reviews: typ.Sequence[Review]
+) -> list[str]:
+    """Write each review's streams, returning the findings that failed a check."""
+    findings: list[str] = []
+    pairs = zip(declaration.checks, reviews, strict=True)
+    for index, (check, review) in enumerate(pairs):
+        finding = review.finding
+        if review.outcome is not None:
+            log_problem = run.files.write_check_logs(
+                run.output_dir / "checks",
+                log_stem(index, check.name),
+                check.name,
+                review.outcome,
+            )
+            if log_problem is not None:
+                # Evidence that cannot be written is a failure of the check's
+                # own report, whatever the command itself exited with.
+                finding = log_problem
+        if finding is not None:
+            findings.append(finding)
+    return findings

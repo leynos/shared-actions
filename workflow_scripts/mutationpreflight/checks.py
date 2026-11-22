@@ -8,12 +8,15 @@ leaving it in a comment beside the fixture.
 from __future__ import annotations
 
 import dataclasses as dc
+import typing as typ
 from pathlib import Path
 
 from .diagnostics import last_line, timeout_message
-from .models import Check, Declaration, PhaseResult, Ran, phase_outcome
 from .ports import Invocation, Run, project_environment
 from .schema import path_problem
+
+if typ.TYPE_CHECKING:
+    from .models import Check, Declaration, Ran
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -173,37 +176,21 @@ def _review_check(boundary: Boundary, check: Check, run: Run) -> Review:
     return Review(finding, evidence, outcome)
 
 
-def run_checks(run: Run, declaration: Declaration, boundary: Boundary) -> PhaseResult:
-    """Run every declared check under *boundary*, recording where that was.
+def run_checks(
+    run: Run, declaration: Declaration, boundary: Boundary
+) -> tuple[list[Review], list[dict[str, object]]]:
+    """Run every declared check under *boundary*, returning what each decided.
 
-    The logs are written here, at the orchestration edge, rather than by the
-    function that judges a result: a timed-out check keeps the streams it
-    produced before it was stopped, and a log that cannot be written is a named
-    finding that fails the check.
+    The logs are written by the caller from the reviews returned here, so this
+    function runs and judges the checks and nothing else. A timed-out check
+    still returns the streams it produced before it was stopped, so a log can
+    carry them.
     """
     reviews = [_review_check(boundary, check, run) for check in declaration.checks]
-    findings: list[str] = []
-    # Keyed by position as well as name: two checks may share a name, and a
-    # mapping by name alone would silently drop one of their evidence entries.
-    results: list[dict[str, object]] = []
-    pairs = zip(declaration.checks, reviews, strict=True)
-    for index, (check, review) in enumerate(pairs):
-        finding = review.finding
-        if review.outcome is not None:
-            log_problem = run.files.write_check_logs(
-                run.output_dir / "checks",
-                log_stem(index, check.name),
-                check.name,
-                review.outcome,
-            )
-            if log_problem is not None:
-                # Evidence that cannot be written is a failure of the check's
-                # own report, whatever the command itself exited with.
-                finding = log_problem
-        if finding is not None:
-            findings.append(finding)
-        results.append(
-            {"index": index, "name": check.name, "evidence": review.evidence}
+    results = [
+        {"index": index, "name": check.name, "evidence": review.evidence}
+        for index, (check, review) in enumerate(
+            zip(declaration.checks, reviews, strict=True)
         )
-    detail: dict[str, object] = {"ran_in": boundary.where, "results": results}
-    return phase_outcome("checks", findings, [], detail)
+    ]
+    return reviews, results

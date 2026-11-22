@@ -30,7 +30,8 @@ from workflow_scripts.mutationpreflight.ports import (
     Invocation,
     Run,
 )
-from workflow_scripts.mutationpreflight.reporting import checked_phases, write_report
+from workflow_scripts.mutationpreflight.publication import write_report
+from workflow_scripts.mutationpreflight.reporting import checked_phases
 from workflow_scripts.mutationpreflight.repository import FileRepository
 from workflow_scripts.mutationpreflight.sandbox import run_sandbox_phase
 from workflow_scripts.tests.mutation_preflight_support import (
@@ -161,7 +162,9 @@ class TestQueryPhases:
             lane="mutmut", runtimes=run.runtimes, results=(), verdict="pass"
         )
 
-        problems = write_report(run, report)
+        problems = write_report(
+            run.files, report, output_dir=run.output_dir, summary_path=run.summary_path
+        )
 
         assert problems == (), "publishing a readable report must not report a problem"
         written = output / "mutation-preflight.json"
@@ -203,7 +206,9 @@ class TestQueryPhases:
         )
         assert not output.exists(), "a query phase must not write the report"
 
-        problems = write_report(run, report)
+        problems = write_report(
+            run.files, report, output_dir=run.output_dir, summary_path=run.summary_path
+        )
 
         assert problems == (), "publishing a readable report must not report a problem"
         assert "Mutation environment preflight" in summary.read_text(

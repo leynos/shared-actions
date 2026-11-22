@@ -1,31 +1,28 @@
-"""Running the phases and publishing what each one decided.
+"""Sequencing the phases, and the policy that decides what runs when.
 
 Every phase is emitted as it finishes, so a crash in a later phase still leaves
-the earlier verdicts in the log. That is the point of an envelope that does not
-depend on mutation results existing.
+the earlier verdicts in the log. What the run publishes is written by
+``publication.py``; this module decides the order and the gates.
 """
 
 from __future__ import annotations
 
-import re
 import typing as typ
-from pathlib import Path
 
 from .check_boundary import run_checks_phase
 from .commands import run_commands_phase
 from .console import emit
 from .constants import FAILED, SKIPPED, SUCCEEDED
 from .interpreters import run_interpreter_phase
-from .models import Declaration, Loaded, PhaseResult, Report
+from .models import Declaration, Loaded, PhaseResult
 from .native import (
     changed_lock_phase,
     judge_native,
     judged_identity,
     lock_identity,
-    probe_blocked,
-    probe_native,
-    with_probe,
 )
+from .probing import probe_blocked, probe_native, with_probe
+from .publication import phase_envelope
 from .sandbox import run_sandbox_phase
 
 if typ.TYPE_CHECKING:
@@ -101,129 +98,6 @@ def verdict(results: typ.Sequence[PhaseResult]) -> str:
     if any(result.status == FAILED for result in results):
         return FAILED
     return SUCCEEDED
-
-
-def phase_envelope(result: PhaseResult) -> dict[str, object]:
-    """Return one phase's machine-readable envelope entry.
-
-    Parameters
-    ----------
-    result : PhaseResult
-        The phase to publish.
-
-    Returns
-    -------
-    dict[str, object]
-        The phase's name, status, findings and evidence. Every value is
-        JSON-serializable, because the same entry is logged and written to the
-        report.
-
-    """
-    return {
-        "name": result.name,
-        "status": result.status,
-        "findings": list(result.findings),
-        "detail": result.detail,
-    }
-
-
-def _table_ready(findings: typ.Iterable[str]) -> list[str]:
-    """Return findings that cannot break the row they are rendered in.
-
-    A finding can carry a multi-line message, such as the one ``ConfigParser``
-    raises, and an embedded newline would end the table row early. Whitespace
-    runs collapse to one space. A backslash is escaped before ``|`` so a
-    backslash already in the text cannot neutralize the pipe escape.
-    """
-    return [
-        re.sub(r"\s+", " ", finding).replace("\\", "\\\\").replace("|", "\\|")
-        for finding in findings
-    ]
-
-
-def render_summary(report: Report) -> str:
-    """Render every phase as job-summary Markdown.
-
-    Parameters
-    ----------
-    report : Report
-        The run to render.
-
-    Returns
-    -------
-    str
-        The Markdown appended to the job summary.
-
-    """
-    lines = [
-        "## Mutation environment preflight",
-        "",
-        f"- **lane:** {report.lane}",
-        f"- **helper interpreter:** {report.runtimes.helper}",
-        f"- **project interpreter:** {report.runtimes.project or '(not supplied)'}",
-        "",
-        "| Phase | Result | Findings |",
-        "| ----- | ------ | -------- |",
-    ]
-    for result in report.results:
-        findings = "<br>".join(_table_ready(result.findings)) or "-"
-        lines.append(f"| {result.name} | {result.status} | {findings} |")
-    lines.append("")
-    return "\n".join(lines)
-
-
-def _report_document(
-    report: Report, unpublished: typ.Sequence[str]
-) -> dict[str, object]:
-    """Return the machine-readable report document.
-
-    *unpublished* names the parts of the report that could not be published
-    elsewhere. The document records them, and its verdict fails, because a
-    report whose evidence is incomplete must not read as a pass.
-    """
-    return {
-        "lane": report.lane,
-        "helper_python": report.runtimes.helper,
-        "project_python": report.runtimes.project,
-        "result": FAILED if unpublished else report.verdict,
-        "reporting": list(unpublished),
-        "phases": [phase_envelope(result) for result in report.results],
-    }
-
-
-def write_report(run: Run, report: Report) -> tuple[str, ...]:
-    """Append the Markdown summary, then write the JSON report.
-
-    The summary is appended first so the JSON report can record whether it was
-    published. The JSON is the machine-readable verdict, and a verdict that
-    claimed a pass while its summary had failed would be misleading.
-
-    Parameters
-    ----------
-    run : Run
-        The run whose summary path and output directory receive the report.
-    report : Report
-        The run to publish.
-
-    Returns
-    -------
-    tuple[str, ...]
-        Why the diagnostics could not be published, or an empty tuple when
-        they were. A run whose evidence cannot be read has not passed, so the
-        caller fails it rather than exiting successfully with nothing to show.
-
-    """
-    problems: list[str] = []
-    if run.summary_path:
-        problem = run.files.append_summary(
-            Path(run.summary_path), render_summary(report)
-        )
-        if problem is not None:
-            problems.append(problem)
-    written = run.files.write_report(run.output_dir, _report_document(report, problems))
-    if written is not None:
-        problems.append(written)
-    return tuple(problems)
 
 
 def _skipped_phases(loaded: Loaded) -> typ.Iterator[PhaseResult]:

@@ -37,7 +37,7 @@ from .schema import (
 )
 
 if typ.TYPE_CHECKING:
-    from .ports import Document, RepositoryFiles
+    from .ports import Document, DocumentReader
 
 #: Where a declaration may live, in the order a repository's intent is read.
 _DECLARATION_LOCATIONS: typ.Final[tuple[Path, ...]] = (
@@ -241,12 +241,12 @@ def _declaration(table: dict[str, object], source: Path, lane: str) -> Declarati
     return declaration
 
 
-def load_declaration(files: RepositoryFiles, root: Path, lane: str) -> Loaded:
+def load_declaration(files: DocumentReader, root: Path, lane: str) -> Loaded:
     """Return the repository's declaration for *lane*, or why it was refused.
 
     Parameters
     ----------
-    files : RepositoryFiles
+    files : DocumentReader
         How the declaration's documents are read.
     root : Path
         The checkout the declaration belongs to.

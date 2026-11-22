@@ -17,7 +17,7 @@ from workflow_scripts.mutationpreflight.models import (
     Report,
     Runtimes,
 )
-from workflow_scripts.mutationpreflight.reporting import render_summary
+from workflow_scripts.mutationpreflight.publication import render_summary
 from workflow_scripts.tests.mutation_preflight_support import (
     Checkout,
     Outcome,

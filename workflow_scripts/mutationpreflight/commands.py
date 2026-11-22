@@ -113,12 +113,15 @@ def _review_command(
 def run_commands_phase(
     run: Run, declaration: Declaration, *, probe_versions: bool = True
 ) -> PhaseResult:
-    """Check that every required command resolves, at the declared version.
+    """Check that every required command resolves, and probe a pinned version.
+
+    A pinned version is established by running the command with its declared
+    version arguments; an unpinned one is established by resolution alone.
 
     Parameters
     ----------
     run : Run
-        The checkout each version query runs from, the runner, and the ambient
+        The checkout each version probe runs from, the runner, and the ambient
         environment.
     declaration : Declaration
         The repository's declaration, whose ``require_commands`` are checked.

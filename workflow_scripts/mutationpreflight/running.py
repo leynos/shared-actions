@@ -14,7 +14,6 @@ import subprocess
 import threading
 import time
 import typing as typ
-from pathlib import Path
 
 from .constants import LOG_BOUND_BYTES
 from .diagnostics import TRUNCATION_PREFIX, timeout_message
@@ -22,6 +21,8 @@ from .models import Ran
 from .resolution import resolve
 
 if typ.TYPE_CHECKING:
+    from pathlib import Path
+
     from .ports import Invocation
 
 #: How much of one stream is read at a time.

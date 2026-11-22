@@ -13,7 +13,9 @@ from __future__ import annotations
 import typing as typ
 
 from .constants import LOG_BOUND_BYTES, VERSION_TOKEN
-from .models import Ran
+
+if typ.TYPE_CHECKING:
+    from .models import Ran
 
 #: How a bounded stream marks the bytes it dropped. ``last_line`` ignores it,
 #: so a truncated stream still names a line of its retained output.

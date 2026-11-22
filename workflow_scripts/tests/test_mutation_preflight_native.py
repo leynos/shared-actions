@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import typing as typ
 
-import pytest
-
 from workflow_scripts.mutationpreflight import cli
 from workflow_scripts.tests.mutation_preflight_support import (
     RULE_AVAILABLE,
@@ -23,6 +21,8 @@ from workflow_scripts.tests.mutation_preflight_support import (
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
 _REVISION_SOURCE = 'git = "https://example.invalid/tei.git?rev=abc123"'
 

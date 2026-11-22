@@ -215,15 +215,18 @@ class FileRepository:
             problem = self._copy_contract_entry(anchor, root, destination, entry)
             if problem is not None:
                 return problem
-        for pattern in contract.globs:
-            for source in sorted(root.glob(pattern)):
-                if source.is_file():
-                    # A glob match receives the same containment rule as a
-                    # declared entry, so an escaping link stays a link.
-                    self._copy_source(
-                        anchor, destination, source, destination / source.name
-                    )
+        for source in self._glob_sources(root, contract.globs):
+            # A glob match receives the same containment rule as a declared
+            # entry, so an escaping link stays a link.
+            self._copy_source(anchor, destination, source, destination / source.name)
         return None
+
+    def _glob_sources(self, root: Path, globs: tuple[str, ...]) -> list[Path]:
+        """Return the files the contract's root globs select, in path order."""
+        found: list[Path] = []
+        for pattern in globs:
+            found.extend(root.glob(pattern))
+        return sorted(source for source in found if source.is_file())
 
     def _copy_contract_entry(
         self, anchor: Path, root: Path, destination: Path, entry: str

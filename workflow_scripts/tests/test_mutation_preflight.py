@@ -125,6 +125,20 @@ class TestManifest:
             "the finding must name the non-table declaration"
         )
 
+    def test_a_declaration_path_that_is_not_a_file_is_refused(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """Something present where the sidecar belongs is not the same as absent."""
+        root = repository(tmp_path / "repo", Checkout())
+        (root / ".github" / "mutation-preflight.toml").mkdir(parents=True)
+
+        outcome = run_preflight(root, project_python="3.13")
+
+        assert outcome.exit_code == 1, outcome.stdout
+        assert "exists but is not a file" in outcome.findings("manifest"), (
+            f"the finding must name the unusable path: {outcome.findings('manifest')}"
+        )
+
     def test_an_environment_entry_the_os_cannot_pass_is_refused(
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:

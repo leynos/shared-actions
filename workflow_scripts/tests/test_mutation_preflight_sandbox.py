@@ -424,3 +424,41 @@ class TestSandbox:
         assert "tool cache" in outcome.findings("sandbox"), (
             "the finding must name the cache the link reaches"
         )
+
+    def test_a_lockfile_the_selected_release_copies_is_a_sandbox_path(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """The 3.7 copy set includes the lockfiles the release ships with."""
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest='sandbox_paths = ["poetry.lock"]\n',
+                extra={"poetry.lock": ""},
+            ),
+            project_python="3.13",
+            mutmut_version="3.7.0",
+        )
+
+        assert outcome.phases["sandbox"]["status"] == "pass", outcome.findings(
+            "sandbox"
+        )
+
+    def test_a_copy_entry_that_escapes_the_checkout_is_refused(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """An also_copy entry above the checkout must not be copied at all."""
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest='sandbox_paths = ["conftest.py"]\n',
+                also_copy=("../shared",),
+            ),
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 1, outcome.stdout
+        assert "entry '../shared' escapes the checkout" in outcome.findings(
+            "sandbox"
+        ), "the finding must name the entry that leaves the checkout"

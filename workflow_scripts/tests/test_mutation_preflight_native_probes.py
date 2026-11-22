@@ -225,3 +225,37 @@ class TestChecksAndTheLock:
         assert "revision 'def456'" in found, (
             f"the finding must name the identity the lock now records: {found}"
         )
+
+    def test_a_check_that_deletes_the_lock_fails_the_native_phase(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A lock the checks removed is a change, not an absent baseline."""
+        pinned = lock_document(
+            "0.3.1", 'git = "https://example.invalid/tei.git?rev=abc123"'
+        )
+        script = 'import os; os.remove("uv.lock")'
+        manifest = (
+            "[native]\n"
+            'package = "tei-rapporteur"\n'
+            'revision = "abc123"\n'
+            "[[checks]]\n"
+            'name = "remove-lock"\n'
+            f"command = ['{sys.executable}', '-c', '{script}']\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest, extra={"uv.lock": pinned}),
+            lane="cargo",
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 1, outcome.stdout
+        assert outcome.phases["native"]["status"] == "fail", (
+            "a lock the checks removed must not certify the identity judged before it"
+        )
+        found = outcome.findings("native")
+        assert "a declared check left uv.lock without an identity" in found, (
+            f"the finding must name the identity the checks removed: {found}"
+        )

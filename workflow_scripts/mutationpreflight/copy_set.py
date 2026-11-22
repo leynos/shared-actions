@@ -14,7 +14,7 @@ import typing as typ
 
 from .constants import MUTMUT_COPY_CONTRACTS
 from .models import DeclarationError
-from .schema import strings
+from .schema import path_problem, strings
 
 #: A ``major.minor`` release prefix, with an optional leading ``v``.
 _VERSION_PREFIX: typ.Final[re.Pattern[str]] = re.compile(r"\s*v?(\d+)\.(\d+)")
@@ -65,6 +65,62 @@ _NO_SOURCE_PATHS: typ.Final[str] = (
 )
 
 
+def _declared_entries(
+    table: dict[str, object],
+) -> tuple[tuple[str, ...], str | None]:
+    """Return the entries a declaration adds to mutmut's copy set, or why not."""
+    try:
+        # mutmut reads ``paths_to_mutate`` when ``source_paths`` is empty,
+        # warning that it is deprecated; the copy set is the same either way.
+        source_paths = strings(
+            table.get("source_paths"), "[tool.mutmut] source_paths"
+        ) or strings(table.get("paths_to_mutate"), "[tool.mutmut] paths_to_mutate")
+        also_copy = strings(table.get("also_copy"), "[tool.mutmut] also_copy")
+    except DeclarationError as error:
+        return (), str(error)
+    if not source_paths:
+        return (), _NO_SOURCE_PATHS
+    return (*source_paths, *also_copy), None
+
+
+def _entry_findings(entries: typ.Iterable[str]) -> tuple[str, ...]:
+    """Return a finding for each copy entry that must not be copied."""
+    return tuple(
+        f"[tool.mutmut] entry {entry!r} {problem}"
+        for entry in entries
+        if (problem := path_problem(entry)) is not None
+    )
+
+
+def copy_entry_problems(table: dict[str, object] | None) -> tuple[str, ...]:
+    """Return findings for declared copy entries that must not be copied.
+
+    Parameters
+    ----------
+    table : dict[str, object] | None
+        The mutmut configuration the repository adapter read, or ``None`` when
+        it could not be established.
+
+    Returns
+    -------
+    tuple[str, ...]
+        One finding per absolute, escaping or excluded entry the declaration
+        adds to the copy set. Such an entry would copy something the checkout
+        does not contain where the sandbox is meant to hold what it does, so a
+        phase refuses it before any copy starts. A configuration whose entries
+        cannot be read at all yields no findings here: ``mutmut_copy_set``
+        reports that state, which stays unknown rather than reading as a bad
+        entry.
+
+    """
+    if table is None:
+        return ()
+    entries, problem = _declared_entries(table)
+    if problem is not None:
+        return ()
+    return _entry_findings(entries)
+
+
 def mutmut_copy_set(
     version: str, table: dict[str, object] | None, problem: str | None
 ) -> tuple[CopyContract | None, tuple[str, ...]]:
@@ -99,16 +155,14 @@ def mutmut_copy_set(
         )
     if table is None:
         return None, (problem or "the mutmut configuration could not be read",)
-    try:
-        # mutmut reads ``paths_to_mutate`` when ``source_paths`` is empty,
-        # warning that it is deprecated; the copy set is the same either way.
-        source_paths = strings(
-            table.get("source_paths"), "[tool.mutmut] source_paths"
-        ) or strings(table.get("paths_to_mutate"), "[tool.mutmut] paths_to_mutate")
-        also_copy = strings(table.get("also_copy"), "[tool.mutmut] also_copy")
-    except DeclarationError as error:
-        return None, (str(error),)
-    if not source_paths:
-        return None, (_NO_SOURCE_PATHS,)
+    entries, entry_problem = _declared_entries(table)
+    if entry_problem is not None:
+        return None, (entry_problem,)
+    # The defaults are this helper's own constants; the declared entries are
+    # the caller's, and an absolute or escaping one would write outside the
+    # sandbox the checks are meant to run in.
+    escapes = _entry_findings(entries)
+    if escapes:
+        return None, escapes
     defaults, globs = known
-    return CopyContract((*defaults, *source_paths, *also_copy), globs), ()
+    return CopyContract((*defaults, *entries), globs), ()

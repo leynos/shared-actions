@@ -288,6 +288,33 @@ def test_an_unwritable_log_fails_the_check(
     )
 
 
+class TestCopyBoundary:
+    """A check runs only in a sandbox built from a copy set inside the checkout."""
+
+    def test_a_copy_entry_that_escapes_the_checkout_fails_the_checks(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """An escaping also_copy entry must fail before anything is copied."""
+        manifest = (
+            "[[checks]]\n"
+            'name = "collect"\n'
+            f"command = ['{sys.executable}', '-c', 'print(1)']\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest, also_copy=("../shared",)),
+            project_python="3.13",
+        )
+
+        assert outcome.exit_code == 1, outcome.stdout
+        assert outcome.phases["checks"]["status"] == "fail"
+        assert "entry '../shared' escapes the checkout" in outcome.findings("checks"), (
+            "the finding must name the entry that leaves the checkout"
+        )
+
+
 class TestCommandResolution:
     """A command is resolved against the boundary it will run in."""
 

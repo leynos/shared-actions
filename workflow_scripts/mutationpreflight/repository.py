@@ -90,7 +90,19 @@ class FileRepository:
         documents: list[Document] = []
         for relative in relatives:
             path = root / relative
+            if not path.exists() and not path.is_symlink():
+                # A file the repository simply does not have is optional: a
+                # repository declaring nothing is a normal state, not a refusal.
+                continue
             if not path.is_file():
+                # A directory or a dangling link at a declaration's path is not
+                # absence: something is there and cannot be read, and saying it
+                # was missing would hide the declaration the author wrote.
+                unreadable = (
+                    f"{path} exists but is not a file, so its requirements "
+                    f"cannot be read"
+                )
+                documents.append(Document(path, None, unreadable))
                 continue
             document, problem = self._read_document(path)
             documents.append(Document(path, document, problem or ""))
@@ -145,6 +157,21 @@ class FileRepository:
         try:
             anchor = root.resolve()
             for entry in contract.paths:
+                target = destination / entry
+                if target.is_symlink() or target.exists():
+                    # An earlier, overlapping entry already wrote this path, and
+                    # the first write is the one that counts.
+                    continue
+                if self._outside(destination, entry):
+                    # The contract is validated before it reaches here; this is
+                    # the second check, so a future caller cannot copy through a
+                    # link the first one did not foresee.
+                    shutil.rmtree(destination, ignore_errors=True)
+                    outside = (
+                        f"the mutmut copy contract entry {entry!r} would write "
+                        f"outside the sandbox"
+                    )
+                    return None, (outside,)
                 self._copy_entry(anchor, root, destination, entry)
             for pattern in contract.globs:
                 for source in sorted(root.glob(pattern)):
@@ -200,6 +227,14 @@ class FileRepository:
         except OSError as error:
             return f"the report {str(destination)!r} could not be written: {error}"
         return None
+
+    def _outside(self, destination: Path, entry: str) -> bool:
+        """Return whether copying *entry* would write outside *destination*."""
+        try:
+            target = (destination / entry).resolve()
+            return not target.is_relative_to(destination.resolve())
+        except OSError:
+            return True
 
     def _read_document(self, path: Path) -> tuple[dict[str, object] | None, str | None]:
         """Return *path* parsed as TOML, or why it could not be read."""

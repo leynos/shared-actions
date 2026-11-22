@@ -310,14 +310,16 @@ def changed_lock_phase(
     judged: PhaseResult,
     native: NativeRequirement,
     before: LockIdentity,
-    after: LockIdentity,
+    after: LockIdentity | None,
 ) -> PhaseResult:
     """Return *judged* failed by a declared check that rewrote the lock.
 
     The checks run in the checkout on the cargo lane, after the lock was read
     and before the mutation run starts. A check that relocks the project would
     leave the judged pin describing an environment the run no longer uses, so
-    an identity that moved across the checks fails the native phase.
+    an identity that moved across the checks fails the native phase. A lock
+    that no longer establishes the identity at all is a change too: the checks
+    removed the very record the judgement had established.
 
     Parameters
     ----------
@@ -327,8 +329,9 @@ def changed_lock_phase(
         The declared dependency whose lock moved.
     before : LockIdentity
         What the lock recorded before the checks ran.
-    after : LockIdentity
-        What the lock records now.
+    after : LockIdentity | None
+        What the lock records now, or ``None`` when it no longer establishes
+        the package's identity.
 
     Returns
     -------
@@ -338,14 +341,24 @@ def changed_lock_phase(
         does not excuse a revision or range that already did not hold.
 
     """
-    finding = (
-        f"a declared check changed uv.lock for {native.package} from "
-        f"{before.render()} to {after.render()}; run the checks with the lock "
-        f"enforced (uv's --locked or UV_LOCKED) so they cannot relock the project"
-    )
+    if after is None:
+        finding = (
+            f"a declared check left uv.lock without an identity for "
+            f"{native.package}; it recorded {before.render()} before the checks. "
+            f"Run the checks with the lock enforced (uv's --locked or UV_LOCKED) "
+            f"so they cannot rewrite it"
+        )
+    else:
+        finding = (
+            f"a declared check changed uv.lock for {native.package} from "
+            f"{before.render()} to {after.render()}; run the checks with the lock "
+            f"enforced (uv's --locked or UV_LOCKED) so they cannot relock the project"
+        )
     blocking = [*judged.findings, finding] if judged.status == FAILED else [finding]
     indeterminate = list(judged.findings) if judged.status == UNKNOWN else []
-    detail = {**judged.detail, "before_checks": dc.asdict(before)}
+    detail: dict[str, object] = {"before_checks": dc.asdict(before)}
+    detail.update(judged.detail)
+    detail["after_checks"] = None if after is None else dc.asdict(after)
     if native.probe:
         # A probe would run under a lock the checks have moved, so it is
         # withheld, and the envelope records that rather than silence.

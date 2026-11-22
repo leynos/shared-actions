@@ -11,55 +11,15 @@ import typing as typ
 from fnmatch import fnmatch
 from pathlib import Path, PurePosixPath
 
-from .constants import EXCLUDED_DIRECTORIES, SKIPPED
-from .copy_set import CopyContract, mutmut_copy_set
+from .constants import SKIPPED
+from .copy_set import CopyContract, copy_entry_problems, mutmut_copy_set
 from .models import Declaration, PhaseResult, phase_outcome
+from .schema import excluded_problem, path_problem
 
 if typ.TYPE_CHECKING:
     from .ports import LocatedPath, RepositoryFiles, Run
 
 _NO_SANDBOX: typ.Final[str] = "no sandbox_paths declared"
-
-
-def path_problem(declared: str) -> str | None:
-    """Return why *declared* cannot be a sandbox path, or ``None`` when it can.
-
-    Parameters
-    ----------
-    declared : str
-        The path as the declaration spells it.
-
-    Returns
-    -------
-    str | None
-        Why the path is unusable, or ``None`` when it stays inside the
-        checkout and outside build output and caches.
-
-    """
-    if not declared.strip():
-        return "is empty"
-    path = PurePosixPath(declared)
-    if path.is_absolute():
-        return "is absolute, but sandbox paths are relative to the checkout"
-    parts = [part for part in path.parts if part not in ("", ".")]
-    if ".." in parts:
-        return "escapes the checkout"
-    return _excluded_problem(parts, "is under")
-
-
-def _excluded_problem(parts: typ.Iterable[str], phrase: str) -> str | None:
-    """Return why *parts* names build output, a tool cache or the VCS store.
-
-    *phrase* opens the finding, so the same rule can describe a declared path
-    and the path a symlink resolves to.
-    """
-    for part in parts:
-        if part in EXCLUDED_DIRECTORIES:
-            return (
-                f"{phrase} {part!r}, which is build output, a tool cache or the "
-                f"version-control store; the sandbox must not carry it"
-            )
-    return None
 
 
 def _resolved_problem(located: LocatedPath) -> str | None:
@@ -69,7 +29,7 @@ def _resolved_problem(located: LocatedPath) -> str | None:
             f"resolves to {located.resolved!r} outside the checkout, so the "
             f"sandbox would carry something the declaration did not name"
         )
-    return _excluded_problem(located.parts, "resolves into")
+    return excluded_problem(located.parts, "resolves into")
 
 
 def _covers(entry: str, wanted: str) -> bool:
@@ -176,12 +136,18 @@ def run_sandbox_phase(run: Run, declaration: Declaration) -> PhaseResult:
     if not declaration.sandbox_paths:
         return PhaseResult("sandbox", SKIPPED, (), {"reason": _NO_SANDBOX})
     table, problem = run.files.read_mutmut_configuration(run.root)
-    contract, problems = mutmut_copy_set(run.mutmut_version, table, problem)
     detail: dict[str, object] = {
         "declared": list(declaration.sandbox_paths),
         "mutmut_version": run.mutmut_version,
-        "copied": [] if contract is None else sorted(contract.paths),
+        "copied": [],
     }
+    invalid = copy_entry_problems(table)
+    if invalid:
+        # An entry that escapes the checkout is a declaration this run cannot
+        # honour, not a copy set it merely cannot establish: it fails.
+        return phase_outcome("sandbox", list(invalid), [], detail)
+    contract, problems = mutmut_copy_set(run.mutmut_version, table, problem)
+    detail["copied"] = [] if contract is None else sorted(contract.paths)
     findings, classified = _review_paths(
         run.files, run.root, declaration.sandbox_paths, contract
     )

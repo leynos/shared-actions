@@ -121,7 +121,7 @@ def test_an_absolute_path_is_refused(parts: list[str]) -> None:
     declared = "/" + "/".join(parts)
 
     assert path_problem(declared) == (
-        "is absolute, but sandbox paths are relative to the checkout"
+        "is absolute, but declared paths are relative to the checkout"
     ), declared
 
 

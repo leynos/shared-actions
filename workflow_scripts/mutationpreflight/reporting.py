@@ -242,14 +242,18 @@ def _skipped_phases(loaded: Loaded) -> typ.Iterator[PhaseResult]:
 
 
 def _lock_moved(before: LockIdentity | None, after: LockIdentity | None) -> bool:
-    """Return whether the checks moved a lock both readings established.
+    """Return whether the declared checks moved the lock, or lost its identity.
 
-    Either reading being absent means nothing was established to compare: the
-    judgement reports a lock it could not read or a package it did not find on
-    its own, so a missing baseline is not a change.
+    A baseline the reading never established is not a change: the judgement
+    reports a lock it could not read or a package it did not find on its own.
+    An identity established before the checks that cannot be established after
+    them is a change: the checks removed the very record the judgement had
+    proved, so a probe must not run on top of it.
     """
-    if before is None or after is None:
+    if before is None:
         return False
+    if after is None:
+        return True
     return before != after
 
 

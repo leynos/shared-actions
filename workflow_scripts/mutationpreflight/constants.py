@@ -35,7 +35,16 @@ HELPER_PYTHON_FLOOR: typ.Final[str] = "3.13"
 MUTMUT_COPY_CONTRACTS: typ.Final[dict[str, tuple[tuple[str, ...], tuple[str, ...]]]] = {
     "3.6": (("tests", "test", "setup.cfg", "pyproject.toml"), ("test*.py",)),
     "3.7": (
-        ("tests", "test", "setup.cfg", "pyproject.toml", "uv.lock"),
+        (
+            "tests",
+            "test",
+            "setup.cfg",
+            "pyproject.toml",
+            "uv.lock",
+            "poetry.lock",
+            "Pipfile.lock",
+            "pdm.lock",
+        ),
         ("test*.py",),
     ),
 }

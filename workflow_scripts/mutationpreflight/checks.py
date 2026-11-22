@@ -12,11 +12,11 @@ import typing as typ
 from pathlib import Path
 
 from .constants import FAILED, SKIPPED, UNKNOWN
-from .copy_set import mutmut_copy_set
+from .copy_set import copy_entry_problems, mutmut_copy_set
 from .models import Check, Declaration, PhaseResult, Ran, phase_outcome
 from .ports import Invocation, Run, project_environment
 from .running import last_line, timeout_message
-from .sandbox import path_problem
+from .schema import path_problem
 
 _NO_CHECKS: typ.Final[str] = "no checks declared"
 _WHOLE_TREE: typ.Final[str] = "the unmodified checkout, which this lane copies whole"
@@ -253,6 +253,11 @@ def run_checks_phase(run: Run, declaration: Declaration) -> PhaseResult:
             run, declaration, Boundary(run.root, _WHOLE_TREE, "checkout")
         )
     table, problem = run.files.read_mutmut_configuration(run.root)
+    invalid = copy_entry_problems(table)
+    if invalid:
+        # An escaping copy entry would put the sandbox somewhere the checks
+        # must not run, so it is refused before anything is materialized.
+        return PhaseResult("checks", FAILED, invalid, {"reason": _NO_SANDBOX})
     contract, problems = mutmut_copy_set(run.mutmut_version, table, problem)
     if contract is None:
         return PhaseResult("checks", UNKNOWN, problems, {"reason": _NO_SANDBOX})

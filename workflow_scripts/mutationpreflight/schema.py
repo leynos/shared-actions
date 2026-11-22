@@ -8,8 +8,51 @@ part of a table was wrong.
 from __future__ import annotations
 
 import typing as typ
+from pathlib import PurePosixPath
 
+from .constants import EXCLUDED_DIRECTORIES
 from .models import DeclarationError
+
+
+def path_problem(declared: str) -> str | None:
+    """Return why *declared* cannot name a path inside the checkout, or ``None``.
+
+    Parameters
+    ----------
+    declared : str
+        The path as a declaration spells it.
+
+    Returns
+    -------
+    str | None
+        Why the path is unusable, or ``None`` when it stays inside the
+        checkout and outside build output and caches.
+
+    """
+    if not declared.strip():
+        return "is empty"
+    path = PurePosixPath(declared)
+    if path.is_absolute():
+        return "is absolute, but declared paths are relative to the checkout"
+    parts = [part for part in path.parts if part not in ("", ".")]
+    if ".." in parts:
+        return "escapes the checkout"
+    return excluded_problem(parts, "is under")
+
+
+def excluded_problem(parts: typ.Iterable[str], phrase: str) -> str | None:
+    """Return why *parts* names build output, a tool cache or the VCS store.
+
+    *phrase* opens the finding, so the same rule can describe a declared path
+    and the path a symlink resolves to.
+    """
+    for part in parts:
+        if part in EXCLUDED_DIRECTORIES:
+            return (
+                f"{phrase} {part!r}, which is build output, a tool cache or the "
+                f"version-control store; the sandbox must not carry it"
+            )
+    return None
 
 
 def refuse(where: str, expected: str) -> typ.NoReturn:

@@ -11,7 +11,7 @@ import re
 import typing as typ
 from pathlib import Path
 
-from .checks import run_checks_phase
+from .check_boundary import run_checks_phase
 from .commands import run_commands_phase
 from .console import emit
 from .constants import FAILED, SKIPPED, SUCCEEDED

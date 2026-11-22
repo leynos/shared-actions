@@ -14,7 +14,7 @@ import sys
 import typing as typ
 
 from workflow_scripts.mutationpreflight import running
-from workflow_scripts.mutationpreflight.checks import run_checks_phase
+from workflow_scripts.mutationpreflight.check_boundary import run_checks_phase
 from workflow_scripts.mutationpreflight.commands import run_commands_phase
 from workflow_scripts.mutationpreflight.constants import MAX_CHECK_TIMEOUT_SECONDS
 from workflow_scripts.mutationpreflight.interpreters import run_interpreter_phase

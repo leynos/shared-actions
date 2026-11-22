@@ -155,35 +155,13 @@ class FileRepository:
         except OSError as error:
             return None, (f"the check sandbox could not be created: {error}",)
         try:
-            anchor = root.resolve()
-            for entry in contract.paths:
-                target = destination / entry
-                if target.is_symlink() or target.exists():
-                    # An earlier, overlapping entry already wrote this path, and
-                    # the first write is the one that counts.
-                    continue
-                if self._outside(destination, entry):
-                    # The contract is validated before it reaches here; this is
-                    # the second check, so a future caller cannot copy through a
-                    # link the first one did not foresee.
-                    shutil.rmtree(destination, ignore_errors=True)
-                    outside = (
-                        f"the mutmut copy contract entry {entry!r} would write "
-                        f"outside the sandbox"
-                    )
-                    return None, (outside,)
-                self._copy_entry(anchor, root, destination, entry)
-            for pattern in contract.globs:
-                for source in sorted(root.glob(pattern)):
-                    if source.is_file():
-                        # A glob match receives the same containment rule as a
-                        # declared entry, so an escaping link stays a link.
-                        self._copy_source(
-                            anchor, destination, source, destination / source.name
-                        )
+            refused = self._copy_contract(root, contract, destination)
         except OSError as error:
             shutil.rmtree(destination, ignore_errors=True)
             return None, (f"the check sandbox could not be materialized: {error}",)
+        if refused is not None:
+            shutil.rmtree(destination, ignore_errors=True)
+            return None, (refused,)
         return destination, ()
 
     def discard(self, sandbox: Path) -> None:
@@ -226,6 +204,45 @@ class FileRepository:
             )
         except OSError as error:
             return f"the report {str(destination)!r} could not be written: {error}"
+        return None
+
+    def _copy_contract(
+        self, root: Path, contract: CopyContract, destination: Path
+    ) -> str | None:
+        """Copy *contract* into *destination*, or say why an entry is refused."""
+        anchor = root.resolve()
+        for entry in contract.paths:
+            problem = self._copy_contract_entry(anchor, root, destination, entry)
+            if problem is not None:
+                return problem
+        for pattern in contract.globs:
+            for source in sorted(root.glob(pattern)):
+                if source.is_file():
+                    # A glob match receives the same containment rule as a
+                    # declared entry, so an escaping link stays a link.
+                    self._copy_source(
+                        anchor, destination, source, destination / source.name
+                    )
+        return None
+
+    def _copy_contract_entry(
+        self, anchor: Path, root: Path, destination: Path, entry: str
+    ) -> str | None:
+        """Copy one contract entry, or say why it must not be copied."""
+        target = destination / entry
+        if target.is_symlink() or target.exists():
+            # An earlier, overlapping entry already wrote this path, and the
+            # first write is the one that counts.
+            return None
+        if self._outside(destination, entry):
+            # The contract is validated before it reaches here; this is the
+            # second check, so a future caller cannot copy through a link the
+            # first one did not foresee.
+            return (
+                f"the mutmut copy contract entry {entry!r} would write outside "
+                f"the sandbox"
+            )
+        self._copy_entry(anchor, root, destination, entry)
         return None
 
     def _outside(self, destination: Path, entry: str) -> bool:

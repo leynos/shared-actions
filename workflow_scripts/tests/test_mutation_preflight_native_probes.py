@@ -329,3 +329,69 @@ class TestChecksAndTheLock:
         assert "records no package named 'tei-rapporteur'" in found, (
             f"the finding must keep the reader's reason: {found}"
         )
+
+    @RULE_AVAILABLE
+    def test_a_failing_judgement_keeps_the_unestablished_baseline(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A failed range and an unread baseline are reported together."""
+        written = lock_document(
+            "0.3.1", 'git = "https://example.invalid/tei.git?rev=abc123"'
+        )
+        script = 'import shutil; shutil.copyfile("new.lock", "uv.lock")'
+        manifest = (
+            "[native]\n"
+            'package = "tei-rapporteur"\n'
+            'supported_python = ">=3.99"\n'
+            "[[checks]]\n"
+            'name = "write-lock"\n'
+            f"command = ['{sys.executable}', '-c', '{script}']\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest, extra={"new.lock": written}),
+            lane="cargo",
+            project_python="3.13",
+        )
+
+        assert outcome.phases["native"]["status"] == "fail", outcome.stdout
+        found = outcome.findings("native")
+        assert "is not satisfied by" in found or "outside" in found, (
+            f"the support failure must stand: {found}"
+        )
+        assert "was not established before the declared checks" in found, (
+            f"the baseline reason must not be dropped by a failing judgement: {found}"
+        )
+
+    @RULE_AVAILABLE
+    def test_a_passing_judgement_turns_unknown_on_an_unread_baseline(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A supported range cannot pass while the lock's baseline is unknown."""
+        written = lock_document(
+            "0.3.1", 'git = "https://example.invalid/tei.git?rev=abc123"'
+        )
+        script = 'import shutil; shutil.copyfile("new.lock", "uv.lock")'
+        manifest = (
+            "[native]\n"
+            'package = "tei-rapporteur"\n'
+            'supported_python = ">=3.12"\n'
+            "[[checks]]\n"
+            'name = "write-lock"\n'
+            f"command = ['{sys.executable}', '-c', '{script}']\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest, extra={"new.lock": written}),
+            lane="cargo",
+            project_python="3.13",
+        )
+
+        assert outcome.phases["native"]["status"] == "unknown", outcome.stdout
+        assert "was not established before the declared checks" in outcome.findings(
+            "native"
+        )

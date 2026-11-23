@@ -137,18 +137,16 @@ def _unestablished_baseline(judged: PhaseResult, problem: str) -> PhaseResult:
     the checks moved that lock, so the phase reports the reason as
     indeterminate rather than certifying the pin it now sees.
     """
-    if judged.status == FAILED:
-        return judged
     finding = (
         f"the lock's identity was not established before the declared checks "
         f"ran: {problem}"
     )
-    return phase_outcome(
-        "native",
-        [],
-        [*judged.findings, finding],
-        {**judged.detail, "baseline_problem": problem},
-    )
+    detail: dict[str, object] = {**judged.detail, "baseline_problem": problem}
+    if judged.status == FAILED:
+        # A baseline that could not be read does not excuse a support range
+        # that already failed; both stay visible, and the failure stands.
+        return phase_outcome("native", list(judged.findings), [finding], detail)
+    return phase_outcome("native", [], [*judged.findings, finding], detail)
 
 
 def _declaration_phases(

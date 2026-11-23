@@ -16,9 +16,14 @@ from .constants import FAILED, LANES, MUTMUT_PINNED_VERSION
 from .declaration import load_declaration
 from .models import PhaseResult, Report, Runtimes
 from .ports import Run
-from .publication import write_report
-from .reporting import checked_phases, verdict
-from .repository import FileRepository, load_shared_rule
+from .publication import phase_envelope, write_report
+from .reporting import iter_phases, verdict
+from .repository import (
+    EvidenceFiles,
+    FileDocuments,
+    SandboxMaterializer,
+    load_shared_rule,
+)
 from .resolution import resolution_problem
 from .running import run_command
 
@@ -186,7 +191,9 @@ def main(
     # Read here, at the command line, so every phase below receives its
     # environment, its rule and its destinations instead of discovering them.
     rule, rule_problem = load_shared_rule()
-    files = FileRepository()
+    reader = FileDocuments()
+    sandbox = SandboxMaterializer()
+    evidence = EvidenceFiles()
     run = Run(
         root=root,
         runtimes=runtimes,
@@ -197,11 +204,16 @@ def main(
         abi3=abi3_escape_hatch(),
         rule=rule,
         rule_problem=rule_problem,
-        files=files,
+        reader=reader,
+        sandbox=sandbox,
+        evidence=evidence,
         resolver=resolution_problem,
         runner=run_command,
     )
-    results = checked_phases(run, load_declaration(files, root, options.lane))
+    results: list[PhaseResult] = []
+    for result in iter_phases(run, load_declaration(reader, root, options.lane)):
+        emit("mutation_preflight_phase", phase_envelope(result))
+        results.append(result)
     report = Report(
         lane=options.lane,
         runtimes=runtimes,
@@ -210,7 +222,7 @@ def main(
     )
     emit_findings(results)
     problems = write_report(
-        run.files, report, output_dir=run.output_dir, summary_path=run.summary_path
+        run.evidence, report, output_dir=run.output_dir, summary_path=run.summary_path
     )
     if problems:
         # Evidence that cannot be published is a failure of the run, not a

@@ -73,15 +73,8 @@ def load_shared_rule() -> tuple[RequirementRule | None, str]:
     return rule, ""
 
 
-class FileRepository:
-    """The repository port, answered by the operating system's filesystem.
-
-    Every method reads or writes the real checkout. Nothing is cached: a phase
-    that asks twice sees what is on disk at the second question, which is what
-    lets the native phase notice a lock a declared check has rewritten. The
-    reading and copying helpers are methods rather than module functions so the
-    port's implementation is one unit and every caller of it is inside it.
-    """
+class FileDocuments:
+    """Reads the documents a judgement parses, and locates declared paths."""
 
     def read_documents(
         self, root: Path, relatives: tuple[Path, ...]
@@ -145,116 +138,6 @@ class FileRepository:
     def is_directory(self, path: Path) -> bool:
         """Return whether *path* is a directory."""
         return path.is_dir()
-
-    def materialize(
-        self, root: Path, contract: CopyContract
-    ) -> tuple[Path | None, tuple[str, ...]]:
-        """Copy *contract* into a fresh directory, returning it or why not."""
-        try:
-            destination = Path(tempfile.mkdtemp(prefix="mutation-preflight-sandbox-"))
-        except OSError as error:
-            return None, (f"the check sandbox could not be created: {error}",)
-        try:
-            refused = self._copy_contract(root, contract, destination)
-        except OSError as error:
-            shutil.rmtree(destination, ignore_errors=True)
-            return None, (f"the check sandbox could not be materialized: {error}",)
-        if refused is not None:
-            shutil.rmtree(destination, ignore_errors=True)
-            return None, (refused,)
-        return destination, ()
-
-    def discard(self, sandbox: Path) -> None:
-        """Remove a materialized sandbox once the checks have run."""
-        shutil.rmtree(sandbox, ignore_errors=True)
-
-    def write_check_logs(
-        self, directory: Path, stem: str, name: str, outcome: Ran
-    ) -> str | None:
-        """Write one check's bounded streams, returning why they were not written."""
-        try:
-            directory.mkdir(parents=True, exist_ok=True)
-            (directory / f"{stem}.stdout.log").write_text(
-                outcome.stdout, encoding="utf-8"
-            )
-            (directory / f"{stem}.stderr.log").write_text(
-                outcome.stderr, encoding="utf-8"
-            )
-        except OSError as error:
-            return f"check {name!r}'s logs could not be written: {error}"
-        return None
-
-    def append_summary(self, path: Path, rendered: str) -> str | None:
-        """Append the rendered summary, returning why it could not be written."""
-        try:
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(rendered)
-        except OSError as error:
-            return f"the job summary {str(path)!r} could not be written: {error}"
-        return None
-
-    def write_report(self, output_dir: Path, document: dict[str, object]) -> str | None:
-        """Write the machine-readable report, returning why it was not written."""
-        destination = output_dir / "mutation-preflight.json"
-        try:
-            output_dir.mkdir(parents=True, exist_ok=True)
-            destination.write_text(
-                json.dumps(document, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-        except OSError as error:
-            return f"the report {str(destination)!r} could not be written: {error}"
-        return None
-
-    def _copy_contract(
-        self, root: Path, contract: CopyContract, destination: Path
-    ) -> str | None:
-        """Copy *contract* into *destination*, or say why an entry is refused."""
-        anchor = root.resolve()
-        for entry in contract.paths:
-            problem = self._copy_contract_entry(anchor, root, destination, entry)
-            if problem is not None:
-                return problem
-        for source in self._glob_sources(root, contract.globs):
-            # A glob match receives the same containment rule as a declared
-            # entry, so an escaping link stays a link.
-            self._copy_source(anchor, destination, source, destination / source.name)
-        return None
-
-    def _glob_sources(self, root: Path, globs: tuple[str, ...]) -> list[Path]:
-        """Return the files the contract's root globs select, in path order."""
-        found: list[Path] = []
-        for pattern in globs:
-            found.extend(root.glob(pattern))
-        return sorted(source for source in found if source.is_file())
-
-    def _copy_contract_entry(
-        self, anchor: Path, root: Path, destination: Path, entry: str
-    ) -> str | None:
-        """Copy one contract entry, or say why it must not be copied."""
-        target = destination / entry
-        if target.is_symlink() or target.exists():
-            # An earlier, overlapping entry already wrote this path, and the
-            # first write is the one that counts.
-            return None
-        if self._outside(destination, entry):
-            # The contract is validated before it reaches here; this is the
-            # second check, so a future caller cannot copy through a link the
-            # first one did not foresee.
-            return (
-                f"the mutmut copy contract entry {entry!r} would write outside "
-                f"the sandbox"
-            )
-        self._copy_entry(anchor, root, destination, entry)
-        return None
-
-    def _outside(self, destination: Path, entry: str) -> bool:
-        """Return whether copying *entry* would write outside *destination*."""
-        try:
-            target = (destination / entry).resolve()
-            return not target.is_relative_to(destination.resolve())
-        except OSError:
-            return True
 
     def _read_document(self, path: Path) -> tuple[dict[str, object] | None, str | None]:
         """Return *path* parsed as TOML, or why it could not be read."""
@@ -348,48 +231,90 @@ class FileRepository:
             else None
         )
 
-    def _escapes(self, root: Path, source: Path) -> bool:
-        """Return whether *source* is a link whose target leaves *root*."""
-        return source.is_symlink() and not source.resolve().is_relative_to(root)
 
-    def _keep_link(self, source: Path, target: Path) -> None:
-        """Write *source*'s link at *target*, naming the target it already had."""
-        target.symlink_to(source.readlink(), target_is_directory=source.is_dir())
+class SandboxMaterializer:
+    """Builds the sandbox a check runs in, and removes it afterwards."""
 
-    def _keep_link_unless_present(self, source: Path, target: Path) -> None:
-        """Write *source*'s link at *target* unless the path is already written.
+    def materialize(
+        self, root: Path, contract: CopyContract
+    ) -> tuple[Path | None, tuple[str, ...]]:
+        """Copy *contract* into a fresh directory, returning it or why not."""
+        try:
+            destination = Path(tempfile.mkdtemp(prefix="mutation-preflight-sandbox-"))
+        except OSError as error:
+            return None, (f"the check sandbox could not be created: {error}",)
+        try:
+            refused = self._copy_contract(root, contract, destination)
+        except OSError as error:
+            shutil.rmtree(destination, ignore_errors=True)
+            return None, (f"the check sandbox could not be materialized: {error}",)
+        if refused is not None:
+            shutil.rmtree(destination, ignore_errors=True)
+            return None, (refused,)
+        return destination, ()
 
-        Overlapping contract entries reach the same sandbox path: the default
-        ``tests`` entry and an ``also_copy`` entry naming a link inside it both
-        copy that link. The first write is the one that counts, so a second is
-        left alone rather than raising on the existing path.
-        """
-        if target.is_symlink() or target.exists():
-            return
-        self._keep_link(source, target)
+    def discard(self, sandbox: Path) -> None:
+        """Remove a materialized sandbox once the checks have run."""
+        shutil.rmtree(sandbox, ignore_errors=True)
 
-    def _kept_as_link(self, root: Path, source: Path, seen: frozenset[Path]) -> bool:
-        """Return whether *source* must be copied as a link rather than followed."""
-        if not source.is_symlink():
-            return False
-        if self._escapes(root, source):
-            return True
-        return source.resolve() in seen
-
-    def _escaping_ancestor(self, root: Path, source: Path) -> Path | None:
-        """Return the nearest ancestor of *source* that links out of *root*."""
-        for ancestor in source.parents:
-            if ancestor == root or not ancestor.is_relative_to(root):
-                return None
-            if self._escapes(root, ancestor):
-                return ancestor
+    def _copy_contract(
+        self, root: Path, contract: CopyContract, destination: Path
+    ) -> str | None:
+        """Copy *contract* into *destination*, or say why an entry is refused."""
+        anchor = root.resolve()
+        for entry in contract.paths:
+            problem = self._copy_contract_entry(anchor, root, destination, entry)
+            if problem is not None:
+                return problem
+        for source in self._glob_sources(root, contract.globs):
+            # A glob match receives the same containment rule as a declared
+            # entry, so an escaping link stays a link.
+            self._copy_source(anchor, destination, source, destination / source.name)
         return None
 
-    def _keep_link_at(self, destination: Path, root: Path, link: Path) -> None:
-        """Write *link* into the sandbox where it sits in the checkout."""
-        target = destination / link.relative_to(root)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        self._keep_link_unless_present(link, target)
+    def _copy_contract_entry(
+        self, anchor: Path, root: Path, destination: Path, entry: str
+    ) -> str | None:
+        """Copy one contract entry, or say why it must not be copied."""
+        target = destination / entry
+        if target.is_symlink() or target.exists():
+            # An earlier, overlapping entry already wrote this path, and the
+            # first write is the one that counts.
+            return None
+        if self._outside(destination, entry):
+            # The contract is validated before it reaches here; this is the
+            # second check, so a future caller cannot copy through a link the
+            # first one did not foresee.
+            return (
+                f"the mutmut copy contract entry {entry!r} would write outside "
+                f"the sandbox"
+            )
+        self._copy_entry(anchor, root, destination, entry)
+        return None
+
+    def _glob_sources(self, root: Path, globs: tuple[str, ...]) -> list[Path]:
+        """Return the files the contract's root globs select, in path order."""
+        found: list[Path] = []
+        for pattern in globs:
+            found.extend(root.glob(pattern))
+        return sorted(source for source in found if source.is_file())
+
+    def _outside(self, destination: Path, entry: str) -> bool:
+        """Return whether copying *entry* would write outside *destination*."""
+        try:
+            target = (destination / entry).resolve()
+            return not target.is_relative_to(destination.resolve())
+        except OSError:
+            return True
+
+    def _copy_entry(
+        self, root: Path, repo_root: Path, destination: Path, entry: str
+    ) -> None:
+        """Copy one contract entry, keeping its place in the tree."""
+        source = repo_root / entry
+        if not source.exists() and not source.is_symlink():
+            return
+        self._copy_source(root, destination, source, destination / entry)
 
     def _copy_source(
         self, root: Path, destination: Path, source: Path, target: Path
@@ -430,11 +355,87 @@ class FileRepository:
             return
         shutil.copy2(source, target)
 
-    def _copy_entry(
-        self, root: Path, repo_root: Path, destination: Path, entry: str
-    ) -> None:
-        """Copy one contract entry, keeping its place in the tree."""
-        source = repo_root / entry
-        if not source.exists() and not source.is_symlink():
+    def _kept_as_link(self, root: Path, source: Path, seen: frozenset[Path]) -> bool:
+        """Return whether *source* must be copied as a link rather than followed."""
+        if not source.is_symlink():
+            return False
+        if self._escapes(root, source):
+            return True
+        return source.resolve() in seen
+
+    def _keep_link_unless_present(self, source: Path, target: Path) -> None:
+        """Write *source*'s link at *target* unless the path is already written.
+
+        Overlapping contract entries reach the same sandbox path: the default
+        ``tests`` entry and an ``also_copy`` entry naming a link inside it both
+        copy that link. The first write is the one that counts, so a second is
+        left alone rather than raising on the existing path.
+        """
+        if target.is_symlink() or target.exists():
             return
-        self._copy_source(root, destination, source, destination / entry)
+        self._keep_link(source, target)
+
+    def _keep_link(self, source: Path, target: Path) -> None:
+        """Write *source*'s link at *target*, naming the target it already had."""
+        target.symlink_to(source.readlink(), target_is_directory=source.is_dir())
+
+    def _escapes(self, root: Path, source: Path) -> bool:
+        """Return whether *source* is a link whose target leaves *root*."""
+        return source.is_symlink() and not source.resolve().is_relative_to(root)
+
+    def _escaping_ancestor(self, root: Path, source: Path) -> Path | None:
+        """Return the nearest ancestor of *source* that links out of *root*."""
+        for ancestor in source.parents:
+            if ancestor == root or not ancestor.is_relative_to(root):
+                return None
+            if self._escapes(root, ancestor):
+                return ancestor
+        return None
+
+    def _keep_link_at(self, destination: Path, root: Path, link: Path) -> None:
+        """Write *link* into the sandbox where it sits in the checkout."""
+        target = destination / link.relative_to(root)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self._keep_link_unless_present(link, target)
+
+
+class EvidenceFiles:
+    """Writes the evidence a run publishes, and says when it cannot."""
+
+    def write_check_logs(
+        self, directory: Path, stem: str, name: str, outcome: Ran
+    ) -> str | None:
+        """Write one check's bounded streams, returning why they were not written."""
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / f"{stem}.stdout.log").write_text(
+                outcome.stdout, encoding="utf-8"
+            )
+            (directory / f"{stem}.stderr.log").write_text(
+                outcome.stderr, encoding="utf-8"
+            )
+        except OSError as error:
+            return f"check {name!r}'s logs could not be written: {error}"
+        return None
+
+    def append_summary(self, path: Path, rendered: str) -> str | None:
+        """Append the rendered summary, returning why it could not be written."""
+        try:
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(rendered)
+        except OSError as error:
+            return f"the job summary {str(path)!r} could not be written: {error}"
+        return None
+
+    def write_report(self, output_dir: Path, document: dict[str, object]) -> str | None:
+        """Write the machine-readable report, returning why it was not written."""
+        destination = output_dir / "mutation-preflight.json"
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            destination.write_text(
+                json.dumps(document, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        except OSError as error:
+            return f"the report {str(destination)!r} could not be written: {error}"
+        return None

@@ -47,7 +47,7 @@ def _resolved_only(
     return None, {"resolved": requirement.name}
 
 
-def _reported_version(
+def _version_probe(
     run: Run, requirement: CommandRequirement
 ) -> tuple[str | None, object]:
     """Return what *requirement* reports, and the finding when it does not hold."""
@@ -107,7 +107,7 @@ def _review_command(
         return _resolved_only(run, requirement)
     if not probe_versions:
         return _resolved_only(run, requirement)
-    return _reported_version(run, requirement)
+    return _version_probe(run, requirement)
 
 
 def run_commands_phase(

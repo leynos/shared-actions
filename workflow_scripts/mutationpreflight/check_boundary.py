@@ -37,7 +37,7 @@ def _checks_boundary(run: Run, declaration: Declaration) -> PhaseResult | Bounda
     """
     if declaration.lane != "mutmut":
         return Boundary(run.root, _WHOLE_TREE, "checkout")
-    table, problem = run.files.read_mutmut_configuration(run.root)
+    table, problem = run.reader.read_mutmut_configuration(run.root)
     invalid = copy_entry_problems(table)
     if invalid:
         # An escaping copy entry would put the sandbox somewhere the checks
@@ -46,7 +46,7 @@ def _checks_boundary(run: Run, declaration: Declaration) -> PhaseResult | Bounda
     contract, problems = mutmut_copy_set(run.mutmut_version, table, problem)
     if contract is None:
         return PhaseResult("checks", UNKNOWN, problems, {"reason": _NO_SANDBOX})
-    sandbox, problems = run.files.materialize(run.root, contract)
+    sandbox, problems = run.sandbox.materialize(run.root, contract)
     if sandbox is None:
         return PhaseResult("checks", FAILED, problems, {"reason": _NO_SANDBOX})
     return Boundary(sandbox, str(sandbox), "sandbox")
@@ -86,7 +86,7 @@ def run_checks_phase(run: Run, declaration: Declaration) -> PhaseResult:
         return phase_outcome("checks", findings, [], detail)
     finally:
         if boundary.root != run.root:
-            run.files.discard(boundary.root)
+            run.sandbox.discard(boundary.root)
 
 
 def _write_logs(
@@ -98,7 +98,7 @@ def _write_logs(
     for index, (check, review) in enumerate(pairs):
         finding = review.finding
         if review.outcome is not None:
-            log_problem = run.files.write_check_logs(
+            log_problem = run.evidence.write_check_logs(
                 run.output_dir / "checks",
                 log_stem(index, check.name),
                 check.name,

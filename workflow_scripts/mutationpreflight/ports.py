@@ -7,8 +7,8 @@ its own, so a query phase can be shown to be a query by passing it a runner
 that fails if it is called, a resolver that answers with a refusal and a
 repository that refuses every question without touching the filesystem. The
 protocols are narrow on purpose: each names the capability one phase needs, and
-``RepositoryFiles`` and ``RepositoryQuery`` combine them only so the composition
-root can wire one object. The adapter that answers the repository's questions,
+``RepositoryQuery`` combines the two a judgement asks so one object can be
+wired for it. The adapter that answers the repository's questions,
 and performs the writes a phase asks for, lives in ``repository``.
 """
 
@@ -376,21 +376,6 @@ class RepositoryQuery(DocumentReader, PathLocator, typ.Protocol):
     """The questions a judgement asks of the checkout, and nothing that writes."""
 
 
-class RepositoryFiles(
-    DocumentReader,
-    PathLocator,
-    SandboxProvider,
-    EvidenceWriter,
-    typ.Protocol,
-):
-    """Everything a phase may ask of the checkout, and write back to it.
-
-    The narrow protocols above are what a phase actually depends on; this
-    combined one is the composition root's record of the adapter, so one object
-    can be wired once and passed down without each phase learning a new field.
-    """
-
-
 @dc.dataclass(frozen=True, slots=True)
 class Run:
     """What one preflight run checks, and where its evidence goes.
@@ -420,9 +405,12 @@ class Run:
         be loaded.
     rule_problem : str
         Why *rule* is ``None``, empty when it is loaded.
-    files : RepositoryFiles
-        How a phase reads the documents it judges and writes the evidence it
-        produces.
+    reader : RepositoryQuery
+        How a phase reads the documents it judges and locates declared paths.
+    sandbox : SandboxProvider
+        How a phase builds and discards the sandbox a check runs in.
+    evidence : EvidenceWriter
+        How a phase writes the logs, summary and report it produces.
     resolver : CommandResolver
         How a phase establishes that a declared command would run, without
         running it.
@@ -440,7 +428,9 @@ class Run:
     abi3: str
     rule: RequirementRule | None
     rule_problem: str
-    files: RepositoryFiles
+    reader: RepositoryQuery
+    sandbox: SandboxProvider
+    evidence: EvidenceWriter
     resolver: CommandResolver
     runner: Runner
 

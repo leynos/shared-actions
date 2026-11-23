@@ -46,7 +46,7 @@ def _check_cwd(
     problem = path_problem(check.cwd) if check.cwd != "." else None
     if problem is not None:
         return None, f"checks[{check.name!r}].cwd {problem}"
-    located, resolution = run.files.locate(root, check.cwd)
+    located, resolution = run.reader.locate(root, check.cwd)
     if located is None:
         return None, (
             f"checks[{check.name!r}].cwd {check.cwd!r} could not be resolved: "
@@ -59,7 +59,7 @@ def _check_cwd(
             f"elsewhere"
         )
     directory = Path(located.resolved)
-    if not run.files.is_directory(directory):
+    if not run.reader.is_directory(directory):
         return None, (
             f"checks[{check.name!r}].cwd {check.cwd!r} is not a directory in the {noun}"
         )

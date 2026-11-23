@@ -1,7 +1,7 @@
 """The repository port: every judgement reads the checkout through it.
 
 A phase receives parsed documents, located paths and records from
-``RepositoryFiles`` and never touches a path itself. The stand-in here answers
+the repository ports and never touches a path itself. The stand-in here answers
 every question with one refusal and touches nothing, so the valid checkout it
 is given is exactly the evidence a phase would contradict if it read the
 filesystem directly.
@@ -31,7 +31,11 @@ from workflow_scripts.mutationpreflight.ports import (
     LocatedPath,
     Run,
 )
-from workflow_scripts.mutationpreflight.repository import FileRepository
+from workflow_scripts.mutationpreflight.repository import (
+    EvidenceFiles,
+    FileDocuments,
+    SandboxMaterializer,
+)
 from workflow_scripts.mutationpreflight.sandbox import run_sandbox_phase
 from workflow_scripts.tests.mutation_preflight_support import (
     Checkout,
@@ -69,7 +73,9 @@ def _run(root: Path, output_dir: Path) -> Run:
         abi3="unset",
         rule=None,
         rule_problem="the shared rule was not loaded",
-        files=FileRepository(),
+        reader=FileDocuments(),
+        sandbox=SandboxMaterializer(),
+        evidence=EvidenceFiles(),
         resolver=refusing_resolver,
         runner=_refuse,
     )
@@ -180,7 +186,7 @@ class TestRepositoryBoundary:
         assert judge_native(real, declaration).status != "fail"
         assert (
             run_sandbox_phase(
-                real.files, real.root, real.mutmut_version, declaration
+                real.reader, real.root, real.mutmut_version, declaration
             ).status
             != "fail"
         )
@@ -189,12 +195,17 @@ class TestRepositoryBoundary:
         executable = dc.replace(real, runner=running.run_command)
         assert run_checks_phase(executable, declaration).status == "pass"
 
-        refusing = dc.replace(real, files=RefusingRepository())
+        refusing = dc.replace(
+            real,
+            reader=RefusingRepository(),
+            sandbox=RefusingRepository(),
+            evidence=RefusingRepository(),
+        )
         results = [
             run_interpreter_phase(refusing),
             judge_native(refusing, declaration),
             run_sandbox_phase(
-                refusing.files, refusing.root, refusing.mutmut_version, declaration
+                refusing.reader, refusing.root, refusing.mutmut_version, declaration
             ),
             run_checks_phase(refusing, declaration),
         ]
@@ -238,7 +249,9 @@ class TestCommandBoundary:
         )
         run = dc.replace(
             _run(root, tmp_path / "out"),
-            files=RefusingRepository(),
+            reader=RefusingRepository(),
+            sandbox=RefusingRepository(),
+            evidence=RefusingRepository(),
             resolver=RefusingResolver(),
         )
 

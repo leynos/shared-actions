@@ -102,13 +102,15 @@ def identity_of(package: dict[str, object]) -> LockIdentity:
     )
 
 
-def lock_identity(run: Run, native: NativeRequirement | None) -> LockIdentity | None:
-    """Return what the lock records for *native*, or ``None`` when it cannot say.
+def lock_identity(
+    run: Run, native: NativeRequirement | None
+) -> tuple[LockIdentity | None, str]:
+    """Return what the lock records for *native*, or why it cannot say.
 
-    A lock that cannot be read, or that records no such package, yields
-    ``None`` rather than an identity. The judgement reports that state itself,
-    and a missing baseline must not read as a change when it is compared with a
-    later reading.
+    A lock that cannot be read, or that records no such package, yields no
+    identity and the reason, which the caller records. A missing baseline must
+    not read as a change when it is compared with a later reading, so the two
+    are told apart rather than both being ``None``.
 
     Parameters
     ----------
@@ -119,17 +121,19 @@ def lock_identity(run: Run, native: NativeRequirement | None) -> LockIdentity | 
 
     Returns
     -------
-    LockIdentity | None
-        The lock's record of the package, or ``None`` when it records none.
+    tuple[LockIdentity | None, str]
+        The lock's record of the package, and why it records none.
 
     """
     if native is None:
-        return None
-    packages, problem = run.files.read_lock_packages(run.root)
+        return None, ""
+    packages, problem = run.reader.read_lock_packages(run.root)
     if problem is not None:
-        return None
+        return None, problem
     locked = find_locked(packages, native.package)
-    return None if locked is None else identity_of(locked)
+    if locked is None:
+        return None, f"uv.lock records no package named {native.package!r}"
+    return identity_of(locked), ""
 
 
 def judged_identity(judged: PhaseResult) -> LockIdentity | None:
@@ -160,7 +164,7 @@ def _locked_identity(
     run: Run, native: NativeRequirement
 ) -> tuple[dict[str, object], list[str], list[str]]:
     """Return the lock's record of *native*, and what that leaves open."""
-    packages, problem = run.files.read_lock_packages(run.root)
+    packages, problem = run.reader.read_lock_packages(run.root)
     if problem is not None:
         return {}, [], [problem]
     locked = find_locked(packages, native.package)

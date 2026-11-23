@@ -17,6 +17,7 @@ import typing as typ
 import pytest
 
 from workflow_scripts.mutationpreflight import running
+from workflow_scripts.mutationpreflight.console import emit
 from workflow_scripts.mutationpreflight.constants import MAX_CHECK_TIMEOUT_SECONDS
 from workflow_scripts.mutationpreflight.copy_set import CopyContract
 from workflow_scripts.mutationpreflight.declaration import load_declaration
@@ -30,9 +31,13 @@ from workflow_scripts.mutationpreflight.ports import (
     Invocation,
     Run,
 )
-from workflow_scripts.mutationpreflight.publication import write_report
-from workflow_scripts.mutationpreflight.reporting import checked_phases
-from workflow_scripts.mutationpreflight.repository import FileRepository
+from workflow_scripts.mutationpreflight.publication import phase_envelope, write_report
+from workflow_scripts.mutationpreflight.reporting import iter_phases
+from workflow_scripts.mutationpreflight.repository import (
+    EvidenceFiles,
+    FileDocuments,
+    SandboxMaterializer,
+)
 from workflow_scripts.mutationpreflight.sandbox import run_sandbox_phase
 from workflow_scripts.tests.mutation_preflight_support import (
     POSIX_SYMLINKS_ONLY,
@@ -81,7 +86,9 @@ def _run(root: Path, output_dir: Path) -> Run:
         abi3="unset",
         rule=None,
         rule_problem="the shared rule was not loaded",
-        files=FileRepository(),
+        reader=FileDocuments(),
+        sandbox=SandboxMaterializer(),
+        evidence=EvidenceFiles(),
         resolver=refusing_resolver,
         runner=_refuse,
     )
@@ -108,7 +115,7 @@ class TestQueryPhases:
         )
         output = tmp_path / "out"
         run = _run(root, output)
-        loaded = load_declaration(FileRepository(), root, "mutmut")
+        loaded = load_declaration(FileDocuments(), root, "mutmut")
         assert loaded.declaration is not None, "the fixture declares requirements"
         before = sorted(tmp_path.rglob("*"))
 
@@ -116,7 +123,7 @@ class TestQueryPhases:
             run_interpreter_phase(run),
             judge_native(run, loaded.declaration),
             run_sandbox_phase(
-                run.files, run.root, run.mutmut_version, loaded.declaration
+                run.reader, run.root, run.mutmut_version, loaded.declaration
             ),
         ]
 
@@ -140,7 +147,7 @@ class TestQueryPhases:
             ),
         )
         run = _run(root, tmp_path / "out")
-        loaded = load_declaration(FileRepository(), root, "mutmut")
+        loaded = load_declaration(FileDocuments(), root, "mutmut")
         assert loaded.declaration is not None, "the fixture declares requirements"
 
         result = judge_native(run, loaded.declaration)
@@ -163,7 +170,10 @@ class TestQueryPhases:
         )
 
         problems = write_report(
-            run.files, report, output_dir=run.output_dir, summary_path=run.summary_path
+            run.evidence,
+            report,
+            output_dir=run.output_dir,
+            summary_path=run.summary_path,
         )
 
         assert problems == (), "publishing a readable report must not report a problem"
@@ -191,7 +201,7 @@ class TestQueryPhases:
         summary = tmp_path / "summary.md"
         summary.write_text("", encoding="utf-8")
         run = dc.replace(_run(root, output), summary_path=str(summary))
-        loaded = load_declaration(FileRepository(), root, "mutmut")
+        loaded = load_declaration(FileDocuments(), root, "mutmut")
         assert loaded.declaration is not None, "the fixture declares requirements"
         report = Report(
             lane="mutmut", runtimes=run.runtimes, results=(), verdict="pass"
@@ -199,7 +209,7 @@ class TestQueryPhases:
 
         run_interpreter_phase(run)
         judge_native(run, loaded.declaration)
-        run_sandbox_phase(run.files, run.root, run.mutmut_version, loaded.declaration)
+        run_sandbox_phase(run.reader, run.root, run.mutmut_version, loaded.declaration)
 
         assert summary.read_text(encoding="utf-8") == "", (
             "a query phase must not append to the job summary"
@@ -207,7 +217,10 @@ class TestQueryPhases:
         assert not output.exists(), "a query phase must not write the report"
 
         problems = write_report(
-            run.files, report, output_dir=run.output_dir, summary_path=run.summary_path
+            run.evidence,
+            report,
+            output_dir=run.output_dir,
+            summary_path=run.summary_path,
         )
 
         assert problems == (), "publishing a readable report must not report a problem"
@@ -235,7 +248,11 @@ class TestStreaming:
             return []
 
         run = dc.replace(_run(root, tmp_path / "out"), rule=rule)
-        checked_phases(run, load_declaration(FileRepository(), root, "mutmut"))
+        # The command line publishes each phase as it arrives, which is what
+        # keeps the envelope a stream rather than a report held to the end.
+        loaded = load_declaration(FileDocuments(), root, "mutmut")
+        for result in iter_phases(run, loaded):
+            emit("mutation_preflight_phase", phase_envelope(result))
 
         assert seen, "the interpreter phase must have judged the project's range"
         assert "mutation_preflight_phase=" in seen[0], (
@@ -263,7 +280,7 @@ class TestDeclarationRules:
             ),
         )
 
-        loaded = load_declaration(FileRepository(), root, "mutmut")
+        loaded = load_declaration(FileDocuments(), root, "mutmut")
 
         assert loaded.declaration is not None, "the declaration must parse"
         effective = loaded.declaration.checks[0].timeout_seconds
@@ -285,7 +302,7 @@ class TestMaterialize:
         (root / "real" / "widget.py").write_text("VALUE = 1\n", encoding="utf-8")
         (root / "linked").symlink_to(root / "real", target_is_directory=True)
 
-        sandbox, problems = FileRepository().materialize(
+        sandbox, problems = SandboxMaterializer().materialize(
             root, CopyContract(("linked",), ())
         )
 
@@ -304,7 +321,7 @@ class TestMaterialize:
                 "mutmut follows an internal link instead of copying the link"
             )
         finally:
-            FileRepository().discard(sandbox)
+            SandboxMaterializer().discard(sandbox)
 
     @POSIX_SYMLINKS_ONLY
     def test_a_link_leaving_the_checkout_stays_a_link(self, tmp_path: Path) -> None:
@@ -316,7 +333,7 @@ class TestMaterialize:
         root.mkdir()
         (root / "escape").symlink_to(outside, target_is_directory=True)
 
-        sandbox, problems = FileRepository().materialize(
+        sandbox, problems = SandboxMaterializer().materialize(
             root, CopyContract(("escape",), ())
         )
 
@@ -336,7 +353,7 @@ class TestMaterialize:
                 "the preserved link must name the target the declaration saw"
             )
         finally:
-            FileRepository().discard(sandbox)
+            SandboxMaterializer().discard(sandbox)
 
     @POSIX_SYMLINKS_ONLY
     def test_a_link_nested_in_a_copied_directory_stays_a_link(
@@ -351,7 +368,7 @@ class TestMaterialize:
         (root / "pkg" / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
         (root / "pkg" / "escape").symlink_to(outside, target_is_directory=True)
 
-        sandbox, problems = FileRepository().materialize(
+        sandbox, problems = SandboxMaterializer().materialize(
             root, CopyContract(("pkg",), ())
         )
 
@@ -372,7 +389,7 @@ class TestMaterialize:
                 "the nested link must name the target the checkout saw"
             )
         finally:
-            FileRepository().discard(sandbox)
+            SandboxMaterializer().discard(sandbox)
 
     @POSIX_SYMLINKS_ONLY
     def test_a_path_beyond_an_escaping_link_keeps_the_link(
@@ -386,7 +403,7 @@ class TestMaterialize:
         (root / "tests").mkdir(parents=True)
         (root / "tests" / "escape").symlink_to(outside, target_is_directory=True)
 
-        sandbox, problems = FileRepository().materialize(
+        sandbox, problems = SandboxMaterializer().materialize(
             root, CopyContract(("tests/escape/secret.txt",), ())
         )
 
@@ -410,7 +427,7 @@ class TestMaterialize:
                 "the declared path must still resolve through the kept link"
             )
         finally:
-            FileRepository().discard(sandbox)
+            SandboxMaterializer().discard(sandbox)
 
     @POSIX_SYMLINKS_ONLY
     def test_overlapping_entries_keep_a_link_without_failing_the_copy(
@@ -425,7 +442,7 @@ class TestMaterialize:
         (root / "tests" / "test_module.py").write_text("", encoding="utf-8")
         (root / "tests" / "escape").symlink_to(outside, target_is_directory=True)
 
-        sandbox, problems = FileRepository().materialize(
+        sandbox, problems = SandboxMaterializer().materialize(
             root, CopyContract(("tests", "tests/escape"), ())
         )
 
@@ -445,7 +462,7 @@ class TestMaterialize:
                 "the overlapping entry must not disturb the directory it sits in"
             )
         finally:
-            FileRepository().discard(sandbox)
+            SandboxMaterializer().discard(sandbox)
 
     @POSIX_SYMLINKS_ONLY
     def test_a_glob_match_that_leaves_the_checkout_stays_a_link(
@@ -458,7 +475,7 @@ class TestMaterialize:
         root.mkdir()
         (root / "escape.txt").symlink_to(outside)
 
-        sandbox, problems = FileRepository().materialize(
+        sandbox, problems = SandboxMaterializer().materialize(
             root, CopyContract((), ("*.txt",))
         )
 
@@ -473,7 +490,7 @@ class TestMaterialize:
                 "the preserved link must name the target the checkout saw"
             )
         finally:
-            FileRepository().discard(sandbox)
+            SandboxMaterializer().discard(sandbox)
 
 
 class TestCleanup:

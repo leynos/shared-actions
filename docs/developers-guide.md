@@ -2963,29 +2963,30 @@ Each checking phase has one module, and `reporting.py` runs them in the order
 the declaration enables, alongside the manifest phase it owns. The package also
 holds the vocabulary and reading primitives the phases share.
 
-| Module            | Responsibility                                                                                                                                                                                                  |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `declaration.py`  | Selects exactly one declaration from the documents the adapter read, in `[tool.mutation-preflight]` or `.github/mutation-preflight.toml`, refusing both, unknown keys, and a requirement the lane cannot check. |
-| `interpreters.py` | The interpreter phase: checks the helper floor and judges the project's range, reporting both runtimes separately.                                                                                              |
-| `native.py`       | The locked native dependency's identity, declared revision and supported-python range, judged as a query, plus the lock comparison the checks must not move.                                                    |
-| `probing.py`      | Runs the declared build/import probe, records its bounded evidence, and folds its verdict onto the judgement.                                                                                                   |
-| `sandbox.py`      | Compares declared sandbox paths with the copy set of the selected mutmut release.                                                                                                                               |
-| `commands.py`     | Checks that each required external command resolves and reports its declared version.                                                                                                                           |
-| `checks.py`       | Runs each bounded declared check from its declared `cwd`, `env` and import root, and asks the adapter to write its bounded logs.                                                                                |
-| `running.py`      | Runs one command with bounded output and wall clock and cleans up its process group; hosts `run_command`, the production runner.                                                                                |
-| `resolution.py`   | Establishes that a declared command would run, without running it, on the `PATH` of the environment it will receive.                                                                                            |
-| `diagnostics.py`  | Bounds a stream, reads the line a finding quotes, and matches a reported version as a token rather than a substring.                                                                                            |
-| `reporting.py`    | Sequences the phases, gates them on the interpreter verdict, and streams each phase's envelope as it finishes.                                                                                                  |
-| `publication.py`  | Renders the job summary, shapes the JSON report and its phase envelopes, and asks the evidence writer to publish them.                                                                                          |
-| `models.py`       | The plain data the phases pass between themselves and the envelope; nothing here reads a file or runs a process.                                                                                                |
-| `lockfile.py`     | Judges the records `uv.lock` holds, taking a revision from the field that records it rather than from a string in a URL.                                                                                        |
-| `copy_set.py`     | Judges mutmut's per-release copy contract, including `source_paths` and `also_copy`.                                                                                                                            |
-| `ports.py`        | The `Run` record and the narrow `Runner`, `CommandResolver`, `RequirementRule`, `DocumentReader`, `PathLocator`, `SandboxProvider` and `EvidenceWriter` protocols a phase reads the outside world through.      |
-| `repository.py`   | The adapter behind `RepositoryFiles`: reads the declaration, lock and mutmut documents, locates declared paths, builds and discards the sandbox, and writes the logs, summary and report.                       |
-| `schema.py`       | Validation primitives shared by the declaration and the mutmut table.                                                                                                                                           |
-| `console.py`      | The single import seam that reaches `emit` from either import root.                                                                                                                                             |
-| `cli.py`          | The command line: `INPUT_*` options, lane and checkout refusal, assembly of `Run`, and the exit status.                                                                                                         |
-| `__init__.py`     | Re-exports `app` and `main`.                                                                                                                                                                                    |
+| Module              | Responsibility                                                                                                                                                                                                                          |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `declaration.py`    | Selects exactly one declaration from the documents the adapter read, in `[tool.mutation-preflight]` or `.github/mutation-preflight.toml`, refusing both, unknown keys, and a requirement the lane cannot check.                         |
+| `interpreters.py`   | The interpreter phase: checks the helper floor and judges the project's range, reporting both runtimes separately.                                                                                                                      |
+| `native.py`         | The locked native dependency's identity, declared revision and supported-python range, judged as a query, plus the lock comparison the checks must not move.                                                                            |
+| `probing.py`        | Runs the declared build/import probe, records its bounded evidence, and folds its verdict onto the judgement.                                                                                                                           |
+| `sandbox.py`        | Compares declared sandbox paths with the copy set of the selected mutmut release.                                                                                                                                                       |
+| `commands.py`       | Checks that each required external command resolves and reports its declared version.                                                                                                                                                   |
+| `checks.py`         | Runs each bounded declared check from its declared `cwd`, `env` and import root, and asks the adapter to write its bounded logs.                                                                                                        |
+| `check_boundary.py` | Chooses the tree the checks run in and owns the sandbox lifecycle: the checkout on the cargo lane, a fresh copy of the selected release's contract on the mutmut lane.                                                                  |
+| `running.py`        | Runs one command with bounded output and wall clock and cleans up its process group; hosts `run_command`, the production runner.                                                                                                        |
+| `resolution.py`     | Establishes that a declared command would run, without running it, on the `PATH` of the environment it will receive.                                                                                                                    |
+| `diagnostics.py`    | Bounds a stream, reads the line a finding quotes, and matches a reported version as a token rather than a substring.                                                                                                                    |
+| `reporting.py`      | Sequences the phases and gates them on the interpreter verdict, yielding each result as it finishes; publishing it is the command line's job.                                                                                           |
+| `publication.py`    | Renders the job summary, shapes the JSON report and its phase envelopes, and asks the evidence writer to publish them.                                                                                                                  |
+| `models.py`         | The plain data the phases pass between themselves and the envelope; nothing here reads a file or runs a process.                                                                                                                        |
+| `lockfile.py`       | Judges the records `uv.lock` holds, taking a revision from the field that records it rather than from a string in a URL.                                                                                                                |
+| `copy_set.py`       | Judges mutmut's per-release copy contract, including `source_paths` and `also_copy`.                                                                                                                                                    |
+| `ports.py`          | The `Run` record and the narrow `Runner`, `CommandResolver`, `RequirementRule`, `DocumentReader`, `PathLocator`, `SandboxProvider` and `EvidenceWriter` protocols a phase reads the outside world through.                              |
+| `repository.py`     | The three filesystem adapters: `FileDocuments` reads the declaration, lock and mutmut documents and locates declared paths; `SandboxMaterializer` builds and discards the sandbox; `EvidenceFiles` writes the logs, summary and report. |
+| `schema.py`         | Validation primitives shared by the declaration and the mutmut table.                                                                                                                                                                   |
+| `console.py`        | The single import seam that reaches `emit` from either import root.                                                                                                                                                                     |
+| `cli.py`            | The command line: `INPUT_*` options, lane and checkout refusal, assembly of `Run`, and the exit status.                                                                                                                                 |
+| `__init__.py`       | Re-exports `app` and `main`.                                                                                                                                                                                                            |
 
 _Table 1: The `mutationpreflight` package's modules._
 
@@ -3009,11 +3010,11 @@ are the production adapters, all wired into the record at the command line.
 No phase below the CLI reads `os.environ`, resolves a path, opens a document or
 writes a report. `cli.py` is the edge where ambient state is read once: the
 environment, `PYO3_USE_ABI3_FORWARD_COMPATIBILITY` and `GITHUB_STEP_SUMMARY`.
-`run.files` is the only route to the checkout, and `write_report` is the only
-publisher. A query phase can therefore be shown to be a query:
-`test_mutation_preflight_boundaries.py` gives it a runner that raises if any
-phase reaches for a command, and a repository stand-in that refuses every
-question without touching a path.
+`run.reader`, `run.sandbox` and `run.evidence` are the only routes to the
+checkout, and `write_report` is the only publisher. A query phase can therefore
+be shown to be a query: `test_mutation_preflight_boundaries.py` gives it a
+runner that raises if any phase reaches for a command, and a repository
+stand-in that refuses every question without touching a path.
 
 ### Declaration contract
 

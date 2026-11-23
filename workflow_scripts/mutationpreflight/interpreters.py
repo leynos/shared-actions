@@ -62,7 +62,7 @@ def _project_requirement(run: Run) -> tuple[object, str | None]:
     otherwise be a ``str``, and a failure is a reason to report unknown support
     rather than a requirement to judge.
     """
-    documents = run.files.read_documents(run.root, (Path("pyproject.toml"),))
+    documents = run.reader.read_documents(run.root, (Path("pyproject.toml"),))
     if not documents:
         return None, None
     document = documents[0]

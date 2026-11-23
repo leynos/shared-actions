@@ -102,7 +102,7 @@ def _relocked_finding(
         # The judgement never established the package's lock identity, so it
         # has nothing the probe could have moved; its own findings stand.
         return None
-    packages, problem = run.files.read_lock_packages(run.root)
+    packages, problem = run.reader.read_lock_packages(run.root)
     if problem is not None:
         return (
             f"the native probe for {native.package} left uv.lock unreadable: {problem}"

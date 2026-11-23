@@ -11,7 +11,6 @@ import typing as typ
 
 from .check_boundary import run_checks_phase
 from .commands import run_commands_phase
-from .console import emit
 from .constants import FAILED, SKIPPED, SUCCEEDED
 from .interpreters import run_interpreter_phase
 from .models import Declaration, Loaded, PhaseResult
@@ -22,7 +21,6 @@ from .native import (
     lock_identity,
 )
 from .probing import probe_blocked, probe_native, with_probe
-from .publication import phase_envelope
 from .sandbox import run_sandbox_phase
 
 if typ.TYPE_CHECKING:
@@ -152,8 +150,11 @@ def _declaration_phases(
     the one the probe must leave behind.
     """
     native = declaration.native
-    before = lock_identity(run, native)
-    yield run_sandbox_phase(run.files, run.root, run.mutmut_version, declaration)
+    # A baseline the lock could not establish is recorded as no baseline: a
+    # missing reading must not read as a change, and the judgement reports the
+    # lock it could not read itself.
+    before, _ = lock_identity(run, native)
+    yield run_sandbox_phase(run.reader, run.root, run.mutmut_version, declaration)
     yield run_commands_phase(run, declaration, probe_versions=interpreter_ok)
     if interpreter_ok:
         yield run_checks_phase(run, declaration)
@@ -185,8 +186,8 @@ def _all_phases(run: Run, loaded: Loaded) -> typ.Iterator[PhaseResult]:
     )
 
 
-def checked_phases(run: Run, loaded: Loaded) -> list[PhaseResult]:
-    """Run every phase, emitting each as it finishes.
+def iter_phases(run: Run, loaded: Loaded) -> typ.Iterator[PhaseResult]:
+    """Yield every phase as it finishes.
 
     Parameters
     ----------
@@ -196,14 +197,11 @@ def checked_phases(run: Run, loaded: Loaded) -> list[PhaseResult]:
     loaded : Loaded
         What reading the declaration produced.
 
-    Returns
-    -------
-    list[PhaseResult]
-        Every phase that ran, in order.
+    Yields
+    ------
+    PhaseResult
+        Each phase that ran, in order. The caller publishes it; this module
+        only decides the order and the gates.
 
     """
-    results: list[PhaseResult] = []
-    for result in _all_phases(run, loaded):
-        emit("mutation_preflight_phase", phase_envelope(result))
-        results.append(result)
-    return results
+    yield from _all_phases(run, loaded)

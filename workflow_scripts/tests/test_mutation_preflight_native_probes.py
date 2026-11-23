@@ -260,10 +260,20 @@ class TestChecksAndTheLock:
             f"the finding must name the identity the checks removed: {found}"
         )
 
-    def test_a_lock_written_by_a_check_does_not_certify_an_absent_baseline(
-        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
-    ) -> None:
-        """A lock first seen after the checks cannot prove it did not move."""
+    def _written_lock_outcome(
+        self,
+        runner: typ.Callable[..., Outcome],
+        root: Path,
+        *,
+        declaration: str = "",
+        extra: dict[str, str] | None = None,
+    ) -> Outcome:
+        """Return what a cargo run reported when a check wrote the lock.
+
+        The checkout starts without an identity for the package, so the run
+        has no baseline; the declared check then copies a valid lock into
+        place, which is the recovery path these cases share.
+        """
         written = lock_document(
             "0.3.1", 'git = "https://example.invalid/tei.git?rev=abc123"'
         )
@@ -271,18 +281,27 @@ class TestChecksAndTheLock:
         manifest = (
             "[native]\n"
             'package = "tei-rapporteur"\n'
+            f"{declaration}"
             "[[checks]]\n"
             'name = "write-lock"\n'
             f"command = ['{sys.executable}', '-c', '{script}']\n"
         )
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(manifest=manifest, extra={"new.lock": written}),
+        return outcome_for(
+            runner,
+            root,
+            Checkout(
+                manifest=manifest,
+                extra={"new.lock": written, **(extra or {})},
+            ),
             lane="cargo",
             project_python="3.13",
         )
+
+    def test_a_lock_written_by_a_check_does_not_certify_an_absent_baseline(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A lock first seen after the checks cannot prove it did not move."""
+        outcome = self._written_lock_outcome(run_preflight, tmp_path / "repo")
 
         assert outcome.phases["checks"]["status"] == "pass", outcome.stdout
         assert outcome.phases["native"]["status"] == "unknown", (
@@ -300,28 +319,9 @@ class TestChecksAndTheLock:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """A lock that first records the package after the checks is not proof."""
-        written = lock_document(
-            "0.3.1", 'git = "https://example.invalid/tei.git?rev=abc123"'
-        )
         other = 'version = 1\n\n[[package]]\nname = "example"\nversion = "0.1.0"\n'
-        script = 'import shutil; shutil.copyfile("new.lock", "uv.lock")'
-        manifest = (
-            "[native]\n"
-            'package = "tei-rapporteur"\n'
-            "[[checks]]\n"
-            'name = "write-lock"\n'
-            f"command = ['{sys.executable}', '-c', '{script}']\n"
-        )
-
-        outcome = outcome_for(
-            run_preflight,
-            tmp_path / "repo",
-            Checkout(
-                manifest=manifest,
-                extra={"uv.lock": other, "new.lock": written},
-            ),
-            lane="cargo",
-            project_python="3.13",
+        outcome = self._written_lock_outcome(
+            run_preflight, tmp_path / "repo", extra={"uv.lock": other}
         )
 
         assert outcome.phases["native"]["status"] == "unknown", outcome.stdout
@@ -335,25 +335,10 @@ class TestChecksAndTheLock:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """A failed range and an unread baseline are reported together."""
-        written = lock_document(
-            "0.3.1", 'git = "https://example.invalid/tei.git?rev=abc123"'
-        )
-        script = 'import shutil; shutil.copyfile("new.lock", "uv.lock")'
-        manifest = (
-            "[native]\n"
-            'package = "tei-rapporteur"\n'
-            'supported_python = ">=3.99"\n'
-            "[[checks]]\n"
-            'name = "write-lock"\n'
-            f"command = ['{sys.executable}', '-c', '{script}']\n"
-        )
-
-        outcome = outcome_for(
+        outcome = self._written_lock_outcome(
             run_preflight,
             tmp_path / "repo",
-            Checkout(manifest=manifest, extra={"new.lock": written}),
-            lane="cargo",
-            project_python="3.13",
+            declaration='supported_python = ">=3.99"\n',
         )
 
         assert outcome.phases["native"]["status"] == "fail", outcome.stdout
@@ -370,25 +355,10 @@ class TestChecksAndTheLock:
         self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
     ) -> None:
         """A supported range cannot pass while the lock's baseline is unknown."""
-        written = lock_document(
-            "0.3.1", 'git = "https://example.invalid/tei.git?rev=abc123"'
-        )
-        script = 'import shutil; shutil.copyfile("new.lock", "uv.lock")'
-        manifest = (
-            "[native]\n"
-            'package = "tei-rapporteur"\n'
-            'supported_python = ">=3.12"\n'
-            "[[checks]]\n"
-            'name = "write-lock"\n'
-            f"command = ['{sys.executable}', '-c', '{script}']\n"
-        )
-
-        outcome = outcome_for(
+        outcome = self._written_lock_outcome(
             run_preflight,
             tmp_path / "repo",
-            Checkout(manifest=manifest, extra={"new.lock": written}),
-            lane="cargo",
-            project_python="3.13",
+            declaration='supported_python = ">=3.12"\n',
         )
 
         assert outcome.phases["native"]["status"] == "unknown", outcome.stdout

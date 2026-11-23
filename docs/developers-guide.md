@@ -974,12 +974,12 @@ real action on Linux (the install, both tools on `PATH`, and a toy app linked
 by lld) and on macOS and Windows (the skip).
 
 That workflow sets the top-level concurrency group
-`${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true`. The
+`${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}`
+with `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`. The
 lane holds Linux, macOS and Windows runners to install tools and link a toy
-application, so a newer push to the same ref cancels the superseded run instead
-of letting it finish for no benefit; runs on other refs and other workflows are
-untouched. `tests/workflows/test_clang_lld_lane_concurrency.py` asserts the
-exact group and the boolean `true`.
+application, so a newer push to the same pull request cancels the superseded
+run instead of letting it finish for no benefit; runs for other events and
+other workflows are untouched.
 
 ## Rust action cache ownership
 

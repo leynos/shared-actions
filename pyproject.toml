@@ -265,3 +265,20 @@ names = [
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[[tool.skylos.dead_code.entrypoints]]
+type = "method"
+path = "workflow_scripts/mutationpreflight/repository.py"
+name = [
+    "materialize",
+    "discard",
+    "_copy_contract",
+    "_copy_contract_entry",
+    "_glob_sources",
+    "_outside",
+    "_copy_entry",
+    "_copy_source",
+    "_escaping_ancestor",
+    "_keep_link_at",
+]
+reason = "SandboxMaterializer implements the SandboxProvider protocol and is reached only as Run.sandbox.materialize/discard from check_boundary; Skylos cannot follow a call through a protocol-typed dataclass field."

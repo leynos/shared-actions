@@ -2959,9 +2959,10 @@ runtime below the floor is a finding.
 
 ### Phase modules
 
-Each checking phase has one module, and `reporting.py` runs them in the order
-the declaration enables, alongside the manifest phase it owns. The package also
-holds the vocabulary and reading primitives the phases share.
+Each checking phase has one module, and `reporting.py` sequences them in the
+order the declaration enables, alongside the manifest phase it owns. The
+command line publishes each result, and `publication.py` shapes the report. The
+package also holds the vocabulary and reading primitives the phases share.
 
 | Module              | Responsibility                                                                                                                                                                                                                          |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -3002,10 +3003,11 @@ violation of a PEP 508 range; and the repository questions are split into
 `DocumentReader` (the declaration, lock and mutmut documents), `PathLocator`
 (where a declared path is), `SandboxProvider` (the sandbox a check runs in) and
 `EvidenceWriter` (the logs, summary and report). `RepositoryQuery` combines the
-two a judgement may ask, and `RepositoryFiles` combines all four so the
-composition root can wire one object. `run_command` in `running.py`,
-`resolution_problem` in `resolution.py` and `FileRepository` in `repository.py`
-are the production adapters, all wired into the record at the command line.
+two a judgement may ask. `run_command` in `running.py`, `resolution_problem` in
+`resolution.py`, and `FileDocuments`, `SandboxMaterializer` and `EvidenceFiles`
+in `repository.py` are the production adapters, wired into the record's
+`runner`, `resolver`, `reader`, `sandbox` and `evidence` fields at the command
+line.
 
 No phase below the CLI reads `os.environ`, resolves a path, opens a document or
 writes a report. `cli.py` is the edge where ambient state is read once: the

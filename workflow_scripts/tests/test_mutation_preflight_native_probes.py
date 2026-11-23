@@ -259,3 +259,73 @@ class TestChecksAndTheLock:
         assert "a declared check left uv.lock without an identity" in found, (
             f"the finding must name the identity the checks removed: {found}"
         )
+
+    def test_a_lock_written_by_a_check_does_not_certify_an_absent_baseline(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A lock first seen after the checks cannot prove it did not move."""
+        written = lock_document(
+            "0.3.1", 'git = "https://example.invalid/tei.git?rev=abc123"'
+        )
+        script = 'import shutil; shutil.copyfile("new.lock", "uv.lock")'
+        manifest = (
+            "[native]\n"
+            'package = "tei-rapporteur"\n'
+            "[[checks]]\n"
+            'name = "write-lock"\n'
+            f"command = ['{sys.executable}', '-c', '{script}']\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(manifest=manifest, extra={"new.lock": written}),
+            lane="cargo",
+            project_python="3.13",
+        )
+
+        assert outcome.phases["checks"]["status"] == "pass", outcome.stdout
+        assert outcome.phases["native"]["status"] == "unknown", (
+            "a lock first read after the checks cannot be certified by them"
+        )
+        found = outcome.findings("native")
+        assert "was not established before the declared checks" in found, (
+            f"the finding must name the unestablished baseline: {found}"
+        )
+        assert "uv.lock is absent" in found, (
+            f"the finding must keep the reader's reason: {found}"
+        )
+
+    def test_a_baseline_without_the_package_is_not_certified_either(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A lock that first records the package after the checks is not proof."""
+        written = lock_document(
+            "0.3.1", 'git = "https://example.invalid/tei.git?rev=abc123"'
+        )
+        other = 'version = 1\n\n[[package]]\nname = "example"\nversion = "0.1.0"\n'
+        script = 'import shutil; shutil.copyfile("new.lock", "uv.lock")'
+        manifest = (
+            "[native]\n"
+            'package = "tei-rapporteur"\n'
+            "[[checks]]\n"
+            'name = "write-lock"\n'
+            f"command = ['{sys.executable}', '-c', '{script}']\n"
+        )
+
+        outcome = outcome_for(
+            run_preflight,
+            tmp_path / "repo",
+            Checkout(
+                manifest=manifest,
+                extra={"uv.lock": other, "new.lock": written},
+            ),
+            lane="cargo",
+            project_python="3.13",
+        )
+
+        assert outcome.phases["native"]["status"] == "unknown", outcome.stdout
+        found = outcome.findings("native")
+        assert "records no package named 'tei-rapporteur'" in found, (
+            f"the finding must keep the reader's reason: {found}"
+        )

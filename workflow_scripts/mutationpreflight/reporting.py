@@ -13,7 +13,7 @@ from .check_boundary import run_checks_phase
 from .commands import run_commands_phase
 from .constants import FAILED, SKIPPED, SUCCEEDED
 from .interpreters import run_interpreter_phase
-from .models import Declaration, Loaded, PhaseResult
+from .models import Declaration, Loaded, PhaseResult, phase_outcome
 from .native import (
     changed_lock_phase,
     judge_native,
@@ -129,6 +129,28 @@ def _lock_moved(before: LockIdentity | None, after: LockIdentity | None) -> bool
     return before != after
 
 
+def _unestablished_baseline(judged: PhaseResult, problem: str) -> PhaseResult:
+    """Return *judged* unable to pass on a baseline it never established.
+
+    The lock was not readable, or did not record the package, before the
+    declared checks ran. A later read may succeed, but it cannot say whether
+    the checks moved that lock, so the phase reports the reason as
+    indeterminate rather than certifying the pin it now sees.
+    """
+    if judged.status == FAILED:
+        return judged
+    finding = (
+        f"the lock's identity was not established before the declared checks "
+        f"ran: {problem}"
+    )
+    return phase_outcome(
+        "native",
+        [],
+        [*judged.findings, finding],
+        {**judged.detail, "baseline_problem": problem},
+    )
+
+
 def _declaration_phases(
     run: Run, declaration: Declaration, *, interpreter_ok: bool
 ) -> typ.Iterator[PhaseResult]:
@@ -150,10 +172,10 @@ def _declaration_phases(
     the one the probe must leave behind.
     """
     native = declaration.native
-    # A baseline the lock could not establish is recorded as no baseline: a
-    # missing reading must not read as a change, and the judgement reports the
-    # lock it could not read itself.
-    before, _ = lock_identity(run, native)
+    # A baseline the lock could not establish is kept with its reason. It is
+    # not a change, but it is not a pass either: a later successful read must
+    # not certify a pin the run never established before the checks ran.
+    before, baseline_problem = lock_identity(run, native)
     yield run_sandbox_phase(run.reader, run.root, run.mutmut_version, declaration)
     yield run_commands_phase(run, declaration, probe_versions=interpreter_ok)
     if interpreter_ok:
@@ -165,6 +187,8 @@ def _declaration_phases(
     if native is not None and _lock_moved(before, after):
         yield changed_lock_phase(judged, native, before, after)
         return
+    if baseline_problem:
+        judged = _unestablished_baseline(judged, baseline_problem)
     probe = (
         probe_native(run, declaration, judged)
         if interpreter_ok

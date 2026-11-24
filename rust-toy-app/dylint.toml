@@ -1,5 +1,15 @@
 # Whitaker Dylint suite configuration for rust-toy-app.
 #
+# `macro_aware_cognitive_complexity` gates cognitive complexity at CodeScene's
+# ceiling of 9. It skips branching a macro generated, and it is experimental,
+# so the suite loads it only on request. The tracker is
+# https://github.com/leynos/whitaker/issues/504.
+[whitaker]
+experimental = ["macro_aware_cognitive_complexity"]
+
+[macro_aware_cognitive_complexity]
+max_complexity = 9
+
 # The build script writes the generated man page to the ambient Cargo target
 # directory (a location dictated by Cargo and the release-staging action), so
 # capability-based filesystem handles are not applicable there.

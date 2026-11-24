@@ -28,7 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     # GitHub cancels a job at 360 minutes. The 345-minute delay cap leaves
     # the comment step room, so a valid delay is never cancelled.
-    timeout-minutes: 355
     permissions:
       pull-requests: write # needed to post the comment
     steps:

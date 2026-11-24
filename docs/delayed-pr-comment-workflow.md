@@ -35,6 +35,8 @@ allowed range. Nothing is slept and nothing is posted.
 
 ## Caller
 
+<!-- tested-example: delayed-pr-comment-caller -->
+
 ```yaml
 name: delayed-pr-comment
 on:

@@ -10,13 +10,16 @@ Run via ``make test``.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import typing as typ
 from pathlib import Path
 
 import pytest
+import yaml
 from plumbum import local
 
+from ._doc_examples import load_tested_examples
 from .workflow_yaml import load_workflow
 
 WORKFLOW = (
@@ -169,3 +172,77 @@ def test_message_is_data_not_shell(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert _calls(tmp_path, "id") == []
     assert capture.read_text(encoding="utf-8") == message
+
+
+DOC = Path(__file__).resolve().parents[2] / "docs/delayed-pr-comment-workflow.md"
+_PIN = "0123456789abcdef0123456789abcdef01234567"
+_INPUT_REFERENCE = re.compile(r"\$\{\{\s*inputs\.(?P<name>[A-Za-z0-9_]+)\s*\}\}")
+
+
+def _document(path: Path) -> dict[str, typ.Any]:
+    """Return the parsed workflow at *path*."""
+    return typ.cast("dict[str, typ.Any]", load_workflow(path))
+
+
+def _triggers(document: dict[str, typ.Any]) -> dict[str, typ.Any]:
+    """Return the ``on`` mapping, which YAML 1.1 may read as the key ``True``."""
+    return document["on"] if "on" in document else document[True]
+
+
+def _declared_inputs() -> dict[str, typ.Any]:
+    """Return the reusable workflow's ``workflow_call`` inputs."""
+    return _triggers(_document(WORKFLOW))["workflow_call"]["inputs"]
+
+
+def _caller_job() -> tuple[dict[str, typ.Any], dict[str, typ.Any]]:
+    """Return the published caller's dispatch inputs and its one job."""
+    source = load_tested_examples(DOC)["delayed-pr-comment-caller"]
+    parsed = yaml.safe_load(source.replace("<commit-sha>", _PIN))
+    dispatch = _triggers(parsed)["workflow_dispatch"]["inputs"]
+    (job,) = parsed["jobs"].values()
+    return dispatch, job
+
+
+def test_the_workflow_wires_every_declared_input() -> None:
+    """Each declared input is bound to a step, and each binding is declared."""
+    document = _document(WORKFLOW)
+    steps = document["jobs"]["delay_and_comment"]["steps"]
+    bound = {
+        match["name"]
+        for step in steps
+        for value in step.get("env", {}).values()
+        for match in _INPUT_REFERENCE.finditer(str(value))
+    }
+
+    assert bound == set(_declared_inputs())
+    assert [step["name"] for step in steps] == [WAIT, COMMENT]
+    assert document["jobs"]["delay_and_comment"]["permissions"] == {
+        "pull-requests": "write"
+    }
+
+
+def test_the_published_caller_satisfies_the_reusable_workflow() -> None:
+    """The documented caller supplies every input, from its own dispatch inputs."""
+    dispatch, job = _caller_job()
+    declared = _declared_inputs()
+
+    assert set(job["with"]) == set(declared)
+    for name, value in job["with"].items():
+        match = _INPUT_REFERENCE.fullmatch(str(value))
+        assert match is not None, f"{name} is not taken from a dispatch input"
+        assert match["name"] in dispatch
+    assert job["permissions"] == {"pull-requests": "write"}
+    assert re.fullmatch(
+        r"leynos/shared-actions/\.github/workflows/delayed-pr-comment\.yml@[0-9a-f]{40}"
+        r"(?: #.*)?",
+        job["uses"],
+    )
+
+
+def test_an_unmarked_fence_is_refused(tmp_path: Path) -> None:
+    """A fence with no marker before it is an error, not a skipped example."""
+    document = tmp_path / "doc.md"
+    document.write_text("text\n\n```yaml\na: 1\n```\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="without a tested-example marker"):
+        load_tested_examples(document)

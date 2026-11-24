@@ -246,3 +246,31 @@ def test_an_unmarked_fence_is_refused(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="without a tested-example marker"):
         load_tested_examples(document)
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        pytest.param("~~~yaml\na: 1\n~~~\n", "without a tested-example", id="tilde"),
+        pytest.param(
+            "<!-- tested-example: a -->\n````yaml\nx\n```\n",
+            "unterminated fence",
+            id="short-close",
+        ),
+        pytest.param(
+            "<!-- tested-example: a -->\n```\nx\n```\n"
+            "<!-- tested-example: a -->\n```\ny\n```\n",
+            "duplicate example",
+            id="duplicate",
+        ),
+    ],
+)
+def test_the_loader_refuses_what_it_cannot_vouch_for(
+    tmp_path: Path, text: str, message: str
+) -> None:
+    """Tilde fences, short closers and repeated identifiers are errors."""
+    document = tmp_path / "doc.md"
+    document.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        load_tested_examples(document)

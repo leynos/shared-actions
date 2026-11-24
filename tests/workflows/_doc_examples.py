@@ -21,6 +21,11 @@ _MARKER: typ.Final[re.Pattern[str]] = re.compile(
     r"^<!-- tested-example: (?P<identifier>[A-Za-z0-9._-]+) -->$"
 )
 _FENCE: typ.Final[re.Pattern[str]] = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})")
+#: A fence inside a block quote or a list item is still a fence a reader can
+#: copy, but it cannot be marked, so it is refused rather than skipped.
+_CONTAINED_FENCE: typ.Final[re.Pattern[str]] = re.compile(
+    r"^\s*(?:>\s*|[-*+]\s+|\d+[.)]\s+)+(?:`{3,}|~{3,})"
+)
 
 
 @dataclasses.dataclass(slots=True)
@@ -90,6 +95,9 @@ def load_tested_examples(path: Path) -> dict[str, str]:
                 current = None
             else:
                 current.lines.append(line)
+        elif _CONTAINED_FENCE.match(line):
+            message = f"{where}: fence inside a block quote or list item"
+            raise ValueError(message)
         elif _FENCE.match(line):
             current, marker = _opening(line, marker, where), None
         else:

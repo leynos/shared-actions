@@ -12,11 +12,14 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import tempfile
 import typing as typ
 from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from plumbum import local
 
 from ._doc_examples import load_tested_examples
@@ -274,6 +277,13 @@ def test_an_unmarked_fence_is_refused(tmp_path: Path) -> None:
             "unterminated fence",
             id="short-close",
         ),
+        pytest.param("> ~~~yaml\na: 1\n> ~~~\n", "block quote", id="block-quote"),
+        pytest.param("- ```yaml\n  a: 1\n", "block quote or list", id="list-item"),
+        pytest.param(
+            "<!-- tested-example: a -->\n```yaml\nx\n~~~\n",
+            "unterminated fence",
+            id="mismatched-closer",
+        ),
         pytest.param(
             "<!-- tested-example: a -->\n```\nx\n```\n"
             "<!-- tested-example: a -->\n```\ny\n```\n",
@@ -316,3 +326,62 @@ def test_text_between_a_marker_and_its_fence_clears_the_marker(
 
     with pytest.raises(ValueError, match="without a tested-example marker"):
         load_tested_examples(document)
+
+
+def test_no_run_body_interpolates_an_expression() -> None:
+    """Neither script holds a ``${{`` expression, so no input is spliced in."""
+    for name in (WAIT, COMMENT):
+        assert "${{" not in _step_script(name), name
+
+
+_FIELD = st.text(alphabet="0123456789 +-.e$;`\n", min_size=1, max_size=6)
+
+
+def _in_range(text: str, low: int, high: int) -> bool:
+    """Return whether *text* is 1 to 4 ASCII digits whose value is in range."""
+    return re.fullmatch(r"[0-9]{1,4}", text) is not None and low <= int(text) <= high
+
+
+def _run_isolated(
+    step: str, env: dict[str, str]
+) -> tuple[StepResult, list[str], list[str]]:
+    """Run one step in a fresh directory; return its result and stub calls."""
+    with tempfile.TemporaryDirectory() as raw:
+        directory = Path(raw)
+        result = _run(directory, step, env)
+        return result, _calls(directory, "sleep"), _calls(directory, "id")
+
+
+@settings(max_examples=60, deadline=None)
+@given(delay=_FIELD)
+def test_delay_property(delay: str) -> None:
+    """Only a 0 to 345 digit string sleeps, for exactly its minutes in seconds."""
+    result, slept, ran = _run_isolated(
+        WAIT, {"PR_NUMBER": "12", "DELAY_MINUTES": delay}
+    )
+
+    assert ran == []
+    if _in_range(delay, 0, 345):
+        assert result.returncode == 0
+        assert slept == [str(int(delay) * 60)]
+    else:
+        assert result.returncode != 0
+        assert "delay_minutes must be a whole number from 0 to 345." in result.stdout
+        assert slept == []
+
+
+@settings(max_examples=60, deadline=None)
+@given(number=_FIELD)
+def test_pr_number_property(number: str) -> None:
+    """Only a 1 to 9999 digit string is accepted as the pull-request number."""
+    result, slept, ran = _run_isolated(
+        WAIT, {"PR_NUMBER": number, "DELAY_MINUTES": "0"}
+    )
+
+    assert ran == []
+    if _in_range(number, 1, 9999):
+        assert result.returncode == 0
+    else:
+        assert result.returncode != 0
+        assert "pr_number must be a whole number from 1 to 9999." in result.stdout
+        assert slept == []

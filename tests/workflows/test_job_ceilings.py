@@ -167,6 +167,7 @@ CONSUMER_OWNED_JOBS: typ.Final[frozenset[tuple[str, str]]] = frozenset(
         ("mutation-cargo.yml", "summarize"),
         ("mutation-mutmut.yml", "mutants"),
         ("dependabot-automerge.yml", "automerge"),
+        ("delayed-pr-comment.yml", "delay_and_comment"),
     }
 )
 

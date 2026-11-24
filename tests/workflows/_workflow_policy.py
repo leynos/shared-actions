@@ -71,6 +71,10 @@ _MUTATION_REASON: typ.Final[str] = (
 #: Linux jobs that must stay on a GitHub-hosted runner, each with the
 #: reason. A job absent from this mapping must run on Ubicloud.
 HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
+    ("delayed-pr-comment.yml", "delay_and_comment"): (
+        "The job sleeps for up to 345 minutes and then posts one comment. "
+        "Nothing waits on it, and a paid runner would bill for the sleep."
+    ),
     ("coverage-main.yml", "coverage-upload"): (
         "Coverage upload on main blocks no one's work, so it does not need a "
         "paid Ubicloud runner."

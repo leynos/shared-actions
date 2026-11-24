@@ -31,12 +31,16 @@ class Boundary:
         The evidence's ``ran_in`` value: the path or the phrase naming *root*.
     noun : str
         The word a finding uses for *root*, such as ``sandbox``.
+    owned : bool
+        Whether the run created *root* and must remove it, rather than the
+        checkout it only reads.
 
     """
 
     root: Path
     where: str
     noun: str
+    owned: bool = False
 
 
 def _check_cwd(

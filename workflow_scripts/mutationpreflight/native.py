@@ -201,7 +201,8 @@ def _support_findings(
         )
         return [], [unknown]
     return judge(
-        run,
+        run.rule,
+        run.rule_problem,
         native.supported_python,
         project_python,
         subject=f"{native.package}'s supported-python",

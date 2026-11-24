@@ -340,3 +340,98 @@ class TestResolverContract:
 
         assert executable is None
         assert problem, "a command that does not resolve must say why"
+
+
+class TestSandboxOwnership:
+    """The run removes a sandbox it built, and never the checkout it read."""
+
+    @staticmethod
+    def _recording_run(root: Path) -> tuple[Run, list[Path]]:
+        """Return a run over *root* whose sandbox records every discard."""
+        discarded: list[Path] = []
+
+        class RecordingSandbox:
+            """Records what the run asks to remove, then delegates."""
+
+            def materialize(self, checkout: Path, contract: object) -> typ.Any:
+                return SandboxMaterializer().materialize(checkout, contract)
+
+            def discard(self, sandbox: Path) -> None:
+                discarded.append(sandbox)
+
+        # The checks legitimately run commands, so this run uses the production
+        # runner and resolver; only the sandbox is recorded.
+        run = dc.replace(
+            _run(root, root.parent / "out"),
+            sandbox=RecordingSandbox(),
+            runner=running.run_command,
+            resolver=resolve,
+        )
+        return run, discarded
+
+    def _declaration(self, root: Path, command: tuple[str, ...]) -> Declaration:
+        """Return a mutmut-lane declaration with one check."""
+        return Declaration(
+            source=root / "pyproject.toml",
+            lane="mutmut",
+            checks=(
+                Check(
+                    name="collect",
+                    command=command,
+                    timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
+                ),
+            ),
+        )
+
+    def test_a_materialised_sandbox_is_discarded_after_a_passing_check(
+        self, tmp_path: Path
+    ) -> None:
+        """A sandbox the run created must not outlive a passing check."""
+        root = repository(tmp_path / "repo", Checkout())
+        run, discarded = self._recording_run(root)
+        declaration = self._declaration(root, (sys.executable, "-c", "print(1)"))
+
+        result = run_checks_phase(run, declaration)
+
+        assert result.status == "pass", result
+        assert len(discarded) == 1, (
+            "a passing run must remove the sandbox it built exactly once"
+        )
+
+    def test_a_materialised_sandbox_is_discarded_after_a_failing_check(
+        self, tmp_path: Path
+    ) -> None:
+        """A sandbox the run created must not outlive a failing check."""
+        root = repository(tmp_path / "repo", Checkout())
+        run, discarded = self._recording_run(root)
+        declaration = self._declaration(
+            root, (sys.executable, "-c", "raise SystemExit(1)")
+        )
+
+        result = run_checks_phase(run, declaration)
+
+        assert result.status == "fail", result
+        assert len(discarded) == 1, (
+            "a failing run must still remove the sandbox it built"
+        )
+
+    def test_the_checkout_is_never_discarded(self, tmp_path: Path) -> None:
+        """The cargo lane runs in the checkout, which the run does not own."""
+        root = repository(tmp_path / "repo", Checkout())
+        run, discarded = self._recording_run(root)
+        declaration = Declaration(
+            source=root / "pyproject.toml",
+            lane="cargo",
+            checks=(
+                Check(
+                    name="collect",
+                    command=(sys.executable, "-c", "print(1)"),
+                    timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
+                ),
+            ),
+        )
+
+        result = run_checks_phase(run, declaration)
+
+        assert result.status == "pass", result
+        assert discarded == [], "a checkout the run only read must never be removed"

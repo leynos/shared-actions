@@ -13,7 +13,7 @@ import typing as typ
 
 from .checks import Boundary, Review, log_stem, run_checks
 from .constants import FAILED, SKIPPED, UNKNOWN
-from .copy_set import copy_entry_problems, mutmut_copy_set
+from .copy_set import CopyContract, copy_entry_problems, mutmut_copy_set
 from .models import Declaration, PhaseResult, phase_outcome
 
 if typ.TYPE_CHECKING:
@@ -27,16 +27,17 @@ _NO_SANDBOX: typ.Final[str] = (
 )
 
 
-def _checks_boundary(run: Run, declaration: Declaration) -> PhaseResult | Boundary:
-    """Return where the declared checks run, or the phase that refuses them.
+def _checks_contract(
+    run: Run, declaration: Declaration
+) -> CopyContract | PhaseResult | None:
+    """Return the copy contract the checks need, or the phase that refuses them.
 
-    Contract selection and the sandbox's lifecycle are kept here, apart from
-    running the checks. On the mutmut lane the boundary is a fresh copy built
-    from the selected release's contract; the cargo lane copies the whole tree,
-    so the checkout itself is the representative sandbox there.
+    ``None`` means the lane copies the whole tree, so the checkout itself is
+    the representative sandbox; a contract means a fresh copy has to be
+    built. Deciding this reads the configuration and writes nothing.
     """
     if declaration.lane != "mutmut":
-        return Boundary(run.root, _WHOLE_TREE, "checkout")
+        return None
     table, problem = run.reader.read_mutmut_configuration(run.root)
     invalid = copy_entry_problems(table)
     if invalid:
@@ -46,10 +47,24 @@ def _checks_boundary(run: Run, declaration: Declaration) -> PhaseResult | Bounda
     contract, problems = mutmut_copy_set(run.mutmut_version, table, problem)
     if contract is None:
         return PhaseResult("checks", UNKNOWN, problems, {"reason": _NO_SANDBOX})
+    return contract
+
+
+def _materialized_boundary(
+    run: Run, contract: CopyContract | None
+) -> PhaseResult | Boundary:
+    """Return the tree the checks run in, building it when a contract needs one.
+
+    On the mutmut lane this creates the sandbox and marks the boundary as owned
+    by the run, so the caller removes it; on the cargo lane it returns the
+    checkout, which the run does not own.
+    """
+    if contract is None:
+        return Boundary(run.root, _WHOLE_TREE, "checkout", owned=False)
     sandbox, problems = run.sandbox.materialize(run.root, contract)
     if sandbox is None:
         return PhaseResult("checks", FAILED, problems, {"reason": _NO_SANDBOX})
-    return Boundary(sandbox, str(sandbox), "sandbox")
+    return Boundary(sandbox, str(sandbox), "sandbox", owned=True)
 
 
 def run_checks_phase(run: Run, declaration: Declaration) -> PhaseResult:
@@ -76,7 +91,10 @@ def run_checks_phase(run: Run, declaration: Declaration) -> PhaseResult:
     """
     if not declaration.checks:
         return PhaseResult("checks", SKIPPED, (), {"reason": _NO_CHECKS})
-    boundary = _checks_boundary(run, declaration)
+    contract = _checks_contract(run, declaration)
+    if isinstance(contract, PhaseResult):
+        return contract
+    boundary = _materialized_boundary(run, contract)
     if isinstance(boundary, PhaseResult):
         return boundary
     try:
@@ -85,7 +103,7 @@ def run_checks_phase(run: Run, declaration: Declaration) -> PhaseResult:
         detail: dict[str, object] = {"ran_in": boundary.where, "results": results}
         return phase_outcome("checks", findings, [], detail)
     finally:
-        if boundary.root != run.root:
+        if boundary.owned:
             run.sandbox.discard(boundary.root)
 
 

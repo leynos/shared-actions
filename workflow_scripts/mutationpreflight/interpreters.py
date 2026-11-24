@@ -16,7 +16,7 @@ from .constants import HELPER_PYTHON_FLOOR
 from .models import PhaseResult, phase_outcome
 
 if typ.TYPE_CHECKING:
-    from .ports import Run
+    from .ports import RequirementRule, Run
 
 _NO_PROJECT_PYTHON: typ.Final[str] = (
     "no project interpreter was supplied, so requires-python was not checked; "
@@ -25,15 +25,24 @@ _NO_PROJECT_PYTHON: typ.Final[str] = (
 
 
 def judge(
-    run: Run, requirement: object, interpreter: str, *, subject: str
+    rule: RequirementRule | None,
+    rule_problem: str,
+    requirement: object,
+    interpreter: str,
+    *,
+    subject: str,
 ) -> tuple[list[str], list[str]]:
     """Return why *interpreter* falls outside *requirement*, using #565's rule.
 
+    The rule and the reason it is absent are passed explicitly rather than as
+    the whole run, so this function depends only on what it reads.
+
     Parameters
     ----------
-    run : Run
-        The run whose shared rule decides the range, and the reason it is
-        absent when it could not be loaded.
+    rule : RequirementRule | None
+        The shared rule that decides the range.
+    rule_problem : str
+        Why *rule* is ``None``, empty when it is loaded.
     requirement : object
         The PEP 508 range to judge.
     interpreter : str
@@ -50,9 +59,9 @@ def judge(
         interpreter it never read.
 
     """
-    if run.rule is None:
-        return [], [run.rule_problem]
-    return list(run.rule(requirement, interpreter, subject=subject)), []
+    if rule is None:
+        return [], [rule_problem]
+    return list(rule(requirement, interpreter, subject=subject)), []
 
 
 def _project_requirement(run: Run) -> tuple[object, str | None]:
@@ -103,7 +112,11 @@ def _judge_project_range(
         )
         return
     violations, indeterminate = judge(
-        run, requirement, run.runtimes.project, subject="the project's requires-python"
+        run.rule,
+        run.rule_problem,
+        requirement,
+        run.runtimes.project,
+        subject="the project's requires-python",
     )
     blocking.extend(violations)
     unknown.extend(indeterminate)

@@ -2000,9 +2000,9 @@ repository, pinned to a commit SHA of `leynos/shared-actions`.
 
 A value outside these rules fails the first step with an `::error::` naming the
 allowed range, before anything sleeps or posts. The job's `timeout-minutes` is
-355, so a delay within the cap is never cancelled by GitHub's 360-minute limit.
-Inputs reach the shell only through `env:`, never through `${{ }}` in a script,
-so a dispatcher cannot inject shell syntax.
+355, so a delay within the cap leaves ten minutes of margin under GitHub's
+360-minute limit. Inputs reach the shell only through `env:`, never through
+`${{ }}` in a script, so a dispatcher cannot inject shell syntax.
 
 See [Delayed pull request comment workflow](./delayed-pr-comment-workflow.md)
 for the caller example, the limits and the reasoning.

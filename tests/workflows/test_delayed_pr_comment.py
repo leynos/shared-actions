@@ -280,6 +280,11 @@ def test_an_unmarked_fence_is_refused(tmp_path: Path) -> None:
         pytest.param("> ~~~yaml\na: 1\n> ~~~\n", "block quote", id="block-quote"),
         pytest.param("- ```yaml\n  a: 1\n", "block quote or list", id="list-item"),
         pytest.param(
+            "- item\n\n    ```yaml\n    a: 1\n    ```\n",
+            "block quote or list",
+            id="list-continuation",
+        ),
+        pytest.param(
             "<!-- tested-example: a -->\n```yaml\nx\n~~~\n",
             "unterminated fence",
             id="mismatched-closer",

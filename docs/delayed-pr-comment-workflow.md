@@ -25,9 +25,9 @@ allowed range. Nothing is slept and nothing is posted.
 ## Limits
 
 - The delay is capped at 345 minutes and the job's `timeout-minutes` is 355.
-  GitHub cancels a job at 360 minutes, so a valid delay always finishes and
-  leaves the comment step room. A delay is never cut short by an arbitrary
-  timeout.
+  GitHub cancels a job at 360 minutes, so a valid delay leaves the setup and
+  comment steps ten minutes of margin. That is a margin, not a guarantee: a
+  GitHub-side delay beyond it can still hit the job timeout.
 - The job runs on `ubuntu-latest`. It only sleeps, so it never needs a paid
   runner.
 - The job holds `pull-requests: write` and nothing else. It does not check out

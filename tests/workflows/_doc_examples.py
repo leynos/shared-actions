@@ -21,10 +21,11 @@ _MARKER: typ.Final[re.Pattern[str]] = re.compile(
     r"^<!-- tested-example: (?P<identifier>[A-Za-z0-9._-]+) -->$"
 )
 _FENCE: typ.Final[re.Pattern[str]] = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})")
-#: A fence inside a block quote or a list item is still a fence a reader can
+#: A fence inside a block quote or a list item, or indented as a list
+#: continuation, is still a fence a reader can
 #: copy, but it cannot be marked, so it is refused rather than skipped.
 _CONTAINED_FENCE: typ.Final[re.Pattern[str]] = re.compile(
-    r"^\s*(?:>\s*|[-*+]\s+|\d+[.)]\s+)+(?:`{3,}|~{3,})"
+    r"^(?:\s*(?:>\s*|[-*+]\s+|\d+[.)]\s+)+|(?: {4,}|\t)\s*)(?:`{3,}|~{3,})"
 )
 
 

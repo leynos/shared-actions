@@ -47,6 +47,10 @@ class Invocation:
         The environment the helper was started with. It is supplied rather
         than read by the runner, so the environment is visible at the call
         site.
+    resolver : CommandResolver
+        How the runner establishes which executable the command names. It is
+        carried here rather than imported by the runner, so every command path
+        resolves through the same injected seam.
 
     """
 
@@ -55,6 +59,7 @@ class Invocation:
     env: typ.Mapping[str, str]
     timeout: int
     ambient: typ.Mapping[str, str]
+    resolver: CommandResolver
 
 
 class Runner(typ.Protocol):

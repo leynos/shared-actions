@@ -158,6 +158,7 @@ def probe_native(run: Run, declaration: Declaration, judged: PhaseResult) -> Pro
             env=project_environment(run),
             timeout=MAX_CHECK_TIMEOUT_SECONDS,
             ambient=run.ambient,
+            resolver=run.resolver,
         )
     )
     evidence = _probe_detail(native.probe, outcome, problem)

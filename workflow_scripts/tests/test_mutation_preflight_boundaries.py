@@ -38,6 +38,7 @@ from workflow_scripts.mutationpreflight.repository import (
     FileDocuments,
     SandboxMaterializer,
 )
+from workflow_scripts.mutationpreflight.resolution import resolve_problem
 from workflow_scripts.mutationpreflight.sandbox import run_sandbox_phase
 from workflow_scripts.tests.mutation_preflight_support import (
     POSIX_SYMLINKS_ONLY,
@@ -68,7 +69,9 @@ def _refuse(*_args: object, **_kwargs: object) -> typ.NoReturn:
     raise AssertionError(message)
 
 
-def refusing_resolver(name: str, cwd: Path, environment: typ.Mapping[str, str]) -> str:
+def refusing_resolver(
+    name: str, cwd: Path, environment: typ.Mapping[str, str]
+) -> tuple[str | None, str]:
     """Fail the test: a query phase must not look a command up at all."""
     message = f"a query phase must not resolve {name!r} in {cwd!r} with {environment!r}"
     raise AssertionError(message)
@@ -534,6 +537,7 @@ class TestCleanup:
                 env={},
                 timeout=1,
                 ambient=dict(os.environ),
+                resolver=resolve_problem,
             )
         )
         elapsed = time.monotonic() - started

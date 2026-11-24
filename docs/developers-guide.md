@@ -2995,19 +2995,19 @@ _Table 1: The `mutationpreflight` package's modules._
 
 `ports.py` defines `Run`, the single frozen record a phase receives: `root`,
 `runtimes`, `output_dir`, `mutmut_version`, `ambient`, `summary_path`, `abi3`,
-`rule`, `rule_problem`, `files`, `resolver` and `runner`. Its protocols are
-narrow on purpose. `Runner` returns one command's bounded result or the reason
-it did not run; `CommandResolver` says why a declared command would not
-resolve, without running it; `RequirementRule` returns one finding per
-violation of a PEP 508 range; and the repository questions are split into
-`DocumentReader` (the declaration, lock and mutmut documents), `PathLocator`
-(where a declared path is), `SandboxProvider` (the sandbox a check runs in) and
-`EvidenceWriter` (the logs, summary and report). `RepositoryQuery` combines the
-two a judgement may ask. `run_command` in `running.py`, `resolution_problem` in
-`resolution.py`, and `FileDocuments`, `SandboxMaterializer` and `EvidenceFiles`
-in `repository.py` are the production adapters, wired into the record's
-`runner`, `resolver`, `reader`, `sandbox` and `evidence` fields at the command
-line.
+`rule`, `rule_problem`, `reader`, `sandbox`, `evidence`, `resolver` and
+`runner`. Its protocols are narrow on purpose. `Runner` returns one command's
+bounded result or the reason it did not run; `CommandResolver` says why a
+declared command would not resolve, without running it; `RequirementRule`
+returns one finding per violation of a PEP 508 range; and the repository
+questions are split into `DocumentReader` (the declaration, lock and mutmut
+documents), `PathLocator` (where a declared path is), `SandboxProvider` (the
+sandbox a check runs in) and `EvidenceWriter` (the logs, summary and report).
+`RepositoryQuery` combines the two a judgement may ask. `run_command` in
+`running.py`, `resolution_problem` in `resolution.py`, and `FileDocuments`,
+`SandboxMaterializer` and `EvidenceFiles` in `repository.py` are the production
+adapters, wired into the record's `runner`, `resolver`, `reader`, `sandbox` and
+`evidence` fields at the command line.
 
 No phase below the CLI reads `os.environ`, resolves a path, opens a document or
 writes a report. `cli.py` is the edge where ambient state is read once: the

@@ -41,7 +41,7 @@ def _resolved_only(
     run: Run, requirement: CommandRequirement
 ) -> tuple[str | None, object]:
     """Return whether *requirement* resolves, without asking its version."""
-    problem = run.resolver(requirement.name, run.root, run.ambient)
+    _, problem = run.resolver(requirement.name, run.root, run.ambient)
     if problem:
         return _unresolved(requirement.name, problem)
     return None, {"resolved": requirement.name}
@@ -58,6 +58,7 @@ def _version_probe(
             env=project_environment(run),
             timeout=VERSION_TIMEOUT_SECONDS,
             ambient=run.ambient,
+            resolver=run.resolver,
         )
     )
     if outcome is None:

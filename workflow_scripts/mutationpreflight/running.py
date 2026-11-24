@@ -18,7 +18,6 @@ import typing as typ
 from .constants import LOG_BOUND_BYTES
 from .diagnostics import TRUNCATION_PREFIX, timeout_message
 from .models import Ran
-from .resolution import resolve
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -259,7 +258,7 @@ def run_command(invocation: Invocation) -> tuple[Ran | None, str]:
     # first would let the ambient PATH pick a different executable than the
     # declared one, or report a command missing when the declaration supplies it.
     environment = {**invocation.ambient, **invocation.env}
-    executable, problem = resolve(command[0], invocation.cwd, environment)
+    executable, problem = invocation.resolver(command[0], invocation.cwd, environment)
     if executable is None:
         return None, problem
     try:

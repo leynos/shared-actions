@@ -31,11 +31,13 @@ from workflow_scripts.mutationpreflight.ports import (
     LocatedPath,
     Run,
 )
+from workflow_scripts.mutationpreflight.probing import probe_native
 from workflow_scripts.mutationpreflight.repository import (
     EvidenceFiles,
     FileDocuments,
     SandboxMaterializer,
 )
+from workflow_scripts.mutationpreflight.resolution import resolve_problem
 from workflow_scripts.mutationpreflight.sandbox import run_sandbox_phase
 from workflow_scripts.tests.mutation_preflight_support import (
     Checkout,
@@ -191,8 +193,11 @@ class TestRepositoryBoundary:
             != "fail"
         )
         # A check legitimately runs a command, so the real comparison uses the
-        # production runner rather than the query-phase runner that refuses.
-        executable = dc.replace(real, runner=running.run_command)
+        # production runner and resolver rather than the query-phase ones that
+        # refuse.
+        executable = dc.replace(
+            real, runner=running.run_command, resolver=resolve_problem
+        )
         assert run_checks_phase(executable, declaration).status == "pass"
 
         refusing = dc.replace(
@@ -229,9 +234,11 @@ class RefusingResolver:
     #: The reason every lookup gives.
     reason: typ.Final[str] = "the resolver stand-in refuses to look the command up"
 
-    def __call__(self, name: str, cwd: Path, environment: typ.Mapping[str, str]) -> str:
+    def __call__(
+        self, name: str, cwd: Path, environment: typ.Mapping[str, str]
+    ) -> tuple[str | None, str]:
         """Refuse to resolve *name*, naming what was asked."""
-        return f"{self.reason} ({name!r} in {cwd!r})"
+        return None, f"{self.reason} ({name!r} in {cwd!r})"
 
 
 class TestCommandBoundary:
@@ -261,4 +268,52 @@ class TestCommandBoundary:
         reported = " ".join((*result.findings, str(result.detail)))
         assert RefusingResolver.reason in reported, (
             f"the finding must name the resolver's refusal: {result}"
+        )
+
+
+class TestOneResolutionSeam:
+    """Every command path resolves through the resolver the run carries."""
+
+    def test_a_refusing_resolver_stops_a_check_and_a_probe(
+        self, tmp_path: Path
+    ) -> None:
+        """A check and a probe resolve through ``Run.resolver``, not a local import."""
+        root = repository(tmp_path / "repo", Checkout())
+        declaration = Declaration(
+            source=root / "pyproject.toml",
+            lane="cargo",
+            native=NativeRequirement(
+                package="tei-rapporteur",
+                probe=("preflight-declared-tool", "--build"),
+            ),
+            checks=(
+                Check(
+                    name="collect",
+                    command=("preflight-declared-tool",),
+                    timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
+                ),
+            ),
+        )
+        run = dc.replace(
+            _run(root, tmp_path / "out"),
+            reader=FileDocuments(),
+            sandbox=SandboxMaterializer(),
+            evidence=EvidenceFiles(),
+            resolver=RefusingResolver(),
+            runner=running.run_command,
+        )
+
+        checked = run_checks_phase(run, declaration)
+        report = judge_native(run, declaration)
+        probed = probe_native(run, declaration, report)
+
+        assert checked.status == "fail"
+        assert any(
+            RefusingResolver.reason in finding for finding in checked.findings
+        ), f"the check must report the resolver's refusal: {checked.findings}"
+        assert probed.blocking, (
+            "a probe whose command cannot resolve must not report success"
+        )
+        assert any(RefusingResolver.reason in finding for finding in probed.blocking), (
+            f"the probe must report the resolver's refusal: {probed.blocking}"
         )

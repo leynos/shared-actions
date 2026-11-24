@@ -103,3 +103,15 @@ def resolution_problem(name: str, cwd: Path, environment: typ.Mapping[str, str])
     """
     _, problem = resolve(name, cwd, environment)
     return problem
+
+
+def resolve_problem(
+    name: str, cwd: Path, environment: typ.Mapping[str, str]
+) -> tuple[str | None, str]:
+    """Return the executable *name* resolves to, or why it does not.
+
+    This is the shape :class:`~.ports.CommandResolver` carries: the runner
+    needs the executable, and a phase that only asks whether a command exists
+    ignores the first element and keeps the reason.
+    """
+    return resolve(name, cwd, environment)

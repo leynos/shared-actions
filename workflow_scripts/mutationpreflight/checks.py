@@ -167,6 +167,7 @@ def _review_check(boundary: Boundary, check: Check, run: Run) -> Review:
             env={**project_environment(run), **dict(check.env)},
             timeout=check.timeout_seconds,
             ambient=run.ambient,
+            resolver=run.resolver,
         )
     )
     if outcome is None:

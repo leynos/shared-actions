@@ -1,0 +1,28 @@
+name: Test delayed PR comment
+
+# Driven only by the act lane (tests/workflows/test_delayed_pr_comment_act.py),
+# which supplies the inputs through an event file. It never runs on GitHub
+# automatically, because a valid run would post a real comment.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      delay_minutes:
+        required: true
+        type: string
+      message:
+        required: true
+        type: string
+
+jobs:
+  delayed-comment:
+    permissions:
+      pull-requests: write
+    uses: ./.github/workflows/delayed-pr-comment.yml
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      delay_minutes: ${{ inputs.delay_minutes }}
+      message: ${{ inputs.message }}

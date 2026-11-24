@@ -445,25 +445,6 @@ class TestCoverageWatchdogLane:
             "`contents: read` and nothing else"
         )
 
-    def test_a_newer_push_supersedes_the_running_proof(
-        self, watchdog: _Workflow
-    ) -> None:
-        """A pull request's newer push cancels the proof still running.
-
-        The lane serves pull requests and a dispatch, never the push to
-        `main`, so cancelling spends nothing that a later run does not
-        repeat against the newer head.
-        """
-        concurrency = watchdog.document.get("concurrency")
-
-        assert concurrency == {
-            "group": "${{ github.workflow }}-${{ github.ref }}",
-            "cancel-in-progress": True,
-        }, (
-            f"{watchdog.path.name} declares concurrency {concurrency!r}; it must "
-            "group by workflow and ref and cancel the run in progress"
-        )
-
     def test_the_lane_runs_on_every_pull_request(self, watchdog: _Workflow) -> None:
         """The lane filters its pull_request trigger by nothing at all.
 

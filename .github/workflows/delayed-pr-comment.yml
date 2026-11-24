@@ -63,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           body_file="$(mktemp)"
-          printf '%s\n' "$MESSAGE" > "$body_file"
+          printf '%s' "$MESSAGE" > "$body_file"
           gh pr comment "$((10#$PR_NUMBER))" \
             --repo "$GITHUB_REPOSITORY" \
             --body-file "$body_file"

@@ -156,7 +156,7 @@ def test_comment_is_posted_to_this_repository(tmp_path: Path) -> None:
 
 def test_message_is_data_not_shell(tmp_path: Path) -> None:
     """A message holding shell syntax reaches the body file verbatim."""
-    message = "$(id) `id`; id\nsecond line"
+    message = "$(id) `id` ${{ github.token }}; id\nsecond line"
     capture = tmp_path / "body.txt"
 
     result = _run(
@@ -168,4 +168,4 @@ def test_message_is_data_not_shell(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert _calls(tmp_path, "id") == []
-    assert capture.read_text(encoding="utf-8") == message + "\n"
+    assert capture.read_text(encoding="utf-8") == message

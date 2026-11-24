@@ -353,7 +353,9 @@ class TestSandboxOwnership:
         class RecordingSandbox:
             """Records what the run asks to remove, then delegates."""
 
-            def materialize(self, checkout: Path, contract: object) -> typ.Any:
+            def materialize(
+                self, checkout: Path, contract: CopyContract
+            ) -> tuple[Path | None, tuple[str, ...]]:
                 """Build the sandbox the production adapter would build."""
                 return SandboxMaterializer().materialize(checkout, contract)
 

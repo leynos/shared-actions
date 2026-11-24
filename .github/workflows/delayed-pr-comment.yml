@@ -1,66 +1,20 @@
 name: delayed-pr-comment
-
-# Reusable workflow: wait, then post one comment on a pull request.
-#
-# Every input reaches the shell through `env:`, never through `${{ }}` inside
-# a `run:` body, so a dispatcher cannot inject shell syntax. The job sleeps
-# and posts with the repository's own token; it checks nothing out and runs
-# no pull-request code. See docs/delayed-pr-comment-workflow.md.
-
 on:
   workflow_call:
     inputs:
       pr_number:
-        description: 'PR number to comment on (digits only, 1 to 4 characters)'
         required: true
         type: number
       delay_minutes:
-        description: 'Minutes to wait before commenting (whole number, 0 to 345)'
         required: true
         type: number
       message:
-        description: 'Comment body'
         required: true
         type: string
-
 jobs:
   delay_and_comment:
     runs-on: ubuntu-latest
-    # GitHub cancels a job at 360 minutes. The 345-minute delay cap leaves
-    # the comment step room, so a valid delay is never cancelled.
     permissions:
-      pull-requests: write # needed to post the comment
+      pull-requests: write
     steps:
-      - name: Validate inputs and wait
-        shell: bash
-        env:
-          PR_NUMBER: ${{ inputs.pr_number }}
-          DELAY_MINUTES: ${{ inputs.delay_minutes }}
-        run: |
-          set -euo pipefail
-          max_delay=345
-          if [[ ! "$PR_NUMBER" =~ ^[0-9]{1,4}$ ]] || (( 10#$PR_NUMBER < 1 )); then
-            echo "::error::pr_number must be a whole number from 1 to 9999."
-            exit 1
-          fi
-          if [[ ! "$DELAY_MINUTES" =~ ^[0-9]{1,4}$ ]] \
-            || (( 10#$DELAY_MINUTES > max_delay )); then
-            echo "::error::delay_minutes must be a whole number from 0 to ${max_delay}."
-            exit 1
-          fi
-          secs=$(( 10#$DELAY_MINUTES * 60 ))
-          echo "Waiting ${secs} seconds before commenting on #$((10#$PR_NUMBER))."
-          sleep "$secs"
-      - name: Comment on the pull request
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          MESSAGE: ${{ inputs.message }}
-        run: |
-          set -euo pipefail
-          body_file="$(mktemp)"
-          printf '%s' "$MESSAGE" > "$body_file"
-          gh pr comment "$((10#$PR_NUMBER))" \
-            --repo "$GITHUB_REPOSITORY" \
-            --body-file "$body_file"
+      - run: echo hi

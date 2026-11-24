@@ -473,8 +473,10 @@ def project_environment(run: Run) -> dict[str, str]:
 class CommandResolver(typ.Protocol):
     """Resolves a declared command against the environment it will run in."""
 
-    def __call__(self, name: str, cwd: Path, environment: typ.Mapping[str, str]) -> str:
-        """Return why *name* cannot be resolved, or ``""`` when it can.
+    def __call__(
+        self, name: str, cwd: Path, environment: typ.Mapping[str, str]
+    ) -> tuple[str | None, str]:
+        """Return the executable *name* resolves to, or why it does not.
 
         Parameters
         ----------
@@ -488,9 +490,10 @@ class CommandResolver(typ.Protocol):
 
         Returns
         -------
-        str
-            The reason the name does not resolve, or an empty string when it
-            does.
+        tuple[str | None, str]
+            The executable to start, and the reason no executable was found.
+            The first value is ``None`` exactly when the command does not
+            resolve; the second is ``""`` when it does.
 
         """
         ...

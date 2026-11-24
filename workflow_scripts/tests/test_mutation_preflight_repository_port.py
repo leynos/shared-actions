@@ -10,6 +10,7 @@ filesystem directly.
 from __future__ import annotations
 
 import dataclasses as dc
+import os
 import sys
 import typing as typ
 
@@ -315,3 +316,27 @@ class TestOneResolutionSeam:
         assert any(RefusingResolver.reason in finding for finding in probed.blocking), (
             f"the probe must report the resolver's refusal: {probed.blocking}"
         )
+
+
+class TestResolverContract:
+    """The resolver returns the executable, or the reason it found none."""
+
+    def test_a_resolved_command_returns_its_executable_and_no_reason(
+        self, tmp_path: Path
+    ) -> None:
+        """A command that resolves yields a path, with an empty explanation."""
+        executable, problem = resolve(sys.executable, tmp_path, dict(os.environ))
+
+        assert executable == sys.executable
+        assert problem == ""
+
+    def test_an_unresolved_command_returns_no_executable_and_a_reason(
+        self, tmp_path: Path
+    ) -> None:
+        """A command that does not resolve yields ``None`` and why."""
+        executable, problem = resolve(
+            "a-command-this-test-invented", tmp_path, {"PATH": str(tmp_path)}
+        )
+
+        assert executable is None
+        assert problem, "a command that does not resolve must say why"

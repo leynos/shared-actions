@@ -37,7 +37,7 @@ from workflow_scripts.mutationpreflight.repository import (
     FileDocuments,
     SandboxMaterializer,
 )
-from workflow_scripts.mutationpreflight.resolution import resolve_problem
+from workflow_scripts.mutationpreflight.resolution import resolve
 from workflow_scripts.mutationpreflight.sandbox import run_sandbox_phase
 from workflow_scripts.tests.mutation_preflight_support import (
     Checkout,
@@ -195,9 +195,7 @@ class TestRepositoryBoundary:
         # A check legitimately runs a command, so the real comparison uses the
         # production runner and resolver rather than the query-phase ones that
         # refuse.
-        executable = dc.replace(
-            real, runner=running.run_command, resolver=resolve_problem
-        )
+        executable = dc.replace(real, runner=running.run_command, resolver=resolve)
         assert run_checks_phase(executable, declaration).status == "pass"
 
         refusing = dc.replace(

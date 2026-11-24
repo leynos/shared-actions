@@ -24,7 +24,7 @@ from .repository import (
     SandboxMaterializer,
     load_shared_rule,
 )
-from .resolution import resolve_problem
+from .resolution import resolve
 from .running import run_command
 
 app = App()
@@ -207,7 +207,7 @@ def main(
         reader=reader,
         sandbox=sandbox,
         evidence=evidence,
-        resolver=resolve_problem,
+        resolver=resolve,
         runner=run_command,
     )
     results: list[PhaseResult] = []

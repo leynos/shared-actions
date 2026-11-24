@@ -80,38 +80,3 @@ def resolve(
     if found is None:
         return None, _unresolved(name, cwd)
     return found, ""
-
-
-def resolution_problem(name: str, cwd: Path, environment: typ.Mapping[str, str]) -> str:
-    """Return why *name* cannot be resolved, or ``""`` when it can.
-
-    Parameters
-    ----------
-    name : str
-        The command name or path to look up.
-    cwd : Path
-        The directory a relative path is anchored at.
-    environment : Mapping[str, str]
-        The environment the command will run in. A bare name is looked up on
-        its ``PATH``.
-
-    Returns
-    -------
-    str
-        The reason the name does not resolve, or an empty string when it does.
-
-    """
-    _, problem = resolve(name, cwd, environment)
-    return problem
-
-
-def resolve_problem(
-    name: str, cwd: Path, environment: typ.Mapping[str, str]
-) -> tuple[str | None, str]:
-    """Return the executable *name* resolves to, or why it does not.
-
-    This is the shape :class:`~.ports.CommandResolver` carries: the runner
-    needs the executable, and a phase that only asks whether a command exists
-    ignores the first element and keeps the reason.
-    """
-    return resolve(name, cwd, environment)

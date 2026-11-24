@@ -38,7 +38,7 @@ from workflow_scripts.mutationpreflight.repository import (
     FileDocuments,
     SandboxMaterializer,
 )
-from workflow_scripts.mutationpreflight.resolution import resolve_problem
+from workflow_scripts.mutationpreflight.resolution import resolve
 from workflow_scripts.mutationpreflight.sandbox import run_sandbox_phase
 from workflow_scripts.tests.mutation_preflight_support import (
     POSIX_SYMLINKS_ONLY,
@@ -537,7 +537,7 @@ class TestCleanup:
                 env={},
                 timeout=1,
                 ambient=dict(os.environ),
-                resolver=resolve_problem,
+                resolver=resolve,
             )
         )
         elapsed = time.monotonic() - started

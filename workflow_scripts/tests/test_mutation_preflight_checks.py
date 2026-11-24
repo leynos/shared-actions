@@ -15,7 +15,7 @@ from pathlib import Path
 
 from workflow_scripts.mutationpreflight.constants import LOG_BOUND_BYTES
 from workflow_scripts.mutationpreflight.diagnostics import TRUNCATION_PREFIX
-from workflow_scripts.mutationpreflight.resolution import resolution_problem
+from workflow_scripts.mutationpreflight.resolution import resolve
 from workflow_scripts.tests.mutation_preflight_support import (
     POSIX_SHIMS_ONLY,
     POSIX_SYMLINKS_ONLY,
@@ -411,7 +411,7 @@ class TestCommandResolution:
         probe.chmod(probe.stat().st_mode | stat.S_IXUSR)
         (fixtures / "link").symlink_to(Path("sub") / "deep")
 
-        problem = resolution_problem("./link/../probe", fixtures, {})
+        _, problem = resolve("./link/../probe", fixtures, {})
 
         assert problem == "", (
             "collapsing '..' lexically would name fixtures/probe and miss "
@@ -429,7 +429,7 @@ class TestCommandResolution:
         probe.write_text("#!/bin/sh\necho collected\n", encoding="utf-8")
         probe.chmod(probe.stat().st_mode & ~stat.S_IXUSR)
 
-        problem = resolution_problem("./tools/probe", tools, {})
+        _, problem = resolve("./tools/probe", tools, {})
 
         assert "is not an executable file" in problem, (
             f"a file the operating system may not execute must not resolve: {problem}"

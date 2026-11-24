@@ -23,8 +23,6 @@ on:
         required: true
         type: string
 
-permissions: {}
-
 jobs:
   delay_and_comment:
     runs-on: ubuntu-latest

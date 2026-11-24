@@ -9,9 +9,15 @@ dispatcher's input into shell arithmetic.
 
 | Input           | Type     | Rule                                                           |
 | --------------- | -------- | -------------------------------------------------------------- |
-| `pr_number`     | `number` | Whole number from 1 to 9999.                                   |
-| `delay_minutes` | `number` | Whole number from 0 to 345; leading zeros are read as base 10. |
+| `pr_number`     | `string` | Whole number from 1 to 9999.                                   |
+| `delay_minutes` | `string` | Whole number from 0 to 345; leading zeros are read as base 10. |
 | `message`       | `string` | The comment body, posted verbatim.                             |
+
+The two numeric inputs are strings on purpose: a number-typed dispatch input
+started through the API reaches a number-typed `workflow_call` input as a
+string, and GitHub then fails the run before any job starts. Callers still type
+their own dispatch inputs as `number`, so GitHub refuses text such as `$(id)`
+up front, and the script is the second line of defence.
 
 A value outside these rules fails the first step with an `::error::` naming the
 allowed range. Nothing is slept and nothing is posted.

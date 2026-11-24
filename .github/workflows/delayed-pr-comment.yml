@@ -13,11 +13,11 @@ on:
       pr_number:
         description: 'PR number to comment on (digits only, 1 to 4 characters)'
         required: true
-        type: number
+        type: string
       delay_minutes:
         description: 'Minutes to wait before commenting (whole number, 0 to 345)'
         required: true
-        type: number
+        type: string
       message:
         description: 'Comment body'
         required: true

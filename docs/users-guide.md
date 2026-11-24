@@ -1984,3 +1984,25 @@ for the merge-state rules, the required repository settings, and the full
 decision log, and
 [Migrating to the audited Dependabot auto-merge](./migrating-to-audited-dependabot-automerge.md)
 before pulling in the next major tag.
+
+## Delayed pull request comment
+
+`.github/workflows/delayed-pr-comment.yml` waits a set number of minutes and
+then posts one comment on a pull request, with `pull-requests: write` as its
+only permission. Call it from a `workflow_dispatch` workflow in your
+repository, pinned to a commit SHA of `leynos/shared-actions`.
+
+| Input           | Rule                                     |
+| --------------- | ---------------------------------------- |
+| `pr_number`     | Whole number, 1 to 9999.                 |
+| `delay_minutes` | Whole number, 0 to 345; read as base 10. |
+| `message`       | The comment body, posted verbatim.       |
+
+A value outside these rules fails the first step with an `::error::` naming the
+allowed range, before anything sleeps or posts. The job's `timeout-minutes` is
+355, so a delay within the cap is never cancelled by GitHub's 360-minute limit.
+Inputs reach the shell only through `env:`, never through `${{ }}` in a script,
+so a dispatcher cannot inject shell syntax.
+
+See [Delayed pull request comment workflow](./delayed-pr-comment-workflow.md)
+for the caller example, the limits and the reasoning.

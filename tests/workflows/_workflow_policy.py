@@ -238,6 +238,7 @@ CALLER_JOBS: typ.Final[frozenset[tuple[str, str]]] = frozenset(
     {
         ("dependabot-automerge-caller.yml", "automerge"),
         ("mutation-testing-caller.yml", "mutation"),
+        ("test-delayed-pr-comment.yml", "delayed-comment"),
         ("test-dependabot-automerge.yml", "automerge"),
         ("test-mutation-cargo.yml", "mutation"),
         ("test-mutation-mutmut.yml", "mutation"),

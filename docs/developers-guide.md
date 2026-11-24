@@ -3862,7 +3862,7 @@ sibling field such as `head.repo.private` changes which pull requests fall
 back, and an earlier draft of the contract let exactly that mutation past by
 concluding the lane was no longer a Linux lane at all.
 
-Six kinds of Linux job stay GitHub-hosted, each recorded with its reason in
+Seven kinds of Linux job stay GitHub-hosted, each recorded with its reason in
 `HOSTED_LINUX_EXEMPTIONS`:
 
 | Job                                                                                         | Why it stays hosted                                                                                                                                                                       |
@@ -3870,6 +3870,7 @@ Six kinds of Linux job stay GitHub-hosted, each recorded with its reason in
 | `test-export-ubicloud-cache-credentials.yml::refuses-a-github-hosted-runner`                | The job proves the action fails closed against a real GitHub-hosted cache endpoint. On Ubicloud that endpoint is the one the action accepts, so the job would pass while testing nothing. |
 | `test-setup-rust-sccache.yml::exports-the-wrapper` and `::refuses_a_missing_ubicloud_proxy` | They prove `setup-rust`'s GitHub-hosted arm and that `expect-cache: ubicloud` fails where there is no proxy. On Ubicloud the action selects the proxy, so both would test the other arm.  |
 | `mutation-cargo.yml` and `mutation-mutmut.yml`                                              | Scheduled, never developer-blocking, and free on public-repository minutes.                                                                                                               |
+| `delayed-pr-comment.yml::delay_and_comment`                                                 | The job sleeps for up to 345 minutes and posts one comment. Nothing waits on it, and a paid runner would bill for the whole sleep.                                                        |
 | `dependabot-automerge.yml::automerge`                                                       | A delayed-comment lane that waits on other checks rather than computing anything.                                                                                                         |
 | `test-generate-coverage.yml::test-generate-coverage-out-no-suffix`                          | The act fixture for `generate-coverage`'s `out` step, never run by GitHub. The harness maps only `ubuntu-latest`, so the Ubicloud label would leave act running no step.                  |
 | Caller jobs that only `uses:` another workflow                                              | They occupy no runner of their own.                                                                                                                                                       |
@@ -4018,6 +4019,12 @@ listed, twelve of their assertions ran nowhere, and two contracts added in #480
 were in the same state until they were added to the list.
 `test_contracts_are_collected.py` keeps the enumeration from coming back.
 
+`("delayed-pr-comment.yml", "delay_and_comment")` is in `CONSUMER_OWNED_JOBS`
+rather than `JOB_TIERS`. Its running time is the caller's delay, up to 345
+minutes, so no tier sized from run history applies; the workflow declares
+`timeout-minutes: 355` itself, and `test_delayed_pr_comment.py` checks that it
+stays above the delay cap and below GitHub's 360-minute limit.
+
 Both the runner and the ceiling of every job are enumerated in the contract,
 and a job in neither the tier table nor one of the two exclusion sets fails it.
 So a new workflow cannot inherit both defaults quietly: adding one means saying
@@ -4096,3 +4103,29 @@ The patterns in `SIGNATURES` match output recorded from a real uv, kept under
 update the fixture and the pattern together, and keep the black-box call-list
 tests: they are what prove that no failure class gains a retry. After a change
 to the helper, the digest every vendored copy must match changes too.
+
+## Tested documentation examples
+
+`tests/workflows/_doc_examples.py` provides `load_tested_examples`, which reads
+the fenced examples of a published document so a test exercises the text
+readers copy. Precede each fence immediately with
+`<!-- tested-example: <identifier> -->`; a blank line between the marker and
+the fence is allowed, other text clears the marker. Backtick and tilde fences
+are both recognized, and a fence closes only on a fence of the same character
+at least as long as the one that opened it. The loader raises `ValueError` for
+an unmarked fence, an unterminated fence and a duplicate identifier. The
+authoring rule is in
+[the documentation style guide](./documentation-style-guide.md). The delayed PR
+comment guide's caller example is the first user.
+
+## Delayed PR comment workflow
+
+`pr_number` and `delay_minutes` are declared as `string` inputs on the reusable
+workflow, although callers type their dispatch inputs as `number`. A
+number-typed dispatch input started through the API reaches a number-typed
+`workflow_call` input as a string, and GitHub then fails the run at file level
+before any job starts. The script validates the digits itself, so the type adds
+nothing; `test_the_numeric_inputs_are_strings` keeps a change back to `number`
+from passing. See [the workflow guide](./delayed-pr-comment-workflow.md). Its
+act cases run through `test-delayed-pr-comment.yml`, a dispatch-only wrapper
+that never runs on GitHub, because a valid run would post a real comment.

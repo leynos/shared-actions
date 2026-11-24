@@ -3,7 +3,7 @@
 Every fence must follow a ``<!-- tested-example: <identifier> -->`` marker, so
 a test exercises the text readers copy rather than a fixture beside it. An
 unmarked fence, an unterminated fence or a duplicate identifier is an error.
-Backtick and tilde fences are both recognised, and a fence closes only on a
+Backtick and tilde fences are both recognized, and a fence closes only on a
 fence of the same character at least as long as the one that opened it.
 """
 

@@ -203,22 +203,42 @@ def _caller_job() -> tuple[dict[str, typ.Any], dict[str, typ.Any]]:
     return dispatch, job
 
 
-def test_the_workflow_wires_every_declared_input() -> None:
-    """Each declared input is bound to a step, and each binding is declared."""
+def test_the_workflow_wires_every_input_to_its_own_variable() -> None:
+    """Each step's ``env:`` is exactly the expected mapping, so a swap fails."""
     document = _document(WORKFLOW)
-    steps = document["jobs"]["delay_and_comment"]["steps"]
-    bound = {
-        match["name"]
-        for step in steps
-        for value in step.get("env", {}).values()
-        for match in _INPUT_REFERENCE.finditer(str(value))
+    job = document["jobs"]["delay_and_comment"]
+    steps = {step["name"]: step for step in job["steps"]}
+
+    assert list(steps) == [WAIT, COMMENT]
+    assert steps[WAIT]["env"] == {
+        "PR_NUMBER": "${{ inputs.pr_number }}",
+        "DELAY_MINUTES": "${{ inputs.delay_minutes }}",
+    }
+    assert steps[COMMENT]["env"] == {
+        "GH_TOKEN": "${{ github.token }}",
+        "PR_NUMBER": "${{ inputs.pr_number }}",
+        "MESSAGE": "${{ inputs.message }}",
+    }
+    assert job["permissions"] == {"pull-requests": "write"}
+
+
+def test_the_numeric_inputs_are_strings() -> None:
+    """A number-typed input fails when the API dispatches it, so none is declared."""
+    declared = _declared_inputs()
+
+    assert {name: spec["type"] for name, spec in declared.items()} == {
+        "pr_number": "string",
+        "delay_minutes": "string",
+        "message": "string",
     }
 
-    assert bound == set(_declared_inputs())
-    assert [step["name"] for step in steps] == [WAIT, COMMENT]
-    assert document["jobs"]["delay_and_comment"]["permissions"] == {
-        "pull-requests": "write"
-    }
+
+def test_the_timeout_leaves_room_above_the_delay_cap() -> None:
+    """The job timeout exceeds the delay cap and stays under GitHub's limit."""
+    job = _document(WORKFLOW)["jobs"]["delay_and_comment"]
+    cap = int(re.search(r"max_delay=(\d+)", _step_script(WAIT))[1])  # type: ignore[index]
+
+    assert cap + 5 <= job["timeout-minutes"] < 360
 
 
 def test_the_published_caller_satisfies_the_reusable_workflow() -> None:
@@ -226,11 +246,8 @@ def test_the_published_caller_satisfies_the_reusable_workflow() -> None:
     dispatch, job = _caller_job()
     declared = _declared_inputs()
 
-    assert set(job["with"]) == set(declared)
-    for name, value in job["with"].items():
-        match = _INPUT_REFERENCE.fullmatch(str(value))
-        assert match is not None, f"{name} is not taken from a dispatch input"
-        assert match["name"] in dispatch
+    assert set(dispatch) == set(declared)
+    assert job["with"] == {name: f"${{{{ inputs.{name} }}}}" for name in declared}
     assert job["permissions"] == {"pull-requests": "write"}
     assert re.fullmatch(
         r"leynos/shared-actions/\.github/workflows/delayed-pr-comment\.yml@[0-9a-f]{40}"
@@ -273,4 +290,29 @@ def test_the_loader_refuses_what_it_cannot_vouch_for(
     document.write_text(text, encoding="utf-8")
 
     with pytest.raises(ValueError, match=message):
+        load_tested_examples(document)
+
+
+def test_a_marker_survives_a_blank_line_and_a_longer_closer_is_accepted(
+    tmp_path: Path,
+) -> None:
+    """A blank line keeps the marker; a longer closing fence closes the block."""
+    document = tmp_path / "doc.md"
+    document.write_text(
+        "<!-- tested-example: a -->\n\n```yaml\nx: 1\n`````\n", encoding="utf-8"
+    )
+
+    assert load_tested_examples(document) == {"a": "x: 1\n"}
+
+
+def test_text_between_a_marker_and_its_fence_clears_the_marker(
+    tmp_path: Path,
+) -> None:
+    """A marker names the very next block, not a fence further down."""
+    document = tmp_path / "doc.md"
+    document.write_text(
+        "<!-- tested-example: a -->\ntext\n```yaml\nx: 1\n```\n", encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="without a tested-example marker"):
         load_tested_examples(document)

@@ -55,6 +55,7 @@ These are scripts that a repository copies, not published actions.
 | Name                             | Path                                         | Guide                                                                          |
 | -------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------ |
 | Dependabot auto-merge            | `.github/workflows/dependabot-automerge.yml` | [docs/dependabot-automerge-workflow.md](docs/dependabot-automerge-workflow.md) |
+| Delayed PR comment               | `.github/workflows/delayed-pr-comment.yml`   | [docs/delayed-pr-comment-workflow.md](docs/delayed-pr-comment-workflow.md)     |
 | Mutation testing (cargo-mutants) | `.github/workflows/mutation-cargo.yml`       | [docs/mutation-cargo-workflow.md](docs/mutation-cargo-workflow.md)             |
 | Mutation testing (mutmut)        | `.github/workflows/mutation-mutmut.yml`      | [docs/mutation-mutmut-workflow.md](docs/mutation-mutmut-workflow.md)           |
 

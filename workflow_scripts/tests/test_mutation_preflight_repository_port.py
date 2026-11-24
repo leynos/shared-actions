@@ -354,9 +354,11 @@ class TestSandboxOwnership:
             """Records what the run asks to remove, then delegates."""
 
             def materialize(self, checkout: Path, contract: object) -> typ.Any:
+                """Build the sandbox the production adapter would build."""
                 return SandboxMaterializer().materialize(checkout, contract)
 
             def discard(self, sandbox: Path) -> None:
+                """Record the sandbox the run asks to remove."""
                 discarded.append(sandbox)
 
         # The checks legitimately run commands, so this run uses the production

@@ -257,6 +257,13 @@ The lint architecture has four tiers, recorded in
 `make lint` stops at the first failing tier. The CI lint step runs the same
 target, so every pull request rejects unexplained production dead code.
 
+The Rust fixture's cognitive complexity is gated by Whitaker's experimental
+`macro_aware_cognitive_complexity` at `max_complexity = 9`, CodeScene's
+ceiling, not by Clippy's `cognitive_complexity`, which scores after macro
+expansion and so counts branching a macro generated. `rust-toy-app/dylint.toml`
+opts in with `[whitaker] experimental = ["macro_aware_cognitive_complexity"]`.
+Fix a finding by extracting named helpers, never by raising the threshold.
+
 `make lint` first runs `make interrogate`, which needs `uv` and fails on any
 Python definition without a docstring (and on any `MISSED` row, since the
 percentage is rounded). The target runs `interrogate` at the version in

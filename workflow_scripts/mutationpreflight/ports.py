@@ -299,13 +299,20 @@ class SandboxProvider(typ.Protocol):
         """
         ...
 
-    def discard(self, sandbox: Path) -> None:
+    def discard(self, sandbox: Path) -> str | None:
         """Remove a materialized sandbox once the checks have run.
 
         Parameters
         ----------
         sandbox : Path
             The directory ``materialize`` returned.
+
+        Returns
+        -------
+        str | None
+            Why the sandbox could not be removed, or ``None`` when it was. A
+            removal that silently fails leaves a temporary tree behind, so the
+            reason is returned for the phase to report.
 
         """
         ...

@@ -13,6 +13,7 @@ import dataclasses as dc
 import os
 import sys
 import typing as typ
+from pathlib import Path
 
 from workflow_scripts.mutationpreflight import running
 from workflow_scripts.mutationpreflight.check_boundary import run_checks_phase
@@ -47,7 +48,7 @@ from workflow_scripts.tests.mutation_preflight_support import (
 )
 
 if typ.TYPE_CHECKING:
-    from pathlib import Path
+    import pytest
 
     from workflow_scripts.mutationpreflight.copy_set import CopyContract
 
@@ -439,3 +440,78 @@ class TestSandboxOwnership:
 
         assert result.status == "pass", result
         assert discarded == [], "a checkout the run only read must never be removed"
+
+
+class TestReadFailuresAreReported:
+    """A filesystem the process may not inspect answers, rather than raising."""
+
+    def test_an_unreadable_declaration_path_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A permission error on a declaration becomes the document's problem."""
+        root = repository(tmp_path / "repo", Checkout())
+        real_exists = Path.exists
+
+        def refuse(self: Path) -> bool:
+            """Refuse to answer for the sidecar, as an unreadable path would."""
+            if self.name == "mutation-preflight.toml":
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_exists(self)
+
+        monkeypatch.setattr(Path, "exists", refuse)
+
+        documents = FileDocuments().read_documents(
+            root, (Path("pyproject.toml"), Path(".github") / "mutation-preflight.toml")
+        )
+
+        assert len(documents) == 2, "the readable document must still be returned"
+        problem = documents[-1]
+        assert problem.document is None
+        assert "could not be inspected" in problem.problem, problem.problem
+
+    def test_an_unreadable_lock_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A permission error on uv.lock becomes the lock's problem."""
+        root = repository(
+            tmp_path / "repo",
+            Checkout(extra={"uv.lock": lock_document("0.3.1", 'registry = "x"')}),
+        )
+        real_is_file = Path.is_file
+
+        def refuse(self: Path) -> bool:
+            """Refuse to answer for the lock, as an unreadable path would."""
+            if self.name == "uv.lock":
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_is_file(self)
+
+        monkeypatch.setattr(Path, "is_file", refuse)
+
+        packages, problem = FileDocuments().read_lock_packages(root)
+
+        assert packages == []
+        assert problem is not None, "an unreadable lock must report a problem"
+        assert "could not be inspected" in problem, problem
+
+
+class TestCleanupIsReported:
+    """A sandbox that survives its cleanup is named rather than ignored."""
+
+    def test_a_sandbox_that_cannot_be_removed_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failing removal returns the reason instead of discarding it."""
+        sandbox = tmp_path / "sandbox"
+        sandbox.mkdir()
+
+        def refuse(*_args: object, **_kwargs: object) -> None:
+            """Fail the removal as an unwritable directory would."""
+            message = "Permission denied"
+            raise PermissionError(13, message, str(sandbox))
+
+        monkeypatch.setattr(sys.modules["shutil"], "rmtree", refuse)
+
+        problem = SandboxMaterializer().discard(sandbox)
+
+        assert problem is not None
+        assert "could not be removed" in problem, problem

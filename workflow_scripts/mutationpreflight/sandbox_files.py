@@ -39,9 +39,13 @@ class SandboxMaterializer:
             return None, (refused,)
         return destination, ()
 
-    def discard(self, sandbox: Path) -> None:
-        """Remove a materialized sandbox once the checks have run."""
-        shutil.rmtree(sandbox, ignore_errors=True)
+    def discard(self, sandbox: Path) -> str | None:
+        """Remove a materialized sandbox once the checks have run, or say why not."""
+        try:
+            shutil.rmtree(sandbox)
+        except OSError as error:
+            return f"the check sandbox {str(sandbox)!r} could not be removed: {error}"
+        return None
 
     def _copy_contract(
         self, root: Path, contract: CopyContract, destination: Path

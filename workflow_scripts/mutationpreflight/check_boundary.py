@@ -9,14 +9,18 @@ from running the checks and writing their logs.
 
 from __future__ import annotations
 
+import sys
 import typing as typ
 
 from .checks import Boundary, Review, log_stem, run_checks
+from .console import emit
 from .constants import FAILED, SKIPPED, UNKNOWN
 from .copy_set import CopyContract, copy_entry_problems, mutmut_copy_set
 from .models import Declaration, PhaseResult, phase_outcome
 
 if typ.TYPE_CHECKING:
+    from pathlib import Path
+
     from .ports import Run
 
 _NO_CHECKS: typ.Final[str] = "no checks declared"
@@ -104,7 +108,7 @@ def run_checks_phase(run: Run, declaration: Declaration) -> PhaseResult:
         return phase_outcome("checks", findings, [], detail)
     finally:
         if boundary.owned:
-            run.sandbox.discard(boundary.root)
+            _discard(run, boundary.root)
 
 
 def _write_logs(
@@ -129,3 +133,17 @@ def _write_logs(
         if finding is not None:
             findings.append(finding)
     return findings
+
+
+def _discard(run: Run, sandbox: Path) -> None:
+    """Remove a sandbox the run built, reporting a tree that survives.
+
+    The checks' own findings have already been decided, so this failure is
+    published as its own finding rather than replacing one. A tree that cannot
+    be removed is named on standard error and in the envelope's event stream,
+    where a reader can see it beside the checks that ran in it.
+    """
+    problem = run.sandbox.discard(sandbox)
+    if problem is None:
+        return
+    emit("mutation_preflight_sandbox_left", problem, stream=sys.stderr)

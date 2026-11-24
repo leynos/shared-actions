@@ -35,11 +35,19 @@ class FileDocuments:
         documents: list[Document] = []
         for relative in relatives:
             path = root / relative
-            if not path.exists() and not path.is_symlink():
+            try:
+                present = path.exists() or path.is_symlink()
+                is_file = path.is_file()
+            except OSError as error:
+                documents.append(
+                    Document(path, None, f"{path} could not be inspected: {error}")
+                )
+                continue
+            if not present:
                 # A file the repository simply does not have is optional: a
                 # repository declaring nothing is a normal state, not a refusal.
                 continue
-            if not path.is_file():
+            if not is_file:
                 # A directory or a dangling link at a declaration's path is not
                 # absence: something is there and cannot be read, and saying it
                 # was missing would hide the declaration the author wrote.
@@ -74,12 +82,13 @@ class FileDocuments:
         try:
             anchor = root.resolve()
             resolved = (anchor / declared).resolve()
+            present = (root / declared).exists()
         except OSError as error:
-            return None, f"{declared!r} could not be resolved: {error}"
+            return None, f"{declared!r} could not be inspected: {error}"
         inside = resolved.is_relative_to(anchor)
         return (
             LocatedPath(
-                exists=(root / declared).exists(),
+                exists=present,
                 resolved=str(resolved),
                 inside_root=inside,
                 parts=resolved.relative_to(anchor).parts if inside else (),
@@ -88,8 +97,17 @@ class FileDocuments:
         )
 
     def is_directory(self, path: Path) -> bool:
-        """Return whether *path* is a directory."""
-        return path.is_dir()
+        """Return whether *path* is a directory, treating a refusal as ``False``.
+
+        A directory the process may not inspect is not one a check can be
+        started in, so an unreadable path answers ``False`` rather than
+        raising: the caller reports it as a missing directory with the path
+        named, which is what the phase needs.
+        """
+        try:
+            return path.is_dir()
+        except OSError:
+            return False
 
     def _read_document(self, path: Path) -> tuple[dict[str, object] | None, str | None]:
         """Return *path* parsed as TOML, or why it could not be read."""
@@ -104,7 +122,11 @@ class FileDocuments:
     ) -> tuple[list[dict[str, object]], str | None]:
         """Return ``uv.lock``'s package records, or why they could not be read."""
         lock = root / "uv.lock"
-        if not lock.is_file():
+        try:
+            present = lock.is_file()
+        except OSError as error:
+            return [], f"uv.lock could not be inspected: {error}"
+        if not present:
             return [], "uv.lock is absent, so no locked revision can be established"
         document, problem = self._read_document(lock)
         if problem is not None:
@@ -138,7 +160,11 @@ class FileDocuments:
     ) -> tuple[dict[str, object] | None, str | None]:
         """Return ``setup.cfg``'s ``[mutmut]`` section, or why it went unread."""
         path = root / "setup.cfg"
-        if not path.is_file():
+        try:
+            present = path.is_file()
+        except OSError as error:
+            return None, f"{path} could not be inspected: {error}"
+        if not present:
             return None, None
         parser = ConfigParser()
         try:
@@ -152,7 +178,11 @@ class FileDocuments:
     def _mutmut_table(self, root: Path) -> tuple[dict[str, object] | None, str | None]:
         """Return the mutmut configuration the run will use, or why it is unknown."""
         pyproject = root / "pyproject.toml"
-        if pyproject.is_file():
+        try:
+            present = pyproject.is_file()
+        except OSError as error:
+            return None, f"{pyproject} could not be inspected: {error}"
+        if present:
             document, problem = self._read_document(pyproject)
             if problem is not None:
                 return None, problem

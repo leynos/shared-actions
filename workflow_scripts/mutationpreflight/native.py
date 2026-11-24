@@ -12,7 +12,7 @@ import re
 import typing as typ
 
 from .constants import FAILED, SKIPPED, UNKNOWN
-from .interpreters import judge
+from .interpreters import SharedRule, judge
 from .lockfile import (
     find_locked,
     pinned_revision,
@@ -201,8 +201,7 @@ def _support_findings(
         )
         return [], [unknown]
     return judge(
-        run.rule,
-        run.rule_problem,
+        SharedRule(run.rule, run.rule_problem),
         native.supported_python,
         project_python,
         subject=f"{native.package}'s supported-python",

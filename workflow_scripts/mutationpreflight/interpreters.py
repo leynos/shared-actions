@@ -7,6 +7,7 @@ is decided in one place rather than twice.
 
 from __future__ import annotations
 
+import dataclasses as dc
 import typing as typ
 from pathlib import Path
 
@@ -24,25 +25,44 @@ _NO_PROJECT_PYTHON: typ.Final[str] = (
 )
 
 
+@dc.dataclass(frozen=True, slots=True)
+class SharedRule:
+    """The shared requires-python rule, or why it could not be loaded.
+
+    Attributes
+    ----------
+    rule : RequirementRule | None
+        The rule that decides a range, or ``None`` when it could not be loaded.
+    problem : str
+        Why *rule* is ``None``, empty when it is loaded.
+
+    """
+
+    rule: RequirementRule | None
+    problem: str
+
+    def findings(
+        self, requirement: object, interpreter: str, *, subject: str
+    ) -> tuple[list[str], list[str]]:
+        """Return one finding per violation, and separately what is unknown."""
+        if self.rule is None:
+            return [], [self.problem]
+        return list(self.rule(requirement, interpreter, subject=subject)), []
+
+
 def judge(
-    rule: RequirementRule | None,
-    rule_problem: str,
-    requirement: object,
-    interpreter: str,
-    *,
-    subject: str,
+    shared: SharedRule, requirement: object, interpreter: str, *, subject: str
 ) -> tuple[list[str], list[str]]:
     """Return why *interpreter* falls outside *requirement*, using #565's rule.
 
-    The rule and the reason it is absent are passed explicitly rather than as
-    the whole run, so this function depends only on what it reads.
+    The rule and the reason it is absent arrive as one value, so this function
+    depends only on what it reads rather than on the whole run.
 
     Parameters
     ----------
-    rule : RequirementRule | None
-        The shared rule that decides the range.
-    rule_problem : str
-        Why *rule* is ``None``, empty when it is loaded.
+    shared : SharedRule
+        The shared rule that decides the range, and why it is absent when it
+        could not be loaded.
     requirement : object
         The PEP 508 range to judge.
     interpreter : str
@@ -59,9 +79,7 @@ def judge(
         interpreter it never read.
 
     """
-    if rule is None:
-        return [], [rule_problem]
-    return list(rule(requirement, interpreter, subject=subject)), []
+    return shared.findings(requirement, interpreter, subject=subject)
 
 
 def _project_requirement(run: Run) -> tuple[object, str | None]:
@@ -112,8 +130,7 @@ def _judge_project_range(
         )
         return
     violations, indeterminate = judge(
-        run.rule,
-        run.rule_problem,
+        SharedRule(run.rule, run.rule_problem),
         requirement,
         run.runtimes.project,
         subject="the project's requires-python",

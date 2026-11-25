@@ -180,23 +180,36 @@ class FileDocuments:
             return None, f"{path} could not be read: {error}"
         return table, None
 
-    def _mutmut_table(self, root: Path) -> tuple[dict[str, object] | None, str | None]:
-        """Return the mutmut configuration the run will use, or why it is unknown."""
+    def _pyproject_table(
+        self, root: Path
+    ) -> tuple[dict[str, object] | None, str | None, bool]:
+        """Return ``[tool.mutmut]``, why it is unusable, and whether pyproject exists.
+
+        The third value tells absence from a present file without the section,
+        which ``_mutmut_table`` needs to choose between ``setup.cfg`` and its
+        "nothing declares a mutmut configuration" answer.
+        """
         pyproject = root / "pyproject.toml"
         try:
             present = pyproject.exists() or pyproject.is_symlink()
             regular = pyproject.is_file()
         except OSError as error:
-            return None, f"{pyproject} could not be inspected: {error}"
+            return None, f"{pyproject} could not be inspected: {error}", True
         if present and not regular:
-            return None, (f"{pyproject} exists but is not a file, so it cannot be read")
-        if regular:
-            document, problem = self._read_document(pyproject)
-            if problem is not None:
-                return None, problem
-            table = self._nested_table(document or {}, "tool", "mutmut")
-            if table is not None:
-                return table, None
+            unusable = f"{pyproject} exists but is not a file, so it cannot be read"
+            return None, unusable, True
+        if not regular:
+            return None, None, False
+        document, problem = self._read_document(pyproject)
+        if problem is not None:
+            return None, problem, True
+        return self._nested_table(document or {}, "tool", "mutmut"), None, True
+
+    def _mutmut_table(self, root: Path) -> tuple[dict[str, object] | None, str | None]:
+        """Return the mutmut configuration the run will use, or why it is unknown."""
+        table, problem, _ = self._pyproject_table(root)
+        if table is not None or problem is not None:
+            return table, problem
         table, problem = self._setup_cfg_table(root)
         if table is not None:
             return table, None

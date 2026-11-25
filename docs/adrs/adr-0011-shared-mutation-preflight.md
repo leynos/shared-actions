@@ -83,13 +83,16 @@ One shared preflight contract, declared by the caller and checked by one helper:
   finishes, so a crash in a later phase still leaves the earlier verdicts in
   the log, and the JSON report exists whether or not mutation results do.
 - The phases touch the checkout only through purpose-shaped ports —
-  `DocumentReader`, `PathLocator`, `SandboxProvider` and `EvidenceWriter` —
-  carried on `Run` as `reader`, `sandbox` and `evidence` and implemented by
-  `FileDocuments`, `SandboxMaterializer` and `EvidenceFiles` in
-  `repository.py`. A judgement receives parsed documents, located paths and a
-  materialized sandbox, and asks for its logs, summary and report to be
-  written; a phase that reaches past the ports is refused by the boundary test
-  rather than trusted.
+  `DocumentReader`, `LockReader`, `ConfigurationReader`, `PathLocator`,
+  `SandboxProvider` and `EvidenceWriter` — carried on `Run` as `documents`,
+  `lock`, `configuration`, `paths`, `sandbox` and `evidence`, and implemented by
+  `DeclarationDocuments`, `LockRecords`, `MutmutConfiguration`,
+  `CheckoutPaths`, `SandboxMaterializer` and `EvidenceFiles` in
+  `repository.py`. A judgement receives parsed documents, lock records, the
+  configuration, located paths and a materialized sandbox, and asks for its
+  logs, summary and report to be written; a phase that reaches past the ports
+  is refused by the boundary test rather than trusted, and a query phase's
+  signature does not admit the runner at all.
 - The native judgement runs after the declared checks. On the cargo lane those
   checks run in the checkout and can rewrite `uv.lock`, so the lock's identity
   is read before the checks and read again by the judgement; an identity that

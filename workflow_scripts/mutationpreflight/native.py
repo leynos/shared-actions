@@ -21,7 +21,9 @@ from .lockfile import (
 from .models import Declaration, NativeRequirement, PhaseResult, phase_outcome
 
 if typ.TYPE_CHECKING:
-    from .ports import Run
+    from pathlib import Path
+
+    from .ports import LockReader, Settings
 
 _NO_NATIVE: typ.Final[str] = "no native dependency declared"
 
@@ -103,7 +105,7 @@ def identity_of(package: dict[str, object]) -> LockIdentity:
 
 
 def lock_identity(
-    run: Run, native: NativeRequirement | None
+    lock: LockReader, root: Path, native: NativeRequirement | None
 ) -> tuple[LockIdentity | None, str]:
     """Return what the lock records for *native*, or why it cannot say.
 
@@ -114,8 +116,10 @@ def lock_identity(
 
     Parameters
     ----------
-    run : Run
-        The checkout whose ``uv.lock`` is read, through its repository adapter.
+    lock : LockReader
+        How the checkout's ``uv.lock`` is read.
+    root : Path
+        The checkout the lock belongs to.
     native : NativeRequirement | None
         The declared dependency, or ``None`` when the lane declares none.
 
@@ -127,7 +131,7 @@ def lock_identity(
     """
     if native is None:
         return None, ""
-    packages, problem = run.ports.reader.read_lock_packages(run.settings.root)
+    packages, problem = lock.read_lock_packages(root)
     if problem is not None:
         return None, problem
     locked = find_locked(packages, native.package)
@@ -157,10 +161,10 @@ class NativeVerdict:
 
 
 def _locked_identity(
-    run: Run, native: NativeRequirement
+    lock: LockReader, root: Path, native: NativeRequirement
 ) -> tuple[dict[str, object], LockIdentity | None, list[str], list[str]]:
     """Return the lock's record of *native*, and what that leaves open."""
-    packages, problem = run.ports.reader.read_lock_packages(run.settings.root)
+    packages, problem = lock.read_lock_packages(root)
     if problem is not None:
         return {}, None, [], [problem]
     locked = find_locked(packages, native.package)
@@ -180,10 +184,10 @@ def _locked_identity(
 
 
 def _support_findings(
-    native: NativeRequirement, run: Run
+    native: NativeRequirement, settings: Settings
 ) -> tuple[list[str], list[str]]:
     """Return why the interpreter is out of range, or why support is unknown."""
-    project_python = run.settings.runtimes.project
+    project_python = settings.runtimes.project
     if not native.supported_python:
         unknown = (
             f"no supported-python range is declared for {native.package}, so "
@@ -197,11 +201,47 @@ def _support_findings(
         )
         return [], [unknown]
     return judge(
-        SharedRule(run.settings.rule, run.settings.rule_problem),
+        SharedRule(settings.rule, settings.rule_problem),
         native.supported_python,
         project_python,
         subject=f"{native.package}'s supported-python",
     )
+
+
+def lock_moved(before: LockIdentity | None, after: LockIdentity | None) -> bool:
+    """Return whether the declared checks moved the lock, or lost its identity.
+
+    A baseline the reading never established is not a change: the judgement
+    reports a lock it could not read or a package it did not find on its own.
+    An identity established before the checks that cannot be established after
+    them is a change: the checks removed the very record the judgement had
+    proved, so a probe must not run on top of it.
+    """
+    if before is None:
+        return False
+    if after is None:
+        return True
+    return before != after
+
+
+def baseline_not_established(judged: PhaseResult, problem: str) -> PhaseResult:
+    """Return *judged* unable to pass on a baseline it never established.
+
+    The lock was not readable, or did not record the package, before the
+    declared checks ran. A later read may succeed, but it cannot say whether
+    the checks moved that lock, so the phase reports the reason as
+    indeterminate rather than certifying the pin it now sees.
+    """
+    finding = (
+        f"the lock's identity was not established before the declared checks "
+        f"ran: {problem}"
+    )
+    detail: dict[str, object] = {**judged.detail, "baseline_problem": problem}
+    if judged.status == FAILED:
+        # A baseline that could not be read does not excuse a support range
+        # that already failed; both stay visible, and the failure stands.
+        return phase_outcome("native", list(judged.findings), [finding], detail)
+    return phase_outcome("native", [], [*judged.findings, finding], detail)
 
 
 def changed_lock_phase(
@@ -264,7 +304,9 @@ def changed_lock_phase(
     return phase_outcome("native", blocking, indeterminate, detail)
 
 
-def judge_native(run: Run, declaration: Declaration) -> NativeVerdict:
+def judge_native(
+    lock: LockReader, settings: Settings, declaration: Declaration
+) -> NativeVerdict:
     """Judge the declared native dependency's revision and interpreter range.
 
     The judgement is a query: it reads the lock and the declaration's range,
@@ -274,9 +316,11 @@ def judge_native(run: Run, declaration: Declaration) -> NativeVerdict:
 
     Parameters
     ----------
-    run : Run
-        The checkout whose ``uv.lock`` pins the dependency, the project
-        interpreter and the recorded ABI3 setting.
+    lock : LockReader
+        How the checkout's ``uv.lock`` is read.
+    settings : Settings
+        The checkout the lock belongs to, the project interpreter and the
+        recorded ABI3 setting.
     declaration : Declaration
         The repository's declaration, whose ``native`` table is judged.
 
@@ -296,11 +340,13 @@ def judge_native(run: Run, declaration: Declaration) -> NativeVerdict:
             PhaseResult("native", SKIPPED, (), {"reason": _NO_NATIVE}), None
         )
     identity: dict[str, object] = {"package": native.package}
-    locked_detail, locked, lock_blocking, lock_unknown = _locked_identity(run, native)
+    locked_detail, locked, lock_blocking, lock_unknown = _locked_identity(
+        lock, settings.root, native
+    )
     identity.update(locked_detail)
     identity["supported_python"] = native.supported_python
-    identity["abi3_forward_compatibility"] = run.settings.abi3
-    support_blocking, support_unknown = _support_findings(native, run)
+    identity["abi3_forward_compatibility"] = settings.abi3
+    support_blocking, support_unknown = _support_findings(native, settings)
     return NativeVerdict(
         phase_outcome(
             "native",

@@ -4,13 +4,13 @@ A phase receives its runner, its resolver, the repository's files, the shared
 interpreter rule and its output destinations from one ``Run``. Nothing below
 the command line reads ``os.environ``, resolves a path or writes a report of
 its own, so a query phase can be shown to be a query by passing it a runner
-that fails if it is called, a resolver that answers with a refusal and a
-repository that refuses every question without touching the filesystem. The
-protocols are narrow on purpose: each names the capability one phase needs, and
-``RepositoryQuery`` combines the two a judgement asks so one object can be
-wired for it. The adapters that answer the repository's questions, and perform
-the writes a phase asks for, live in ``documents``, ``sandbox_files`` and
-``evidence``; ``repository`` only gathers them.
+that fails if it is called, a resolver that answers with a refusal and readers
+that refuse every question without touching the filesystem. The protocols are
+narrow on purpose: each names the single capability one phase needs, so a
+judgement's parameters say what it may reach. The adapters that answer those
+questions, and perform the writes a phase asks for, live in ``documents``,
+``lock_records``, ``mutmut_configuration``, ``checkout_paths``,
+``sandbox_files`` and ``evidence``; ``repository`` only gathers them.
 """
 
 from __future__ import annotations
@@ -167,12 +167,11 @@ class LocatedPath:
 
 
 class DocumentReader(typ.Protocol):
-    """Reads the documents a judgement parses.
+    """Reads the documents a preflight declaration is looked for in.
 
-    Every operation is phrased as the question a phase asks, never as a path
-    operation: a phase receives a parsed document or the lock's package
-    records. An adapter that refuses every question therefore leaves the phase
-    with a reportable problem rather than a crash.
+    A phase receives a parsed document or the problem that kept it from being
+    parsed, never a path operation, so an adapter that refuses every question
+    leaves the phase with a reportable problem rather than a crash.
     """
 
     def read_documents(
@@ -198,6 +197,10 @@ class DocumentReader(typ.Protocol):
         """
         ...
 
+
+class LockReader(typ.Protocol):
+    """Reads the package records a checkout's lock declares."""
+
     def read_lock_packages(
         self, root: Path
     ) -> tuple[list[dict[str, object]], str | None]:
@@ -216,6 +219,10 @@ class DocumentReader(typ.Protocol):
 
         """
         ...
+
+
+class ConfigurationReader(typ.Protocol):
+    """Reads the mutation tool's configuration from the caller's checkout."""
 
     def read_mutmut_configuration(
         self, root: Path
@@ -389,10 +396,6 @@ class EvidenceWriter(typ.Protocol):
         ...
 
 
-class RepositoryQuery(DocumentReader, PathLocator, typ.Protocol):
-    """The questions a judgement asks of the checkout, and nothing that writes."""
-
-
 @dc.dataclass(frozen=True, slots=True)
 class Settings:
     """What one preflight run is told, apart from the ports it reads through.
@@ -440,10 +443,20 @@ class Settings:
 class Ports:
     """The injected capabilities one preflight run reads the world through.
 
+    Each field names one capability, so a phase receives only the ones it asks
+    for. A judgement takes a reader and the settings it judges; a phase that
+    executes commands takes the resolver or the runner as well.
+
     Attributes
     ----------
-    reader : RepositoryQuery
-        How a phase reads the documents it judges and locates declared paths.
+    documents : DocumentReader
+        How a phase reads the documents a declaration may live in.
+    lock : LockReader
+        How a phase reads the package records a lock declares.
+    configuration : ConfigurationReader
+        How a phase reads the mutation tool's configuration.
+    paths : PathLocator
+        How a phase locates a declared path and inspects a directory.
     sandbox : SandboxProvider
         How a phase builds and discards the sandbox a check runs in.
     evidence : EvidenceWriter
@@ -455,7 +468,10 @@ class Ports:
 
     """
 
-    reader: RepositoryQuery
+    documents: DocumentReader
+    lock: LockReader
+    configuration: ConfigurationReader
+    paths: PathLocator
     sandbox: SandboxProvider
     evidence: EvidenceWriter
     resolver: CommandResolver
@@ -483,7 +499,7 @@ class Run:
     ports: Ports
 
 
-def project_environment(run: Run) -> dict[str, str]:
+def project_environment(settings: Settings) -> dict[str, str]:
     """Return the environment entries that select the project interpreter.
 
     A probe or check that runs the project must use the interpreter this run
@@ -497,8 +513,8 @@ def project_environment(run: Run) -> dict[str, str]:
 
     Parameters
     ----------
-    run : Run
-        The run whose project interpreter the entry selects.
+    settings : Settings
+        The run's settings, whose project interpreter the entry selects.
 
     Returns
     -------
@@ -508,9 +524,9 @@ def project_environment(run: Run) -> dict[str, str]:
         the last word.
 
     """
-    if not run.settings.runtimes.project:
+    if not settings.runtimes.project:
         return {}
-    return {"UV_PYTHON": run.settings.runtimes.project}
+    return {"UV_PYTHON": settings.runtimes.project}
 
 
 class CommandResolver(typ.Protocol):

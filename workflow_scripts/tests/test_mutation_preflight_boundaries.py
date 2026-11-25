@@ -8,6 +8,7 @@ outlives its command must not stall the report.
 from __future__ import annotations
 
 import dataclasses as dc
+import inspect
 import os
 import signal
 import sys
@@ -17,6 +18,7 @@ import typing as typ
 import pytest
 
 from workflow_scripts.mutationpreflight import running
+from workflow_scripts.mutationpreflight.commands import resolve_commands
 from workflow_scripts.mutationpreflight.console import emit
 from workflow_scripts.mutationpreflight.constants import MAX_CHECK_TIMEOUT_SECONDS
 from workflow_scripts.mutationpreflight.copy_set import CopyContract
@@ -26,7 +28,7 @@ from workflow_scripts.mutationpreflight.models import (
     Report,
     Runtimes,
 )
-from workflow_scripts.mutationpreflight.native import judge_native
+from workflow_scripts.mutationpreflight.native import judge_native, lock_identity
 from workflow_scripts.mutationpreflight.ports import (
     Invocation,
     Ports,
@@ -36,8 +38,11 @@ from workflow_scripts.mutationpreflight.ports import (
 from workflow_scripts.mutationpreflight.publication import phase_envelope, write_report
 from workflow_scripts.mutationpreflight.reporting import iter_phases
 from workflow_scripts.mutationpreflight.repository import (
+    CheckoutPaths,
+    DeclarationDocuments,
     EvidenceFiles,
-    FileDocuments,
+    LockRecords,
+    MutmutConfiguration,
     SandboxMaterializer,
 )
 from workflow_scripts.mutationpreflight.resolution import resolve
@@ -94,13 +99,44 @@ def _run(root: Path, output_dir: Path) -> Run:
             rule_problem="the shared rule was not loaded",
         ),
         ports=Ports(
-            reader=FileDocuments(),
+            documents=DeclarationDocuments(),
+            lock=LockRecords(),
+            configuration=MutmutConfiguration(),
+            paths=CheckoutPaths(),
             sandbox=SandboxMaterializer(),
             evidence=EvidenceFiles(),
             resolver=refusing_resolver,
             runner=_refuse,
         ),
     )
+
+
+#: The functions that must answer without being able to start a process.
+_QUERY_PHASES: typ.Final = (
+    run_interpreter_phase,
+    judge_native,
+    lock_identity,
+    resolve_commands,
+    run_sandbox_phase,
+)
+
+
+class TestQueryPhaseSignatures:
+    """A query phase is handed readers and settings, never a way to run."""
+
+    def test_no_query_phase_takes_the_runner_or_the_run(self) -> None:
+        """The parameter list is the boundary: a query cannot run a command."""
+        for phase in _QUERY_PHASES:
+            parameters = inspect.signature(phase).parameters
+            offenders = sorted(
+                name
+                for name, parameter in parameters.items()
+                if parameter.annotation in {"Run", "Runner"}
+            )
+            assert not offenders, (
+                f"{phase.__name__} takes {offenders}; a query phase is given the "
+                f"readers and settings it reads, not a way to run a command"
+            )
 
 
 class TestQueryPhases:
@@ -124,17 +160,17 @@ class TestQueryPhases:
         )
         output = tmp_path / "out"
         run = _run(root, output)
-        loaded = load_declaration(FileDocuments(), root, "mutmut")
+        loaded = load_declaration(DeclarationDocuments(), root, "mutmut")
         assert loaded.declaration is not None, "the fixture declares requirements"
         before = sorted(tmp_path.rglob("*"))
 
         results = [
-            run_interpreter_phase(run),
-            judge_native(run, loaded.declaration).phase,
+            run_interpreter_phase(run.ports.documents, run.settings),
+            judge_native(run.ports.lock, run.settings, loaded.declaration).phase,
             run_sandbox_phase(
-                run.ports.reader,
-                run.settings.root,
-                run.settings.mutmut_version,
+                run.ports.configuration,
+                run.ports.paths,
+                run.settings,
                 loaded.declaration,
             ),
         ]
@@ -159,10 +195,10 @@ class TestQueryPhases:
             ),
         )
         run = _run(root, tmp_path / "out")
-        loaded = load_declaration(FileDocuments(), root, "mutmut")
+        loaded = load_declaration(DeclarationDocuments(), root, "mutmut")
         assert loaded.declaration is not None, "the fixture declares requirements"
 
-        result = judge_native(run, loaded.declaration).phase
+        result = judge_native(run.ports.lock, run.settings, loaded.declaration).phase
 
         assert result.status in {"unknown", "skipped"}, (
             "the judgement must not claim a probe it never ran: "
@@ -216,18 +252,18 @@ class TestQueryPhases:
         run = dc.replace(
             base, settings=dc.replace(base.settings, summary_path=str(summary))
         )
-        loaded = load_declaration(FileDocuments(), root, "mutmut")
+        loaded = load_declaration(DeclarationDocuments(), root, "mutmut")
         assert loaded.declaration is not None, "the fixture declares requirements"
         report = Report(
             lane="mutmut", runtimes=run.settings.runtimes, results=(), verdict="pass"
         )
 
-        run_interpreter_phase(run)
-        judge_native(run, loaded.declaration)
+        run_interpreter_phase(run.ports.documents, run.settings)
+        judge_native(run.ports.lock, run.settings, loaded.declaration)
         run_sandbox_phase(
-            run.ports.reader,
-            run.settings.root,
-            run.settings.mutmut_version,
+            run.ports.configuration,
+            run.ports.paths,
+            run.settings,
             loaded.declaration,
         )
 
@@ -271,7 +307,7 @@ class TestStreaming:
         run = dc.replace(base, settings=dc.replace(base.settings, rule=rule))
         # The command line publishes each phase as it arrives, which is what
         # keeps the envelope a stream rather than a report held to the end.
-        loaded = load_declaration(FileDocuments(), root, "mutmut")
+        loaded = load_declaration(DeclarationDocuments(), root, "mutmut")
         for result in iter_phases(run, loaded):
             emit("mutation_preflight_phase", phase_envelope(result))
 
@@ -301,7 +337,7 @@ class TestDeclarationRules:
             ),
         )
 
-        loaded = load_declaration(FileDocuments(), root, "mutmut")
+        loaded = load_declaration(DeclarationDocuments(), root, "mutmut")
 
         assert loaded.declaration is not None, "the declaration must parse"
         effective = loaded.declaration.checks[0].timeout_seconds

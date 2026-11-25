@@ -19,9 +19,7 @@ import yaml
 
 from workflow_scripts.mutationpreflight.cli import Options
 from workflow_scripts.mutationpreflight.declaration import load_declaration
-from workflow_scripts.mutationpreflight.repository import (
-    FileDocuments,
-)
+from workflow_scripts.mutationpreflight.repository import DeclarationDocuments
 from workflow_scripts.tests.markdown_examples import (
     Example,
     ExampleError,
@@ -61,7 +59,7 @@ def _declaration(identifier: str, root: Path) -> Declaration:
     (root / "pyproject.toml").write_text(
         f"{_example(identifier).body}\n", encoding="utf-8"
     )
-    loaded = load_declaration(FileDocuments(), root, "mutmut")
+    loaded = load_declaration(DeclarationDocuments(), root, "mutmut")
     if loaded.declaration is None:
         message = f"the {identifier!r} example was refused: {loaded.findings}"
         raise ExampleError(message)

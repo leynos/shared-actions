@@ -16,7 +16,7 @@ import typing as typ
 
 from workflow_scripts.mutationpreflight import running
 from workflow_scripts.mutationpreflight.check_boundary import run_checks_phase
-from workflow_scripts.mutationpreflight.commands import run_commands_phase
+from workflow_scripts.mutationpreflight.commands import resolve_commands
 from workflow_scripts.mutationpreflight.constants import MAX_CHECK_TIMEOUT_SECONDS
 from workflow_scripts.mutationpreflight.interpreters import run_interpreter_phase
 from workflow_scripts.mutationpreflight.models import (
@@ -36,8 +36,11 @@ from workflow_scripts.mutationpreflight.ports import (
 )
 from workflow_scripts.mutationpreflight.probing import probe_native
 from workflow_scripts.mutationpreflight.repository import (
+    CheckoutPaths,
+    DeclarationDocuments,
     EvidenceFiles,
-    FileDocuments,
+    LockRecords,
+    MutmutConfiguration,
     SandboxMaterializer,
     load_shared_rule,
 )
@@ -85,7 +88,10 @@ def _run(root: Path, output_dir: Path) -> Run:
             rule_problem="the shared rule was not loaded",
         ),
         ports=Ports(
-            reader=FileDocuments(),
+            documents=DeclarationDocuments(),
+            lock=LockRecords(),
+            configuration=MutmutConfiguration(),
+            paths=CheckoutPaths(),
             sandbox=SandboxMaterializer(),
             evidence=EvidenceFiles(),
             resolver=refusing_resolver,
@@ -209,12 +215,17 @@ class TestRepositoryBoundary:
             settings=dc.replace(base.settings, rule=rule, rule_problem=rule_problem),
         )
 
-        assert run_interpreter_phase(real).status == "pass"
-        assert judge_native(real, declaration).phase.status == "pass"
+        assert (
+            run_interpreter_phase(real.ports.documents, real.settings).status == "pass"
+        )
+        assert (
+            judge_native(real.ports.lock, real.settings, declaration).phase.status
+            == "pass"
+        )
         sandbox = run_sandbox_phase(
-            real.ports.reader,
-            real.settings.root,
-            real.settings.mutmut_version,
+            real.ports.configuration,
+            real.ports.paths,
+            real.settings,
             declaration,
         )
         assert sandbox.status == "pass", sandbox
@@ -231,7 +242,7 @@ class TestRepositoryBoundary:
         root = self._checkout(tmp_path)
         base = _run(root, tmp_path / "out")
 
-        result = run_interpreter_phase(base)
+        result = run_interpreter_phase(base.ports.documents, base.settings)
 
         assert base.settings.rule is None
         assert result.status == "unknown", result
@@ -250,19 +261,22 @@ class TestRepositoryBoundary:
             real,
             ports=dc.replace(
                 real.ports,
-                reader=RefusingRepository(),
+                documents=RefusingRepository(),
+                lock=RefusingRepository(),
+                configuration=RefusingRepository(),
+                paths=RefusingRepository(),
                 sandbox=RefusingRepository(),
                 evidence=RefusingRepository(),
             ),
         )
 
         results = [
-            run_interpreter_phase(refusing),
-            judge_native(refusing, declaration).phase,
+            run_interpreter_phase(refusing.ports.documents, refusing.settings),
+            judge_native(refusing.ports.lock, refusing.settings, declaration).phase,
             run_sandbox_phase(
-                refusing.ports.reader,
-                refusing.settings.root,
-                refusing.settings.mutmut_version,
+                refusing.ports.configuration,
+                refusing.ports.paths,
+                refusing.settings,
                 declaration,
             ),
             run_checks_phase(refusing, declaration),
@@ -330,14 +344,17 @@ class TestCommandBoundary:
             base,
             ports=dc.replace(
                 base.ports,
-                reader=RefusingRepository(),
+                documents=RefusingRepository(),
+                lock=RefusingRepository(),
+                configuration=RefusingRepository(),
+                paths=RefusingRepository(),
                 sandbox=RefusingRepository(),
                 evidence=RefusingRepository(),
                 resolver=RefusingResolver(),
             ),
         )
 
-        result = run_commands_phase(run, declaration, probe_versions=False)
+        result = resolve_commands(run.settings, run.ports.resolver, declaration)
 
         assert result.status == "fail"
         reported = " ".join((*result.findings, str(result.detail)))
@@ -374,7 +391,10 @@ class TestOneResolutionSeam:
             base,
             ports=dc.replace(
                 base.ports,
-                reader=FileDocuments(),
+                documents=DeclarationDocuments(),
+                lock=LockRecords(),
+                configuration=MutmutConfiguration(),
+                paths=CheckoutPaths(),
                 sandbox=SandboxMaterializer(),
                 evidence=EvidenceFiles(),
                 resolver=RefusingResolver(),
@@ -383,7 +403,7 @@ class TestOneResolutionSeam:
         )
 
         checked = run_checks_phase(run, declaration)
-        report = judge_native(run, declaration)
+        report = judge_native(run.ports.lock, run.settings, declaration)
         probed = probe_native(run, declaration, report)
 
         assert checked.status == "fail"

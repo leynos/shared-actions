@@ -1,7 +1,9 @@
 """Checking that every required command resolves, at the declared version.
 
 A command the tests shell out to is a prerequisite like any other: naming it
-here stops a baseline failure from being attributed to a mutant.
+here stops a baseline failure from being attributed to a mutant. Resolution is
+a query, answered by the resolver alone; establishing a pinned version is a
+command, and is named as one wherever it is chosen.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from .models import CommandRequirement, Declaration, PhaseResult, phase_outcome
 from .ports import Invocation, project_environment
 
 if typ.TYPE_CHECKING:
-    from .ports import Run
+    from .ports import CommandResolver, Runner, Settings
 
 _NO_COMMANDS: typ.Final[str] = "no require_commands declared"
 
@@ -23,8 +25,11 @@ _PROBE_BLOCKED: typ.Final[str] = (
     "a probe that runs the project would use the interpreter that phase rejected"
 )
 
+#: One command's finding and the evidence the check left behind.
+_Review = tuple[str | None, object]
 
-def _unresolved(name: str, problem: str) -> tuple[str, str]:
+
+def _unresolved(name: str, problem: str) -> _Review:
     """Return the finding and evidence for a command that cannot run."""
     # A resolution failure already names the command it could not find; a
     # startup failure or a timeout does not, so the name is added only when
@@ -38,29 +43,30 @@ def _unresolved(name: str, problem: str) -> tuple[str, str]:
 
 
 def _resolved_only(
-    run: Run, requirement: CommandRequirement
-) -> tuple[str | None, object]:
+    settings: Settings, resolver: CommandResolver, requirement: CommandRequirement
+) -> _Review:
     """Return whether *requirement* resolves, without asking its version."""
-    _, problem = run.ports.resolver(
-        requirement.name, run.settings.root, run.settings.ambient
-    )
+    _, problem = resolver(requirement.name, settings.root, settings.ambient)
     if problem:
         return _unresolved(requirement.name, problem)
     return None, {"resolved": requirement.name}
 
 
 def _version_probe(
-    run: Run, requirement: CommandRequirement
-) -> tuple[str | None, object]:
+    settings: Settings,
+    resolver: CommandResolver,
+    runner: Runner,
+    requirement: CommandRequirement,
+) -> _Review:
     """Return what *requirement* reports, and the finding when it does not hold."""
-    outcome, problem = run.ports.runner(
+    outcome, problem = runner(
         Invocation(
             (requirement.name, *requirement.version_args),
-            cwd=run.settings.root,
-            env=project_environment(run),
+            cwd=settings.root,
+            env=project_environment(settings),
             timeout=VERSION_TIMEOUT_SECONDS,
-            ambient=run.settings.ambient,
-            resolver=run.ports.resolver,
+            ambient=settings.ambient,
+            resolver=resolver,
         )
     )
     if outcome is None:
@@ -96,61 +102,13 @@ def _version_probe(
     return None, evidence
 
 
-def _review_command(
-    run: Run, requirement: CommandRequirement, *, probe_versions: bool
-) -> tuple[str | None, object]:
-    """Return what one command reported, and the finding when it does not hold.
-
-    An unpinned command is only required to resolve. Asking it for
-    ``--version`` without a declared version would impose a version interface
-    the declaration never named, and a tool that answers ``--version`` with a
-    non-zero exit is not thereby missing.
-    """
-    if not requirement.version:
-        return _resolved_only(run, requirement)
-    if not probe_versions:
-        return _resolved_only(run, requirement)
-    return _version_probe(run, requirement)
-
-
-def run_commands_phase(
-    run: Run, declaration: Declaration, *, probe_versions: bool = True
+def _commands_result(
+    declaration: Declaration,
+    pairs: list[tuple[CommandRequirement, _Review]],
+    *,
+    probed: bool,
 ) -> PhaseResult:
-    """Check that every required command resolves, and probe a pinned version.
-
-    A pinned version is established by running the command with its declared
-    version arguments; an unpinned one is established by resolution alone.
-
-    Parameters
-    ----------
-    run : Run
-        The checkout each version probe runs from, the runner, and the ambient
-        environment.
-    declaration : Declaration
-        The repository's declaration, whose ``require_commands`` are checked.
-    probe_versions : bool
-        Whether a pinned command may be asked for its version. False when the
-        interpreter phase failed, because a probe such as ``uv run python``
-        would act under the interpreter that phase rejected; resolution is
-        still checked.
-
-    Returns
-    -------
-    PhaseResult
-        ``skipped`` when nothing is declared, ``fail`` when a command does not
-        resolve or does not report the declared version, ``unknown`` when a
-        pinned command's version was not probed, ``pass`` otherwise.
-
-    """
-    if not declaration.commands:
-        return PhaseResult("commands", SKIPPED, (), {"reason": _NO_COMMANDS})
-    pairs = [
-        (
-            requirement,
-            _review_command(run, requirement, probe_versions=probe_versions),
-        )
-        for requirement in declaration.commands
-    ]
+    """Return the commands phase for what establishing each command reported."""
     findings = [finding for _, (finding, _) in pairs if finding is not None]
     detail: dict[str, object] = {
         "results": [
@@ -162,7 +120,7 @@ def run_commands_phase(
             for index, (requirement, (_, evidence)) in enumerate(pairs)
         ]
     }
-    if probe_versions:
+    if probed:
         return phase_outcome("commands", findings, [], detail)
     # A pin nobody probed was not established. The phase says so per command,
     # so the status matches the native phase's rule for support it could not
@@ -173,3 +131,83 @@ def run_commands_phase(
         if item.version
     ]
     return phase_outcome("commands", findings, unprobed, detail)
+
+
+def resolve_commands(
+    settings: Settings, resolver: CommandResolver, declaration: Declaration
+) -> PhaseResult:
+    """Check that every required command resolves, running nothing.
+
+    This is the query half of the commands phase: the resolver answers whether
+    a declared command would run, and no process is started. A pinned version
+    is therefore reported as not established rather than assumed.
+
+    Parameters
+    ----------
+    settings : Settings
+        The checkout a relative command is anchored at, and the ambient
+        environment a bare name is looked up in.
+    resolver : CommandResolver
+        How a declared command's executable is established.
+    declaration : Declaration
+        The repository's declaration, whose ``require_commands`` are checked.
+
+    Returns
+    -------
+    PhaseResult
+        ``skipped`` when nothing is declared, ``fail`` when a command does not
+        resolve, ``unknown`` when a pinned command's version was not probed,
+        ``pass`` otherwise.
+
+    """
+    if not declaration.commands:
+        return PhaseResult("commands", SKIPPED, (), {"reason": _NO_COMMANDS})
+    pairs = [
+        (requirement, _resolved_only(settings, resolver, requirement))
+        for requirement in declaration.commands
+    ]
+    return _commands_result(declaration, pairs, probed=False)
+
+
+def probe_versions(
+    settings: Settings,
+    resolver: CommandResolver,
+    runner: Runner,
+    declaration: Declaration,
+) -> PhaseResult:
+    """Check every required command resolves, running each pinned one.
+
+    Unlike ``resolve_commands`` this is a command: every pinned requirement is
+    started with its declared version arguments, so the version it reports is
+    the one the mutation run will receive.
+
+    Parameters
+    ----------
+    settings : Settings
+        The checkout each probe runs from, and the ambient environment.
+    resolver : CommandResolver
+        How a declared command's executable is established.
+    runner : Runner
+        How a declared command is started.
+    declaration : Declaration
+        The repository's declaration, whose ``require_commands`` are checked.
+
+    Returns
+    -------
+    PhaseResult
+        ``skipped`` when nothing is declared, ``fail`` when a command does not
+        resolve or does not report the declared version, ``pass`` otherwise.
+
+    """
+    if not declaration.commands:
+        return PhaseResult("commands", SKIPPED, (), {"reason": _NO_COMMANDS})
+    pairs = [
+        (
+            requirement,
+            _version_probe(settings, resolver, runner, requirement)
+            if requirement.version
+            else _resolved_only(settings, resolver, requirement),
+        )
+        for requirement in declaration.commands
+    ]
+    return _commands_result(declaration, pairs, probed=True)

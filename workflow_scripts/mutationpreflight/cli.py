@@ -19,8 +19,11 @@ from .ports import Ports, Run, Settings
 from .publication import phase_envelope, write_report
 from .reporting import iter_phases, verdict
 from .repository import (
+    CheckoutPaths,
+    DeclarationDocuments,
     EvidenceFiles,
-    FileDocuments,
+    LockRecords,
+    MutmutConfiguration,
     SandboxMaterializer,
     load_shared_rule,
 )
@@ -223,7 +226,10 @@ def _compose(options: Options) -> Run:
             rule_problem=rule_problem,
         ),
         ports=Ports(
-            reader=FileDocuments(),
+            documents=DeclarationDocuments(),
+            lock=LockRecords(),
+            configuration=MutmutConfiguration(),
+            paths=CheckoutPaths(),
             sandbox=SandboxMaterializer(),
             evidence=EvidenceFiles(),
             resolver=resolve,
@@ -236,7 +242,7 @@ def _run_phases(run: Run, options: Options) -> list[PhaseResult]:
     """Run every phase, publishing each envelope as it finishes."""
     results: list[PhaseResult] = []
     phases = iter_phases(
-        run, load_declaration(run.ports.reader, run.settings.root, options.lane)
+        run, load_declaration(run.ports.documents, run.settings.root, options.lane)
     )
     for result in phases:
         emit("mutation_preflight_phase", phase_envelope(result))

@@ -102,7 +102,7 @@ def _relocked_finding(
         # The judgement never established the package's lock identity, so it
         # has nothing the probe could have moved; its own findings stand.
         return None
-    packages, problem = run.ports.reader.read_lock_packages(run.settings.root)
+    packages, problem = run.ports.lock.read_lock_packages(run.settings.root)
     if problem is not None:
         return (
             f"the native probe for {native.package} left uv.lock unreadable: {problem}"
@@ -155,7 +155,7 @@ def probe_native(run: Run, declaration: Declaration, judged: NativeVerdict) -> P
         Invocation(
             native.probe,
             cwd=run.settings.root,
-            env=project_environment(run),
+            env=project_environment(run.settings),
             timeout=MAX_CHECK_TIMEOUT_SECONDS,
             ambient=run.settings.ambient,
             resolver=run.ports.resolver,

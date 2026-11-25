@@ -24,7 +24,10 @@ from workflow_scripts.mutationpreflight.constants import MAX_CHECK_TIMEOUT_SECON
 from workflow_scripts.mutationpreflight.copy_set import CopyContract
 from workflow_scripts.mutationpreflight.models import Check, Declaration, PhaseResult
 from workflow_scripts.mutationpreflight.repository import (
-    FileDocuments,
+    CheckoutPaths,
+    DeclarationDocuments,
+    LockRecords,
+    MutmutConfiguration,
     SandboxMaterializer,
 )
 from workflow_scripts.mutationpreflight.resolution import resolve
@@ -264,7 +267,7 @@ class TestReadFailuresAreReported:
         root = repository(tmp_path / "repo", Checkout())
         _refuse_path(monkeypatch, "stat", "mutation-preflight.toml")
 
-        documents = FileDocuments().read_documents(
+        documents = DeclarationDocuments().read_documents(
             root, (Path("pyproject.toml"), Path(".github") / "mutation-preflight.toml")
         )
 
@@ -283,7 +286,7 @@ class TestReadFailuresAreReported:
         )
         _refuse_path(monkeypatch, "stat", "uv.lock")
 
-        packages, problem = FileDocuments().read_lock_packages(root)
+        packages, problem = LockRecords().read_lock_packages(root)
 
         assert packages == []
         assert problem is not None, "an unreadable lock must report a problem"
@@ -297,7 +300,7 @@ class TestReadFailuresAreReported:
         root = repository(tmp_path / "repo", Checkout())
         root.chmod(0o000)
         try:
-            packages, problem = FileDocuments().read_lock_packages(root)
+            packages, problem = LockRecords().read_lock_packages(root)
         finally:
             root.chmod(0o700)
 
@@ -457,7 +460,7 @@ class TestDirectoryInspection:
         path = tmp_path / "fixtures"
         path.mkdir()
 
-        is_directory, problem = FileDocuments().is_directory(path)
+        is_directory, problem = CheckoutPaths().is_directory(path)
 
         assert is_directory is False
         assert problem is not None, "an uninspectable directory must report a problem"
@@ -505,7 +508,7 @@ class TestPresentButUnusableConfiguration:
 
         monkeypatch.setattr(Path, "read_text", refuse)
 
-        table, problem = FileDocuments().read_mutmut_configuration(root)
+        table, problem = MutmutConfiguration().read_mutmut_configuration(root)
 
         assert table is None
         assert problem is not None
@@ -516,7 +519,7 @@ class TestPresentButUnusableConfiguration:
         root = repository(tmp_path / "repo", Checkout())
         (root / "uv.lock").mkdir()
 
-        packages, problem = FileDocuments().read_lock_packages(root)
+        packages, problem = LockRecords().read_lock_packages(root)
 
         assert packages == []
         assert problem is not None
@@ -528,7 +531,7 @@ class TestPresentButUnusableConfiguration:
         root.mkdir()
         (root / "setup.cfg").mkdir()
 
-        table, problem = FileDocuments().read_mutmut_configuration(root)
+        table, problem = MutmutConfiguration().read_mutmut_configuration(root)
 
         assert table is None
         assert problem is not None
@@ -551,7 +554,7 @@ class TestPresentButUnusableConfiguration:
         if with_setup_cfg:
             write_file(root, "setup.cfg", "[mutmut]\nsource_paths = src\n")
 
-        table, problem = FileDocuments().read_mutmut_configuration(root)
+        table, problem = MutmutConfiguration().read_mutmut_configuration(root)
 
         assert table is None, "the invalid value must not yield a copy set"
         assert problem is not None, "a non-table section must be reported"
@@ -569,7 +572,7 @@ class TestPresentButUnusableConfiguration:
         write_file(root, "pyproject.toml", '[project]\nname = "example"\n')
         write_file(root, "setup.cfg", "[mutmut]\nsource_paths = src\n")
 
-        table, problem = FileDocuments().read_mutmut_configuration(root)
+        table, problem = MutmutConfiguration().read_mutmut_configuration(root)
 
         assert problem is None, problem
         assert table is not None, "the fallback must supply the configuration"
@@ -581,7 +584,7 @@ class TestPresentButUnusableConfiguration:
         root = repository(tmp_path / "repo", Checkout())
         (root / "uv.lock").symlink_to(root / "missing.lock")
 
-        packages, problem = FileDocuments().read_lock_packages(root)
+        packages, problem = LockRecords().read_lock_packages(root)
 
         assert packages == []
         assert problem is not None, "a dangling link must be reported, not skipped"

@@ -10,20 +10,21 @@ from __future__ import annotations
 import typing as typ
 
 from .check_boundary import run_checks_phase
-from .commands import run_commands_phase
+from .commands import probe_versions, resolve_commands
 from .constants import FAILED, SKIPPED, SUCCEEDED
 from .interpreters import run_interpreter_phase
-from .models import Declaration, Loaded, PhaseResult, phase_outcome
+from .models import Declaration, Loaded, PhaseResult
 from .native import (
+    baseline_not_established,
     changed_lock_phase,
     judge_native,
     lock_identity,
+    lock_moved,
 )
 from .probing import probe_blocked, probe_native, with_probe
 from .sandbox import run_sandbox_phase
 
 if typ.TYPE_CHECKING:
-    from .native import LockIdentity
     from .ports import Run
 
 _NO_DECLARATION: typ.Final[str] = (
@@ -112,42 +113,6 @@ def _skipped_phases(loaded: Loaded) -> typ.Iterator[PhaseResult]:
         yield PhaseResult(name, SKIPPED, (), {"reason": reason})
 
 
-def _lock_moved(before: LockIdentity | None, after: LockIdentity | None) -> bool:
-    """Return whether the declared checks moved the lock, or lost its identity.
-
-    A baseline the reading never established is not a change: the judgement
-    reports a lock it could not read or a package it did not find on its own.
-    An identity established before the checks that cannot be established after
-    them is a change: the checks removed the very record the judgement had
-    proved, so a probe must not run on top of it.
-    """
-    if before is None:
-        return False
-    if after is None:
-        return True
-    return before != after
-
-
-def _unestablished_baseline(judged: PhaseResult, problem: str) -> PhaseResult:
-    """Return *judged* unable to pass on a baseline it never established.
-
-    The lock was not readable, or did not record the package, before the
-    declared checks ran. A later read may succeed, but it cannot say whether
-    the checks moved that lock, so the phase reports the reason as
-    indeterminate rather than certifying the pin it now sees.
-    """
-    finding = (
-        f"the lock's identity was not established before the declared checks "
-        f"ran: {problem}"
-    )
-    detail: dict[str, object] = {**judged.detail, "baseline_problem": problem}
-    if judged.status == FAILED:
-        # A baseline that could not be read does not excuse a support range
-        # that already failed; both stay visible, and the failure stands.
-        return phase_outcome("native", list(judged.findings), [finding], detail)
-    return phase_outcome("native", [], [*judged.findings, finding], detail)
-
-
 def _declaration_phases(
     run: Run, declaration: Declaration, *, interpreter_ok: bool
 ) -> typ.Iterator[PhaseResult]:
@@ -172,22 +137,27 @@ def _declaration_phases(
     # A baseline the lock could not establish is kept with its reason. It is
     # not a change, but it is not a pass either: a later successful read must
     # not certify a pin the run never established before the checks ran.
-    before, baseline_problem = lock_identity(run, native)
+    before, baseline_problem = lock_identity(run.ports.lock, run.settings.root, native)
     yield run_sandbox_phase(
-        run.ports.reader, run.settings.root, run.settings.mutmut_version, declaration
+        run.ports.configuration, run.ports.paths, run.settings, declaration
     )
-    yield run_commands_phase(run, declaration, probe_versions=interpreter_ok)
+    commands = (
+        probe_versions(run.settings, run.ports.resolver, run.ports.runner, declaration)
+        if interpreter_ok
+        else resolve_commands(run.settings, run.ports.resolver, declaration)
+    )
+    yield commands
     if interpreter_ok:
         yield run_checks_phase(run, declaration)
     else:
         yield PhaseResult("checks", SKIPPED, (), {"reason": _CHECKS_BLOCKED})
-    judged = judge_native(run, declaration)
-    if native is not None and _lock_moved(before, judged.identity):
+    judged = judge_native(run.ports.lock, run.settings, declaration)
+    if native is not None and lock_moved(before, judged.identity):
         yield changed_lock_phase(judged.phase, native, before, judged.identity)
         return
     verdict = judged.phase
     if baseline_problem:
-        verdict = _unestablished_baseline(verdict, baseline_problem)
+        verdict = baseline_not_established(verdict, baseline_problem)
     probe = (
         probe_native(run, declaration, judged)
         if interpreter_ok
@@ -199,7 +169,7 @@ def _declaration_phases(
 def _all_phases(run: Run, loaded: Loaded) -> typ.Iterator[PhaseResult]:
     """Yield every phase in order, running each only when it is reached."""
     yield manifest_phase(loaded)
-    interpreter = run_interpreter_phase(run)
+    interpreter = run_interpreter_phase(run.ports.documents, run.settings)
     yield interpreter
     if loaded.declaration is None:
         yield from _skipped_phases(loaded)

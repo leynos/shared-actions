@@ -17,7 +17,7 @@ from .models import Declaration, PhaseResult, phase_outcome
 from .schema import excluded_problem, path_problem
 
 if typ.TYPE_CHECKING:
-    from .ports import LocatedPath, RepositoryQuery
+    from .ports import ConfigurationReader, LocatedPath, PathLocator, Settings
 
 _NO_SANDBOX: typ.Final[str] = "no sandbox_paths declared"
 
@@ -55,7 +55,7 @@ def _is_copied(declared: str, contract: CopyContract) -> bool:
 
 
 def _path_finding(
-    reader: RepositoryQuery, root: Path, declared: str, contract: CopyContract | None
+    paths: PathLocator, root: Path, declared: str, contract: CopyContract | None
 ) -> tuple[str | None, str | None]:
     """Return one path's finding, and the envelope category it belongs to.
 
@@ -66,7 +66,7 @@ def _path_finding(
     problem = path_problem(declared)
     if problem is not None:
         return f"sandbox path {declared!r} {problem}", None
-    located, resolution = reader.locate(root, declared)
+    located, resolution = paths.locate(root, declared)
     if located is None:
         return (
             f"sandbox path {declared!r} could not be resolved in the checkout: "
@@ -92,7 +92,7 @@ def _path_finding(
 
 
 def _review_paths(
-    reader: RepositoryQuery,
+    paths: PathLocator,
     root: Path,
     declared_paths: tuple[str, ...],
     contract: CopyContract | None,
@@ -106,7 +106,7 @@ def _review_paths(
     findings: list[str] = []
     categories: dict[str, list[str]] = {"missing_in_checkout": [], "not_copied": []}
     for declared in declared_paths:
-        finding, category = _path_finding(reader, root, declared, contract)
+        finding, category = _path_finding(paths, root, declared, contract)
         if finding is not None:
             findings.append(finding)
         if category is not None:
@@ -115,20 +115,22 @@ def _review_paths(
 
 
 def run_sandbox_phase(
-    reader: RepositoryQuery, root: Path, mutmut_version: str, declaration: Declaration
+    configuration: ConfigurationReader,
+    paths: PathLocator,
+    settings: Settings,
+    declaration: Declaration,
 ) -> PhaseResult:
     """Compare the declared sandbox requirements with what mutmut will copy.
 
     Parameters
     ----------
-    reader : RepositoryQuery
-        The checkout questions the comparison asks: the mutmut configuration
-        and where each declared path is.
-    root : Path
-        The checkout the declaration belongs to.
-    mutmut_version : str
-        The mutmut release the run selects, whose copy contract the comparison
-        uses.
+    configuration : ConfigurationReader
+        How the mutmut configuration the copy set comes from is read.
+    paths : PathLocator
+        How each declared path is located in the checkout.
+    settings : Settings
+        The checkout the declaration belongs to, and the mutmut release whose
+        copy contract the comparison uses.
     declaration : Declaration
         The repository's declaration, whose ``sandbox_paths`` are checked.
 
@@ -142,10 +144,10 @@ def run_sandbox_phase(
     """
     if not declaration.sandbox_paths:
         return PhaseResult("sandbox", SKIPPED, (), {"reason": _NO_SANDBOX})
-    table, problem = reader.read_mutmut_configuration(root)
+    table, problem = configuration.read_mutmut_configuration(settings.root)
     detail: dict[str, object] = {
         "declared": list(declaration.sandbox_paths),
-        "mutmut_version": mutmut_version,
+        "mutmut_version": settings.mutmut_version,
         "copied": [],
     }
     invalid = copy_entry_problems(table)
@@ -153,10 +155,10 @@ def run_sandbox_phase(
         # An entry that escapes the checkout is a declaration this run cannot
         # honour, not a copy set it merely cannot establish: it fails.
         return phase_outcome("sandbox", list(invalid), [], detail)
-    contract, problems = mutmut_copy_set(mutmut_version, table, problem)
+    contract, problems = mutmut_copy_set(settings.mutmut_version, table, problem)
     detail["copied"] = [] if contract is None else sorted(contract.paths)
     findings, classified = _review_paths(
-        reader, root, declaration.sandbox_paths, contract
+        paths, settings.root, declaration.sandbox_paths, contract
     )
     detail.update(classified)
     if contract is None:

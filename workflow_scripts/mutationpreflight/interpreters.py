@@ -17,7 +17,7 @@ from .constants import HELPER_PYTHON_FLOOR
 from .models import PhaseResult, phase_outcome
 
 if typ.TYPE_CHECKING:
-    from .ports import RequirementRule, Run
+    from .ports import DocumentReader, RequirementRule, Settings
 
 _NO_PROJECT_PYTHON: typ.Final[str] = (
     "no project interpreter was supplied, so requires-python was not checked; "
@@ -82,19 +82,19 @@ def judge(
     return shared.findings(requirement, interpreter, subject=subject)
 
 
-def _project_requirement(run: Run) -> tuple[object, str | None]:
+def _project_requirement(
+    documents: DocumentReader, root: Path
+) -> tuple[object, str | None]:
     """Return the project's declared ``requires-python``, or why it went unread.
 
     A read failure is returned separately from the range itself: both would
     otherwise be a ``str``, and a failure is a reason to report unknown support
     rather than a requirement to judge.
     """
-    documents = run.ports.reader.read_documents(
-        run.settings.root, (Path("pyproject.toml"),)
-    )
-    if not documents:
+    found = documents.read_documents(root, (Path("pyproject.toml"),))
+    if not found:
         return None, None
-    document = documents[0]
+    document = found[0]
     if document.problem:
         return None, document.problem
     project = (document.document or {}).get("project")
@@ -120,7 +120,7 @@ def _helper_floor_violations(helper_python: str) -> list[str]:
 
 
 def _judge_project_range(
-    run: Run, requirement: object, blocking: list[str], unknown: list[str]
+    settings: Settings, requirement: object, blocking: list[str], unknown: list[str]
 ) -> None:
     """Extend *blocking* or *unknown* from the project's declared range."""
     if requirement is None:
@@ -132,21 +132,27 @@ def _judge_project_range(
         )
         return
     violations, indeterminate = judge(
-        SharedRule(run.settings.rule, run.settings.rule_problem),
+        SharedRule(settings.rule, settings.rule_problem),
         requirement,
-        run.settings.runtimes.project,
+        settings.runtimes.project,
         subject="the project's requires-python",
     )
     blocking.extend(violations)
     unknown.extend(indeterminate)
 
 
-def run_interpreter_phase(run: Run) -> PhaseResult:
+def run_interpreter_phase(documents: DocumentReader, settings: Settings) -> PhaseResult:
     """Judge the project interpreter, reporting both runtimes separately.
+
+    The judgement reads one document through *documents* and judges it against
+    the settings it was given; it is not handed the runner, so it cannot run a
+    process even by accident.
 
     Parameters
     ----------
-    run : Run
+    documents : DocumentReader
+        How the project's ``pyproject.toml`` is read.
+    settings : Settings
         The checkout whose ``requires-python`` is judged, both interpreters,
         and the shared rule that decides the range.
 
@@ -158,7 +164,7 @@ def run_interpreter_phase(run: Run) -> PhaseResult:
         could not be read.
 
     """
-    runtimes = run.settings.runtimes
+    runtimes = settings.runtimes
     detail: dict[str, object] = {
         "helper_python": runtimes.helper,
         "project_python": runtimes.project,
@@ -169,11 +175,11 @@ def run_interpreter_phase(run: Run) -> PhaseResult:
     if not runtimes.project:
         indeterminate.append(_NO_PROJECT_PYTHON)
         return phase_outcome("interpreter", blocking, indeterminate, detail)
-    requirement, problem = _project_requirement(run)
+    requirement, problem = _project_requirement(documents, settings.root)
     # TOML may hand back a non-string for a misdeclared value (an unquoted date,
     # for instance), and the report is JSON: keep the evidence serializable.
     detail["requires_python"] = None if requirement is None else str(requirement)
     if problem is not None:
         indeterminate.append(problem)
-    _judge_project_range(run, requirement, blocking, indeterminate)
+    _judge_project_range(settings, requirement, blocking, indeterminate)
     return phase_outcome("interpreter", blocking, indeterminate, detail)

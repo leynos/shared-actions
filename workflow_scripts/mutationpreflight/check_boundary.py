@@ -40,7 +40,9 @@ def _checks_contract(
     """
     if declaration.lane != "mutmut":
         return None
-    table, problem = run.ports.reader.read_mutmut_configuration(run.settings.root)
+    table, problem = run.ports.configuration.read_mutmut_configuration(
+        run.settings.root
+    )
     invalid = copy_entry_problems(table)
     if invalid:
         # An escaping copy entry would put the sandbox somewhere the checks

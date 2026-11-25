@@ -97,9 +97,17 @@ def _project_requirement(
     document = found[0]
     if document.problem:
         return None, document.problem
-    project = (document.document or {}).get("project")
-    if not isinstance(project, dict):
+    declared = document.document or {}
+    if "project" not in declared:
+        # A repository may declare no project table at all; that is not a
+        # refusal, it simply states no range this helper can judge.
         return None, None
+    project = declared["project"]
+    if not isinstance(project, dict):
+        return None, (
+            "the project's [project] entry is not a table, so its "
+            "requires-python cannot be read"
+        )
     return typ.cast("dict[str, object]", project).get("requires-python"), None
 
 

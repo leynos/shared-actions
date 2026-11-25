@@ -84,8 +84,9 @@ One shared preflight contract, declared by the caller and checked by one helper:
   the log, and the JSON report exists whether or not mutation results do.
 - The phases touch the checkout only through purpose-shaped ports —
   `DocumentReader`, `LockReader`, `ConfigurationReader`, `PathLocator`,
-  `SandboxProvider` and `EvidenceWriter` — carried on `Run` as `documents`,
-  `lock`, `configuration`, `paths`, `sandbox` and `evidence`, and implemented by
+  `SandboxProvider` and `EvidenceWriter` — carried on `Run.ports` as
+  `documents`, `lock`, `configuration`, `paths`, `sandbox` and `evidence`, and
+  implemented by
   `DeclarationDocuments`, `LockRecords`, `MutmutConfiguration`,
   `CheckoutPaths`, `SandboxMaterializer` and `EvidenceFiles` in
   `repository.py`. A judgement receives parsed documents, lock records, the

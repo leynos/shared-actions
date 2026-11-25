@@ -22,6 +22,7 @@ from workflow_scripts.mutationpreflight import running
 from workflow_scripts.mutationpreflight.check_boundary import run_checks_phase
 from workflow_scripts.mutationpreflight.constants import MAX_CHECK_TIMEOUT_SECONDS
 from workflow_scripts.mutationpreflight.copy_set import CopyContract
+from workflow_scripts.mutationpreflight.interpreters import run_interpreter_phase
 from workflow_scripts.mutationpreflight.models import Check, Declaration, PhaseResult
 from workflow_scripts.mutationpreflight.repository import (
     CheckoutPaths,
@@ -484,6 +485,35 @@ class TestDirectoryInspection:
         found = result.findings
         assert any("could not be inspected" in finding for finding in found), found
         assert not any("is not a directory" in finding for finding in found), found
+
+
+class TestPresentButUnusableProject:
+    """A [project] entry that is not a table is refused, not read as absent."""
+
+    def test_a_non_table_project_is_reported(self, tmp_path: Path) -> None:
+        """A value uv would fail on cannot pass as "no range declared"."""
+        root = tmp_path / "repo"
+        root.mkdir()
+        write_file(root, "pyproject.toml", 'project = "invalid"\n')
+        base = _run(root, tmp_path / "out")
+
+        result = run_interpreter_phase(base.ports.documents, base.settings)
+
+        assert result.status == "unknown", result
+        assert any("not a table" in finding for finding in result.findings), (
+            f"the phase must name the unusable table: {result.findings}"
+        )
+
+    def test_an_absent_project_is_unconstrained(self, tmp_path: Path) -> None:
+        """A repository may declare no project table; that is not a refusal."""
+        root = tmp_path / "repo"
+        root.mkdir()
+        write_file(root, "pyproject.toml", "[tool]\n")
+        base = _run(root, tmp_path / "out")
+
+        result = run_interpreter_phase(base.ports.documents, base.settings)
+
+        assert result.status == "pass", result
 
 
 class TestPresentButUnusableConfiguration:

@@ -53,6 +53,31 @@ def _refuse_path(monkeypatch: pytest.MonkeyPatch, method: str, named: str) -> No
     monkeypatch.setattr(Path, method, refuse)
 
 
+def _declaration(
+    root: Path, *, lane: str = "cargo", behaviour: str = "print(1)", cwd: str = "."
+) -> Declaration:
+    """Return a one-check declaration for *root*, running *behaviour* from *cwd*."""
+    return Declaration(
+        source=root / "pyproject.toml",
+        lane=lane,
+        checks=(
+            Check(
+                name="collect",
+                command=(sys.executable, "-c", behaviour),
+                cwd=cwd,
+                timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
+            ),
+        ),
+    )
+
+
+def _executable_run(run: Run) -> Run:
+    """Return *run* with the production runner and resolver wired in."""
+    return dc.replace(
+        run, ports=dc.replace(run.ports, runner=running.run_command, resolver=resolve)
+    )
+
+
 class TestSandboxOwnership:
     """The run removes a sandbox it built, and never the checkout it read."""
 
@@ -143,19 +168,8 @@ class TestSandboxOwnership:
         """The cargo lane runs in the checkout, which the run does not own."""
         root = repository(tmp_path / "repo", Checkout())
         run, discarded = self._recording_run(root)
-        declaration = Declaration(
-            source=root / "pyproject.toml",
-            lane="cargo",
-            checks=(
-                Check(
-                    name="collect",
-                    command=(sys.executable, "-c", "print(1)"),
-                    timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
-                ),
-            ),
-        )
 
-        result = run_checks_phase(run, declaration)
+        result = run_checks_phase(run, _declaration(root))
 
         assert result.status == "pass", result
         assert discarded == [], "a checkout the run only read must never be removed"
@@ -229,22 +243,8 @@ class TestCleanupReachesTheVerdict:
         """Run a mutmut-lane phase whose sandbox refuses to be removed."""
         root = repository(tmp_path / "repo", Checkout())
         run, discarded = TestSandboxOwnership._recording_run(root, refuse_removal=True)
-        run = dc.replace(
-            run,
-            ports=dc.replace(run.ports, runner=running.run_command, resolver=resolve),
-        )
-        declaration = Declaration(
-            source=root / "pyproject.toml",
-            lane="mutmut",
-            checks=(
-                Check(
-                    name="collect",
-                    command=(sys.executable, "-c", behaviour),
-                    timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
-                ),
-            ),
-        )
-        return run_checks_phase(run, declaration), discarded
+        declaration = _declaration(root, lane="mutmut", behaviour=behaviour)
+        return run_checks_phase(_executable_run(run), declaration), discarded
 
     def test_a_surviving_sandbox_fails_the_checks_phase(self, tmp_path: Path) -> None:
         """The phase must not pass when its sandbox outlives it."""
@@ -278,23 +278,10 @@ class TestDirectoryInspection:
         root = repository(tmp_path / "repo", Checkout())
         (root / "fixtures").mkdir()
         run, _ = TestSandboxOwnership._recording_run(root)
-        run = dc.replace(
-            run,
-            ports=dc.replace(run.ports, runner=running.run_command, resolver=resolve),
+
+        result = run_checks_phase(
+            _executable_run(run), _declaration(root, cwd="fixtures")
         )
-        declaration = Declaration(
-            source=root / "pyproject.toml",
-            lane="cargo",
-            checks=(
-                Check(
-                    name="collect",
-                    command=(sys.executable, "-c", "print(1)"),
-                    cwd="fixtures",
-                    timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
-                ),
-            ),
-        )
-        result = run_checks_phase(run, declaration)
 
         assert result.status == "fail", result
         found = result.findings

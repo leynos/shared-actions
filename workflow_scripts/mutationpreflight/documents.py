@@ -145,7 +145,19 @@ class FileDocuments:
         document, problem = self._read_document(lock)
         if problem is not None:
             return [], problem
-        packages = (document or {}).get("package", [])
+        return self._package_records(document or {})
+
+    @staticmethod
+    def _package_records(
+        document: dict[str, object],
+    ) -> tuple[list[dict[str, object]], str | None]:
+        """Return the lock's package tables, or why its shape is unusable.
+
+        A record that is not a table is skipped: the lock's own shape has
+        already been refused if the entry is not an array, so what is left is
+        noise a later uv may add.
+        """
+        packages = document.get("package", [])
         if not isinstance(packages, list):
             return [], "uv.lock's package entry is not an array"
         records = typ.cast("list[object]", packages)

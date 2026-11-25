@@ -62,7 +62,9 @@ def _refuse(*_args: object, **_kwargs: object) -> typ.NoReturn:
     raise AssertionError(message)
 
 
-def refusing_resolver(name: str, cwd: Path, environment: typ.Mapping[str, str]) -> str:
+def refusing_resolver(
+    name: str, cwd: Path, environment: typ.Mapping[str, str]
+) -> typ.NoReturn:
     """Fail the test: a query phase must not look a command up at all."""
     message = f"a query phase must not resolve {name!r} in {cwd!r} with {environment!r}"
     raise AssertionError(message)
@@ -221,6 +223,21 @@ class TestRepositoryBoundary:
             run_checks_phase(self._with_production_commands(real), declaration).status
             == "pass"
         )
+
+    def test_an_unloaded_rule_leaves_the_interpreter_unknown(
+        self, tmp_path: Path
+    ) -> None:
+        """The positive test's pass must depend on the shared rule being loaded."""
+        root = self._checkout(tmp_path)
+        base = _run(root, tmp_path / "out")
+
+        result = run_interpreter_phase(base)
+
+        assert base.settings.rule is None
+        assert result.status == "unknown", result
+        assert any(
+            base.settings.rule_problem in finding for finding in result.findings
+        ), f"the phase must name why support is unknown: {result.findings}"
 
     def test_a_refusing_port_leaves_every_judgement_unable_to_read(
         self, tmp_path: Path

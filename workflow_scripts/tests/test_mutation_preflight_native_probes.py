@@ -349,6 +349,9 @@ class TestChecksAndTheLock:
         assert "was not established before the declared checks" in found, (
             f"the baseline reason must not be dropped by a failing judgement: {found}"
         )
+        assert "uv.lock is absent" in found, (
+            f"the failing judgement must keep the reader's reason: {found}"
+        )
 
     @RULE_AVAILABLE
     def test_a_passing_judgement_turns_unknown_on_an_unread_baseline(

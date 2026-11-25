@@ -7,6 +7,7 @@ the file rather than as an exception.
 
 from __future__ import annotations
 
+import stat
 import tomllib
 import typing as typ
 from configparser import ConfigParser
@@ -35,19 +36,15 @@ class FileDocuments:
         documents: list[Document] = []
         for relative in relatives:
             path = root / relative
-            try:
-                present = path.exists() or path.is_symlink()
-                is_file = path.is_file()
-            except OSError as error:
-                documents.append(
-                    Document(path, None, f"{path} could not be inspected: {error}")
-                )
+            present, regular, problem = self._inspect(path)
+            if problem is not None:
+                documents.append(Document(path, None, problem))
                 continue
             if not present:
                 # A file the repository simply does not have is optional: a
                 # repository declaring nothing is a normal state, not a refusal.
                 continue
-            if not is_file:
+            if not regular:
                 # A directory or a dangling link at a declaration's path is not
                 # absence: something is there and cannot be read, and saying it
                 # was missing would hide the declaration the author wrote.
@@ -79,10 +76,13 @@ class FileDocuments:
         self, root: Path, declared: str
     ) -> tuple[LocatedPath | None, str | None]:
         """Return what *declared* is under *root*, or why it could not be resolved."""
+        path = root / declared
+        present, _regular, problem = self._inspect(path)
+        if problem is not None:
+            return None, problem
         try:
             anchor = root.resolve()
-            resolved = (anchor / declared).resolve()
-            present = (root / declared).exists()
+            resolved = path.resolve()
         except OSError as error:
             return None, f"{declared!r} could not be inspected: {error}"
         inside = resolved.is_relative_to(anchor)
@@ -99,25 +99,47 @@ class FileDocuments:
     def is_directory(self, path: Path) -> tuple[bool, str | None]:
         """Return whether *path* is a directory, or why it could not be inspected."""
         try:
-            return path.is_dir(), None
+            info = path.stat()
+        except (FileNotFoundError, NotADirectoryError):
+            return False, None
         except OSError as error:
             return False, f"{path} could not be inspected: {error}"
+        return stat.S_ISDIR(info.st_mode), None
 
     @staticmethod
-    def _regular_file(path: Path) -> tuple[bool, bool, str | None]:
+    def _inspect(path: Path) -> tuple[bool, bool, str | None]:
         """Return presence, regularity and why *path* could not be inspected.
 
-        The three answers are kept apart so a reader can tell an absent file
-        from a present path it must refuse: a directory or a dangling link is
-        not absence, and saying it were would hide a declaration the author
-        wrote.
+        The filesystem answers through ``stat``, not through ``Path.exists`` or
+        ``Path.is_file``: from Python 3.13 those predicates swallow every
+        ``OSError`` and answer ``False``, so a declaration the process may not
+        inspect would be reported as an absent one. The three answers are kept
+        apart for the same reason: a directory or a dangling link is not
+        absence, and saying it were would hide a declaration the author wrote.
         """
         try:
-            present = path.exists() or path.is_symlink()
-            regular = path.is_file()
+            info = path.stat()
+        except (FileNotFoundError, NotADirectoryError):
+            return FileDocuments._target_missing(path)
         except OSError as error:
             return False, False, f"{path} could not be inspected: {error}"
-        return present, regular, None
+        return True, stat.S_ISREG(info.st_mode), None
+
+    @staticmethod
+    def _target_missing(path: Path) -> tuple[bool, bool, str | None]:
+        """Return presence for a path whose target the filesystem cannot find.
+
+        ``stat`` follows a symbolic link, so a dangling one reads as absent.
+        ``lstat`` reports the link itself, which is present and unreadable
+        rather than missing.
+        """
+        try:
+            info = path.lstat()
+        except (FileNotFoundError, NotADirectoryError):
+            return False, False, None
+        except OSError as error:
+            return False, False, f"{path} could not be inspected: {error}"
+        return True, stat.S_ISREG(info.st_mode), None
 
     def _read_document(self, path: Path) -> tuple[dict[str, object] | None, str | None]:
         """Return *path* parsed as TOML, or why it could not be read."""
@@ -132,7 +154,7 @@ class FileDocuments:
     ) -> tuple[list[dict[str, object]], str | None]:
         """Return ``uv.lock``'s package records, or why they could not be read."""
         lock = root / "uv.lock"
-        present, regular, problem = self._regular_file(lock)
+        present, regular, problem = self._inspect(lock)
         if problem is not None:
             return [], problem
         if not present:
@@ -186,7 +208,7 @@ class FileDocuments:
     ) -> tuple[dict[str, object] | None, str | None]:
         """Return ``setup.cfg``'s ``[mutmut]`` section, or why it went unread."""
         path = root / "setup.cfg"
-        present, regular, problem = self._regular_file(path)
+        present, regular, problem = self._inspect(path)
         if problem is not None:
             return None, problem
         if not present:
@@ -214,11 +236,9 @@ class FileDocuments:
         "nothing declares a mutmut configuration" answer.
         """
         pyproject = root / "pyproject.toml"
-        try:
-            present = pyproject.exists() or pyproject.is_symlink()
-            regular = pyproject.is_file()
-        except OSError as error:
-            return None, f"{pyproject} could not be inspected: {error}", True
+        present, regular, problem = self._inspect(pyproject)
+        if problem is not None:
+            return None, problem, True
         if present and not regular:
             unusable = f"{pyproject} exists but is not a file, so it cannot be read"
             return None, unusable, True

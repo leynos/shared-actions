@@ -258,8 +258,8 @@ class PathLocator(typ.Protocol):
         """
         ...
 
-    def is_directory(self, path: Path) -> bool:
-        """Return whether *path* is a directory.
+    def is_directory(self, path: Path) -> tuple[bool, str | None]:
+        """Return whether *path* is a directory, or why it could not be inspected.
 
         Parameters
         ----------
@@ -268,8 +268,10 @@ class PathLocator(typ.Protocol):
 
         Returns
         -------
-        bool
-            Whether the path is a directory a command could be started in.
+        tuple[bool, str | None]
+            Whether the path is a directory a command could be started in, and
+            why the question could not be answered. An inspection failure is
+            told apart from a path that is simply not a directory.
 
         """
         ...

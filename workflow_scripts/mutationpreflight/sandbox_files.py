@@ -32,11 +32,17 @@ class SandboxMaterializer:
         try:
             refused = self._copy_contract(root, contract, destination)
         except OSError as error:
-            shutil.rmtree(destination, ignore_errors=True)
-            return None, (f"the check sandbox could not be materialized: {error}",)
+            problems = [f"the check sandbox could not be materialized: {error}"]
+            left = self.discard(destination)
+            if left is not None:
+                problems.append(left)
+            return None, tuple(problems)
         if refused is not None:
-            shutil.rmtree(destination, ignore_errors=True)
-            return None, (refused,)
+            left = self.discard(destination)
+            problems = [refused]
+            if left is not None:
+                problems.append(left)
+            return None, tuple(problems)
         return destination, ()
 
     def discard(self, sandbox: Path) -> str | None:

@@ -101,14 +101,18 @@ def run_checks_phase(run: Run, declaration: Declaration) -> PhaseResult:
     boundary = _materialized_boundary(run, contract)
     if isinstance(boundary, PhaseResult):
         return boundary
+    findings: list[str] = []
+    detail: dict[str, object] = {"ran_in": boundary.where, "results": []}
     try:
         reviews, results = run_checks(run, declaration, boundary)
         findings = _write_logs(run, declaration, reviews)
-        detail: dict[str, object] = {"ran_in": boundary.where, "results": results}
-        return phase_outcome("checks", findings, [], detail)
+        detail["results"] = results
     finally:
         if boundary.owned:
-            _discard(run, boundary.root)
+            left = _discard(run, boundary.root)
+            if left is not None:
+                findings.append(left)
+    return phase_outcome("checks", findings, [], detail)
 
 
 def _write_logs(
@@ -135,15 +139,14 @@ def _write_logs(
     return findings
 
 
-def _discard(run: Run, sandbox: Path) -> None:
-    """Remove a sandbox the run built, reporting a tree that survives.
+def _discard(run: Run, sandbox: Path) -> str | None:
+    """Remove a sandbox the run built, returning why it survives.
 
-    The checks' own findings have already been decided, so this failure is
-    published as its own finding rather than replacing one. A tree that cannot
-    be removed is named on standard error and in the envelope's event stream,
-    where a reader can see it beside the checks that ran in it.
+    A tree that cannot be removed is a finding of the checks phase: the check
+    that passed inside a sandbox nobody could clean up has not shown that the
+    run leaves the runner as it found it.
     """
     problem = run.sandbox.discard(sandbox)
-    if problem is None:
-        return
-    emit("mutation_preflight_sandbox_left", problem, stream=sys.stderr)
+    if problem is not None:
+        emit("mutation_preflight_sandbox_left", problem, stream=sys.stderr)
+    return problem

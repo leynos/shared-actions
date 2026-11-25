@@ -133,8 +133,9 @@ class RefusingRepository:
         """Refuse to build a sandbox."""
         return None, (self.reason,)
 
-    def discard(self, sandbox: Path) -> None:
+    def discard(self, sandbox: Path) -> str | None:
         """Refuse to remove a sandbox; there is none to remove."""
+        return None
 
     def write_check_logs(
         self, directory: Path, stem: str, name: str, outcome: object
@@ -347,7 +348,9 @@ class TestSandboxOwnership:
     """The run removes a sandbox it built, and never the checkout it read."""
 
     @staticmethod
-    def _recording_run(root: Path) -> tuple[Run, list[Path]]:
+    def _recording_run(
+        root: Path, *, refuse_removal: bool = False
+    ) -> tuple[Run, list[Path]]:
         """Return a run over *root* whose sandbox records every discard."""
         discarded: list[Path] = []
 
@@ -360,9 +363,12 @@ class TestSandboxOwnership:
                 """Build the sandbox the production adapter would build."""
                 return SandboxMaterializer().materialize(checkout, contract)
 
-            def discard(self, sandbox: Path) -> None:
-                """Record the sandbox the run asks to remove."""
+            def discard(self, sandbox: Path) -> str | None:
+                """Record the sandbox the run asks to remove, or refuse."""
                 discarded.append(sandbox)
+                if refuse_removal:
+                    return f"the check sandbox {str(sandbox)!r} could not be removed"
+                return SandboxMaterializer().discard(sandbox)
 
         # The checks legitimately run commands, so this run uses the production
         # runner and resolver; only the sandbox is recorded.
@@ -515,3 +521,97 @@ class TestCleanupIsReported:
 
         assert problem is not None
         assert "could not be removed" in problem, problem
+
+
+class TestCleanupReachesTheVerdict:
+    """A sandbox the run cannot remove fails the checks phase."""
+
+    def test_a_surviving_sandbox_fails_the_checks_phase(self, tmp_path: Path) -> None:
+        """The phase must not pass when its sandbox outlives it."""
+        root = repository(tmp_path / "repo", Checkout())
+        run, discarded = TestSandboxOwnership._recording_run(root, refuse_removal=True)
+        run = dc.replace(run, runner=running.run_command, resolver=resolve)
+        declaration = Declaration(
+            source=root / "pyproject.toml",
+            lane="mutmut",
+            checks=(
+                Check(
+                    name="collect",
+                    command=(sys.executable, "-c", "print(1)"),
+                    timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
+                ),
+            ),
+        )
+
+        result = run_checks_phase(run, declaration)
+
+        assert result.status == "fail", result
+        assert len(discarded) == 1, "the run must have attempted the removal"
+        assert any("could not be removed" in finding for finding in result.findings), (
+            f"the finding must name the surviving sandbox: {result.findings}"
+        )
+
+    def test_a_cleanup_failure_keeps_a_check_failure(self, tmp_path: Path) -> None:
+        """Both the failing check and the surviving sandbox are reported."""
+        root = repository(tmp_path / "repo", Checkout())
+        run, _ = TestSandboxOwnership._recording_run(root, refuse_removal=True)
+        run = dc.replace(run, runner=running.run_command, resolver=resolve)
+        declaration = Declaration(
+            source=root / "pyproject.toml",
+            lane="mutmut",
+            checks=(
+                Check(
+                    name="collect",
+                    command=(sys.executable, "-c", "raise SystemExit(1)"),
+                    timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
+                ),
+            ),
+        )
+
+        result = run_checks_phase(run, declaration)
+
+        assert result.status == "fail", result
+        found = result.findings
+        assert any("failed with exit code 1" in finding for finding in found), found
+        assert any("could not be removed" in finding for finding in found), found
+
+
+class TestDirectoryInspection:
+    """An uninspectable cwd is named, not reported as a missing directory."""
+
+    def test_an_uninspectable_cwd_names_the_inspection_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A PermissionError must not read as "is not a directory"."""
+        real_is_dir = Path.is_dir
+
+        def refuse(self: Path) -> bool:
+            """Refuse to answer for the declared working directory."""
+            if self.name == "fixtures":
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_is_dir(self)
+
+        root = repository(tmp_path / "repo", Checkout())
+        (root / "fixtures").mkdir()
+        run, _ = TestSandboxOwnership._recording_run(root)
+        run = dc.replace(run, runner=running.run_command, resolver=resolve)
+        declaration = Declaration(
+            source=root / "pyproject.toml",
+            lane="cargo",
+            checks=(
+                Check(
+                    name="collect",
+                    command=(sys.executable, "-c", "print(1)"),
+                    cwd="fixtures",
+                    timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
+                ),
+            ),
+        )
+        monkeypatch.setattr(Path, "is_dir", refuse)
+
+        result = run_checks_phase(run, declaration)
+
+        assert result.status == "fail", result
+        found = result.findings
+        assert any("could not be inspected" in finding for finding in found), found
+        assert not any("is not a directory" in finding for finding in found), found

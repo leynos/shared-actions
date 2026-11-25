@@ -63,7 +63,10 @@ def _check_cwd(
             f"elsewhere"
         )
     directory = Path(located.resolved)
-    if not run.reader.is_directory(directory):
+    is_directory, inspection = run.reader.is_directory(directory)
+    if inspection is not None:
+        return None, f"checks[{check.name!r}].cwd {check.cwd!r} {inspection}"
+    if not is_directory:
         return None, (
             f"checks[{check.name!r}].cwd {check.cwd!r} is not a directory in the {noun}"
         )

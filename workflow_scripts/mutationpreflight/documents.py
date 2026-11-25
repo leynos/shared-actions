@@ -96,18 +96,12 @@ class FileDocuments:
             None,
         )
 
-    def is_directory(self, path: Path) -> bool:
-        """Return whether *path* is a directory, treating a refusal as ``False``.
-
-        A directory the process may not inspect is not one a check can be
-        started in, so an unreadable path answers ``False`` rather than
-        raising: the caller reports it as a missing directory with the path
-        named, which is what the phase needs.
-        """
+    def is_directory(self, path: Path) -> tuple[bool, str | None]:
+        """Return whether *path* is a directory, or why it could not be inspected."""
         try:
-            return path.is_dir()
-        except OSError:
-            return False
+            return path.is_dir(), None
+        except OSError as error:
+            return False, f"{path} could not be inspected: {error}"
 
     def _read_document(self, path: Path) -> tuple[dict[str, object] | None, str | None]:
         """Return *path* parsed as TOML, or why it could not be read."""

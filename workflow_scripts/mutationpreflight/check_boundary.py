@@ -9,11 +9,9 @@ from running the checks and writing their logs.
 
 from __future__ import annotations
 
-import sys
 import typing as typ
 
 from .checks import Boundary, Review, log_stem, run_checks
-from .console import emit
 from .constants import FAILED, SKIPPED, UNKNOWN
 from .copy_set import CopyContract, copy_entry_problems, mutmut_copy_set
 from .models import Declaration, PhaseResult, phase_outcome
@@ -42,13 +40,13 @@ def _checks_contract(
     """
     if declaration.lane != "mutmut":
         return None
-    table, problem = run.reader.read_mutmut_configuration(run.root)
+    table, problem = run.ports.reader.read_mutmut_configuration(run.settings.root)
     invalid = copy_entry_problems(table)
     if invalid:
         # An escaping copy entry would put the sandbox somewhere the checks
         # must not run, so it is refused before anything is materialized.
         return PhaseResult("checks", FAILED, invalid, {"reason": _NO_SANDBOX})
-    contract, problems = mutmut_copy_set(run.mutmut_version, table, problem)
+    contract, problems = mutmut_copy_set(run.settings.mutmut_version, table, problem)
     if contract is None:
         return PhaseResult("checks", UNKNOWN, problems, {"reason": _NO_SANDBOX})
     return contract
@@ -64,8 +62,8 @@ def _materialized_boundary(
     checkout, which the run does not own.
     """
     if contract is None:
-        return Boundary(run.root, _WHOLE_TREE, "checkout", owned=False)
-    sandbox, problems = run.sandbox.materialize(run.root, contract)
+        return Boundary(run.settings.root, _WHOLE_TREE, "checkout", owned=False)
+    sandbox, problems = run.ports.sandbox.materialize(run.settings.root, contract)
     if sandbox is None:
         return PhaseResult("checks", FAILED, problems, {"reason": _NO_SANDBOX})
     return Boundary(sandbox, str(sandbox), "sandbox", owned=True)
@@ -124,8 +122,8 @@ def _write_logs(
     for index, (check, review) in enumerate(pairs):
         finding = review.finding
         if review.outcome is not None:
-            log_problem = run.evidence.write_check_logs(
-                run.output_dir / "checks",
+            log_problem = run.ports.evidence.write_check_logs(
+                run.settings.output_dir / "checks",
                 log_stem(index, check.name),
                 check.name,
                 review.outcome,
@@ -144,9 +142,8 @@ def _discard(run: Run, sandbox: Path) -> str | None:
 
     A tree that cannot be removed is a finding of the checks phase: the check
     that passed inside a sandbox nobody could clean up has not shown that the
-    run leaves the runner as it found it.
+    run leaves the runner as it found it. The finding is the whole report; the
+    command line publishes it with every other phase finding, so nothing here
+    writes to a stream of its own.
     """
-    problem = run.sandbox.discard(sandbox)
-    if problem is not None:
-        emit("mutation_preflight_sandbox_left", problem, stream=sys.stderr)
-    return problem
+    return run.ports.sandbox.discard(sandbox)

@@ -8,8 +8,9 @@ that fails if it is called, a resolver that answers with a refusal and a
 repository that refuses every question without touching the filesystem. The
 protocols are narrow on purpose: each names the capability one phase needs, and
 ``RepositoryQuery`` combines the two a judgement asks so one object can be
-wired for it. The adapter that answers the repository's questions,
-and performs the writes a phase asks for, lives in ``repository``.
+wired for it. The adapters that answer the repository's questions, and perform
+the writes a phase asks for, live in ``documents``, ``sandbox_files`` and
+``evidence``; ``repository`` only gathers them.
 """
 
 from __future__ import annotations
@@ -391,8 +392,8 @@ class RepositoryQuery(DocumentReader, PathLocator, typ.Protocol):
 
 
 @dc.dataclass(frozen=True, slots=True)
-class Run:
-    """What one preflight run checks, and where its evidence goes.
+class Settings:
+    """What one preflight run is told, apart from the ports it reads through.
 
     Attributes
     ----------
@@ -419,17 +420,6 @@ class Run:
         be loaded.
     rule_problem : str
         Why *rule* is ``None``, empty when it is loaded.
-    reader : RepositoryQuery
-        How a phase reads the documents it judges and locates declared paths.
-    sandbox : SandboxProvider
-        How a phase builds and discards the sandbox a check runs in.
-    evidence : EvidenceWriter
-        How a phase writes the logs, summary and report it produces.
-    resolver : CommandResolver
-        How a phase establishes that a declared command would run, without
-        running it.
-    runner : Runner
-        How a phase runs a declared command.
 
     """
 
@@ -442,11 +432,53 @@ class Run:
     abi3: str
     rule: RequirementRule | None
     rule_problem: str
+
+
+@dc.dataclass(frozen=True, slots=True)
+class Ports:
+    """The injected capabilities one preflight run reads the world through.
+
+    Attributes
+    ----------
+    reader : RepositoryQuery
+        How a phase reads the documents it judges and locates declared paths.
+    sandbox : SandboxProvider
+        How a phase builds and discards the sandbox a check runs in.
+    evidence : EvidenceWriter
+        How a phase writes the logs, summary and report it produces.
+    resolver : CommandResolver
+        How a phase establishes that a declared command would run.
+    runner : Runner
+        How a phase runs a declared command.
+
+    """
+
     reader: RepositoryQuery
     sandbox: SandboxProvider
     evidence: EvidenceWriter
     resolver: CommandResolver
     runner: Runner
+
+
+@dc.dataclass(frozen=True, slots=True)
+class Run:
+    """One preflight run: what it was told, and the ports it reads through.
+
+    The record is the composition root's, so a phase receives the settings and
+    the ports as two named parts rather than as one bag of loose fields.
+
+    Attributes
+    ----------
+    settings : Settings
+        The checkout, both interpreters, the selected release and the shared
+        rule, as the caller supplied them.
+    ports : Ports
+        The injected capabilities a phase reads the world through.
+
+    """
+
+    settings: Settings
+    ports: Ports
 
 
 def project_environment(run: Run) -> dict[str, str]:
@@ -474,9 +506,9 @@ def project_environment(run: Run) -> dict[str, str]:
         the last word.
 
     """
-    if not run.runtimes.project:
+    if not run.settings.runtimes.project:
         return {}
-    return {"UV_PYTHON": run.runtimes.project}
+    return {"UV_PYTHON": run.settings.runtimes.project}
 
 
 class CommandResolver(typ.Protocol):

@@ -15,7 +15,7 @@ from .console import emit
 from .constants import FAILED, LANES, MUTMUT_PINNED_VERSION
 from .declaration import load_declaration
 from .models import PhaseResult, Report, Runtimes
-from .ports import Run
+from .ports import Ports, Run, Settings
 from .publication import phase_envelope, write_report
 from .reporting import iter_phases, verdict
 from .repository import (
@@ -195,20 +195,24 @@ def main(
     sandbox = SandboxMaterializer()
     evidence = EvidenceFiles()
     run = Run(
-        root=root,
-        runtimes=runtimes,
-        output_dir=Path(options.output_dir),
-        mutmut_version=options.mutmut_version,
-        ambient=dict(os.environ),
-        summary_path=os.environ.get("GITHUB_STEP_SUMMARY", ""),
-        abi3=abi3_escape_hatch(),
-        rule=rule,
-        rule_problem=rule_problem,
-        reader=reader,
-        sandbox=sandbox,
-        evidence=evidence,
-        resolver=resolve,
-        runner=run_command,
+        settings=Settings(
+            root=root,
+            runtimes=runtimes,
+            output_dir=Path(options.output_dir),
+            mutmut_version=options.mutmut_version,
+            ambient=dict(os.environ),
+            summary_path=os.environ.get("GITHUB_STEP_SUMMARY", ""),
+            abi3=abi3_escape_hatch(),
+            rule=rule,
+            rule_problem=rule_problem,
+        ),
+        ports=Ports(
+            reader=reader,
+            sandbox=sandbox,
+            evidence=evidence,
+            resolver=resolve,
+            runner=run_command,
+        ),
     )
     results: list[PhaseResult] = []
     for result in iter_phases(run, load_declaration(reader, root, options.lane)):
@@ -222,7 +226,10 @@ def main(
     )
     emit_findings(results)
     problems = write_report(
-        run.evidence, report, output_dir=run.output_dir, summary_path=run.summary_path
+        run.ports.evidence,
+        report,
+        output_dir=run.settings.output_dir,
+        summary_path=run.settings.summary_path,
     )
     if problems:
         # Evidence that cannot be published is a failure of the run, not a

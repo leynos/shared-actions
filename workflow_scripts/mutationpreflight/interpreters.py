@@ -1,8 +1,8 @@
 """Judging the project interpreter, and reporting both runtimes separately.
 
 The rule itself is not restated here. It is the closed cv005-contracts rule
-(#565), loaded from this checkout by the repository adapter, so a bare ``X.Y``
-is decided in one place rather than twice.
+(#565), loaded from this checkout by ``shared_rule.py``, so a bare ``X.Y`` is
+decided in one place rather than twice.
 """
 
 from __future__ import annotations
@@ -89,7 +89,9 @@ def _project_requirement(run: Run) -> tuple[object, str | None]:
     otherwise be a ``str``, and a failure is a reason to report unknown support
     rather than a requirement to judge.
     """
-    documents = run.reader.read_documents(run.root, (Path("pyproject.toml"),))
+    documents = run.ports.reader.read_documents(
+        run.settings.root, (Path("pyproject.toml"),)
+    )
     if not documents:
         return None, None
     document = documents[0]
@@ -130,9 +132,9 @@ def _judge_project_range(
         )
         return
     violations, indeterminate = judge(
-        SharedRule(run.rule, run.rule_problem),
+        SharedRule(run.settings.rule, run.settings.rule_problem),
         requirement,
-        run.runtimes.project,
+        run.settings.runtimes.project,
         subject="the project's requires-python",
     )
     blocking.extend(violations)
@@ -156,7 +158,7 @@ def run_interpreter_phase(run: Run) -> PhaseResult:
         could not be read.
 
     """
-    runtimes = run.runtimes
+    runtimes = run.settings.runtimes
     detail: dict[str, object] = {
         "helper_python": runtimes.helper,
         "project_python": runtimes.project,

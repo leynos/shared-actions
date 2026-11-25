@@ -17,7 +17,6 @@ from .models import Declaration, Loaded, PhaseResult, phase_outcome
 from .native import (
     changed_lock_phase,
     judge_native,
-    judged_identity,
     lock_identity,
 )
 from .probing import probe_blocked, probe_native, with_probe
@@ -174,25 +173,27 @@ def _declaration_phases(
     # not a change, but it is not a pass either: a later successful read must
     # not certify a pin the run never established before the checks ran.
     before, baseline_problem = lock_identity(run, native)
-    yield run_sandbox_phase(run.reader, run.root, run.mutmut_version, declaration)
+    yield run_sandbox_phase(
+        run.ports.reader, run.settings.root, run.settings.mutmut_version, declaration
+    )
     yield run_commands_phase(run, declaration, probe_versions=interpreter_ok)
     if interpreter_ok:
         yield run_checks_phase(run, declaration)
     else:
         yield PhaseResult("checks", SKIPPED, (), {"reason": _CHECKS_BLOCKED})
     judged = judge_native(run, declaration)
-    after = judged_identity(judged)
-    if native is not None and _lock_moved(before, after):
-        yield changed_lock_phase(judged, native, before, after)
+    if native is not None and _lock_moved(before, judged.identity):
+        yield changed_lock_phase(judged.phase, native, before, judged.identity)
         return
+    verdict = judged.phase
     if baseline_problem:
-        judged = _unestablished_baseline(judged, baseline_problem)
+        verdict = _unestablished_baseline(verdict, baseline_problem)
     probe = (
         probe_native(run, declaration, judged)
         if interpreter_ok
         else probe_blocked(declaration)
     )
-    yield with_probe(judged, probe)
+    yield with_probe(verdict, probe)
 
 
 def _all_phases(run: Run, loaded: Loaded) -> typ.Iterator[PhaseResult]:

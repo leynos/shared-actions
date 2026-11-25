@@ -15,7 +15,7 @@ from .constants import FAILED, MAX_CHECK_TIMEOUT_SECONDS, UNKNOWN
 from .diagnostics import first_diagnostic
 from .lockfile import find_locked
 from .models import Declaration, NativeRequirement, PhaseResult, Ran, phase_outcome
-from .native import identity_of, judged_identity
+from .native import NativeVerdict, identity_of
 from .ports import Invocation, project_environment
 
 if typ.TYPE_CHECKING:
@@ -86,7 +86,7 @@ def _probe_findings(
 
 
 def _relocked_finding(
-    run: Run, native: NativeRequirement, judged: PhaseResult
+    run: Run, native: NativeRequirement, judged: NativeVerdict
 ) -> str | None:
     """Return why the probe left a lock the judgement no longer describes.
 
@@ -97,12 +97,12 @@ def _relocked_finding(
     revision -- is the probe's failure rather than a success under the old
     record.
     """
-    before = judged_identity(judged)
+    before = judged.identity
     if before is None:
         # The judgement never established the package's lock identity, so it
         # has nothing the probe could have moved; its own findings stand.
         return None
-    packages, problem = run.reader.read_lock_packages(run.root)
+    packages, problem = run.ports.reader.read_lock_packages(run.settings.root)
     if problem is not None:
         return (
             f"the native probe for {native.package} left uv.lock unreadable: {problem}"
@@ -123,7 +123,7 @@ def _relocked_finding(
     )
 
 
-def probe_native(run: Run, declaration: Declaration, judged: PhaseResult) -> Probe:
+def probe_native(run: Run, declaration: Declaration, judged: NativeVerdict) -> Probe:
     """Run the declared probe under the project interpreter.
 
     Parameters
@@ -133,9 +133,9 @@ def probe_native(run: Run, declaration: Declaration, judged: PhaseResult) -> Pro
         interpreter's selection.
     declaration : Declaration
         The repository's declaration, whose ``native`` probe is run.
-    judged : PhaseResult
-        The lock and range verdict the probe is composed onto. Its recorded
-        revision is what the probe's environment must still hold.
+    judged : NativeVerdict
+        The lock and range verdict the probe is composed onto. Its identity is
+        what the probe's environment must still hold.
 
     Returns
     -------
@@ -151,14 +151,14 @@ def probe_native(run: Run, declaration: Declaration, judged: PhaseResult) -> Pro
     native = declaration.native
     if native is None or not native.probe:
         return Probe()
-    outcome, problem = run.runner(
+    outcome, problem = run.ports.runner(
         Invocation(
             native.probe,
-            cwd=run.root,
+            cwd=run.settings.root,
             env=project_environment(run),
             timeout=MAX_CHECK_TIMEOUT_SECONDS,
-            ambient=run.ambient,
-            resolver=run.resolver,
+            ambient=run.settings.ambient,
+            resolver=run.ports.resolver,
         )
     )
     evidence = _probe_detail(native.probe, outcome, problem)

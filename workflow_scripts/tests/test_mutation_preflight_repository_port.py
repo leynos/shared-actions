@@ -32,7 +32,9 @@ from workflow_scripts.mutationpreflight.native import judge_native
 from workflow_scripts.mutationpreflight.ports import (
     Document,
     LocatedPath,
+    Ports,
     Run,
+    Settings,
 )
 from workflow_scripts.mutationpreflight.probing import probe_native
 from workflow_scripts.mutationpreflight.repository import (
@@ -69,20 +71,24 @@ def refusing_resolver(name: str, cwd: Path, environment: typ.Mapping[str, str]) 
 def _run(root: Path, output_dir: Path) -> Run:
     """Return a run whose runner fails if any phase reaches for a command."""
     return Run(
-        root=root,
-        runtimes=Runtimes(helper="3.13.5", project="3.13"),
-        output_dir=output_dir,
-        mutmut_version="3.7.0",
-        ambient={},
-        summary_path="",
-        abi3="unset",
-        rule=None,
-        rule_problem="the shared rule was not loaded",
-        reader=FileDocuments(),
-        sandbox=SandboxMaterializer(),
-        evidence=EvidenceFiles(),
-        resolver=refusing_resolver,
-        runner=_refuse,
+        settings=Settings(
+            root=root,
+            runtimes=Runtimes(helper="3.13.5", project="3.13"),
+            output_dir=output_dir,
+            mutmut_version="3.7.0",
+            ambient={},
+            summary_path="",
+            abi3="unset",
+            rule=None,
+            rule_problem="the shared rule was not loaded",
+        ),
+        ports=Ports(
+            reader=FileDocuments(),
+            sandbox=SandboxMaterializer(),
+            evidence=EvidenceFiles(),
+            resolver=refusing_resolver,
+            runner=_refuse,
+        ),
     )
 
 
@@ -124,9 +130,9 @@ class RefusingRepository:
         """Refuse to resolve a declared path."""
         return None, self.reason
 
-    def is_directory(self, path: Path) -> bool:
-        """Refuse to establish that a path is a directory."""
-        return False
+    def is_directory(self, path: Path) -> tuple[bool, str | None]:
+        """Refuse to establish that a path is a directory, naming the refusal."""
+        return False, f"{self.reason}: {path}"
 
     def materialize(
         self, root: Path, contract: CopyContract
@@ -135,8 +141,8 @@ class RefusingRepository:
         return None, (self.reason,)
 
     def discard(self, sandbox: Path) -> str | None:
-        """Refuse to remove a sandbox; there is none to remove."""
-        return None
+        """Refuse to remove a sandbox, naming the refusal."""
+        return f"{self.reason}: {sandbox}"
 
     def write_check_logs(
         self, directory: Path, stem: str, name: str, outcome: object
@@ -189,30 +195,42 @@ class TestRepositoryBoundary:
         # The checkout really does satisfy each phase: read directly, the
         # interpreter, lock and sandbox path all hold.
         assert run_interpreter_phase(real).status != "fail"
-        assert judge_native(real, declaration).status != "fail"
+        assert judge_native(real, declaration).phase.status != "fail"
         assert (
             run_sandbox_phase(
-                real.reader, real.root, real.mutmut_version, declaration
+                real.ports.reader,
+                real.settings.root,
+                real.settings.mutmut_version,
+                declaration,
             ).status
             != "fail"
         )
         # A check legitimately runs a command, so the real comparison uses the
         # production runner and resolver rather than the query-phase ones that
         # refuse.
-        executable = dc.replace(real, runner=running.run_command, resolver=resolve)
+        executable = dc.replace(
+            real,
+            ports=dc.replace(real.ports, runner=running.run_command, resolver=resolve),
+        )
         assert run_checks_phase(executable, declaration).status == "pass"
 
         refusing = dc.replace(
             real,
-            reader=RefusingRepository(),
-            sandbox=RefusingRepository(),
-            evidence=RefusingRepository(),
+            ports=dc.replace(
+                real.ports,
+                reader=RefusingRepository(),
+                sandbox=RefusingRepository(),
+                evidence=RefusingRepository(),
+            ),
         )
         results = [
             run_interpreter_phase(refusing),
-            judge_native(refusing, declaration),
+            judge_native(refusing, declaration).phase,
             run_sandbox_phase(
-                refusing.reader, refusing.root, refusing.mutmut_version, declaration
+                refusing.ports.reader,
+                refusing.settings.root,
+                refusing.settings.mutmut_version,
+                declaration,
             ),
             run_checks_phase(refusing, declaration),
         ]
@@ -256,12 +274,16 @@ class TestCommandBoundary:
             lane="cargo",
             commands=(CommandRequirement(name="preflight-declared-tool"),),
         )
+        base = _run(root, tmp_path / "out")
         run = dc.replace(
-            _run(root, tmp_path / "out"),
-            reader=RefusingRepository(),
-            sandbox=RefusingRepository(),
-            evidence=RefusingRepository(),
-            resolver=RefusingResolver(),
+            base,
+            ports=dc.replace(
+                base.ports,
+                reader=RefusingRepository(),
+                sandbox=RefusingRepository(),
+                evidence=RefusingRepository(),
+                resolver=RefusingResolver(),
+            ),
         )
 
         result = run_commands_phase(run, declaration, probe_versions=False)
@@ -296,13 +318,17 @@ class TestOneResolutionSeam:
                 ),
             ),
         )
+        base = _run(root, tmp_path / "out")
         run = dc.replace(
-            _run(root, tmp_path / "out"),
-            reader=FileDocuments(),
-            sandbox=SandboxMaterializer(),
-            evidence=EvidenceFiles(),
-            resolver=RefusingResolver(),
-            runner=running.run_command,
+            base,
+            ports=dc.replace(
+                base.ports,
+                reader=FileDocuments(),
+                sandbox=SandboxMaterializer(),
+                evidence=EvidenceFiles(),
+                resolver=RefusingResolver(),
+                runner=running.run_command,
+            ),
         )
 
         checked = run_checks_phase(run, declaration)
@@ -373,11 +399,15 @@ class TestSandboxOwnership:
 
         # The checks legitimately run commands, so this run uses the production
         # runner and resolver; only the sandbox is recorded.
+        base = _run(root, root.parent / "out")
         run = dc.replace(
-            _run(root, root.parent / "out"),
-            sandbox=RecordingSandbox(),
-            runner=running.run_command,
-            resolver=resolve,
+            base,
+            ports=dc.replace(
+                base.ports,
+                sandbox=RecordingSandbox(),
+                runner=running.run_command,
+                resolver=resolve,
+            ),
         )
         return run, discarded
 
@@ -533,7 +563,10 @@ class TestCleanupReachesTheVerdict:
         """Run a mutmut-lane phase whose sandbox refuses to be removed."""
         root = repository(tmp_path / "repo", Checkout())
         run, discarded = TestSandboxOwnership._recording_run(root, refuse_removal=True)
-        run = dc.replace(run, runner=running.run_command, resolver=resolve)
+        run = dc.replace(
+            run,
+            ports=dc.replace(run.ports, runner=running.run_command, resolver=resolve),
+        )
         declaration = Declaration(
             source=root / "pyproject.toml",
             lane="mutmut",
@@ -585,7 +618,10 @@ class TestDirectoryInspection:
         root = repository(tmp_path / "repo", Checkout())
         (root / "fixtures").mkdir()
         run, _ = TestSandboxOwnership._recording_run(root)
-        run = dc.replace(run, runner=running.run_command, resolver=resolve)
+        run = dc.replace(
+            run,
+            ports=dc.replace(run.ports, runner=running.run_command, resolver=resolve),
+        )
         declaration = Declaration(
             source=root / "pyproject.toml",
             lane="cargo",

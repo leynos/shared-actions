@@ -50,7 +50,7 @@ def _check_cwd(
     problem = path_problem(check.cwd) if check.cwd != "." else None
     if problem is not None:
         return None, f"checks[{check.name!r}].cwd {problem}"
-    located, resolution = run.reader.locate(root, check.cwd)
+    located, resolution = run.ports.reader.locate(root, check.cwd)
     if located is None:
         return None, (
             f"checks[{check.name!r}].cwd {check.cwd!r} could not be resolved: "
@@ -63,7 +63,7 @@ def _check_cwd(
             f"elsewhere"
         )
     directory = Path(located.resolved)
-    is_directory, inspection = run.reader.is_directory(directory)
+    is_directory, inspection = run.ports.reader.is_directory(directory)
     if inspection is not None:
         return None, f"checks[{check.name!r}].cwd {check.cwd!r} {inspection}"
     if not is_directory:
@@ -167,14 +167,14 @@ def _review_check(boundary: Boundary, check: Check, run: Run) -> Review:
         return Review(problem, problem, None)
     # The project's interpreter is selected first and the declaration's own
     # environment layered over it, so an explicit override keeps the last word.
-    outcome, problem = run.runner(
+    outcome, problem = run.ports.runner(
         Invocation(
             check.command,
             cwd=directory,
             env={**project_environment(run), **dict(check.env)},
             timeout=check.timeout_seconds,
-            ambient=run.ambient,
-            resolver=run.resolver,
+            ambient=run.settings.ambient,
+            resolver=run.ports.resolver,
         )
     )
     if outcome is None:

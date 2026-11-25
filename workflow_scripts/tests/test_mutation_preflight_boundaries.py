@@ -29,7 +29,9 @@ from workflow_scripts.mutationpreflight.models import (
 from workflow_scripts.mutationpreflight.native import judge_native
 from workflow_scripts.mutationpreflight.ports import (
     Invocation,
+    Ports,
     Run,
+    Settings,
 )
 from workflow_scripts.mutationpreflight.publication import phase_envelope, write_report
 from workflow_scripts.mutationpreflight.reporting import iter_phases
@@ -80,20 +82,24 @@ def refusing_resolver(
 def _run(root: Path, output_dir: Path) -> Run:
     """Return a run whose runner fails if any phase reaches for a command."""
     return Run(
-        root=root,
-        runtimes=Runtimes(helper="3.13.5", project="3.13"),
-        output_dir=output_dir,
-        mutmut_version="3.7.0",
-        ambient={},
-        summary_path="",
-        abi3="unset",
-        rule=None,
-        rule_problem="the shared rule was not loaded",
-        reader=FileDocuments(),
-        sandbox=SandboxMaterializer(),
-        evidence=EvidenceFiles(),
-        resolver=refusing_resolver,
-        runner=_refuse,
+        settings=Settings(
+            root=root,
+            runtimes=Runtimes(helper="3.13.5", project="3.13"),
+            output_dir=output_dir,
+            mutmut_version="3.7.0",
+            ambient={},
+            summary_path="",
+            abi3="unset",
+            rule=None,
+            rule_problem="the shared rule was not loaded",
+        ),
+        ports=Ports(
+            reader=FileDocuments(),
+            sandbox=SandboxMaterializer(),
+            evidence=EvidenceFiles(),
+            resolver=refusing_resolver,
+            runner=_refuse,
+        ),
     )
 
 
@@ -124,9 +130,12 @@ class TestQueryPhases:
 
         results = [
             run_interpreter_phase(run),
-            judge_native(run, loaded.declaration),
+            judge_native(run, loaded.declaration).phase,
             run_sandbox_phase(
-                run.reader, run.root, run.mutmut_version, loaded.declaration
+                run.ports.reader,
+                run.settings.root,
+                run.settings.mutmut_version,
+                loaded.declaration,
             ),
         ]
 
@@ -153,7 +162,7 @@ class TestQueryPhases:
         loaded = load_declaration(FileDocuments(), root, "mutmut")
         assert loaded.declaration is not None, "the fixture declares requirements"
 
-        result = judge_native(run, loaded.declaration)
+        result = judge_native(run, loaded.declaration).phase
 
         assert result.status in {"unknown", "skipped"}, (
             "the judgement must not claim a probe it never ran: "
@@ -169,14 +178,14 @@ class TestQueryPhases:
         output = tmp_path / "out"
         run = _run(root, output)
         report = Report(
-            lane="mutmut", runtimes=run.runtimes, results=(), verdict="pass"
+            lane="mutmut", runtimes=run.settings.runtimes, results=(), verdict="pass"
         )
 
         problems = write_report(
-            run.evidence,
+            run.ports.evidence,
             report,
-            output_dir=run.output_dir,
-            summary_path=run.summary_path,
+            output_dir=run.settings.output_dir,
+            summary_path=run.settings.summary_path,
         )
 
         assert problems == (), "publishing a readable report must not report a problem"
@@ -203,16 +212,24 @@ class TestQueryPhases:
         output = tmp_path / "out"
         summary = tmp_path / "summary.md"
         summary.write_text("", encoding="utf-8")
-        run = dc.replace(_run(root, output), summary_path=str(summary))
+        base = _run(root, output)
+        run = dc.replace(
+            base, settings=dc.replace(base.settings, summary_path=str(summary))
+        )
         loaded = load_declaration(FileDocuments(), root, "mutmut")
         assert loaded.declaration is not None, "the fixture declares requirements"
         report = Report(
-            lane="mutmut", runtimes=run.runtimes, results=(), verdict="pass"
+            lane="mutmut", runtimes=run.settings.runtimes, results=(), verdict="pass"
         )
 
         run_interpreter_phase(run)
         judge_native(run, loaded.declaration)
-        run_sandbox_phase(run.reader, run.root, run.mutmut_version, loaded.declaration)
+        run_sandbox_phase(
+            run.ports.reader,
+            run.settings.root,
+            run.settings.mutmut_version,
+            loaded.declaration,
+        )
 
         assert summary.read_text(encoding="utf-8") == "", (
             "a query phase must not append to the job summary"
@@ -220,10 +237,10 @@ class TestQueryPhases:
         assert not output.exists(), "a query phase must not write the report"
 
         problems = write_report(
-            run.evidence,
+            run.ports.evidence,
             report,
-            output_dir=run.output_dir,
-            summary_path=run.summary_path,
+            output_dir=run.settings.output_dir,
+            summary_path=run.settings.summary_path,
         )
 
         assert problems == (), "publishing a readable report must not report a problem"
@@ -250,7 +267,8 @@ class TestStreaming:
             seen.append(capsys.readouterr().out)
             return []
 
-        run = dc.replace(_run(root, tmp_path / "out"), rule=rule)
+        base = _run(root, tmp_path / "out")
+        run = dc.replace(base, settings=dc.replace(base.settings, rule=rule))
         # The command line publishes each phase as it arrives, which is what
         # keeps the envelope a stream rather than a report held to the end.
         loaded = load_declaration(FileDocuments(), root, "mutmut")

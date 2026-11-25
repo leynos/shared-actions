@@ -127,7 +127,7 @@ def lock_identity(
     """
     if native is None:
         return None, ""
-    packages, problem = run.reader.read_lock_packages(run.root)
+    packages, problem = run.ports.reader.read_lock_packages(run.settings.root)
     if problem is not None:
         return None, problem
     locked = find_locked(packages, native.package)
@@ -136,41 +136,37 @@ def lock_identity(
     return identity_of(locked), ""
 
 
-def judged_identity(judged: PhaseResult) -> LockIdentity | None:
-    """Return the identity *judged* recorded, or ``None`` when it recorded none.
+@dc.dataclass(frozen=True, slots=True)
+class NativeVerdict:
+    """The native phase's result, and the lock identity it judged.
 
-    Parameters
+    Attributes
     ----------
-    judged : PhaseResult
-        A native judgement to read the lock's identity back from.
-
-    Returns
-    -------
-    LockIdentity | None
-        The identity the judgement recorded, or ``None`` when the package was
-        absent from the lock or the lock could not be read.
+    phase : PhaseResult
+        The phase result the report publishes.
+    identity : LockIdentity | None
+        The identity the lock recorded, or ``None`` when the package was
+        absent from the lock or the lock could not be read. It is a typed
+        value rather than a key in the envelope, so the probe and the
+        lock-change policy read what the judgement established directly.
 
     """
-    if "locked_revision" not in judged.detail:
-        return None
-    return LockIdentity(
-        version=str(judged.detail.get("locked_version", "")),
-        source=str(judged.detail.get("locked_source", "")),
-        revision=str(judged.detail["locked_revision"]),
-    )
+
+    phase: PhaseResult
+    identity: LockIdentity | None
 
 
 def _locked_identity(
     run: Run, native: NativeRequirement
-) -> tuple[dict[str, object], list[str], list[str]]:
+) -> tuple[dict[str, object], LockIdentity | None, list[str], list[str]]:
     """Return the lock's record of *native*, and what that leaves open."""
-    packages, problem = run.reader.read_lock_packages(run.root)
+    packages, problem = run.ports.reader.read_lock_packages(run.settings.root)
     if problem is not None:
-        return {}, [], [problem]
+        return {}, None, [], [problem]
     locked = find_locked(packages, native.package)
     if locked is None:
         finding = f"the declared native dependency {native.package!r} is not in uv.lock"
-        return {}, [finding], []
+        return {}, None, [finding], []
     identity = identity_of(locked)
     recorded: dict[str, object] = {
         "locked_version": identity.version,
@@ -179,15 +175,15 @@ def _locked_identity(
     }
     finding = _revision_finding(native, locked)
     if finding is not None:
-        return recorded, [finding], []
-    return recorded, [], []
+        return recorded, identity, [finding], []
+    return recorded, identity, [], []
 
 
 def _support_findings(
     native: NativeRequirement, run: Run
 ) -> tuple[list[str], list[str]]:
     """Return why the interpreter is out of range, or why support is unknown."""
-    project_python = run.runtimes.project
+    project_python = run.settings.runtimes.project
     if not native.supported_python:
         unknown = (
             f"no supported-python range is declared for {native.package}, so "
@@ -201,7 +197,7 @@ def _support_findings(
         )
         return [], [unknown]
     return judge(
-        SharedRule(run.rule, run.rule_problem),
+        SharedRule(run.settings.rule, run.settings.rule_problem),
         native.supported_python,
         project_python,
         subject=f"{native.package}'s supported-python",
@@ -268,7 +264,7 @@ def changed_lock_phase(
     return phase_outcome("native", blocking, indeterminate, detail)
 
 
-def judge_native(run: Run, declaration: Declaration) -> PhaseResult:
+def judge_native(run: Run, declaration: Declaration) -> NativeVerdict:
     """Judge the declared native dependency's revision and interpreter range.
 
     The judgement is a query: it reads the lock and the declaration's range,
@@ -286,24 +282,31 @@ def judge_native(run: Run, declaration: Declaration) -> PhaseResult:
 
     Returns
     -------
-    PhaseResult
-        ``skipped`` when nothing is declared, ``unknown`` when the lock or the
-        support range could not establish compatibility, ``fail`` when a
-        revision or a range does not hold, ``pass`` otherwise.
+    NativeVerdict
+        The phase result, and the lock identity the judgement established.
+        The phase is ``skipped`` when nothing is declared, ``unknown`` when
+        the lock or the support range could not establish compatibility,
+        ``fail`` when a revision or a range does not hold, and ``pass``
+        otherwise.
 
     """
     native = declaration.native
     if native is None:
-        return PhaseResult("native", SKIPPED, (), {"reason": _NO_NATIVE})
+        return NativeVerdict(
+            PhaseResult("native", SKIPPED, (), {"reason": _NO_NATIVE}), None
+        )
     identity: dict[str, object] = {"package": native.package}
-    locked_detail, lock_blocking, lock_unknown = _locked_identity(run, native)
+    locked_detail, locked, lock_blocking, lock_unknown = _locked_identity(run, native)
     identity.update(locked_detail)
     identity["supported_python"] = native.supported_python
-    identity["abi3_forward_compatibility"] = run.abi3
+    identity["abi3_forward_compatibility"] = run.settings.abi3
     support_blocking, support_unknown = _support_findings(native, run)
-    return phase_outcome(
-        "native",
-        [*lock_blocking, *support_blocking],
-        [*lock_unknown, *support_unknown],
-        identity,
+    return NativeVerdict(
+        phase_outcome(
+            "native",
+            [*lock_blocking, *support_blocking],
+            [*lock_unknown, *support_unknown],
+            identity,
+        ),
+        locked,
     )

@@ -57,6 +57,33 @@ class TestSandbox:
             "sandbox"
         ), "the finding must name the missing path"
 
+    @POSIX_SYMLINKS_ONLY
+    def test_a_dangling_declared_path_is_missing_until_its_target_exists(
+        self, tmp_path: Path, run_preflight: typ.Callable[..., Outcome]
+    ) -> None:
+        """A link whose target is missing cannot satisfy the declaration."""
+        root = repository(
+            tmp_path / "repo",
+            Checkout(
+                also_copy=("conftest.py", "linked.md"),
+                manifest='sandbox_paths = ["linked.md"]\n',
+            ),
+        )
+        (root / "linked.md").symlink_to(root / "missing.md")
+
+        broken = run_preflight(root, project_python="3.13")
+
+        assert broken.exit_code == 1, broken.stdout
+        assert "sandbox path 'linked.md' is not in the checkout" in broken.findings(
+            "sandbox"
+        ), "a dangling link must not satisfy the declaration"
+
+        (root / "missing.md").write_text("# target\n", encoding="utf-8")
+        repaired = run_preflight(root, project_python="3.13")
+
+        assert repaired.exit_code == 0, repaired.stdout
+        assert repaired.phases["sandbox"]["status"] == "pass", repaired.stdout
+
     @pytest.mark.parametrize(
         "case",
         [

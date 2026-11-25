@@ -221,6 +221,17 @@ runner temporary directory is written.
 
 <!-- markdownlint-enable MD013 -->
 
+- **Error:** `sandbox path 'linked.md' is not in the checkout, so the declaration
+  names a requirement nothing satisfies`
+  - **Fix:** a dangling symlink counts as missing because nothing is there to
+    copy; supply the link's target or declare the real path.
+
+- **Error:** `pyproject.toml: [tool.mutmut] is not a table, so what mutmut
+  copies cannot be established`
+  - **Fix:** write `[tool.mutmut]` as a table. mutmut selects a present value,
+    and fails on it, so the preflight refuses the value rather than falling back
+    to `setup.cfg`.
+
 - **Error:** `the declared native dependency 'tei-rapporteur' is not in uv.lock`
   - **Fix:** run `uv lock` so the dependency is recorded, and check the declared
     name against the lock entry.

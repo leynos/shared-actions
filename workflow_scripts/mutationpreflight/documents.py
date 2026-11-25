@@ -7,16 +7,15 @@ the file rather than as an exception.
 
 from __future__ import annotations
 
+import os
 import stat
 import tomllib
 import typing as typ
 from configparser import ConfigParser
 from configparser import Error as ConfigError
+from pathlib import Path
 
 from .ports import Document, LocatedPath
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
 
 #: Why the mutmut configuration is unknown: neither file that could hold it is
 #: present. An unreadable file is reported with its own problem instead.
@@ -76,13 +75,11 @@ class FileDocuments:
         self, root: Path, declared: str
     ) -> tuple[LocatedPath | None, str | None]:
         """Return what *declared* is under *root*, or why it could not be resolved."""
-        path = root / declared
-        present, _regular, problem = self._inspect(path)
+        present, resolved, problem = self._resolution(root / declared)
         if problem is not None:
             return None, problem
         try:
             anchor = root.resolve()
-            resolved = path.resolve()
         except OSError as error:
             return None, f"{declared!r} could not be inspected: {error}"
         inside = resolved.is_relative_to(anchor)
@@ -95,6 +92,24 @@ class FileDocuments:
             ),
             None,
         )
+
+    def _resolution(self, path: Path) -> tuple[bool, Path, str | None]:
+        """Return whether *path* reaches something, where it lands, and why not.
+
+        A dangling link is present but delivers nothing, so it is reported as
+        not resolving: a declaration that names it asks for a file the checkout
+        cannot deliver. The path it points at is still named, so a finding can
+        say what the link expected.
+        """
+        problem = self._inspect(path)[2]
+        if problem is not None:
+            return False, path, problem
+        try:
+            return True, path.resolve(strict=True), None
+        except (FileNotFoundError, NotADirectoryError):
+            return False, Path(os.path.realpath(path)), None
+        except OSError as error:
+            return False, path, f"{path} could not be inspected: {error}"
 
     def is_directory(self, path: Path) -> tuple[bool, str | None]:
         """Return whether *path* is a directory, or why it could not be inspected."""
@@ -111,7 +126,7 @@ class FileDocuments:
         """Return presence, regularity and why *path* could not be inspected.
 
         The filesystem answers through ``stat``, not through ``Path.exists`` or
-        ``Path.is_file``: from Python 3.13 those predicates swallow every
+        ``Path.is_file``: from Python 3.14 those predicates swallow every
         ``OSError`` and answer ``False``, so a declaration the process may not
         inspect would be reported as an absent one. The three answers are kept
         apart for the same reason: a directory or a dangling link is not
@@ -191,17 +206,18 @@ class FileDocuments:
         if not parser.has_section("mutmut"):
             return None
         section = parser["mutmut"]
-        table: dict[str, object] = {}
-        for key in ("source_paths", "paths_to_mutate", "also_copy"):
-            if key not in section:
-                continue
-            raw = section[key]
-            # mutmut splits a multi-line value on newlines and wraps a single
-            # line as one entry, so a comma-separated line is one path too.
-            table[key] = (
-                [item for item in raw.split("\n") if item] if "\n" in raw else [raw]
-            )
-        return table
+        return {
+            key: self._section_values(section[key])
+            for key in ("source_paths", "paths_to_mutate", "also_copy")
+            if key in section
+        }
+
+    @staticmethod
+    def _section_values(raw: str) -> list[str]:
+        """Return one ``[mutmut]`` value as the list mutmut reads."""
+        # mutmut splits a multi-line value on newlines and wraps a single line
+        # as one entry, so a comma-separated line is one path too.
+        return [item for item in raw.split("\n") if item] if "\n" in raw else [raw]
 
     def _setup_cfg_table(
         self, root: Path
@@ -239,15 +255,18 @@ class FileDocuments:
         present, regular, problem = self._inspect(pyproject)
         if problem is not None:
             return None, problem, True
-        if present and not regular:
+        if not present:
+            return None, None, False
+        if not regular:
             unusable = f"{pyproject} exists but is not a file, so it cannot be read"
             return None, unusable, True
-        if not regular:
-            return None, None, False
         document, problem = self._read_document(pyproject)
         if problem is not None:
             return None, problem, True
-        return self._nested_table(document or {}, "tool", "mutmut"), None, True
+        table, unusable = self._nested_table(document or {}, "tool", "mutmut")
+        if unusable is not None:
+            return None, f"{pyproject}: {unusable}", True
+        return table, None, True
 
     def _mutmut_table(self, root: Path) -> tuple[dict[str, object] | None, str | None]:
         """Return the mutmut configuration the run will use, or why it is unknown."""
@@ -265,15 +284,27 @@ class FileDocuments:
 
     def _nested_table(
         self, document: dict[str, object], *keys: str
-    ) -> dict[str, object] | None:
-        """Return the table at *keys*, or ``None`` when the path is not a table."""
+    ) -> tuple[dict[str, object] | None, str | None]:
+        """Return the table at *keys*, or why the value found there is not one.
+
+        The first value is ``None`` both when nothing occupies the path and
+        when something unusable does, and the second names the latter. A
+        caller needs that difference: mutmut falls back to ``setup.cfg`` when
+        the path is absent, but selects a present value and fails when it
+        indexes it, so treating a non-table as absent would certify a copy set
+        mutmut never uses.
+        """
+        unusable = (
+            f"[{'.'.join(keys)}] is not a table, so what mutmut copies cannot "
+            f"be established"
+        )
         current: object = document
         for key in keys:
-            if not isinstance(current, dict) or key not in current:
-                return None
+            if not isinstance(current, dict):
+                return None, unusable
+            if key not in current:
+                return None, None
             current = typ.cast("dict[str, object]", current)[key]
-        return (
-            typ.cast("dict[str, object]", current)
-            if isinstance(current, dict)
-            else None
-        )
+        if isinstance(current, dict):
+            return typ.cast("dict[str, object]", current), None
+        return None, unusable

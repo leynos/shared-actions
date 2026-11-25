@@ -65,7 +65,8 @@ Paths that must survive into mutmut's `mutants/` copy. Each entry is:
 
 - relative to the checkout (an absolute path or one containing `..` is
   refused);
-- present in the checkout (a missing path is a finding, not a pass);
+- present in the checkout (a missing path is a finding, not a pass, and a
+  dangling symlink counts as missing because nothing is there to copy);
 - not inside build output or a cache (`.venv`, `target`, `.pytest_cache`,
   `mutants` and similar are refused);
 - not a symlink resolving outside the checkout or into one of those
@@ -85,7 +86,10 @@ The contract is chosen by the `mutmut-version` input of the reusable workflow,
 which the preflight reads as `INPUT_MUTMUT_VERSION`. A caller that overrides
 the version is judged against the sandbox its own run will build, never against
 a neighbouring release's. A release this helper does not know is reported as
-`unknown` rather than assumed to copy what a known release copies.
+`unknown` rather than assumed to copy what a known release copies. A
+`[tool.mutmut]` that is present but not a table is refused rather than treated
+as absent: mutmut selects that value and fails when it reads it, so falling
+back to `setup.cfg` would certify a copy set the run never uses.
 
 <!-- tested-example: sandbox-paths -->
 ```toml

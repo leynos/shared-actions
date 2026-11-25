@@ -34,6 +34,7 @@ from workflow_scripts.tests.mutation_preflight_support import (
     Outcome,
     lock_document,
     repository,
+    write_file,
 )
 from workflow_scripts.tests.test_mutation_preflight_repository_port import _run
 
@@ -532,6 +533,47 @@ class TestPresentButUnusableConfiguration:
         assert table is None
         assert problem is not None
         assert "not a file" in problem, problem
+
+    @pytest.mark.parametrize(
+        "with_setup_cfg", [False, True], ids=["alone", "with-setup-cfg"]
+    )
+    def test_a_non_table_tool_mutmut_is_reported(
+        self, tmp_path: Path, *, with_setup_cfg: bool
+    ) -> None:
+        """Mutmut selects a present value and fails, so it is not absence."""
+        root = tmp_path / "repo"
+        root.mkdir()
+        write_file(
+            root,
+            "pyproject.toml",
+            '[project]\nname = "example"\n\n[tool]\nmutmut = "invalid"\n',
+        )
+        if with_setup_cfg:
+            write_file(root, "setup.cfg", "[mutmut]\nsource_paths = src\n")
+
+        table, problem = FileDocuments().read_mutmut_configuration(root)
+
+        assert table is None, "the invalid value must not yield a copy set"
+        assert problem is not None, "a non-table section must be reported"
+        assert "not a table" in problem, problem
+        assert "is present, so what mutmut copies" not in problem, (
+            "a present value must not be reported as a missing section"
+        )
+
+    def test_an_absent_tool_mutmut_falls_back_to_setup_cfg(
+        self, tmp_path: Path
+    ) -> None:
+        """An absent section is the case mutmut itself falls back on."""
+        root = tmp_path / "repo"
+        root.mkdir()
+        write_file(root, "pyproject.toml", '[project]\nname = "example"\n')
+        write_file(root, "setup.cfg", "[mutmut]\nsource_paths = src\n")
+
+        table, problem = FileDocuments().read_mutmut_configuration(root)
+
+        assert problem is None, problem
+        assert table is not None, "the fallback must supply the configuration"
+        assert table["source_paths"] == ["src"], table
 
     @POSIX_SYMLINKS_ONLY
     def test_a_dangling_lock_is_reported_not_absent(self, tmp_path: Path) -> None:

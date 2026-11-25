@@ -148,7 +148,9 @@ class LocatedPath:
     Attributes
     ----------
     exists : bool
-        Whether the path exists, without following its final link.
+        Whether the path's final link reaches something. A dangling link is
+        absent here: a declaration that names it asks for a file nothing
+        supplies, even though the link itself is present.
     resolved : str
         The path with every link resolved, for naming what it became.
     inside_root : bool

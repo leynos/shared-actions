@@ -36,6 +36,23 @@ if typ.TYPE_CHECKING:
     from workflow_scripts.mutationpreflight.ports import Run
 
 
+def _refuse_path(monkeypatch: pytest.MonkeyPatch, method: str, named: str) -> None:
+    """Make ``Path.<method>`` raise PermissionError for paths called *named*.
+
+    The refusal stands in for a filesystem the process may not inspect, so a
+    reader that folds absence and refusal together answers wrongly.
+    """
+    real = getattr(Path, method)
+
+    def refuse(self: Path, *args: object, **kwargs: object) -> object:
+        """Refuse to answer for the named path, as an unreadable one would."""
+        if self.name == named:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, method, refuse)
+
+
 class TestSandboxOwnership:
     """The run removes a sandbox it built, and never the checkout it read."""
 
@@ -152,15 +169,7 @@ class TestReadFailuresAreReported:
     ) -> None:
         """A permission error on a declaration becomes the document's problem."""
         root = repository(tmp_path / "repo", Checkout())
-        real_exists = Path.exists
-
-        def refuse(self: Path) -> bool:
-            """Refuse to answer for the sidecar, as an unreadable path would."""
-            if self.name == "mutation-preflight.toml":
-                raise PermissionError(13, "Permission denied", str(self))
-            return real_exists(self)
-
-        monkeypatch.setattr(Path, "exists", refuse)
+        _refuse_path(monkeypatch, "exists", "mutation-preflight.toml")
 
         documents = FileDocuments().read_documents(
             root, (Path("pyproject.toml"), Path(".github") / "mutation-preflight.toml")
@@ -179,15 +188,7 @@ class TestReadFailuresAreReported:
             tmp_path / "repo",
             Checkout(extra={"uv.lock": lock_document("0.3.1", 'registry = "x"')}),
         )
-        real_is_file = Path.is_file
-
-        def refuse(self: Path) -> bool:
-            """Refuse to answer for the lock, as an unreadable path would."""
-            if self.name == "uv.lock":
-                raise PermissionError(13, "Permission denied", str(self))
-            return real_is_file(self)
-
-        monkeypatch.setattr(Path, "is_file", refuse)
+        _refuse_path(monkeypatch, "is_file", "uv.lock")
 
         packages, problem = FileDocuments().read_lock_packages(root)
 
@@ -272,13 +273,7 @@ class TestDirectoryInspection:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A PermissionError must not read as "is not a directory"."""
-        real_is_dir = Path.is_dir
-
-        def refuse(self: Path) -> bool:
-            """Refuse to answer for the declared working directory."""
-            if self.name == "fixtures":
-                raise PermissionError(13, "Permission denied", str(self))
-            return real_is_dir(self)
+        _refuse_path(monkeypatch, "is_dir", "fixtures")
 
         root = repository(tmp_path / "repo", Checkout())
         (root / "fixtures").mkdir()
@@ -299,8 +294,6 @@ class TestDirectoryInspection:
                 ),
             ),
         )
-        monkeypatch.setattr(Path, "is_dir", refuse)
-
         result = run_checks_phase(run, declaration)
 
         assert result.status == "fail", result

@@ -103,6 +103,22 @@ class FileDocuments:
         except OSError as error:
             return False, f"{path} could not be inspected: {error}"
 
+    @staticmethod
+    def _regular_file(path: Path) -> tuple[bool, bool, str | None]:
+        """Return presence, regularity and why *path* could not be inspected.
+
+        The three answers are kept apart so a reader can tell an absent file
+        from a present path it must refuse: a directory or a dangling link is
+        not absence, and saying it were would hide a declaration the author
+        wrote.
+        """
+        try:
+            present = path.exists() or path.is_symlink()
+            regular = path.is_file()
+        except OSError as error:
+            return False, False, f"{path} could not be inspected: {error}"
+        return present, regular, None
+
     def _read_document(self, path: Path) -> tuple[dict[str, object] | None, str | None]:
         """Return *path* parsed as TOML, or why it could not be read."""
         try:
@@ -116,11 +132,9 @@ class FileDocuments:
     ) -> tuple[list[dict[str, object]], str | None]:
         """Return ``uv.lock``'s package records, or why they could not be read."""
         lock = root / "uv.lock"
-        try:
-            present = lock.exists() or lock.is_symlink()
-            regular = lock.is_file()
-        except OSError as error:
-            return [], f"uv.lock could not be inspected: {error}"
+        present, regular, problem = self._regular_file(lock)
+        if problem is not None:
+            return [], problem
         if not present:
             return [], "uv.lock is absent, so no locked revision can be established"
         if not regular:
@@ -160,11 +174,9 @@ class FileDocuments:
     ) -> tuple[dict[str, object] | None, str | None]:
         """Return ``setup.cfg``'s ``[mutmut]`` section, or why it went unread."""
         path = root / "setup.cfg"
-        try:
-            present = path.exists() or path.is_symlink()
-            regular = path.is_file()
-        except OSError as error:
-            return None, f"{path} could not be inspected: {error}"
+        present, regular, problem = self._regular_file(path)
+        if problem is not None:
+            return None, problem
         if not present:
             return None, None
         if not regular:

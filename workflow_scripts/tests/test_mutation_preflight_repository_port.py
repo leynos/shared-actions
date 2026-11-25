@@ -25,6 +25,7 @@ from workflow_scripts.mutationpreflight.models import (
     CommandRequirement,
     Declaration,
     NativeRequirement,
+    PhaseResult,
     Runtimes,
 )
 from workflow_scripts.mutationpreflight.native import judge_native
@@ -526,8 +527,10 @@ class TestCleanupIsReported:
 class TestCleanupReachesTheVerdict:
     """A sandbox the run cannot remove fails the checks phase."""
 
-    def test_a_surviving_sandbox_fails_the_checks_phase(self, tmp_path: Path) -> None:
-        """The phase must not pass when its sandbox outlives it."""
+    def _surviving_sandbox_phase(
+        self, tmp_path: Path, behaviour: str
+    ) -> tuple[PhaseResult, list[Path]]:
+        """Run a mutmut-lane phase whose sandbox refuses to be removed."""
         root = repository(tmp_path / "repo", Checkout())
         run, discarded = TestSandboxOwnership._recording_run(root, refuse_removal=True)
         run = dc.replace(run, runner=running.run_command, resolver=resolve)
@@ -537,13 +540,16 @@ class TestCleanupReachesTheVerdict:
             checks=(
                 Check(
                     name="collect",
-                    command=(sys.executable, "-c", "print(1)"),
+                    command=(sys.executable, "-c", behaviour),
                     timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
                 ),
             ),
         )
+        return run_checks_phase(run, declaration), discarded
 
-        result = run_checks_phase(run, declaration)
+    def test_a_surviving_sandbox_fails_the_checks_phase(self, tmp_path: Path) -> None:
+        """The phase must not pass when its sandbox outlives it."""
+        result, discarded = self._surviving_sandbox_phase(tmp_path, "print(1)")
 
         assert result.status == "fail", result
         assert len(discarded) == 1, "the run must have attempted the removal"
@@ -553,22 +559,7 @@ class TestCleanupReachesTheVerdict:
 
     def test_a_cleanup_failure_keeps_a_check_failure(self, tmp_path: Path) -> None:
         """Both the failing check and the surviving sandbox are reported."""
-        root = repository(tmp_path / "repo", Checkout())
-        run, _ = TestSandboxOwnership._recording_run(root, refuse_removal=True)
-        run = dc.replace(run, runner=running.run_command, resolver=resolve)
-        declaration = Declaration(
-            source=root / "pyproject.toml",
-            lane="mutmut",
-            checks=(
-                Check(
-                    name="collect",
-                    command=(sys.executable, "-c", "raise SystemExit(1)"),
-                    timeout_seconds=MAX_CHECK_TIMEOUT_SECONDS,
-                ),
-            ),
-        )
-
-        result = run_checks_phase(run, declaration)
+        result, _ = self._surviving_sandbox_phase(tmp_path, "raise SystemExit(1)")
 
         assert result.status == "fail", result
         found = result.findings

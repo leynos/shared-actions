@@ -182,22 +182,38 @@ def main(
 
     """
     require_lane(options.lane)
-    runtimes = Runtimes(
-        helper=options.helper_python or platform.python_version(),
-        project=options.project_python,
+    run = _compose(options)
+    results = _run_phases(run, options)
+    report = Report(
+        lane=options.lane,
+        runtimes=run.settings.runtimes,
+        results=tuple(results),
+        verdict=verdict(results),
     )
+    emit_findings(results)
+    _publish(run, report)
+    emit("mutation_preflight_result", report.verdict)
+    if report.verdict == FAILED:
+        raise SystemExit(1)
+
+
+def _compose(options: Options) -> Run:
+    """Return the run *options* describes, with every port wired in.
+
+    Ambient state is read here and nowhere else: the environment, the job
+    summary path, the ABI3 setting and the shared rule are all decided at the
+    command line and carried into the run.
+    """
     root = Path(options.repository).resolve()
     require_root(root)
-    # Read here, at the command line, so every phase below receives its
-    # environment, its rule and its destinations instead of discovering them.
     rule, rule_problem = load_shared_rule()
-    reader = FileDocuments()
-    sandbox = SandboxMaterializer()
-    evidence = EvidenceFiles()
-    run = Run(
+    return Run(
         settings=Settings(
             root=root,
-            runtimes=runtimes,
+            runtimes=Runtimes(
+                helper=options.helper_python or platform.python_version(),
+                project=options.project_python,
+            ),
             output_dir=Path(options.output_dir),
             mutmut_version=options.mutmut_version,
             ambient=dict(os.environ),
@@ -207,41 +223,40 @@ def main(
             rule_problem=rule_problem,
         ),
         ports=Ports(
-            reader=reader,
-            sandbox=sandbox,
-            evidence=evidence,
+            reader=FileDocuments(),
+            sandbox=SandboxMaterializer(),
+            evidence=EvidenceFiles(),
             resolver=resolve,
             runner=run_command,
         ),
     )
+
+
+def _run_phases(run: Run, options: Options) -> list[PhaseResult]:
+    """Run every phase, publishing each envelope as it finishes."""
     results: list[PhaseResult] = []
-    for result in iter_phases(run, load_declaration(reader, root, options.lane)):
+    phases = iter_phases(
+        run, load_declaration(run.ports.reader, run.settings.root, options.lane)
+    )
+    for result in phases:
         emit("mutation_preflight_phase", phase_envelope(result))
         results.append(result)
-    report = Report(
-        lane=options.lane,
-        runtimes=runtimes,
-        results=tuple(results),
-        verdict=verdict(results),
-    )
-    emit_findings(results)
+    return results
+
+
+def _publish(run: Run, report: Report) -> None:
+    """Write the report, failing the run when its evidence cannot be read."""
     problems = write_report(
         run.ports.evidence,
         report,
         output_dir=run.settings.output_dir,
         summary_path=run.settings.summary_path,
     )
-    if problems:
-        # Evidence that cannot be published is a failure of the run, not a
-        # warning beside a passing verdict: no one can read what it decided.
-        for problem in problems:
-            emit(
-                "mutation_preflight_finding",
-                f"reporting: {problem}",
-                stream=sys.stderr,
-            )
-        emit("mutation_preflight_result", FAILED)
-        raise SystemExit(1)
-    emit("mutation_preflight_result", report.verdict)
-    if report.verdict == FAILED:
-        raise SystemExit(1)
+    if not problems:
+        return
+    # Evidence that cannot be published is a failure of the run, not a warning
+    # beside a passing verdict: no one can read what it decided.
+    for problem in problems:
+        emit("mutation_preflight_finding", f"reporting: {problem}", stream=sys.stderr)
+    emit("mutation_preflight_result", FAILED)
+    raise SystemExit(1)

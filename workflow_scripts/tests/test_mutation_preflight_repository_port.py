@@ -162,23 +162,10 @@ class RefusingRepository:
 class TestRepositoryBoundary:
     """Every judgement reads the checkout through the repository port."""
 
-    def test_the_judgement_phases_read_only_through_the_port(
-        self, tmp_path: Path
-    ) -> None:
-        """A refusing port leaves the phases without the checkout's own answers."""
-        root = repository(
-            tmp_path / "repo",
-            Checkout(
-                requires_python=">=3.12",
-                also_copy=("conftest.py", "README.md"),
-                extra={
-                    "README.md": "# example\n",
-                    "uv.lock": lock_document("0.3.1", 'registry = "x"'),
-                },
-            ),
-        )
-        output = tmp_path / "out"
-        declaration = Declaration(
+    @staticmethod
+    def _declaration(root: Path) -> Declaration:
+        """Return one declaration naming every phase the boundary covers."""
+        return Declaration(
             source=root / "pyproject.toml",
             lane="cargo",
             sandbox_paths=("README.md",),
@@ -191,9 +178,25 @@ class TestRepositoryBoundary:
                 ),
             ),
         )
-        real = _run(root, output)
-        # The checkout really does satisfy each phase: read directly, the
-        # interpreter, lock and sandbox path all hold.
+
+    @staticmethod
+    def _with_production_commands(run: Run) -> Run:
+        """Return *run* with the production runner and resolver wired in.
+
+        A check legitimately runs a command, so the real comparison cannot use
+        the query-phase runner that refuses.
+        """
+        return dc.replace(
+            run,
+            ports=dc.replace(run.ports, runner=running.run_command, resolver=resolve),
+        )
+
+    def test_the_real_checkout_satisfies_every_phase(self, tmp_path: Path) -> None:
+        """The fixture checkout passes each phase when read directly."""
+        root = self._checkout(tmp_path)
+        declaration = self._declaration(root)
+        real = _run(root, tmp_path / "out")
+
         assert run_interpreter_phase(real).status != "fail"
         assert judge_native(real, declaration).phase.status != "fail"
         assert (
@@ -205,15 +208,17 @@ class TestRepositoryBoundary:
             ).status
             != "fail"
         )
-        # A check legitimately runs a command, so the real comparison uses the
-        # production runner and resolver rather than the query-phase ones that
-        # refuse.
-        executable = dc.replace(
-            real,
-            ports=dc.replace(real.ports, runner=running.run_command, resolver=resolve),
-        )
-        assert run_checks_phase(executable, declaration).status == "pass"
+        assert run_checks_phase(
+            self._with_production_commands(real), declaration
+        ).status == ("pass")
 
+    def test_a_refusing_port_leaves_every_judgement_unable_to_read(
+        self, tmp_path: Path
+    ) -> None:
+        """A refusing port leaves the phases without the checkout's answers."""
+        root = self._checkout(tmp_path)
+        declaration = self._declaration(root)
+        real = self._with_production_commands(_run(root, tmp_path / "out"))
         refusing = dc.replace(
             real,
             ports=dc.replace(
@@ -223,6 +228,7 @@ class TestRepositoryBoundary:
                 evidence=RefusingRepository(),
             ),
         )
+
         results = [
             run_interpreter_phase(refusing),
             judge_native(refusing, declaration).phase,
@@ -246,6 +252,21 @@ class TestRepositoryBoundary:
             assert RefusingRepository.reason in reported, (
                 f"{result.name} must report the port's refusal: {result}"
             )
+
+    @staticmethod
+    def _checkout(tmp_path: Path) -> Path:
+        """Write a checkout whose every declared requirement holds."""
+        return repository(
+            tmp_path / "repo",
+            Checkout(
+                requires_python=">=3.12",
+                also_copy=("conftest.py", "README.md"),
+                extra={
+                    "README.md": "# example\n",
+                    "uv.lock": lock_document("0.3.1", 'registry = "x"'),
+                },
+            ),
+        )
 
 
 class RefusingResolver:

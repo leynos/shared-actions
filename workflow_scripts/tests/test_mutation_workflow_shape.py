@@ -65,6 +65,17 @@ def _step_names(steps: list[dict[str, object]]) -> list[object]:
     return [step.get("name") for step in steps]
 
 
+def _condition(step: dict[str, object]) -> str:
+    """Return a step's condition without its expression wrapper or extra spaces."""
+    text = " ".join(str(step.get("if", "")).split())
+    inner = text
+    if text.startswith("${{"):
+        inner = text.removeprefix("${{")
+    if inner.endswith("}}"):
+        inner = inner.removesuffix("}}")
+    return inner.strip()
+
+
 @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
 def test_every_workflow_checkout_is_followed_by_relocation(
     workflow_name: str,
@@ -138,6 +149,42 @@ def _workspace_local_action_steps(
         if (uses := str(step.get("uses") or "")) == CHECKOUT_PATH
         or uses.startswith(f"{CHECKOUT_PATH}/")
     ]
+
+
+PREFLIGHT_STEP = "Validate mutation environment"
+PREFLIGHT_UPLOAD_STEP = "Upload mutation preflight diagnostics"
+PREFLIGHT_LANES = {"mutation-mutmut.yml": "mutmut", "mutation-cargo.yml": "cargo"}
+
+#: The caller input naming the project's own interpreter. It must be a caller
+#: input rather than the helper interpreter: the native phase judges a declared
+#: support range against the interpreter the project runs under.
+PREFLIGHT_PROJECT_PYTHON = {
+    "mutation-mutmut.yml": "${{ inputs.python-version }}",
+    "mutation-cargo.yml": "${{ inputs.project-python }}",
+}
+
+#: The exact gate each lane puts on its preflight and on its diagnostics
+#: upload, as ``(preflight, upload)``. mutmut detects changes first, so it
+#: validates only a diff that exists; cargo validates per shard and has no
+#: change-detection step. The upload is unconditional on the preflight result
+#: but still follows the caller's opt-in, because a phase envelope is what
+#: explains a failed preflight.
+PREFLIGHT_CONDITIONS = {
+    "mutation-mutmut.yml": (
+        "inputs.preflight && steps.detect.outputs.has_changes == 'true'",
+        "always() && inputs.preflight && steps.detect.outputs.has_changes == 'true'",
+    ),
+    "mutation-cargo.yml": ("inputs.preflight", "always() && inputs.preflight"),
+}
+
+
+def _workflow(workflow_name: str) -> dict[str, object]:
+    """Parse a workflow file and return its document."""
+    document = yaml.safe_load(
+        (WORKFLOWS_DIR / workflow_name).read_text(encoding="utf-8")
+    )
+    assert isinstance(document, dict), f"{workflow_name} must parse as a mapping"
+    return typ.cast("dict[str, object]", document)
 
 
 def _restore_condition(job: dict[str, object]) -> str | None:
@@ -308,3 +355,143 @@ class TestAllowNoMutants:
                 f"literal, got {env['INPUT_ALLOW_NO_MUTANTS']!r}; a hard-coded "
                 f"false would fail an empty aggregate run the caller allowed"
             )
+
+
+class TestPreflightWiring:
+    """The environment preflight must run, and run before the work it guards.
+
+    The helper is only worth having if the workflow actually calls it, with the
+    lane it belongs to, from the relocated workflow checkout, and before the
+    step that enumerates mutants. An input declared but never passed through
+    would leave every caller on the default, which is the failure this class
+    exists to catch.
+    """
+
+    @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
+    def test_the_workflow_declares_the_opt_in(self, workflow_name: str) -> None:
+        """A caller opts in explicitly; the check is not imposed unannounced."""
+        workflow = _workflow(workflow_name)
+        triggers = typ.cast("dict[str, object]", workflow.get("on", workflow.get(True)))
+        inputs = typ.cast(
+            "dict[str, object]",
+            typ.cast("dict[str, object]", triggers["workflow_call"])["inputs"],
+        )
+
+        assert "preflight" in inputs, (
+            f"{workflow_name} must expose preflight; without it no caller can "
+            f"validate its mutation environment"
+        )
+        assert (
+            typ.cast("dict[str, object]", inputs["preflight"]).get("default") is False
+        ), (
+            "preflight must default to false, or every existing caller starts "
+            "running a check it has not declared requirements for"
+        )
+
+    @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
+    def test_the_preflight_runs_before_the_mutation_run(
+        self, workflow_name: str
+    ) -> None:
+        """Every job that mutates also validates first, and names its lane."""
+        jobs = _jobs(workflow_name)
+        mutation_jobs = [
+            job_name
+            for job_name, job in jobs.items()
+            if "Run mutation testing" in _step_names(_steps(job))
+        ]
+        assert mutation_jobs, f"{workflow_name} never runs mutation testing"
+        for job_name in mutation_jobs:
+            steps = _steps(jobs[job_name])
+            names = _step_names(steps)
+            assert PREFLIGHT_STEP in names, (
+                f"{workflow_name}:{job_name} mutates without validating the "
+                f"environment first; one wired job must not mask this one"
+            )
+            assert names.index(PREFLIGHT_STEP) < names.index("Run mutation testing"), (
+                f"{workflow_name}:{job_name} must validate before enumerating "
+                f"mutants, or the failure it exists to prevent has already "
+                f"happened"
+            )
+            step = steps[names.index(PREFLIGHT_STEP)]
+            env = typ.cast("dict[str, object]", step.get("env") or {})
+            assert env.get("INPUT_LANE") == PREFLIGHT_LANES[workflow_name], (
+                f"{workflow_name}:{job_name} must declare the lane it belongs "
+                f"to, got {env.get('INPUT_LANE')!r}"
+            )
+            assert env.get("WORKFLOW_DIR") == RELOCATED_DIR_EXPR, (
+                f"{workflow_name}:{job_name} must read the helper from the "
+                f"relocated workflow checkout"
+            )
+            wanted_python = PREFLIGHT_PROJECT_PYTHON[workflow_name]
+            assert env.get("INPUT_PROJECT_PYTHON") == wanted_python, (
+                f"{workflow_name}:{job_name} must pass the caller's project "
+                f"interpreter ({wanted_python}), got "
+                f"{env.get('INPUT_PROJECT_PYTHON')!r}; the native phase cannot "
+                f"judge a support range without it"
+            )
+            assert "mutation_preflight.py" in str(step.get("run")), (
+                f"{workflow_name}:{job_name} preflight does not invoke the helper"
+            )
+            expected, _ = PREFLIGHT_CONDITIONS[workflow_name]
+            assert _condition(step) == expected, (
+                f"{workflow_name}:{job_name} preflight condition must be "
+                f"{expected!r}, got {_condition(step)!r}; a negated opt-in or a "
+                f"step that can never run would leave the check unenforced"
+            )
+
+    @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
+    def test_a_failed_preflight_still_publishes_its_diagnostics(
+        self, workflow_name: str
+    ) -> None:
+        """The phase envelope is the artefact that explains a failed preflight."""
+        _, expected = PREFLIGHT_CONDITIONS[workflow_name]
+        guarded = [
+            (job_name, _steps(job))
+            for job_name, job in _jobs(workflow_name).items()
+            if PREFLIGHT_STEP in _step_names(_steps(job))
+        ]
+        assert guarded, f"{workflow_name} never runs the environment preflight"
+        for job_name, steps in guarded:
+            uploads = [
+                step for step in steps if step.get("name") == PREFLIGHT_UPLOAD_STEP
+            ]
+            assert uploads, (
+                f"{workflow_name}:{job_name} must upload its own preflight "
+                f"diagnostics; an upload in another job cannot explain this "
+                f"job's failed preflight"
+            )
+            for step in uploads:
+                condition = _condition(step)
+                assert condition == expected, (
+                    f"{workflow_name}:{job_name} preflight upload condition must "
+                    f"be {expected!r}, got {condition!r}; the envelope must "
+                    f"survive a failed preflight and stay off when the caller "
+                    f"did not opt in"
+                )
+
+    @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
+    def test_a_missing_diagnostics_directory_fails_the_upload(
+        self, workflow_name: str
+    ) -> None:
+        """An absent artefact must fail, not pass as nothing to publish."""
+        guarded = [
+            (job_name, _steps(job))
+            for job_name, job in _jobs(workflow_name).items()
+            if PREFLIGHT_STEP in _step_names(_steps(job))
+        ]
+        assert guarded, f"{workflow_name} never runs the environment preflight"
+        for job_name, steps in guarded:
+            uploads = [
+                step for step in steps if step.get("name") == PREFLIGHT_UPLOAD_STEP
+            ]
+            assert uploads, (
+                f"{workflow_name}:{job_name} must upload its preflight diagnostics"
+            )
+            for step in uploads:
+                upload_with = typ.cast("dict[str, object]", step.get("with") or {})
+                assert upload_with.get("if-no-files-found") == "error", (
+                    f"{workflow_name}:{job_name} must fail when the diagnostics "
+                    f"directory is absent, got "
+                    f"{upload_with.get('if-no-files-found')!r}; a warning would "
+                    f"leave a failed preflight with no evidence and a green upload"
+                )

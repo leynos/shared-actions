@@ -1,0 +1,358 @@
+"""Checking a locked native dependency's revision and interpreter support.
+
+Support that cannot be established is reported as unknown, never assumed. The
+ABI forward-compatibility escape hatch is recorded for diagnosis and is not
+treated as proof that the interpreter is supported.
+"""
+
+from __future__ import annotations
+
+import dataclasses as dc
+import re
+import typing as typ
+
+from .constants import FAILED, SKIPPED, UNKNOWN
+from .interpreters import SharedRule, judge
+from .lockfile import (
+    find_locked,
+    pinned_revision,
+    source_text,
+)
+from .models import Declaration, NativeRequirement, PhaseResult, phase_outcome
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
+
+    from .ports import LockReader, Settings
+
+_NO_NATIVE: typ.Final[str] = "no native dependency declared"
+
+#: A hexadecimal commit id short enough to be a prefix rather than a complete
+#: id. A declaration may name the full commit or any unambiguous prefix.
+_COMMIT_PREFIX: typ.Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{4,40}")
+
+
+def _revision_holds(declared: str, pinned: str) -> bool:
+    """Return whether *pinned* is the revision *declared* names."""
+    if pinned == declared:
+        return True
+    return bool(
+        _COMMIT_PREFIX.fullmatch(declared)
+        and pinned.lower().startswith(declared.lower())
+    )
+
+
+def _revision_finding(
+    native: NativeRequirement, package: dict[str, object]
+) -> str | None:
+    """Return why the lock does not pin the declared revision, or ``None``."""
+    if not native.revision:
+        return None
+    pinned = pinned_revision(package)
+    if pinned is None:
+        source = source_text(package)
+        return (
+            f"uv.lock records no pinned revision for {native.package} at "
+            f"{source!r}, so the declared revision {native.revision!r} is not "
+            f"established"
+        )
+    if _revision_holds(native.revision, pinned):
+        return None
+    return (
+        f"uv.lock pins {native.package} at revision {pinned!r}, which is not the "
+        f"declared revision {native.revision!r}"
+    )
+
+
+@dc.dataclass(frozen=True, slots=True)
+class LockIdentity:
+    """The lock's record of one package, as one comparable value.
+
+    Version, source and revision are compared together: a registry dependency
+    records no revision, so a relock that moves its version would otherwise
+    compare equal before and after.
+
+    Attributes
+    ----------
+    version : str
+        The locked version, empty when the record names none.
+    source : str
+        The record's source rendered as text, empty when it names none.
+    revision : str
+        The commit the record pins, empty when it records none.
+
+    """
+
+    version: str
+    source: str
+    revision: str
+
+    def render(self) -> str:
+        """Return the identity as the phrase a finding quotes."""
+        return (
+            f"version {self.version!r}, source {self.source!r}, "
+            f"revision {self.revision!r}"
+        )
+
+
+def identity_of(package: dict[str, object]) -> LockIdentity:
+    """Return the identity one lock record holds."""
+    return LockIdentity(
+        version=str(package.get("version", "")),
+        source=source_text(package),
+        revision=pinned_revision(package) or "",
+    )
+
+
+def lock_identity(
+    lock: LockReader, root: Path, native: NativeRequirement | None
+) -> tuple[LockIdentity | None, str]:
+    """Return what the lock records for *native*, or why it cannot say.
+
+    A lock that cannot be read, or that records no such package, yields no
+    identity and the reason, which the caller records. A missing baseline must
+    not read as a change when it is compared with a later reading, so the two
+    are told apart rather than both being ``None``.
+
+    Parameters
+    ----------
+    lock : LockReader
+        How the checkout's ``uv.lock`` is read.
+    root : Path
+        The checkout the lock belongs to.
+    native : NativeRequirement | None
+        The declared dependency, or ``None`` when the lane declares none.
+
+    Returns
+    -------
+    tuple[LockIdentity | None, str]
+        The lock's record of the package, and why it records none.
+
+    """
+    if native is None:
+        return None, ""
+    packages, problem = lock.read_lock_packages(root)
+    if problem is not None:
+        return None, problem
+    locked = find_locked(packages, native.package)
+    if locked is None:
+        return None, f"uv.lock records no package named {native.package!r}"
+    return identity_of(locked), ""
+
+
+@dc.dataclass(frozen=True, slots=True)
+class NativeVerdict:
+    """The native phase's result, and the lock identity it judged.
+
+    Attributes
+    ----------
+    phase : PhaseResult
+        The phase result the report publishes.
+    identity : LockIdentity | None
+        The identity the lock recorded, or ``None`` when the package was
+        absent from the lock or the lock could not be read. It is a typed
+        value rather than a key in the envelope, so the probe and the
+        lock-change policy read what the judgement established directly.
+
+    """
+
+    phase: PhaseResult
+    identity: LockIdentity | None
+
+
+def _locked_identity(
+    lock: LockReader, root: Path, native: NativeRequirement
+) -> tuple[dict[str, object], LockIdentity | None, list[str], list[str]]:
+    """Return the lock's record of *native*, and what that leaves open."""
+    packages, problem = lock.read_lock_packages(root)
+    if problem is not None:
+        return {}, None, [], [problem]
+    locked = find_locked(packages, native.package)
+    if locked is None:
+        finding = f"the declared native dependency {native.package!r} is not in uv.lock"
+        return {}, None, [finding], []
+    identity = identity_of(locked)
+    recorded: dict[str, object] = {
+        "locked_version": identity.version,
+        "locked_source": identity.source,
+        "locked_revision": identity.revision,
+    }
+    finding = _revision_finding(native, locked)
+    if finding is not None:
+        return recorded, identity, [finding], []
+    return recorded, identity, [], []
+
+
+def _support_findings(
+    native: NativeRequirement, settings: Settings
+) -> tuple[list[str], list[str]]:
+    """Return why the interpreter is out of range, or why support is unknown."""
+    project_python = settings.runtimes.project
+    if not native.supported_python:
+        unknown = (
+            f"no supported-python range is declared for {native.package}, so "
+            f"interpreter compatibility is unknown rather than established"
+        )
+        return [], [unknown]
+    if not project_python:
+        unknown = (
+            f"no project interpreter was supplied, so {native.package}'s "
+            f"declared support {native.supported_python!r} was not checked"
+        )
+        return [], [unknown]
+    return judge(
+        SharedRule(settings.rule, settings.rule_problem),
+        native.supported_python,
+        project_python,
+        subject=f"{native.package}'s supported-python",
+    )
+
+
+def lock_moved(before: LockIdentity | None, after: LockIdentity | None) -> bool:
+    """Return whether the declared checks moved the lock, or lost its identity.
+
+    A baseline the reading never established is not a change: the judgement
+    reports a lock it could not read or a package it did not find on its own.
+    An identity established before the checks that cannot be established after
+    them is a change: the checks removed the very record the judgement had
+    proved, so a probe must not run on top of it.
+    """
+    if before is None:
+        return False
+    if after is None:
+        return True
+    return before != after
+
+
+def baseline_not_established(judged: PhaseResult, problem: str) -> PhaseResult:
+    """Return *judged* unable to pass on a baseline it never established.
+
+    The lock was not readable, or did not record the package, before the
+    declared checks ran. A later read may succeed, but it cannot say whether
+    the checks moved that lock, so the phase reports the reason as
+    indeterminate rather than certifying the pin it now sees.
+    """
+    finding = (
+        f"the lock's identity was not established before the declared checks "
+        f"ran: {problem}"
+    )
+    detail: dict[str, object] = {**judged.detail, "baseline_problem": problem}
+    if judged.status == FAILED:
+        # A baseline that could not be read does not excuse a support range
+        # that already failed; both stay visible, and the failure stands.
+        return phase_outcome("native", list(judged.findings), [finding], detail)
+    return phase_outcome("native", [], [*judged.findings, finding], detail)
+
+
+def changed_lock_phase(
+    judged: PhaseResult,
+    native: NativeRequirement,
+    before: LockIdentity,
+    after: LockIdentity | None,
+) -> PhaseResult:
+    """Return *judged* failed by a declared check that rewrote the lock.
+
+    The checks run in the checkout on the cargo lane, after the lock was read
+    and before the mutation run starts. A check that relocks the project would
+    leave the judged pin describing an environment the run no longer uses, so
+    an identity that moved across the checks fails the native phase. A lock
+    that no longer establishes the identity at all is a change too: the checks
+    removed the very record the judgement had established.
+
+    Parameters
+    ----------
+    judged : PhaseResult
+        The native judgement made after the checks ran.
+    native : NativeRequirement
+        The declared dependency whose lock moved.
+    before : LockIdentity
+        What the lock recorded before the checks ran.
+    after : LockIdentity | None
+        What the lock records now, or ``None`` when it no longer establishes
+        the package's identity.
+
+    Returns
+    -------
+    PhaseResult
+        The native phase, failed, naming the identity that moved and the
+        remedy. The judgement's own findings are kept: a lock the checks moved
+        does not excuse a revision or range that already did not hold.
+
+    """
+    if after is None:
+        finding = (
+            f"a declared check left uv.lock without an identity for "
+            f"{native.package}; it recorded {before.render()} before the checks. "
+            f"Run the checks with the lock enforced (uv's --locked or UV_LOCKED) "
+            f"so they cannot rewrite it"
+        )
+    else:
+        finding = (
+            f"a declared check changed uv.lock for {native.package} from "
+            f"{before.render()} to {after.render()}; run the checks with the lock "
+            f"enforced (uv's --locked or UV_LOCKED) so they cannot relock the project"
+        )
+    blocking = [*judged.findings, finding] if judged.status == FAILED else [finding]
+    indeterminate = list(judged.findings) if judged.status == UNKNOWN else []
+    detail: dict[str, object] = {"before_checks": dc.asdict(before)}
+    detail.update(judged.detail)
+    detail["after_checks"] = None if after is None else dc.asdict(after)
+    if native.probe:
+        # A probe would run under a lock the checks have moved, so it is
+        # withheld, and the envelope records that rather than silence.
+        detail["probe"] = {"command": list(native.probe), "skipped": finding}
+    return phase_outcome("native", blocking, indeterminate, detail)
+
+
+def judge_native(
+    lock: LockReader, settings: Settings, declaration: Declaration
+) -> NativeVerdict:
+    """Judge the declared native dependency's revision and interpreter range.
+
+    The judgement is a query: it reads the lock and the declaration's range,
+    and runs nothing, so it can be shown to leave the checkout untouched. The
+    probe that exercises the built extension is composed onto its result by the
+    caller.
+
+    Parameters
+    ----------
+    lock : LockReader
+        How the checkout's ``uv.lock`` is read.
+    settings : Settings
+        The checkout the lock belongs to, the project interpreter and the
+        recorded ABI3 setting.
+    declaration : Declaration
+        The repository's declaration, whose ``native`` table is judged.
+
+    Returns
+    -------
+    NativeVerdict
+        The phase result, and the lock identity the judgement established.
+        The phase is ``skipped`` when nothing is declared, ``unknown`` when
+        the lock or the support range could not establish compatibility,
+        ``fail`` when a revision or a range does not hold, and ``pass``
+        otherwise.
+
+    """
+    native = declaration.native
+    if native is None:
+        return NativeVerdict(
+            PhaseResult("native", SKIPPED, (), {"reason": _NO_NATIVE}), None
+        )
+    identity: dict[str, object] = {"package": native.package}
+    locked_detail, locked, lock_blocking, lock_unknown = _locked_identity(
+        lock, settings.root, native
+    )
+    identity.update(locked_detail)
+    identity["supported_python"] = native.supported_python
+    identity["abi3_forward_compatibility"] = settings.abi3
+    support_blocking, support_unknown = _support_findings(native, settings)
+    return NativeVerdict(
+        phase_outcome(
+            "native",
+            [*lock_blocking, *support_blocking],
+            [*lock_unknown, *support_unknown],
+            identity,
+        ),
+        locked,
+    )

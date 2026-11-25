@@ -113,6 +113,23 @@ jobs:
 | `module-prefix-strip` | `src/`        | Prefix removed before module-glob translation.                                                                                                                                                                 |
 | `extra-args`          | (empty)       | Extra `mutmut run` arguments (shell-lexed).                                                                                                                                                                    |
 | `python-version`      | `3.13`        | Python for uv; must be **3.13 or newer** (the workflow's helper scripts require it — the job fails fast otherwise) and must satisfy the project's `requires-python` (e.g. set `"3.14"` for `>=3.14` projects). |
+| `preflight`           | `false`       | Validate the declared mutation environment before any mutant is enumerated; see [Mutation environment preflight](mutation-preflight.md).                                                                       |
+
+## Validating the environment first
+
+Set `preflight: true` once the repository declares what its mutation run needs
+in `[tool.mutation-preflight]` (or `.github/mutation-preflight.toml`). The
+preflight runs after change detection and before `mutmut run`, so a sandbox
+path mutmut will not copy, an interpreter outside `requires-python`, a missing
+command or a failing declared check stops the run before any mutant is
+enumerated. It uploads `mutation-preflight-diagnostics-mutmut` under
+`always()`, so a failed preflight still publishes its envelope and bounded
+check logs. A repository that declares nothing is unaffected.
+
+The full declaration schema and phase contract are in
+[Mutation environment preflight](mutation-preflight.md). The preflight does not
+replace the baseline: it establishes prerequisites, and the unmodified baseline
+still comes from mutmut, run once from the sandbox the mutants use.
 
 ## Notes
 
@@ -126,8 +143,11 @@ jobs:
   paths fail the baseline there — notably a workflow contract test reading
   `.github/workflows/`. Guard such tests with a module-level
   `pytest.mark.skipif(not <path>.exists(), ...)`, exclude them from mutmut's
-  test selection, or add the paths to `also_copy`. (Observed live on the
-  estate's first scheduled polythene run.)
+  test selection, or add the paths to `also_copy`. With `preflight: true`, also
+  declare each such path in `sandbox_paths`; the preflight then fails the job
+  naming the path and the `also_copy` entry it needs, rather than leaving the
+  baseline to discover it. (Observed live on the estate's first scheduled
+  polythene run.)
 - "No tests" survivors mean mutmut found no covering test for the
   function; they are coverage gaps rather than assertion gaps.
 - Some survivors are equivalent mutants; triage before turning the

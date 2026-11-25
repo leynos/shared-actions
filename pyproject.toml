@@ -134,8 +134,13 @@ pytest_add_cli_args_test_selection = ["workflow_scripts/tests/"]
 do_not_mutate = ["workflow_scripts/tests/*"]
 # The root conftest.py makes workflow_scripts importable from the
 # sandbox and registers the cmd-mox plugin; pytest.ini keeps the pytest
-# configuration identical inside mutants/.
-also_copy = ["conftest.py", "pytest.ini"]
+# configuration identical inside mutants/. The docs and workflow trees are
+# copied because the tested-example contract tests load the shipped
+# document and the workflow its opt-in example names, and neither tree is
+# otherwise in mutmut's sandbox. mutmut copies a nested also_copy entry
+# only when its directory exists, so the directories are named rather than
+# the two files inside them.
+also_copy = ["conftest.py", "pytest.ini", "docs/", ".github/workflows/"]
 
 [tool.pytest.ini_options]
 # Ensure asyncio fixtures create a new event loop for each test
@@ -260,3 +265,20 @@ names = [
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[[tool.skylos.dead_code.entrypoints]]
+type = "method"
+path = "workflow_scripts/mutationpreflight/repository.py"
+name = [
+    "materialize",
+    "discard",
+    "_copy_contract",
+    "_copy_contract_entry",
+    "_glob_sources",
+    "_outside",
+    "_copy_entry",
+    "_copy_source",
+    "_escaping_ancestor",
+    "_keep_link_at",
+]
+reason = "SandboxMaterializer implements the SandboxProvider protocol and is reached only as Run.sandbox.materialize/discard from check_boundary; Skylos cannot follow a call through a protocol-typed dataclass field."

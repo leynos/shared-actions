@@ -80,25 +80,27 @@ jobs:
 
 ## Inputs
 
-| Input                   | Default                   | Purpose                                                                                                                                                     |
-| ----------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `paths`                 | `src/,examples/,benches/` | Path prefixes belonging to the root target.                                                                                                                 |
-| `extra-crate-dirs`      | (empty)                   | Non-workspace crate directories mutated as separate targets.                                                                                                |
-| `exclude-globs`         | (empty)                   | Comma-separated `--exclude` globs.                                                                                                                          |
-| `window-hours`          | `25`                      | Detection window; keep one hour wider than the cadence.                                                                                                     |
-| `base-ref`              | `origin/main`             | Reference scanned for changes.                                                                                                                              |
-| `timeout-multiplier`    | `3`                       | Per-mutant timeout as a multiple of the baseline.                                                                                                           |
-| `timeout-minutes`       | `300`                     | Per-job ceiling.                                                                                                                                            |
-| `shard-count`           | `6`                       | Fan-out for full dispatch runs (scoped runs stay single-shard).                                                                                             |
-| `cargo-mutants-version` | pinned                    | Tool version; the summary parser is validated against it.                                                                                                   |
-| `extra-args`            | (empty)                   | Extra cargo-mutants arguments (shell-lexed), e.g. `--all-features`.                                                                                         |
-| `allow-no-mutants`      | `false`                   | Accept a run that enumerated no mutants; left false, an empty run fails.                                                                                    |
-| `setup-commands`        | (empty)                   | Shell commands run before cargo-mutants in each mutants job (e.g. `sudo apt-get install -y mold` when the repo's `.cargo/config.toml` selects that linker). |
-| `install-mold`          | `false`                   | `"true"` installs the pinned mold linker through `setup-rust` on Linux runners, for repos whose `.cargo/config.toml` selects it. Sets no linker flag.       |
-| `install-mdtablefix`    | `false`                   | `"true"` installs the pinned mdtablefix binary before caller setup commands, using the shared trusted installer.                                            |
-| `mdtablefix-version`    | `0.6.1`                   | Exact mdtablefix release to install when `install-mdtablefix` is `"true"`.                                                                                  |
-| `mdtablefix-sha256`     | (empty)                   | Optional SHA-256 digest for the installed mdtablefix executable.                                                                                            |
-| `install-clang-lld`     | `false`                   | `"true"` installs clang and lld through `setup-rust` on Linux runners; elsewhere it skips with a notice. Sets no linker flag.                               |
+| Input                   | Default                   | Purpose                                                                                                                                                                       |
+| ----------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `paths`                 | `src/,examples/,benches/` | Path prefixes belonging to the root target.                                                                                                                                   |
+| `extra-crate-dirs`      | (empty)                   | Non-workspace crate directories mutated as separate targets.                                                                                                                  |
+| `exclude-globs`         | (empty)                   | Comma-separated `--exclude` globs.                                                                                                                                            |
+| `window-hours`          | `25`                      | Detection window; keep one hour wider than the cadence.                                                                                                                       |
+| `base-ref`              | `origin/main`             | Reference scanned for changes.                                                                                                                                                |
+| `timeout-multiplier`    | `3`                       | Per-mutant timeout as a multiple of the baseline.                                                                                                                             |
+| `timeout-minutes`       | `300`                     | Per-job ceiling.                                                                                                                                                              |
+| `shard-count`           | `6`                       | Fan-out for full dispatch runs (scoped runs stay single-shard).                                                                                                               |
+| `cargo-mutants-version` | pinned                    | Tool version; the summary parser is validated against it.                                                                                                                     |
+| `extra-args`            | (empty)                   | Extra cargo-mutants arguments (shell-lexed), e.g. `--all-features`.                                                                                                           |
+| `allow-no-mutants`      | `false`                   | Accept a run that enumerated no mutants; left false, an empty run fails.                                                                                                      |
+| `setup-commands`        | (empty)                   | Shell commands run before cargo-mutants in each mutants job (e.g. `sudo apt-get install -y mold` when the repo's `.cargo/config.toml` selects that linker).                   |
+| `install-mold`          | `false`                   | `"true"` installs the pinned mold linker through `setup-rust` on Linux runners, for repos whose `.cargo/config.toml` selects it. Sets no linker flag.                         |
+| `install-mdtablefix`    | `false`                   | `"true"` installs the pinned mdtablefix binary before caller setup commands, using the shared trusted installer.                                                              |
+| `mdtablefix-version`    | `0.6.1`                   | Exact mdtablefix release to install when `install-mdtablefix` is `"true"`.                                                                                                    |
+| `mdtablefix-sha256`     | (empty)                   | Optional SHA-256 digest for the installed mdtablefix executable.                                                                                                              |
+| `install-clang-lld`     | `false`                   | `"true"` installs clang and lld through `setup-rust` on Linux runners; elsewhere it skips with a notice. Sets no linker flag.                                                 |
+| `preflight`             | `false`                   | Validate the declared mutation environment before any mutant is enumerated; see [Mutation environment preflight](mutation-preflight.md).                                      |
+| `project-python`        | (empty)                   | The interpreter the mutated crate's Python bindings are built and tested against; judges a declared `native.supported_python` range. Empty reports native support as unknown. |
 
 ## Installing mold
 
@@ -133,6 +135,31 @@ checksum; a supplied digest replaces that checksum. The pinned action works
 whether the reusable workflow source needs a separate checkout or is already
 available in a local `act` workspace. It installs a trusted prebuilt release
 binary; it does not compile mdtablefix from source.
+
+## Validating the environment first
+
+Set `preflight: true` once the repository declares what its mutation run needs
+in `[tool.mutation-preflight]` (or `.github/mutation-preflight.toml`). The
+preflight runs in each mutants shard, after the toolchain is installed and
+before `cargo mutants`, so a missing linker or helper binary, a version that is
+not the one declared, or a failing declared check stops the shard before it
+enumerates a single mutant. It runs per shard rather than as its own job on
+purpose: the declared commands are installed by steps in that job, so a
+separate job would inspect a different environment from the one the mutants run
+in.
+
+`sandbox_paths` is refused on this lane, because cargo-mutants copies the whole
+working tree; declare `require_commands`, `native` and `checks` instead. The
+shard uploads `mutation-preflight-diagnostics-<target>-<shard>` under
+`always()`. The full declaration schema and phase contract are in
+[Mutation environment preflight](mutation-preflight.md).
+
+A crate with Python bindings should also set `project-python` to the
+interpreter its bindings are built and tested against. Without it the native
+phase reports a declared support range as `unknown`, which is surfaced but does
+not block, so an unsupported tuple would not stop the shard. The value is the
+project's interpreter, not the 3.13 the shards use for the workflow's own
+scripts.
 
 ## Notes
 

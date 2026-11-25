@@ -104,6 +104,30 @@ on:
           workflow sets no linker flag itself.
         type: string
         default: 'false'
+      preflight:
+        description: >-
+          Validate each shard's mutation environment before it enumerates
+          a mutant ("true" or "false"). Reads the caller's
+          `[tool.mutation-preflight]` declaration, or
+          `.github/mutation-preflight.toml`, and fails the shard on an
+          absent required command, a locked native dependency outside the
+          interpreter's support, or a failing declared check. It runs in
+          the shard itself, after the installs and setup commands, so it
+          sees the tools the mutation run will see. A caller that
+          declares nothing is unaffected.
+        type: boolean
+        default: false
+      project-python:
+        description: >-
+          The interpreter the mutated crate's Python bindings are built
+          and tested against, such as "3.13". Used only by the opt-in
+          preflight, to judge a declared `native.supported_python` range
+          against the interpreter this project actually uses. It is not
+          the interpreter running the workflow's own scripts: the shards
+          set that one to 3.13 themselves. Empty reports native support
+          as unknown rather than assuming it.
+        type: string
+        default: ""
 
 # Default the token to no scopes; jobs opt in explicitly.
 permissions: {}
@@ -343,6 +367,42 @@ jobs:
           else
             echo "workflow_dir=${WORKFLOW_DIR}" >> "${GITHUB_OUTPUT}"
           fi
+
+      - name: Validate mutation environment
+        # Per shard rather than in its own job: the declaration names the
+        # commands this run needs, and those are installed by "Setup Rust",
+        # "Install mdtablefix" and "Run setup commands" above, in this job
+        # and no other. A separate job would check a different environment.
+        if: ${{ inputs.preflight }}
+        shell: bash
+        env:
+          INPUT_LANE: cargo
+          # The project's interpreter, not the helper's: the shards run the
+          # workflow scripts under 3.13, while the native phase must judge a
+          # declared support range against the interpreter the mutated crate
+          # is built and tested with.
+          INPUT_PROJECT_PYTHON: ${{ inputs.project-python }}
+          # Outside the checkout: cargo-mutants copies the whole working
+          # tree, so diagnostics written into it would be mutated as source.
+          INPUT_OUTPUT_DIR: ${{ runner.temp }}/mutation-preflight-diagnostics
+          WORKFLOW_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
+        run: |
+          set -euo pipefail
+          if [[ "${ACT:-}" == "true" ]]; then
+            export UV_PROJECT_ENVIRONMENT="/tmp/uv-project"
+            export UV_CACHE_DIR="/tmp/uv-cache"
+          fi
+          uv run --script "${WORKFLOW_DIR}/workflow_scripts/mutation_preflight.py"
+
+      - name: Upload mutation preflight diagnostics
+        # `always()` so a failed preflight still publishes the phase envelope
+        # and the bounded check logs that say why it failed.
+        if: ${{ always() && inputs.preflight }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-preflight-diagnostics-${{ matrix.slug }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/mutation-preflight-diagnostics/
+          if-no-files-found: error
 
       - name: Run mutation testing
         shell: bash

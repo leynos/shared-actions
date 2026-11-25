@@ -117,11 +117,17 @@ class FileDocuments:
         """Return ``uv.lock``'s package records, or why they could not be read."""
         lock = root / "uv.lock"
         try:
-            present = lock.is_file()
+            present = lock.exists() or lock.is_symlink()
+            regular = lock.is_file()
         except OSError as error:
             return [], f"uv.lock could not be inspected: {error}"
         if not present:
             return [], "uv.lock is absent, so no locked revision can be established"
+        if not regular:
+            return [], (
+                "uv.lock exists but is not a file, so no locked revision can be "
+                "established"
+            )
         document, problem = self._read_document(lock)
         if problem is not None:
             return [], problem
@@ -155,15 +161,20 @@ class FileDocuments:
         """Return ``setup.cfg``'s ``[mutmut]`` section, or why it went unread."""
         path = root / "setup.cfg"
         try:
-            present = path.is_file()
+            present = path.exists() or path.is_symlink()
+            regular = path.is_file()
         except OSError as error:
             return None, f"{path} could not be inspected: {error}"
         if not present:
             return None, None
+        if not regular:
+            return None, f"{path} exists but is not a file, so it cannot be read"
         parser = ConfigParser()
         try:
-            # Reading a value can raise InterpolationSyntaxError, a ConfigError.
-            parser.read(path, encoding="utf-8")
+            # read_text surfaces an open failure, which ConfigParser.read
+            # would skip silently, and reading a value can raise
+            # InterpolationSyntaxError, a ConfigError.
+            parser.read_string(path.read_text(encoding="utf-8"), source=str(path))
             table = self._flattened_section(parser)
         except (OSError, UnicodeDecodeError, ConfigError) as error:
             return None, f"{path} could not be read: {error}"
@@ -173,10 +184,13 @@ class FileDocuments:
         """Return the mutmut configuration the run will use, or why it is unknown."""
         pyproject = root / "pyproject.toml"
         try:
-            present = pyproject.is_file()
+            present = pyproject.exists() or pyproject.is_symlink()
+            regular = pyproject.is_file()
         except OSError as error:
             return None, f"{pyproject} could not be inspected: {error}"
-        if present:
+        if present and not regular:
+            return None, (f"{pyproject} exists but is not a file, so it cannot be read")
+        if regular:
             document, problem = self._read_document(pyproject)
             if problem is not None:
                 return None, problem

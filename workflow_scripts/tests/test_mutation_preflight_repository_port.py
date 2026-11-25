@@ -41,10 +41,12 @@ from workflow_scripts.mutationpreflight.repository import (
     EvidenceFiles,
     FileDocuments,
     SandboxMaterializer,
+    load_shared_rule,
 )
 from workflow_scripts.mutationpreflight.resolution import resolve
 from workflow_scripts.mutationpreflight.sandbox import run_sandbox_phase
 from workflow_scripts.tests.mutation_preflight_support import (
+    RULE_AVAILABLE,
     Checkout,
     lock_document,
     repository,
@@ -169,7 +171,11 @@ class TestRepositoryBoundary:
             source=root / "pyproject.toml",
             lane="cargo",
             sandbox_paths=("README.md",),
-            native=NativeRequirement(package="tei-rapporteur"),
+            native=NativeRequirement(
+                package="tei-rapporteur",
+                revision="abc123",
+                supported_python=">=3.12",
+            ),
             checks=(
                 Check(
                     name="collect",
@@ -191,26 +197,32 @@ class TestRepositoryBoundary:
             ports=dc.replace(run.ports, runner=running.run_command, resolver=resolve),
         )
 
+    @RULE_AVAILABLE
     def test_the_real_checkout_satisfies_every_phase(self, tmp_path: Path) -> None:
         """The fixture checkout passes each phase when read directly."""
         root = self._checkout(tmp_path)
         declaration = self._declaration(root)
-        real = _run(root, tmp_path / "out")
-
-        assert run_interpreter_phase(real).status != "fail"
-        assert judge_native(real, declaration).phase.status != "fail"
-        assert (
-            run_sandbox_phase(
-                real.ports.reader,
-                real.settings.root,
-                real.settings.mutmut_version,
-                declaration,
-            ).status
-            != "fail"
+        rule, rule_problem = load_shared_rule()
+        base = _run(root, tmp_path / "out")
+        real = dc.replace(
+            base,
+            settings=dc.replace(base.settings, rule=rule, rule_problem=rule_problem),
         )
-        assert run_checks_phase(
-            self._with_production_commands(real), declaration
-        ).status == ("pass")
+
+        assert run_interpreter_phase(real).status == "pass"
+        assert judge_native(real, declaration).phase.status == "pass"
+        sandbox = run_sandbox_phase(
+            real.ports.reader,
+            real.settings.root,
+            real.settings.mutmut_version,
+            declaration,
+        )
+        assert sandbox.status == "pass", sandbox
+        assert sandbox.detail["not_copied"] == [], sandbox.detail
+        assert (
+            run_checks_phase(self._with_production_commands(real), declaration).status
+            == "pass"
+        )
 
     def test_a_refusing_port_leaves_every_judgement_unable_to_read(
         self, tmp_path: Path
@@ -263,7 +275,10 @@ class TestRepositoryBoundary:
                 also_copy=("conftest.py", "README.md"),
                 extra={
                     "README.md": "# example\n",
-                    "uv.lock": lock_document("0.3.1", 'registry = "x"'),
+                    "uv.lock": lock_document(
+                        "0.3.1",
+                        'git = "https://example.invalid/tei.git?rev=abc123"',
+                    ),
                 },
             ),
         )
@@ -663,3 +678,55 @@ class TestDirectoryInspection:
         found = result.findings
         assert any("could not be inspected" in finding for finding in found), found
         assert not any("is not a directory" in finding for finding in found), found
+
+
+class TestPresentButUnusableConfiguration:
+    """A configuration that exists but cannot be read is refused, not absent."""
+
+    def test_a_setup_cfg_that_cannot_be_opened_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An open failure must not read as "neither file is present"."""
+        root = tmp_path / "repo"
+        root.mkdir()
+        (root / "setup.cfg").write_text(
+            "[mutmut]\nsource_paths = src\n", encoding="utf-8"
+        )
+        real_read_text = Path.read_text
+
+        def refuse(self: Path, *args: object, **kwargs: object) -> str:
+            """Refuse to open setup.cfg as an unreadable file would."""
+            if self.name == "setup.cfg":
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", refuse)
+
+        table, problem = FileDocuments().read_mutmut_configuration(root)
+
+        assert table is None
+        assert problem is not None
+        assert "setup.cfg could not be read" in problem, problem
+
+    def test_a_directory_named_uv_lock_is_reported(self, tmp_path: Path) -> None:
+        """A present non-file must not be reported as an absent lock."""
+        root = repository(tmp_path / "repo", Checkout())
+        (root / "uv.lock").mkdir()
+
+        packages, problem = FileDocuments().read_lock_packages(root)
+
+        assert packages == []
+        assert problem is not None
+        assert "not a file" in problem, problem
+
+    def test_a_directory_named_setup_cfg_is_reported(self, tmp_path: Path) -> None:
+        """A directory where setup.cfg belongs is a refusal, not absence."""
+        root = tmp_path / "repo"
+        root.mkdir()
+        (root / "setup.cfg").mkdir()
+
+        table, problem = FileDocuments().read_mutmut_configuration(root)
+
+        assert table is None
+        assert problem is not None
+        assert "not a file" in problem, problem

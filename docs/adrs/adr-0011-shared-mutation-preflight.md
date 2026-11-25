@@ -86,8 +86,7 @@ One shared preflight contract, declared by the caller and checked by one helper:
   `DocumentReader`, `LockReader`, `ConfigurationReader`, `PathLocator`,
   `SandboxProvider` and `EvidenceWriter` — carried on `Run.ports` as
   `documents`, `lock`, `configuration`, `paths`, `sandbox` and `evidence`, and
-  implemented by
-  `DeclarationDocuments`, `LockRecords`, `MutmutConfiguration`,
+  implemented by `DeclarationDocuments`, `LockRecords`, `MutmutConfiguration`,
   `CheckoutPaths`, `SandboxMaterializer` and `EvidenceFiles` in
   `repository.py`. A judgement receives parsed documents, lock records, the
   configuration, located paths and a materialized sandbox, and asks for its

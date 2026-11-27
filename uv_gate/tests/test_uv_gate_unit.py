@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import signal
 import stat
 import subprocess
 import sys
@@ -630,8 +631,15 @@ def test_a_broken_standard_error_does_not_stall_the_child() -> None:
             stderr=write_end,
             stdout=subprocess.PIPE,
             text=True,
+            start_new_session=True,
         )
-        stdout, _ = process.communicate(timeout=60)
+        try:
+            stdout, _ = process.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            # A regression leaves the driver and its child blocked on the pipe.
+            os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+            raise
     finally:
         os.close(write_end)
     assert stdout == "0 END"

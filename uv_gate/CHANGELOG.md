@@ -4,6 +4,18 @@ All notable changes to `uv_gate` will be documented in this file.
 
 ## Unreleased
 
+## 0.2.3
+
+- Keep draining the child's standard error when forwarding it fails. A closed
+  caller pipe (`make test 2>&1 | head`) used to end the forwarding thread, so
+  the pipe filled after about 64 KiB, uv blocked and `process.wait()` hung
+  until the job timeout. A failed write now stops the forwarding only; the tail
+  kept for failure classification is still updated to the end of the output.
+- Strip the URL fragment before reading the Git ref in `is_pinned`. A fragment
+  such as `#subdirectory=a@<40 hex digits>` on a URL with no `@ref` passed as a
+  pin, and a pinned URL whose fragment held an `@` was refused. A `git+` spec
+  with no `@` now fails closed.
+
 ## 0.2.2
 
 - Recognize the `offline-resolution` variant in which uv says a package "needs

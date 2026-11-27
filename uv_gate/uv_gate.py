@@ -53,7 +53,7 @@ from pathlib import Path
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
 
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 REFUSAL_STATUS = 2
 ALLOW_ONLINE_VARIABLE = "UV_GATE_ALLOW_ONLINE"
 SYSTEM_GIT = Path("/usr/bin/git")
@@ -530,6 +530,16 @@ def build_context(
     return _with_git_shim(Context(env, uv, cache))
 
 
+def _forward_stderr(chunk: bytes) -> bool:
+    """Write ``chunk`` to our standard error; report whether forwarding can go on."""
+    try:
+        sys.stderr.buffer.write(chunk)
+        sys.stderr.buffer.flush()
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def _run_streaming(argv: list[str], env: dict[str, str]) -> tuple[int, str]:
     """Run ``argv``, passing standard error through while keeping its tail."""
     tail = bytearray()
@@ -545,12 +555,16 @@ def _run_streaming(argv: list[str], env: dict[str, str]) -> tuple[int, str]:
         return process.wait(), ""
 
     def pump() -> None:
-        """Copy the child's standard error to ours, keeping the last bytes."""
+        """Copy the child's standard error to ours, keeping the last bytes.
+
+        A failed write stops the forwarding but never the reading: a child
+        that blocks on a full pipe would otherwise hang ``process.wait()``.
+        """
+        forwarding = True
         while chunk := os.read(stream.fileno(), 4096):
-            sys.stderr.buffer.write(chunk)
-            sys.stderr.buffer.flush()
             tail.extend(chunk)
             del tail[:-TAIL_BYTES]
+            forwarding = forwarding and _forward_stderr(chunk)
 
     reader = threading.Thread(target=pump)
     reader.start()
@@ -748,8 +762,9 @@ def is_pinned(spec: str) -> bool:
     if direct is not None:
         return is_pinned(direct.group("url"))
     if spec.startswith("git+"):
-        _, _, ref = spec.rpartition("@")
-        return bool(FULL_SHA.fullmatch(ref.split("#", 1)[0]))
+        location = spec.split("#", 1)[0]
+        _, found, ref = location.rpartition("@")
+        return bool(found and FULL_SHA.fullmatch(ref))
     return any(_is_exact_pin(spec, separator) for separator in ("==", "@"))
 
 

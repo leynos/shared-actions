@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import pathlib
 import stat
+import subprocess
 import sys
 import typing as typ
 
@@ -75,6 +76,8 @@ def test_classify_returns_unknown_for_everything_else(text: str) -> None:
         "pkg[extra]==2.0",
         "git+https://github.com/leynos/tool.git@" + "a" * 40,
         "git+https://github.com/leynos/tool@" + "0123456789abcdef" * 2 + "01234567",
+        # An `@` in the fragment does not hide the pinned ref before it.
+        "git+https://github.com/leynos/tool.git@" + "a" * 40 + "#subdirectory=a@b",
     ],
 )
 def test_is_pinned_accepts_exact_pins(spec: str) -> None:
@@ -98,6 +101,9 @@ def test_is_pinned_accepts_exact_pins(spec: str) -> None:
         "git+https://github.com/leynos/tool.git@v0.1.3",
         "git+https://github.com/leynos/tool.git@" + "a" * 39,
         "git+https://github.com/leynos/tool.git",
+        # A 40-digit value after an `@` in the fragment is not the Git ref.
+        "git+https://github.com/leynos/tool.git#subdirectory=a@" + "a" * 40,
+        "git+ssh://git@github.com/leynos/tool.git",
         "",
     ],
 )
@@ -551,9 +557,9 @@ def test_the_version_is_reported(flag: str, capsys: pytest.CaptureFixture[str]) 
     """Either switch prints exactly the helper's version, nothing else, and exits 0."""
     assert uv_gate.main([flag]) == 0
     captured = capsys.readouterr()
-    assert captured.out == "uv_gate 0.2.2\n"
+    assert captured.out == "uv_gate 0.2.3\n"
     assert captured.err == ""
-    assert uv_gate.VERSION == "0.2.2"
+    assert uv_gate.VERSION == "0.2.3"
 
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -584,6 +590,7 @@ def test_is_pinned_accepts_a_direct_reference_at_a_full_commit(spec: str) -> Non
         f"tool[extra] @ {URL}@{SHA[:12]}",
         f"tool[extra] @ {URL}@{SHA}0",
         f"tool[extra] @ {URL}",
+        f"tool[extra] @ {URL}#subdirectory=a@{SHA}",
         "tool[extra] @ https://example.invalid/tool-1.0.tar.gz",
         f"tool[extra] @ {URL}@{SHA.upper()}",
         f"[extra] @ {URL}@{SHA}",
@@ -595,3 +602,36 @@ def test_is_pinned_rejects_a_direct_reference_that_is_not_a_full_commit(
 ) -> None:
     """A branch, a tag, a short or long SHA, no ref, or a non-Git URL is no pin."""
     assert not uv_gate.is_pinned(spec)
+
+
+def test_a_broken_standard_error_does_not_stall_the_child() -> None:
+    """When forwarding fails the helper keeps draining, so the child still exits.
+
+    The driver runs with a standard error whose reader has gone, as under
+    ``make test 2>&1 | head``. The child writes far more than a pipe holds; a
+    helper that stopped reading would leave it blocked and the run would time
+    out. The tail kept for classification must still reach the end of the output.
+    """
+    child = "import sys; sys.stderr.write('x' * 300000 + 'END')"
+    helper_dir = str(pathlib.Path(uv_gate.__file__).parent)
+    driver = (
+        "import sys; "
+        f"sys.path.insert(0, {helper_dir!r}); "
+        "import uv_gate; "
+        "status, tail = uv_gate._run_streaming("
+        f"[sys.executable, '-c', {child!r}], {{}}); "
+        "sys.stdout.write(f'{status} {tail[-3:]}')"
+    )
+    read_end, write_end = os.pipe()
+    os.close(read_end)
+    try:
+        process = subprocess.Popen(  # noqa: S603  # fixed argv, test-only driver
+            [sys.executable, "-c", driver],
+            stderr=write_end,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        stdout, _ = process.communicate(timeout=60)
+    finally:
+        os.close(write_end)
+    assert stdout == "0 END"

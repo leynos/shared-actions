@@ -92,8 +92,13 @@ class Harness:
         rules: list[dict[str, object]] | None = None,
         *,
         env: dict[str, str] | None = None,
+        stderr: int | None = None,
     ) -> Result:
-        """Run the helper with ``args`` against the scripted fake uv."""
+        """Run the helper with ``args`` against the scripted fake uv.
+
+        ``stderr`` is a file descriptor to give the helper as its standard
+        error instead of a captured pipe; the result's ``stderr`` is then empty.
+        """
         self.scenario.write_text(json.dumps(rules or []), encoding="utf-8")
         environment = {
             "PATH": f"{self.bin}{os.pathsep}/usr/bin:/bin",
@@ -108,11 +113,11 @@ class Harness:
             cwd=self.repo,
             env=environment,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.PIPE if stderr is None else stderr,
             text=True,
         )
-        stdout, stderr = process.communicate(timeout=30)
-        return Result(process.returncode, stdout, stderr, self.log)
+        stdout, captured = process.communicate(timeout=30)
+        return Result(process.returncode, stdout, captured or "", self.log)
 
 
 def other_device_dir(than: Path) -> Path | None:

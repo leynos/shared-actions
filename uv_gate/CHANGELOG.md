@@ -11,6 +11,11 @@ All notable changes to `uv_gate` will be documented in this file.
   the pipe filled after about 64 KiB, uv blocked and `process.wait()` hung
   until the job timeout. A failed write now stops the forwarding only; the tail
   kept for failure classification is still updated to the end of the output.
+- Never let a closed standard error change uv's status. `say` dropped its line
+  by raising `BrokenPipeError`, and the interpreter then replaced the status
+  with 120 when it failed to flush the buffered bytes at exit. A failed write
+  now points descriptor 2 at the null device, so later lines are dropped
+  quietly and the exit flush succeeds.
 - Strip the URL fragment before reading the Git ref in `is_pinned`. A fragment
   such as `#subdirectory=a@<40 hex digits>` on a URL with no `@ref` passed as a
   pin, and a pinned URL whose fragment held an `@` was refused. A `git+` spec

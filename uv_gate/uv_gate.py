@@ -39,6 +39,7 @@ Python 3.9 or later is enough: the file uses only the standard library.
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import os
 import re
@@ -234,10 +235,30 @@ class GateError(Exception):
     """A refusal by the helper itself, reported with exit status 2."""
 
 
+def _discard_stderr() -> None:
+    """Point standard error at the null device once its reader has gone.
+
+    A write that fails leaves its bytes buffered, and the interpreter would
+    then fail again flushing them at exit and replace uv's status with 120.
+    Redirecting descriptor 2 lets the buffer flush and later writes succeed.
+    """
+    with contextlib.suppress(OSError, ValueError):
+        descriptor = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(descriptor, 2)
+        os.close(descriptor)
+
+
 def say(message: str) -> None:
-    """Print one ``uv-gate:`` line on standard error."""
-    sys.stderr.write(f"uv-gate: {message}\n")
-    sys.stderr.flush()
+    """Print one ``uv-gate:`` line on standard error.
+
+    A closed standard error, as under ``make test 2>&1 | head``, never changes
+    the exit status: the line is dropped and the helper carries on.
+    """
+    try:
+        sys.stderr.write(f"uv-gate: {message}\n")
+        sys.stderr.flush()
+    except (OSError, ValueError):
+        _discard_stderr()
 
 
 def classify(text: str) -> Kind:
@@ -536,6 +557,7 @@ def _forward_stderr(chunk: bytes) -> bool:
         sys.stderr.buffer.write(chunk)
         sys.stderr.buffer.flush()
     except (OSError, ValueError):
+        _discard_stderr()
         return False
     return True
 

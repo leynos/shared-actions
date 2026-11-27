@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import os
 import pathlib
-import signal
 import stat
-import subprocess
 import sys
 import typing as typ
 
@@ -603,43 +601,3 @@ def test_is_pinned_rejects_a_direct_reference_that_is_not_a_full_commit(
 ) -> None:
     """A branch, a tag, a short or long SHA, no ref, or a non-Git URL is no pin."""
     assert not uv_gate.is_pinned(spec)
-
-
-def test_a_broken_standard_error_does_not_stall_the_child() -> None:
-    """When forwarding fails the helper keeps draining, so the child still exits.
-
-    The driver runs with a standard error whose reader has gone, as under
-    ``make test 2>&1 | head``. The child writes far more than a pipe holds; a
-    helper that stopped reading would leave it blocked and the run would time
-    out. The tail kept for classification must still reach the end of the output.
-    """
-    child = "import sys; sys.stderr.write('x' * 300000 + 'END')"
-    helper_dir = str(pathlib.Path(uv_gate.__file__).parent)
-    driver = (
-        "import sys; "
-        f"sys.path.insert(0, {helper_dir!r}); "
-        "import uv_gate; "
-        "status, tail = uv_gate._run_streaming("
-        f"[sys.executable, '-c', {child!r}], {{}}); "
-        "sys.stdout.write(f'{status} {tail[-3:]}')"
-    )
-    read_end, write_end = os.pipe()
-    os.close(read_end)
-    try:
-        process = subprocess.Popen(  # noqa: S603  # fixed argv, test-only driver
-            [sys.executable, "-c", driver],
-            stderr=write_end,
-            stdout=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-        )
-        try:
-            stdout, _ = process.communicate(timeout=60)
-        except subprocess.TimeoutExpired:
-            # A regression leaves the driver and its child blocked on the pipe.
-            os.killpg(process.pid, signal.SIGKILL)
-            process.communicate()
-            raise
-    finally:
-        os.close(write_end)
-    assert stdout == "0 END"

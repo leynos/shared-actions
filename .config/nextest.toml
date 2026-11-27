@@ -8,6 +8,24 @@
 # crate directory, not this file; from `rust-toy-app/` run
 # `cargo nextest run --config-file ../.config/nextest.toml`.
 
+# Setup scripts are experimental in the nextest versions a caller may install,
+# so the configuration opts in; newer versions accept the entry.
+experimental = ["setup-scripts"]
+
+# `manpage_generation` runs `cargo build --frozen` in its own timed body. On a
+# cold target directory that build compiles the build script and its
+# dependencies there, and the test's allowance then pays for it. This script
+# runs the same command once before any test starts, outside the timed body, so
+# the test finds the build done. It runs in the crate directory, as the test
+# does, with the same profile and no features.
+[scripts.setup.warm-manpage-build]
+command = "cargo build --frozen"
+slow-timeout = { period = "600s", terminate-after = 1 }
+
+[[profile.default.scripts]]
+filter = 'binary(=manpage_generation)'
+setup = "warm-manpage-build"
+
 [profile.default]
 # Surface hangs without failing legitimately slow tests. Warn after 60 s and
 # terminate a test that has run for five warning periods (300 s).

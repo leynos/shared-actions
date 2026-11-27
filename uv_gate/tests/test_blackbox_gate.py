@@ -280,7 +280,7 @@ def test_version_is_a_subprocess_contract(harness: Harness, flag: str) -> None:
     """Run for real, the switch prints one exact line, no stderr, and calls no uv."""
     result = harness.run([flag], [])
     assert result.status == 0
-    assert result.stdout == "uv_gate 0.2.2\n"
+    assert result.stdout == "uv_gate 0.2.3\n"
     assert result.stderr == ""
     assert result.uv_calls() == []
 

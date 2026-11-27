@@ -75,6 +75,8 @@ def test_classify_returns_unknown_for_everything_else(text: str) -> None:
         "pkg[extra]==2.0",
         "git+https://github.com/leynos/tool.git@" + "a" * 40,
         "git+https://github.com/leynos/tool@" + "0123456789abcdef" * 2 + "01234567",
+        # An `@` in the fragment does not hide the pinned ref before it.
+        "git+https://github.com/leynos/tool.git@" + "a" * 40 + "#subdirectory=a@b",
     ],
 )
 def test_is_pinned_accepts_exact_pins(spec: str) -> None:
@@ -98,6 +100,9 @@ def test_is_pinned_accepts_exact_pins(spec: str) -> None:
         "git+https://github.com/leynos/tool.git@v0.1.3",
         "git+https://github.com/leynos/tool.git@" + "a" * 39,
         "git+https://github.com/leynos/tool.git",
+        # A 40-digit value after an `@` in the fragment is not the Git ref.
+        "git+https://github.com/leynos/tool.git#subdirectory=a@" + "a" * 40,
+        "git+ssh://git@github.com/leynos/tool.git",
         "",
     ],
 )
@@ -551,9 +556,9 @@ def test_the_version_is_reported(flag: str, capsys: pytest.CaptureFixture[str]) 
     """Either switch prints exactly the helper's version, nothing else, and exits 0."""
     assert uv_gate.main([flag]) == 0
     captured = capsys.readouterr()
-    assert captured.out == "uv_gate 0.2.2\n"
+    assert captured.out == "uv_gate 0.2.3\n"
     assert captured.err == ""
-    assert uv_gate.VERSION == "0.2.2"
+    assert uv_gate.VERSION == "0.2.3"
 
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -584,6 +589,7 @@ def test_is_pinned_accepts_a_direct_reference_at_a_full_commit(spec: str) -> Non
         f"tool[extra] @ {URL}@{SHA[:12]}",
         f"tool[extra] @ {URL}@{SHA}0",
         f"tool[extra] @ {URL}",
+        f"tool[extra] @ {URL}#subdirectory=a@{SHA}",
         "tool[extra] @ https://example.invalid/tool-1.0.tar.gz",
         f"tool[extra] @ {URL}@{SHA.upper()}",
         f"[extra] @ {URL}@{SHA}",

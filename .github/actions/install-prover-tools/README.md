@@ -58,8 +58,9 @@ several gigabytes and the tool re-verifies it on every install.
 `f3ac307ef81b3af63f56c7e4a4191e566314e242` or later (the estate default
 predates it). Before installing, the action probes
 `prover-tools kani snapshot --help` and, if the command is missing, fails
-saying to raise `prover-tools-sha`. A pin that is unreadable, not TOML, or
-missing or adding keys fails with the file named.
+saying to raise `prover-tools-sha`. With a pin, the runner's `python3` must be
+3.11 or newer (the no-pin path has no such need). A pin that is unreadable, not
+TOML, or missing or adding keys fails with the file named.
 
 Workflow permissions: the release is public, and the token only authenticates
 `gh` for the download and `gh attestation verify`. `contents: read` is enough

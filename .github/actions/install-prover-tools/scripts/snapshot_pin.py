@@ -32,7 +32,11 @@ class PinError(ValueError):
 def _load(pin: Path) -> dict[str, object]:
     """Read and parse *pin*, or raise ``PinError`` naming it."""
     # Imported here so a job with no pin runs on an interpreter older than 3.11.
-    import tomllib
+    try:
+        import tomllib
+    except ImportError:
+        message = f"{pin} needs Python 3.11 or newer on the runner to be checked"
+        raise PinError(message) from None
 
     try:
         return tomllib.loads(pin.read_bytes().decode("utf-8"))

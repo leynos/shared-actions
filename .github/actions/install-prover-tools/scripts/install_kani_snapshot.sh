@@ -36,5 +36,11 @@ fi
 
 # The default cache, `.kani-snapshots` under the repository root, is where
 # `prover-tools kani run --snapshot-pin` looks, so none is named.
-prover kani snapshot install --repo-root "$ROOT" --pin "$PIN"
-prover kani snapshot check --repo-root "$ROOT" --pin "$PIN"
+# The tool's own errors may not name the pin, so a failure here does.
+for step in install check; do
+  if ! prover kani snapshot "$step" --repo-root "$ROOT" --pin "$PIN"; then
+    echo "::error title=install-prover-tools::kani snapshot $step failed" \
+      "for the pin $PIN" >&2
+    exit 1
+  fi
+done

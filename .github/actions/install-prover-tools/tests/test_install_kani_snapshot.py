@@ -113,6 +113,16 @@ def test_a_failed_install_stops_before_the_check(run: typ.Callable[..., Run]) ->
     assert not any(" check " in call for call in result.calls), "no check after it"
 
 
+def test_a_failed_check_names_the_pin(
+    run: typ.Callable[..., Run], tmp_path: Path
+) -> None:
+    """The tool's failure is reported against the pin file."""
+    result = run(STUB_EXIT="1")
+
+    assert result.code == 1, "the step fails"
+    assert str(tmp_path / "tools" / "kani" / "snapshot.toml") in result.output
+
+
 def test_the_token_is_never_echoed(run: typ.Callable[..., Run]) -> None:
     """Neither success nor either failure prints the token or its arguments."""
     for extra in ({}, {"STUB_PROBE_EXIT": "2"}, {"STUB_EXIT": "1"}):

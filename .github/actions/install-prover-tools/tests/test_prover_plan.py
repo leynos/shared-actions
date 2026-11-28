@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import typing as typ
 
 import prover_plan
@@ -309,3 +310,25 @@ def test_a_pin_with_another_schema_version_is_named(repo: Path) -> None:
 
     with pytest.raises(prover_plan.PlanError, match=r"snapshot\.toml.*need 1"):
         prover_plan.plan(_request(repo, tools="kani", sha=SNAPSHOT_SHA))
+
+
+def test_a_pin_on_a_python_without_tomllib_is_named(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A runner older than Python 3.11 is told why its pin cannot be checked."""
+    _write_pin(repo)
+    monkeypatch.setitem(sys.modules, "tomllib", None)
+
+    with pytest.raises(prover_plan.PlanError, match=r"snapshot\.toml.*Python 3\.11"):
+        prover_plan.plan(_request(repo, tools="kani", sha=SNAPSHOT_SHA))
+
+
+def test_without_a_pin_tomllib_is_never_needed(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The no-pin path plans on an interpreter that lacks tomllib."""
+    monkeypatch.setitem(sys.modules, "tomllib", None)
+
+    outputs = prover_plan.plan(_request(repo, tools="kani"))
+
+    assert outputs["kani-snapshot"] == "false", "no pin, no TOML read"

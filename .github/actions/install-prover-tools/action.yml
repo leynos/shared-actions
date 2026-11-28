@@ -51,6 +51,19 @@ inputs:
     description: Directory for the Z3 binary. Empty means `.verus/z3`.
     required: false
     default: ''
+  kani-snapshot:
+    description: >-
+      `auto` (the default) installs Kani from a snapshot when the consumer holds
+      `tools/kani/snapshot.toml`, and through the legacy release otherwise.
+      `true` requires the pin and fails without a valid one; `false` ignores it.
+    required: false
+    default: auto
+  github-token:
+    description: >-
+      Token for `gh`, which the snapshot installer uses to download the release
+      and to verify its attestation. Only the snapshot install step sees it.
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   verus-bin:
@@ -59,6 +72,14 @@ outputs:
   z3-path:
     description: Absolute path of the installed Z3 binary, for `VERUS_Z3_PATH`.
     value: ${{ steps.verify.outputs.z3-path }}
+  kani-snapshot:
+    description: >-
+      `true` when Kani was installed from a snapshot. The snapshot is not put
+      on `PATH`; run it with `prover-tools kani run --snapshot-pin`.
+    value: ${{ steps.plan.outputs.kani-snapshot }}
+  kani-snapshot-pin:
+    description: Absolute path of the snapshot pin, when a snapshot was installed.
+    value: ${{ steps.plan.outputs.kani-snapshot-pin }}
   cache-hit:
     description: >-
       `true` when every requested archive cache restored exactly. The archives
@@ -80,6 +101,7 @@ runs:
         INPUT_KANI_DIR: ${{ inputs.kani-install-dir }}
         INPUT_VERUS_DIR: ${{ inputs.verus-install-dir }}
         INPUT_Z3_DIR: ${{ inputs.z3-install-dir }}
+        INPUT_SNAPSHOT: ${{ inputs.kani-snapshot }}
         PLAN_SCRIPT: ${{ github.action_path }}/scripts/prover_plan.py
         LANE: ${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}
         CACHE_ROOT: ${{ runner.temp }}/prover-tools-cache
@@ -92,7 +114,8 @@ runs:
           --cache "$INPUT_CACHE" \
           --kani-install-dir "$INPUT_KANI_DIR" \
           --verus-install-dir "$INPUT_VERUS_DIR" \
-          --z3-install-dir "$INPUT_Z3_DIR"
+          --z3-install-dir "$INPUT_Z3_DIR" \
+          --kani-snapshot "$INPUT_SNAPSHOT"
 
     - name: Set up uv
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
@@ -164,6 +187,20 @@ runs:
           prover z3 install --repo-root "$ROOT" \
             --install-dir "$Z3_DIR" --cache-dir "$Z3_CACHE"
         fi
+
+    # A snapshot is a compiled toolchain tree several gigabytes in size, so it is
+    # not cached: the installer downloads it and verifies the release attestation
+    # on every run, and `check` then confirms the installed identity.
+    - name: Install the Kani snapshot
+      id: snapshot
+      if: steps.plan.outputs.kani-snapshot == 'true'
+      shell: bash
+      env:
+        SOURCE: ${{ steps.plan.outputs.source }}
+        ROOT: ${{ inputs.repo-root }}
+        PIN: ${{ steps.plan.outputs.kani-snapshot-pin }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: bash "${{ github.action_path }}/scripts/install_kani_snapshot.sh"
 
     - name: Verify the installed files
       id: verify

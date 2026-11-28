@@ -28,11 +28,47 @@ proves.
 | `kani-install-dir`  | `$CARGO_HOME/bin` | Where `cargo-kani` and `kani` land; put on `PATH`.   |
 | `verus-install-dir` | `.verus`          | Parent of the version-named Verus directory.         |
 | `z3-install-dir`    | `.verus/z3`       | Z3 binary directory.                                 |
+| `kani-snapshot`     | `auto`            | `auto`, `true` or `false`; see Kani snapshots.       |
+| `github-token`      | `github.token`    | For `gh`, in the snapshot install step only.         |
 
 A relative install directory is read from `repo-root`, as the tool reads it,
 not from the job's working directory.
 
-Outputs: `verus-bin`, `z3-path` (for `VERUS_Z3_PATH`), and `cache-hit`.
+Outputs: `verus-bin`, `z3-path` (for `VERUS_Z3_PATH`), `cache-hit`,
+`kani-snapshot` and `kani-snapshot-pin`.
+
+## Kani snapshots
+
+A consumer that holds `tools/kani/snapshot.toml` gets Kani from the pinned
+snapshot instead of the legacy release. With `kani-snapshot: auto` the action
+detects the file; with no file nothing changes. `true` fails unless a valid pin
+exists, and `false` keeps the legacy install. With a pin, `tools/kani/VERSION`
+is not read and the legacy Kani archive cache is skipped.
+
+The action runs `prover-tools kani snapshot install` and `snapshot check`, so
+the tool downloads the release the pin names and verifies its attestation with
+`gh`; the action passes `github-token` to that one step. The snapshot lands in
+the tool's default cache, `.kani-snapshots` under `repo-root`, and is not put on
+`PATH`: run it with
+`prover-tools kani run --snapshot-pin tools/kani/snapshot.toml`. It is not
+saved to the Actions cache, because a snapshot is a compiled toolchain of
+several gigabytes and the tool re-verifies it on every install.
+
+`prover-tools-sha` must name a revision that has `kani snapshot`, which is
+`f3ac307ef81b3af63f56c7e4a4191e566314e242` or later (the estate default
+predates it). Before installing, the action probes
+`prover-tools kani snapshot --help` and, if the command is missing, fails
+saying to raise `prover-tools-sha`. With a pin, the runner's `python3` must be
+3.11 or newer (the no-pin path has no such need). A pin that is unreadable, not
+TOML, or missing or adding keys fails with the file named.
+
+Workflow permissions: the release is public, and the token only authenticates
+`gh` for the download and `gh attestation verify`. `contents: read` is enough
+for a job that already checks out the repository; add `attestations: read` if a
+restrictive `permissions:` block makes the attestation lookup fail. The token
+is passed to the snapshot step alone, as `GH_TOKEN`, and is never echoed. The
+tool's own child processes (snapshot setup and compiler probes) inherit it, so
+keep it least-privilege and leave `github-token` at its default.
 
 ## Digest checks
 

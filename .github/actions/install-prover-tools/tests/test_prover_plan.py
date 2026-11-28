@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import typing as typ
 
 import prover_plan
@@ -176,3 +177,158 @@ def test_cache_false_plans_no_cache_and_rejects_other_values(repo: Path) -> None
     assert (on["kani-cached"], on["z3-cached"]) == ("true", "true")
     with pytest.raises(prover_plan.PlanError, match="cache must be"):
         prover_plan.plan(_request(repo, cache="yes"))
+
+
+PIN = """\
+schema_version = 1
+repository = "leynos/rust-prover-tools"
+tag = "kani-snapshot-2026-11-0d2328a93f0e-r2"
+upstream_commit = "0d2328a93f0e0ff66132d6bfa1a7d884877cf862"
+builder_commit = "85421417cefd5eb642d671f71f4a6b17a9abb0e4"
+target = "x86_64-unknown-linux-gnu"
+manifest_sha256 = "c5e2fa595232f0a25e92f4f5ff9ab11f72a374600d713201c3a9e8a41b1b8a8f"
+"""
+SNAPSHOT_SHA = "f3ac307ef81b3af63f56c7e4a4191e566314e242"
+
+
+def _write_pin(root: Path, text: str = PIN) -> Path:
+    """Write a snapshot pin into the consumer and return its path."""
+    pin = root / "tools" / "kani" / "snapshot.toml"
+    pin.write_text(text, encoding="utf-8")
+    return pin
+
+
+def test_without_a_pin_the_plan_is_the_legacy_plan(repo: Path) -> None:
+    """No pin leaves Kani on the release path, with its key and cache intact."""
+    outputs = prover_plan.plan(_request(repo, tools="kani"))
+
+    assert outputs["kani-snapshot"] == "false", "no snapshot without a pin"
+    assert outputs["kani"] == "true", "the legacy install still runs"
+    assert outputs["kani-cached"] == "true", "the legacy archive cache is kept"
+    assert outputs["kani-version"] == "0.67.0", "the version file still decides"
+
+
+def test_a_pin_routes_kani_to_the_snapshot_and_off_the_legacy_install(
+    repo: Path,
+) -> None:
+    """A pin replaces the legacy Kani install and needs no VERSION file."""
+    pin = _write_pin(repo)
+    (repo / "tools" / "kani" / "VERSION").unlink()
+
+    outputs = prover_plan.plan(_request(repo, tools="kani", sha=SNAPSHOT_SHA))
+
+    assert outputs["kani-snapshot"] == "true", "the snapshot is selected"
+    assert outputs["kani-snapshot-pin"] == str(pin.resolve()), "the pin is named"
+    assert (outputs["kani"], outputs["kani-cached"]) == ("false", "false")
+    assert "kani-key" not in outputs, "no legacy archive key is rendered"
+
+
+def test_a_pin_leaves_the_other_tools_alone(repo: Path) -> None:
+    """Verus and Z3 still install and cache while Kani uses the snapshot."""
+    _write_pin(repo)
+
+    outputs = prover_plan.plan(_request(repo, sha=SNAPSHOT_SHA))
+
+    assert outputs["tools"] == "verus z3", "kani leaves the legacy list"
+    assert outputs["kani-snapshot"] == "true", "kani is still installed"
+    assert outputs["z3-cached"] == "true", "z3 keeps its cache"
+
+
+def test_kani_snapshot_false_ignores_a_pin(repo: Path) -> None:
+    """`false` keeps the legacy install even where a pin exists."""
+    _write_pin(repo)
+
+    outputs = prover_plan.plan(_request(repo, tools="kani", kani_snapshot="false"))
+
+    assert (outputs["kani-snapshot"], outputs["kani"]) == ("false", "true")
+
+
+def test_a_pin_without_kani_requested_plans_no_snapshot(repo: Path) -> None:
+    """A pin does nothing for a job that installs only Z3."""
+    _write_pin(repo)
+
+    outputs = prover_plan.plan(_request(repo, tools="z3"))
+
+    assert outputs["kani-snapshot"] == "false", "kani was not asked for"
+
+
+def test_kani_snapshot_true_without_a_pin_is_named(repo: Path) -> None:
+    """Requiring a snapshot where none is pinned fails naming the file."""
+    with pytest.raises(prover_plan.PlanError, match=r"snapshot\.toml"):
+        prover_plan.plan(
+            _request(repo, tools="kani", sha=SNAPSHOT_SHA, kani_snapshot="true")
+        )
+
+
+def test_kani_snapshot_true_without_kani_is_refused(repo: Path) -> None:
+    """The requirement cannot be met by a job that installs no Kani."""
+    with pytest.raises(prover_plan.PlanError, match="kani is not in tools"):
+        prover_plan.plan(_request(repo, tools="z3", kani_snapshot="true"))
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("not = [valid", "not valid TOML"),
+        ("", "missing"),
+        (PIN + 'extra = "x"\n', "unknown extra"),
+        (PIN.replace("schema_version = 1\n", ""), "missing schema_version"),
+    ],
+)
+def test_a_malformed_pin_is_named(repo: Path, text: str, message: str) -> None:
+    """A pin that cannot be a version 1 document fails with the file named."""
+    _write_pin(repo, text)
+
+    with pytest.raises(prover_plan.PlanError, match=message) as raised:
+        prover_plan.plan(_request(repo, tools="kani", sha=SNAPSHOT_SHA))
+    assert "snapshot.toml" in str(raised.value), "the file is named"
+
+
+def test_an_unknown_kani_snapshot_value_is_refused(repo: Path) -> None:
+    """Only auto, true and false are inputs."""
+    with pytest.raises(prover_plan.PlanError, match="kani-snapshot must be"):
+        prover_plan.plan(_request(repo, kani_snapshot="yes"))
+
+
+def test_a_dangling_or_directory_pin_is_named_not_skipped(repo: Path) -> None:
+    """An invalid entry at the pin path fails; it is not read as no pin."""
+    pin = repo / "tools" / "kani" / "snapshot.toml"
+    pin.symlink_to(repo / "nowhere")
+
+    with pytest.raises(prover_plan.PlanError, match=r"snapshot\.toml"):
+        prover_plan.plan(_request(repo, tools="kani", sha=SNAPSHOT_SHA))
+
+    pin.unlink()
+    pin.mkdir()
+    with pytest.raises(prover_plan.PlanError, match=r"snapshot\.toml"):
+        prover_plan.plan(_request(repo, tools="kani", sha=SNAPSHOT_SHA))
+
+
+def test_a_pin_with_another_schema_version_is_named(repo: Path) -> None:
+    """The file is named when the version is not the one this action knows."""
+    _write_pin(repo, PIN.replace("schema_version = 1", "schema_version = 2"))
+
+    with pytest.raises(prover_plan.PlanError, match=r"snapshot\.toml.*need 1"):
+        prover_plan.plan(_request(repo, tools="kani", sha=SNAPSHOT_SHA))
+
+
+def test_a_pin_on_a_python_without_tomllib_is_named(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A runner older than Python 3.11 is told why its pin cannot be checked."""
+    _write_pin(repo)
+    monkeypatch.setitem(sys.modules, "tomllib", None)
+
+    with pytest.raises(prover_plan.PlanError, match=r"snapshot\.toml.*Python 3\.11"):
+        prover_plan.plan(_request(repo, tools="kani", sha=SNAPSHOT_SHA))
+
+
+def test_without_a_pin_tomllib_is_never_needed(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The no-pin path plans on an interpreter that lacks tomllib."""
+    monkeypatch.setitem(sys.modules, "tomllib", None)
+
+    outputs = prover_plan.plan(_request(repo, tools="kani"))
+
+    assert outputs["kani-snapshot"] == "false", "no pin, no TOML read"

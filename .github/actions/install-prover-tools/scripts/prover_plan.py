@@ -20,6 +20,8 @@ import sys
 import typing as typ
 from pathlib import Path
 
+from snapshot_pin import SNAPSHOT_PIN, PinError, check_pin
+
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
 
@@ -29,6 +31,7 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 _VERSION = re.compile(r"[0-9A-Za-z][0-9A-Za-z.]{0,63}")
 _LANE_WORD = re.compile(r"[0-9A-Za-z._-]{1,64}")
 _VERSION_FILES = {"kani": "tools/kani/VERSION", "verus": "tools/verus/VERSION"}
+SNAPSHOT_MODES = ("auto", "true", "false")
 
 
 class PlanError(ValueError):
@@ -54,6 +57,7 @@ class Request:
     verus_install_dir: str = ""
     z3_install_dir: str = ""
     cache: str = "true"
+    kani_snapshot: str = "auto"
 
 
 def _select(tools: str) -> tuple[str, ...]:
@@ -144,6 +148,42 @@ def _directories(
     return outputs
 
 
+def _snapshot(
+    request: Request, root: Path, selected: tuple[str, ...]
+) -> dict[str, str]:
+    """Return the Kani snapshot outputs, deciding whether a pin is in force.
+
+    With no pin and ``kani-snapshot`` left at ``auto``, nothing changes: the
+    legacy install runs exactly as before. A pin routes Kani through the
+    snapshot installer instead, and then ``tools/kani/VERSION`` is not read. Any
+    entry at the pin path counts as a pin, so a dangling link or a directory is
+    refused by name rather than read as an absent pin.
+    """
+    mode = request.kani_snapshot
+    if mode not in SNAPSHOT_MODES:
+        _refuse(f"kani-snapshot must be auto, true or false, got {mode!r}")
+    pin = root / SNAPSHOT_PIN
+    if not _snapshot_wanted(
+        mode, has_kani="kani" in selected, has_pin=os.path.lexists(pin)
+    ):
+        return {"kani-snapshot": "false"}
+    try:
+        check_pin(pin)
+    except PinError as error:
+        _refuse(str(error))
+    return {"kani-snapshot": "true", "kani-snapshot-pin": str(pin)}
+
+
+def _snapshot_wanted(mode: str, *, has_kani: bool, has_pin: bool) -> bool:
+    """Decide whether Kani installs from a snapshot, refusing a contradiction."""
+    if mode == "true" and not has_kani:
+        _refuse("kani-snapshot is true but kani is not in tools")
+    if not has_kani or mode == "false":
+        return False
+    # `true` with no pin falls through so the pin check names the missing file.
+    return mode == "true" or has_pin
+
+
 def plan(request: Request) -> dict[str, str]:
     """Return the step outputs for *request*, or raise ``PlanError``."""
     _check_inputs(request)
@@ -153,6 +193,10 @@ def plan(request: Request) -> dict[str, str]:
     # Absolute, because the tool resolves a relative install directory against
     # the repository root and a path that already names it would be doubled.
     root = request.repo_root.resolve()
+    snapshot = _snapshot(request, root, selected)
+    if snapshot["kani-snapshot"] == "true":
+        # The legacy Kani install, version file and archive cache all step aside.
+        selected = tuple(tool for tool in selected if tool != "kani")
     outputs = {
         "source": f"{SOURCE_ROOT}{request.sha}",
         "tools": " ".join(selected),
@@ -163,7 +207,12 @@ def plan(request: Request) -> dict[str, str]:
         },
     }
     keys = _keys(request, root, selected)
-    return {**outputs, **keys, **_directories(request, root, selected, keys)}
+    return {
+        **outputs,
+        **snapshot,
+        **keys,
+        **_directories(request, root, selected, keys),
+    }
 
 
 def _emit(outputs: cabc.Mapping[str, str], stream: typ.TextIO) -> None:
@@ -187,6 +236,7 @@ def main(argv: cabc.Sequence[str] | None = None) -> int:
     parser.add_argument("--verus-install-dir", default="")
     parser.add_argument("--z3-install-dir", default="")
     parser.add_argument("--cache", default="true")
+    parser.add_argument("--kani-snapshot", default="auto")
     args = parser.parse_args(argv)
     request = Request(
         tools=args.tools,
@@ -199,6 +249,7 @@ def main(argv: cabc.Sequence[str] | None = None) -> int:
         verus_install_dir=args.verus_install_dir,
         z3_install_dir=args.z3_install_dir,
         cache=args.cache,
+        kani_snapshot=args.kani_snapshot,
     )
     try:
         outputs = plan(request)

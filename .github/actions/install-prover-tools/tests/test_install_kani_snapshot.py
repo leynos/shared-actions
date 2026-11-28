@@ -20,7 +20,9 @@ STUB = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$STUB_LOG"
 printf '%s\\n' "${INPUT_VERSION-unset}" >> "$STUB_LOG.env"
 case "$*" in
-  *"kani snapshot --help"*) exit "${STUB_PROBE_EXIT:-0}" ;;
+  *"kani snapshot --help"*)
+    [ "${STUB_PROBE_EXIT:-0}" = 0 ] || echo "${STUB_PROBE_MESSAGE:-Unknown command \\"snapshot\\"}"
+    exit "${STUB_PROBE_EXIT:-0}" ;;
 esac
 exit "${STUB_EXIT:-0}"
 """
@@ -89,6 +91,17 @@ def test_a_revision_without_snapshots_fails_naming_the_fix(
     assert "prover-tools-sha" in result.output, "the input to change is named"
     assert "f3ac307" in result.output, "the earliest good revision is named"
     assert len(result.calls) == 1, "only the probe ran"
+
+
+def test_another_probe_failure_is_shown_not_renamed(
+    run: typ.Callable[..., Run],
+) -> None:
+    """A fault that is not a missing command keeps the tool's own message."""
+    result = run(STUB_PROBE_EXIT="1", STUB_PROBE_MESSAGE="network unreachable")
+
+    assert result.code == 1, "the step fails"
+    assert "network unreachable" in result.output, "the cause is shown"
+    assert "has no 'kani snapshot' command" not in result.output, "not misreported"
 
 
 def test_a_failed_install_stops_before_the_check(run: typ.Callable[..., Run]) -> None:

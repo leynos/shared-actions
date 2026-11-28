@@ -287,3 +287,25 @@ def test_an_unknown_kani_snapshot_value_is_refused(repo: Path) -> None:
     """Only auto, true and false are inputs."""
     with pytest.raises(prover_plan.PlanError, match="kani-snapshot must be"):
         prover_plan.plan(_request(repo, kani_snapshot="yes"))
+
+
+def test_a_dangling_or_directory_pin_is_named_not_skipped(repo: Path) -> None:
+    """An invalid entry at the pin path fails; it is not read as no pin."""
+    pin = repo / "tools" / "kani" / "snapshot.toml"
+    pin.symlink_to(repo / "nowhere")
+
+    with pytest.raises(prover_plan.PlanError, match=r"snapshot\.toml"):
+        prover_plan.plan(_request(repo, tools="kani", sha=SNAPSHOT_SHA))
+
+    pin.unlink()
+    pin.mkdir()
+    with pytest.raises(prover_plan.PlanError, match=r"snapshot\.toml"):
+        prover_plan.plan(_request(repo, tools="kani", sha=SNAPSHOT_SHA))
+
+
+def test_a_pin_with_another_schema_version_is_named(repo: Path) -> None:
+    """The file is named when the version is not the one this action knows."""
+    _write_pin(repo, PIN.replace("schema_version = 1", "schema_version = 2"))
+
+    with pytest.raises(prover_plan.PlanError, match=r"snapshot\.toml.*need 1"):
+        prover_plan.plan(_request(repo, tools="kani", sha=SNAPSHOT_SHA))

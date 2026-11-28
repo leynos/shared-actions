@@ -19,11 +19,18 @@ unset KANI KANI_CACHE_DIR KANI_INSTALL_DIR
 prover() { uv tool run --from "$SOURCE" prover-tools "$@"; }
 
 # A revision from before snapshots has no such subcommand; say what to change
-# rather than failing inside the installer.
-if ! prover kani snapshot --help >/dev/null 2>&1; then
-  echo "::error title=install-prover-tools::the prover-tools revision in" \
-    "prover-tools-sha has no 'kani snapshot' command, which tools/kani/snapshot.toml" \
-    "needs; set prover-tools-sha to f3ac307ef81b3af63f56c7e4a4191e566314e242 or later" >&2
+# rather than failing inside the installer. Any other failure of the probe (a
+# network or tool-start fault) is shown as the tool reported it.
+if ! probe="$(prover kani snapshot --help 2>&1)"; then
+  printf '%s\n' "$probe" >&2
+  if printf '%s' "$probe" | grep -q 'Unknown command'; then
+    echo "::error title=install-prover-tools::the prover-tools revision in" \
+      "prover-tools-sha has no 'kani snapshot' command, which tools/kani/snapshot.toml" \
+      "needs; set prover-tools-sha to f3ac307ef81b3af63f56c7e4a4191e566314e242 or later" >&2
+  else
+    echo "::error title=install-prover-tools::could not run prover-tools" \
+      "(see the output above)" >&2
+  fi
   exit 1
 fi
 

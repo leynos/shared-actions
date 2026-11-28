@@ -17,7 +17,6 @@ import dataclasses as dc
 import os
 import re
 import sys
-import tomllib
 import typing as typ
 from pathlib import Path
 
@@ -163,6 +162,9 @@ def _directories(
 
 def _check_pin(pin: Path) -> None:
     """Refuse a file that is not a version 1 pin."""
+    # Imported here so a job with no pin runs on an interpreter older than 3.11.
+    import tomllib  # noqa: PLC0415
+
     try:
         data = pin.read_bytes()
     except OSError as error:
@@ -176,6 +178,8 @@ def _check_pin(pin: Path) -> None:
         missing = ", ".join(sorted(_PIN_KEYS - keys)) or "none"
         unknown = ", ".join(sorted(keys - _PIN_KEYS)) or "none"
         _refuse(f"{pin} is not a snapshot pin: missing {missing}; unknown {unknown}")
+    if document["schema_version"] != 1 or isinstance(document["schema_version"], bool):
+        _refuse(f"{pin} has schema_version {document['schema_version']!r}; need 1")
 
 
 def _snapshot(
@@ -185,7 +189,9 @@ def _snapshot(
 
     With no pin and ``kani-snapshot`` left at ``auto``, nothing changes: the
     legacy install runs exactly as before. A pin routes Kani through the
-    snapshot installer instead, and then ``tools/kani/VERSION`` is not read.
+    snapshot installer instead, and then ``tools/kani/VERSION`` is not read. Any
+    entry at the pin path counts as a pin, so a dangling link or a directory is
+    refused by name rather than read as an absent pin.
     """
     mode = request.kani_snapshot
     if mode not in SNAPSHOT_MODES:
@@ -195,7 +201,7 @@ def _snapshot(
     if (
         "kani" not in selected
         or mode == "false"
-        or (mode == "auto" and not pin.is_file())
+        or (mode == "auto" and not os.path.lexists(pin))
     ):
         if mode == "true":
             _refuse("kani-snapshot is true but kani is not in tools")

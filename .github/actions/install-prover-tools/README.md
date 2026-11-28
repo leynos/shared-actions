@@ -65,7 +65,9 @@ Workflow permissions: the release is public, and the token only authenticates
 `gh` for the download and `gh attestation verify`. `contents: read` is enough
 for a job that already checks out the repository; add `attestations: read` if a
 restrictive `permissions:` block makes the attestation lookup fail. The token
-is passed to the snapshot step alone, as `GH_TOKEN`, and is never echoed.
+is passed to the snapshot step alone, as `GH_TOKEN`, and is never echoed. The
+tool's own child processes (snapshot setup and compiler probes) inherit it, so
+keep it least-privilege and leave `github-token` at its default.
 
 ## Digest checks
 

@@ -20,6 +20,8 @@ import sys
 import typing as typ
 from pathlib import Path
 
+from snapshot_pin import SNAPSHOT_PIN, PinError, check_pin
+
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
 
@@ -29,21 +31,7 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 _VERSION = re.compile(r"[0-9A-Za-z][0-9A-Za-z.]{0,63}")
 _LANE_WORD = re.compile(r"[0-9A-Za-z._-]{1,64}")
 _VERSION_FILES = {"kani": "tools/kani/VERSION", "verus": "tools/verus/VERSION"}
-SNAPSHOT_PIN = "tools/kani/snapshot.toml"
 SNAPSHOT_MODES = ("auto", "true", "false")
-# The keys the tool's schema version 1 requires; the tool validates their
-# values, and this action only names a pin that cannot be that document.
-_PIN_KEYS = frozenset(
-    {
-        "schema_version",
-        "repository",
-        "tag",
-        "upstream_commit",
-        "builder_commit",
-        "target",
-        "manifest_sha256",
-    }
-)
 
 
 class PlanError(ValueError):
@@ -160,28 +148,6 @@ def _directories(
     return outputs
 
 
-def _check_pin(pin: Path) -> None:
-    """Refuse a file that is not a version 1 pin."""
-    # Imported here so a job with no pin runs on an interpreter older than 3.11.
-    import tomllib
-
-    try:
-        data = pin.read_bytes()
-    except OSError as error:
-        _refuse(f"cannot read {pin}: {error.strerror}")
-    try:
-        document = tomllib.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
-        _refuse(f"{pin} is not valid TOML: {error}")
-    keys = frozenset(document)
-    if keys != _PIN_KEYS:
-        missing = ", ".join(sorted(_PIN_KEYS - keys)) or "none"
-        unknown = ", ".join(sorted(keys - _PIN_KEYS)) or "none"
-        _refuse(f"{pin} is not a snapshot pin: missing {missing}; unknown {unknown}")
-    if document["schema_version"] != 1 or isinstance(document["schema_version"], bool):
-        _refuse(f"{pin} has schema_version {document['schema_version']!r}; need 1")
-
-
 def _snapshot(
     request: Request, root: Path, selected: tuple[str, ...]
 ) -> dict[str, str]:
@@ -197,20 +163,25 @@ def _snapshot(
     if mode not in SNAPSHOT_MODES:
         _refuse(f"kani-snapshot must be auto, true or false, got {mode!r}")
     pin = root / SNAPSHOT_PIN
-    off = {"kani-snapshot": "false"}
-    if (
-        "kani" not in selected
-        or mode == "false"
-        or (mode == "auto" and not os.path.lexists(pin))
+    if not _snapshot_wanted(
+        mode, has_kani="kani" in selected, has_pin=os.path.lexists(pin)
     ):
-        if mode == "true":
-            _refuse("kani-snapshot is true but kani is not in tools")
-        return off
-    _check_pin(pin)
-    return {
-        "kani-snapshot": "true",
-        "kani-snapshot-pin": str(pin),
-    }
+        return {"kani-snapshot": "false"}
+    try:
+        check_pin(pin)
+    except PinError as error:
+        _refuse(str(error))
+    return {"kani-snapshot": "true", "kani-snapshot-pin": str(pin)}
+
+
+def _snapshot_wanted(mode: str, *, has_kani: bool, has_pin: bool) -> bool:
+    """Decide whether Kani installs from a snapshot, refusing a contradiction."""
+    if mode == "true" and not has_kani:
+        _refuse("kani-snapshot is true but kani is not in tools")
+    if not has_kani or mode == "false":
+        return False
+    # `true` with no pin falls through so the pin check names the missing file.
+    return mode == "true" or has_pin
 
 
 def plan(request: Request) -> dict[str, str]:

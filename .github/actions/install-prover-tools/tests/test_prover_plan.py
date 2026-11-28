@@ -283,14 +283,6 @@ def test_a_malformed_pin_is_named(repo: Path, text: str, message: str) -> None:
     assert "snapshot.toml" in str(raised.value), "the file is named"
 
 
-def test_a_pin_with_a_revision_that_predates_snapshots_is_refused(repo: Path) -> None:
-    """The default revision has no `kani snapshot`, so the plan says so."""
-    _write_pin(repo)
-
-    with pytest.raises(prover_plan.PlanError, match="predates it"):
-        prover_plan.plan(_request(repo, tools="kani"))
-
-
 def test_an_unknown_kani_snapshot_value_is_refused(repo: Path) -> None:
     """Only auto, true and false are inputs."""
     with pytest.raises(prover_plan.PlanError, match="kani-snapshot must be"):

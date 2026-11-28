@@ -200,15 +200,7 @@ runs:
         ROOT: ${{ inputs.repo-root }}
         PIN: ${{ steps.plan.outputs.kani-snapshot-pin }}
         GH_TOKEN: ${{ inputs.github-token }}
-      run: |
-        set -euo pipefail
-        for name in $(compgen -e | grep -E '^INPUT_'); do unset "$name"; done
-        unset KANI KANI_CACHE_DIR KANI_INSTALL_DIR
-        prover() { uv tool run --from "$SOURCE" prover-tools "$@"; }
-        # The default cache, `.kani-snapshots` under the repository root, is
-        # where `prover-tools kani run --snapshot-pin` looks, so none is named.
-        prover kani snapshot install --repo-root "$ROOT" --pin "$PIN"
-        prover kani snapshot check --repo-root "$ROOT" --pin "$PIN"
+      run: bash "${{ github.action_path }}/scripts/install_kani_snapshot.sh"
 
     - name: Verify the installed files
       id: verify

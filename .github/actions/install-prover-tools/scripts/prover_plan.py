@@ -45,8 +45,6 @@ _PIN_KEYS = frozenset(
         "manifest_sha256",
     }
 )
-# Revisions that predate `prover-tools kani snapshot`, so a pin cannot work.
-_PRE_SNAPSHOT_SHAS = frozenset({"592558f7183b554fc749696246984c5d7300d029"})
 
 
 class PlanError(ValueError):
@@ -203,11 +201,6 @@ def _snapshot(
             _refuse("kani-snapshot is true but kani is not in tools")
         return off
     _check_pin(pin)
-    if request.sha in _PRE_SNAPSHOT_SHAS:
-        _refuse(
-            f"{pin} needs a prover-tools-sha that has `kani snapshot`; "
-            f"{request.sha[:12]} predates it"
-        )
     return {
         "kani-snapshot": "true",
         "kani-snapshot-pin": str(pin),

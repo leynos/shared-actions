@@ -54,9 +54,18 @@ the tool's default cache, `.kani-snapshots` under `repo-root`, and is not put on
 saved to the Actions cache, because a snapshot is a compiled toolchain of
 several gigabytes and the tool re-verifies it on every install.
 
-`prover-tools-sha` must name a revision that has `kani snapshot` (the estate
-default does not); the action refuses the default when a pin exists. A pin that
-is unreadable, not TOML, or missing or adding keys fails with the file named.
+`prover-tools-sha` must name a revision that has `kani snapshot`, which is
+`f3ac307ef81b3af63f56c7e4a4191e566314e242` or later (the estate default
+predates it). Before installing, the action probes
+`prover-tools kani snapshot --help` and, if the command is missing, fails
+saying to raise `prover-tools-sha`. A pin that is unreadable, not TOML, or
+missing or adding keys fails with the file named.
+
+Workflow permissions: the release is public, and the token only authenticates
+`gh` for the download and `gh attestation verify`. `contents: read` is enough
+for a job that already checks out the repository; add `attestations: read` if a
+restrictive `permissions:` block makes the attestation lookup fail. The token
+is passed to the snapshot step alone, as `GH_TOKEN`, and is never echoed.
 
 ## Digest checks
 

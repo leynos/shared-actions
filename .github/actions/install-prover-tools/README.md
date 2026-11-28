@@ -54,6 +54,10 @@ the tool's default cache, `.kani-snapshots` under `repo-root`, and is not put on
 saved to the Actions cache, because a snapshot is a compiled toolchain of
 several gigabytes and the tool re-verifies it on every install.
 
+Add `.kani-snapshots/` to the consumer's `.gitignore`: the directory holds
+gigabytes of toolchain, and an untracked copy would be picked up by a later
+`git add -A` or a working-tree cleanliness check in the same job.
+
 `prover-tools-sha` must name a revision that has `kani snapshot`, which is
 `f3ac307ef81b3af63f56c7e4a4191e566314e242` or later (the estate default
 predates it). Before installing, the action probes

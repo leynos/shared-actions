@@ -28,11 +28,35 @@ proves.
 | `kani-install-dir`  | `$CARGO_HOME/bin` | Where `cargo-kani` and `kani` land; put on `PATH`.   |
 | `verus-install-dir` | `.verus`          | Parent of the version-named Verus directory.         |
 | `z3-install-dir`    | `.verus/z3`       | Z3 binary directory.                                 |
+| `kani-snapshot`     | `auto`            | `auto`, `true` or `false`; see Kani snapshots.       |
+| `github-token`      | `github.token`    | For `gh`, in the snapshot install step only.         |
 
 A relative install directory is read from `repo-root`, as the tool reads it,
 not from the job's working directory.
 
-Outputs: `verus-bin`, `z3-path` (for `VERUS_Z3_PATH`), and `cache-hit`.
+Outputs: `verus-bin`, `z3-path` (for `VERUS_Z3_PATH`), `cache-hit`,
+`kani-snapshot` and `kani-snapshot-pin`.
+
+## Kani snapshots
+
+A consumer that holds `tools/kani/snapshot.toml` gets Kani from the pinned
+snapshot instead of the legacy release. With `kani-snapshot: auto` the action
+detects the file; with no file nothing changes. `true` fails unless a valid pin
+exists, and `false` keeps the legacy install. With a pin, `tools/kani/VERSION`
+is not read and the legacy Kani archive cache is skipped.
+
+The action runs `prover-tools kani snapshot install` and `snapshot check`, so
+the tool downloads the release the pin names and verifies its attestation with
+`gh`; the action passes `github-token` to that one step. The snapshot lands in
+the tool's default cache, `.kani-snapshots` under `repo-root`, and is not put on
+`PATH`: run it with
+`prover-tools kani run --snapshot-pin tools/kani/snapshot.toml`. It is not
+saved to the Actions cache, because a snapshot is a compiled toolchain of
+several gigabytes and the tool re-verifies it on every install.
+
+`prover-tools-sha` must name a revision that has `kani snapshot` (the estate
+default does not); the action refuses the default when a pin exists. A pin that
+is unreadable, not TOML, or missing or adding keys fails with the file named.
 
 ## Digest checks
 

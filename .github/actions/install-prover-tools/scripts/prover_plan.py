@@ -17,6 +17,7 @@ import dataclasses as dc
 import os
 import re
 import sys
+import tomllib
 import typing as typ
 from pathlib import Path
 
@@ -29,6 +30,23 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 _VERSION = re.compile(r"[0-9A-Za-z][0-9A-Za-z.]{0,63}")
 _LANE_WORD = re.compile(r"[0-9A-Za-z._-]{1,64}")
 _VERSION_FILES = {"kani": "tools/kani/VERSION", "verus": "tools/verus/VERSION"}
+SNAPSHOT_PIN = "tools/kani/snapshot.toml"
+SNAPSHOT_MODES = ("auto", "true", "false")
+# The keys the tool's schema version 1 requires; the tool validates their
+# values, and this action only names a pin that cannot be that document.
+_PIN_KEYS = frozenset(
+    {
+        "schema_version",
+        "repository",
+        "tag",
+        "upstream_commit",
+        "builder_commit",
+        "target",
+        "manifest_sha256",
+    }
+)
+# Revisions that predate `prover-tools kani snapshot`, so a pin cannot work.
+_PRE_SNAPSHOT_SHAS = frozenset({"592558f7183b554fc749696246984c5d7300d029"})
 
 
 class PlanError(ValueError):
@@ -54,6 +72,7 @@ class Request:
     verus_install_dir: str = ""
     z3_install_dir: str = ""
     cache: str = "true"
+    kani_snapshot: str = "auto"
 
 
 def _select(tools: str) -> tuple[str, ...]:
@@ -144,6 +163,57 @@ def _directories(
     return outputs
 
 
+def _check_pin(pin: Path) -> None:
+    """Refuse a file that is not a version 1 pin."""
+    try:
+        data = pin.read_bytes()
+    except OSError as error:
+        _refuse(f"cannot read {pin}: {error.strerror}")
+    try:
+        document = tomllib.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
+        _refuse(f"{pin} is not valid TOML: {error}")
+    keys = frozenset(document)
+    if keys != _PIN_KEYS:
+        missing = ", ".join(sorted(_PIN_KEYS - keys)) or "none"
+        unknown = ", ".join(sorted(keys - _PIN_KEYS)) or "none"
+        _refuse(f"{pin} is not a snapshot pin: missing {missing}; unknown {unknown}")
+
+
+def _snapshot(
+    request: Request, root: Path, selected: tuple[str, ...]
+) -> dict[str, str]:
+    """Return the Kani snapshot outputs, deciding whether a pin is in force.
+
+    With no pin and ``kani-snapshot`` left at ``auto``, nothing changes: the
+    legacy install runs exactly as before. A pin routes Kani through the
+    snapshot installer instead, and then ``tools/kani/VERSION`` is not read.
+    """
+    mode = request.kani_snapshot
+    if mode not in SNAPSHOT_MODES:
+        _refuse(f"kani-snapshot must be auto, true or false, got {mode!r}")
+    pin = root / SNAPSHOT_PIN
+    off = {"kani-snapshot": "false"}
+    if (
+        "kani" not in selected
+        or mode == "false"
+        or (mode == "auto" and not pin.is_file())
+    ):
+        if mode == "true":
+            _refuse("kani-snapshot is true but kani is not in tools")
+        return off
+    _check_pin(pin)
+    if request.sha in _PRE_SNAPSHOT_SHAS:
+        _refuse(
+            f"{pin} needs a prover-tools-sha that has `kani snapshot`; "
+            f"{request.sha[:12]} predates it"
+        )
+    return {
+        "kani-snapshot": "true",
+        "kani-snapshot-pin": str(pin),
+    }
+
+
 def plan(request: Request) -> dict[str, str]:
     """Return the step outputs for *request*, or raise ``PlanError``."""
     _check_inputs(request)
@@ -153,6 +223,10 @@ def plan(request: Request) -> dict[str, str]:
     # Absolute, because the tool resolves a relative install directory against
     # the repository root and a path that already names it would be doubled.
     root = request.repo_root.resolve()
+    snapshot = _snapshot(request, root, selected)
+    if snapshot["kani-snapshot"] == "true":
+        # The legacy Kani install, version file and archive cache all step aside.
+        selected = tuple(tool for tool in selected if tool != "kani")
     outputs = {
         "source": f"{SOURCE_ROOT}{request.sha}",
         "tools": " ".join(selected),
@@ -163,7 +237,12 @@ def plan(request: Request) -> dict[str, str]:
         },
     }
     keys = _keys(request, root, selected)
-    return {**outputs, **keys, **_directories(request, root, selected, keys)}
+    return {
+        **outputs,
+        **snapshot,
+        **keys,
+        **_directories(request, root, selected, keys),
+    }
 
 
 def _emit(outputs: cabc.Mapping[str, str], stream: typ.TextIO) -> None:
@@ -187,6 +266,7 @@ def main(argv: cabc.Sequence[str] | None = None) -> int:
     parser.add_argument("--verus-install-dir", default="")
     parser.add_argument("--z3-install-dir", default="")
     parser.add_argument("--cache", default="true")
+    parser.add_argument("--kani-snapshot", default="auto")
     args = parser.parse_args(argv)
     request = Request(
         tools=args.tools,
@@ -199,6 +279,7 @@ def main(argv: cabc.Sequence[str] | None = None) -> int:
         verus_install_dir=args.verus_install_dir,
         z3_install_dir=args.z3_install_dir,
         cache=args.cache,
+        kani_snapshot=args.kani_snapshot,
     )
     try:
         outputs = plan(request)

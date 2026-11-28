@@ -21,7 +21,8 @@ printf '%s\\n' "$*" >> "$STUB_LOG"
 printf '%s\\n' "${INPUT_VERSION-unset}" >> "$STUB_LOG.env"
 case "$*" in
   *"kani snapshot --help"*)
-    [ "${STUB_PROBE_EXIT:-0}" = 0 ] || echo "${STUB_PROBE_MESSAGE:-Unknown command \\"snapshot\\"}"
+    [ "${STUB_PROBE_EXIT:-0}" = 0 ] ||
+      echo "${STUB_PROBE_MESSAGE:-Unknown command snapshot}"
     exit "${STUB_PROBE_EXIT:-0}" ;;
 esac
 exit "${STUB_EXIT:-0}"

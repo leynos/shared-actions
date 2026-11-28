@@ -163,7 +163,7 @@ def _directories(
 def _check_pin(pin: Path) -> None:
     """Refuse a file that is not a version 1 pin."""
     # Imported here so a job with no pin runs on an interpreter older than 3.11.
-    import tomllib  # noqa: PLC0415
+    import tomllib
 
     try:
         data = pin.read_bytes()

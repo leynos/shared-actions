@@ -25,6 +25,9 @@ case "$*" in
       echo "${STUB_PROBE_MESSAGE:-Unknown command snapshot}"
     exit "${STUB_PROBE_EXIT:-0}" ;;
 esac
+case "$*" in
+  *"${STUB_FAIL_ON:-@@never@@}"*) exit 1 ;;
+esac
 exit "${STUB_EXIT:-0}"
 """
 
@@ -116,10 +119,12 @@ def test_a_failed_install_stops_before_the_check(run: typ.Callable[..., Run]) ->
 def test_a_failed_check_names_the_pin(
     run: typ.Callable[..., Run], tmp_path: Path
 ) -> None:
-    """The tool's failure is reported against the pin file."""
-    result = run(STUB_EXIT="1")
+    """Install succeeds, check fails, and the failure is reported against the pin."""
+    result = run(STUB_FAIL_ON=" check ")
 
     assert result.code == 1, "the step fails"
+    assert any(" install " in call for call in result.calls), "install ran"
+    assert any(" check " in call for call in result.calls), "check ran"
     assert str(tmp_path / "tools" / "kani" / "snapshot.toml") in result.output
 
 
